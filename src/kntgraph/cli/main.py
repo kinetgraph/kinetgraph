@@ -1,5 +1,5 @@
 import typer
-from kntgraph.cli.commands import init
+from kntgraph.cli.commands import init, new
 
 app = typer.Typer(
     name="knt",
@@ -14,6 +14,7 @@ def main_callback():
     pass
 
 app.command(name="init")(init.init)
+app.add_typer(new.app, name="new")
 
 if __name__ == "__main__":
     app()
