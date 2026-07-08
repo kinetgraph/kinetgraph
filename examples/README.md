@@ -33,9 +33,9 @@ directly with `python` or via `uv run`.
 | 10 | `10_http_intent_router.py`            | External HTTP gateway: `tool.{name}.requested` via REST + API key (ADR-012)                       | core                 |
 | 11 | `11_tool_invoker.py`                  | `ToolInvoker` consuming `tool.{name}.requested` from EventLog, dispatching to `LiteLLMTool`     | core + `agents`      |
 | 12 | `12_semantic_routing.py`              | `SemanticRoutingRole` (M1) + M2 hook + 4 scenarios (routed/extracted, routed/empty, …)            | core + `agents`      |
-| 13 | `13_multi_agent.py`                   | Two-agent cooperation via shared EventLog (NF-e bot + approver)                                    | core + `agents`      |
-| 14 | `14_sales_logistics.py`               | Composite `agent_id`s, per-stream isolation, mid-process inconsistency detection                  | core                 |
-| 15 | `15_audit_supervisor.py`              | Supervisor pattern: `AuditAgent` observes cross-stream, emits `audit.cleared`                     | core                 |
+| 13 | `13_multi_agent.py`                   | Cooperation between independent `World -> list[Event]` systems on the same agent (producer + approver + consumer) | core                 |
+| 14 | `14_sales_logistics.py`               | Per-stream isolation: each `agent_id` is its own stream; changing one order's qty does not leak into another | core                 |
+| 15 | `15_audit_supervisor.py`              | Supervisor pattern: an audit system inspects per-agent Worlds and emits `audit.flagged` on inconsistency | core                 |
 | 16 | `16_continuity_recency.py`            | `ContinuityManager` (ADR-014): recency-suggest + LGPD `clear`                                     | core                 |
 
 ## Setup

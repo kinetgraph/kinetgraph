@@ -3,465 +3,267 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-14 — Multi-agent cooperation via composed agents (Sales + Logistics).
+14 — Per-stream isolation via composed `agent_id`s.
 
-Demonstrates the construction pattern for agents built on
-**composed `agent_id`s**: each agent class declares an
-`agent_id_prefix`, derives its full id from a key tuple
-(e.g. `(tenant_id, order_id)`), and registers its own
-reactive systems. Multiple agents share the same EventLog
-but each reads only its own stream.
+Demonstrates that each `agent_id` corresponds to its own
+Redis Streams key: agents that share a `tenant_id` but
+differ on the `order_id` end up with distinct streams,
+distinct checkpoints, and distinct fold-views of the
+World. The dispatcher fans events out across the
+per-agent streams and each agent's `World -> list[Event]`
+system sees ONLY its own events.
 
-This is the FMH-flavoured answer to the v2.0 architecture
-proposal's "agent as first-class entity" (§"Agent types").
-The framework gives you the substrate; this example shows
-how to compose it.
+The demo seeds `order.requested` for two different
+orders belonging to the same tenant. A `sales` system
+reacts to the request and emits `order.created`. A
+`logistics` system (registered for the same agent_id
+prefix) reacts to `order.created` and emits
+`shipping.scheduled`. The systems are pure: they inspect
+the World's per-agent `AgentView` and emit based on the
+agent's current state (ADR-018).
 
-Scenario
---------
+Scenario 3 exercises the cross-stream isolation: a
+change to order 1 does NOT leak into order 2's World,
+even though both agents are registered with the same
+dispatcher and the EventLog is shared.
 
-  Two agents collaborate on an order workflow:
-
-    Sales agent (agent_id = "sales:<tenant>:<order>")
-      - Handles `order.requested` events
-      - Emits `order.created` with the order payload
-
-    Logistics agent (agent_id = "logistics:<tenant>:<order>")
-      - Handles `order.created` events
-      - Emits `logistics.processing`
-      - Tracks its own state (last_qty_seen)
-      - Detects inconsistency when the next `order.created`
-        carries a different qty than what it is processing
-      - Pauses on inconsistency (does NOT emit
-        `logistics.shipped`)
-
-Steps
------
-
-  1. Customer places an order for 2 units of product ABC.
-     Sales agent creates `order.requested` → emits
-     `order.created {qty: 2}`.
-
-  2. Logistics agent observes, starts processing.
-     Emits `logistics.processing {qty: 2, stage: "packing"}`.
-
-  3. Customer places a SECOND order for the same address
-     (3 units of product XYZ). Sales agent emits
-     `order.created {qty: 3}` for a new order id.
-
-  4. Logistics agent is STILL processing the FIRST order
-     (qty=2). It sees a new `order.created` for a DIFFERENT
-     order (qty=3) — but the dispatcher's stream isolation
-     means this event is on the OTHER order's stream, not
-     its own. So the agent's `last_qty_seen` stays at 2,
-     and the inconsistency branch does NOT fire.
-
-  5. The SAME customer (a different action) emits
-     `order.requested` AGAIN for the FIRST order, this
-     time with qty=3. Sales agent emits
-     `order.created {qty: 3}` for the SAME order id
-     (causation tracks the chain).
-
-  6. Logistics agent observes qty=3 vs its expected qty=2 →
-     emits `logistics.inconsistency_detected {expected: 2,
-     observed: 3}` and pauses.
-
-This example shows:
-  - How to compose agents with `agent_id_prefix` (each
-    agent owns a slice of the EventLog keyspace).
-  - How to maintain per-agent state (the `last_qty_seen`
-    instance variable).
-  - How to detect and respond to state inconsistency
-    without a separate audit agent (the audit agent is
-    example 15).
-
-Without Docker
+Pre-requisites
 --------------
 
-Set `FMH_REDIS_FAKE=1` for in-process Redis.
+  - Redis on localhost:6379 (default).
+  - Set ``FMH_REDIS_FAKE=1`` for in-process Redis.
 
-Run:
+Run
+---
 
-    docker run -d -p 6379:6379 --name fmh-redis redis
     python examples/14_sales_logistics.py
-
-    # In-process Redis:
-    FMH_REDIS_FAKE=1 python examples/14_sales_logistics.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
-from dataclasses import dataclass, field
+from pathlib import Path
 
-from kntgraph.core.world.world import World
+from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.core.world import World
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.runner.reactive import ReactiveDispatcher
+from kntgraph.stream.event_log import EventLog
+from kntgraph.stream.projection import fold_world
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _HERE)
-
-from kntgraph.core.event import Event  # noqa: E402
-from kntgraph.core.result import Ok, Result, ToolError  # noqa: E402
-from kntgraph.runner.reactive import ReactiveDispatcher  # noqa: E402
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter  # noqa: E402
-from kntgraph.stream.event_log import EventLog  # noqa: E402
-from kntgraph.agents.tools.protocol import (  # noqa: E402
-    Tool,
-    ToolRegistry,
-)
-
+sys.path.insert(0, str(Path(__file__).parent))
 from _lib.redis_or_fake import make_redis_client  # noqa: E402
 
-
-# ---------------------------------------------------------------------------
-# Domain constants
-# ---------------------------------------------------------------------------
 
 TENANT_ID = "tenant-1"
 ORDER_1 = "order-001"
 ORDER_2 = "order-002"
 
 
-# ---------------------------------------------------------------------------
-# Base agent
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class Agent:
-    """
-    A composed agent built from `agent_id_prefix` + key tuple.
-
-    Subclasses declare `agent_id_prefix` (str) and override
-    `agent_id_for(*keys)` to compose the full id. The
-    full id is the per-agent Redis Streams key — each agent
-    has its own stream, isolated from the others.
-
-    `handle(world, event)` is the entry point registered
-    with the `ReactiveDispatcher`. Subclasses override it
-    to react to events they care about.
-    """
-
-    agent_id: str
-    state: dict = field(default_factory=dict)
-
-    @classmethod
-    def agent_id_for(cls, *keys: str) -> str:
-        return cls.agent_id_prefix + ":".join(keys)
-
-    def handle(self, world: World, event: Event) -> list[Event]:
-        """
-        Default dispatcher entry point. Subclasses
-        override to filter by event_type.
-        """
-        raise NotImplementedError
+def _banner(title: str) -> None:
+    line = "=" * 70
+    print()
+    print(line)
+    print(title)
+    print(line)
 
 
 # ---------------------------------------------------------------------------
-# Sales agent
+# Agent-id composition
 # ---------------------------------------------------------------------------
 
 
-class SalesAgent(Agent):
+def sales_agent_id(tenant_id: str, order_id: str) -> str:
+    return f"sales:{tenant_id}:{order_id}"
+
+
+def logistics_agent_id(tenant_id: str, order_id: str) -> str:
+    return f"logistics:{tenant_id}:{order_id}"
+
+
+# ---------------------------------------------------------------------------
+# Systems: World -> list[Event]
+# ---------------------------------------------------------------------------
+
+
+async def sales(world: World) -> list[Event]:
     """
-    Handles `order.requested` events.
-
-    Emits `order.created` on the agent's own stream
-    (`sales:<tenant>:<order>`). The agent_id is composed
-    from the (tenant, order) key tuple, so each order has
-    its own dedicated stream.
+    For every tracked sales agent in the World whose
+    `domain_phase` is `order.requested`, emit
+    `order.created`.
     """
-
-    agent_id_prefix = "sales:"
-
-    def __init__(self, *, tenant_id: str, order_id: str) -> None:
-        super().__init__(
-            agent_id=self.agent_id_for(tenant_id, order_id),
+    out: list[Event] = []
+    for agent_id, view in world.agents.items():
+        if not agent_id.startswith("sales:"):
+            continue
+        if view.domain_phase != "order.requested":
+            continue
+        requested = view.components.get("order.requested") or {}
+        # Synthetic trigger for ADR-037 correlation.
+        trigger = Event.domain_from(
+            agent_id=agent_id,
+            type="order.requested",
+            data=requested,
+            correlation=correlation_middleware.current(),
         )
-        # Cached so `handle` can filter events without
-        # recomputing the id each call.
-        self._order_id = order_id
-
-    @classmethod
-    def for_order(cls, tenant_id: str, order_id: str) -> "SalesAgent":
-        return cls(tenant_id=tenant_id, order_id=order_id)
-
-    def handle(self, world: World, event: Event) -> list[Event]:
-        if event.event_type != "order.requested":
-            return []
-        # The sales agent only reacts to orders for its own
-        # key (order_id). If a different `order.requested`
-        # event lands on the EventLog for a different order,
-        # the other sales agent (a different `agent_id`)
-        # picks it up — this is exactly what stream isolation
-        # buys us.
-        if event.data.get("order_id") != self._order_id:
-            return []
-        qty = event.data.get("qty", 0)
-        product = event.data.get("product", "?")
         print(
-            f"  [sales {self.agent_id}] received order.requested "
-            f"qty={qty} product={product}"
+            f"  [sales {agent_id}] received order.requested "
+            f"qty={requested.get('qty')} product={requested.get('product')}"
         )
-        return [
+        out.append(
             Event.domain_from(
-                agent_id=self.agent_id,
+                agent_id=agent_id,
                 type="order.created",
                 data={
-                    "tenant_id": event.data.get("tenant_id"),
-                    "order_id": event.data.get("order_id"),
-                    "qty": qty,
-                    "product": product,
+                    "order_id": requested.get("order_id"),
+                    "qty": requested.get("qty"),
+                    "product": requested.get("product"),
                 },
-                causation_id=event.event_id,
+                correlation=correlation_middleware.continue_from(trigger),
             )
-        ]
-
-
-# ---------------------------------------------------------------------------
-# Logistics agent
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class LogisticsAgent(Agent):
-    """
-    Handles `order.created` events on its own stream.
-
-    Tracks `state["last_qty_seen"]`. If a NEW `order.created`
-    arrives with a different qty than what it is currently
-    processing, emits `logistics.inconsistency_detected`
-    and marks itself as `state["paused"] = True`. Will not
-    emit `logistics.shipped` while paused.
-
-    The `last_qty_seen` instance variable is the agent's
-    local memory. The framework's `World` is also
-    available for queries that need a fold over the
-    EventLog; for per-agent working state, an instance
-    attribute is the simpler choice.
-    """
-
-    agent_id_prefix = "logistics:"
-
-    @classmethod
-    def for_order(cls, tenant_id: str, order_id: str) -> "LogisticsAgent":
-        return cls(
-            agent_id=cls.agent_id_for(tenant_id, order_id),
-            state={"last_qty_seen": None, "paused": False},
         )
+    return out
 
-    def handle(self, world, event: Event) -> list[Event]:
-        if event.event_type != "order.created":
-            return []
-        if self.state.get("paused"):
-            return []
-        qty = event.data.get("qty", 0)
-        last_qty = self.state.get("last_qty_seen")
-        if last_qty is not None and last_qty != qty:
-            # Inconsistency: same order, different qty.
-            self.state["paused"] = True
-            print(
-                f"  [logistics {self.agent_id}] INCONSISTENCY: "
-                f"expected qty={last_qty}, observed qty={qty} → paused"
-            )
-            return [
-                Event.domain_from(
-                    agent_id=self.agent_id,
-                    type="logistics.inconsistency_detected",
-                    data={
-                        "order_id": event.data.get("order_id"),
-                        "expected_qty": last_qty,
-                        "observed_qty": qty,
-                    },
-                    causation_id=event.event_id,
-                )
-            ]
-        # First order, or same qty — process normally.
-        self.state["last_qty_seen"] = qty
-        print(f"  [logistics {self.agent_id}] processing order qty={qty}")
-        return [
+
+async def logistics(world: World) -> list[Event]:
+    """
+    For every tracked logistics agent in the World whose
+    `domain_phase` is `order.created`, emit
+    `shipping.scheduled`.
+    """
+    out: list[Event] = []
+    for agent_id, view in world.agents.items():
+        if not agent_id.startswith("logistics:"):
+            continue
+        if view.domain_phase != "order.created":
+            continue
+        created = view.components.get("order.created") or {}
+        # Synthetic trigger for ADR-037 correlation.
+        trigger = Event.domain_from(
+            agent_id=agent_id,
+            type="order.created",
+            data=created,
+            correlation=correlation_middleware.current(),
+        )
+        print(
+            f"  [logistics {agent_id}] scheduling shipping "
+            f"for order {created.get('order_id')}"
+        )
+        out.append(
             Event.domain_from(
-                agent_id=self.agent_id,
-                type="logistics.processing",
+                agent_id=agent_id,
+                type="shipping.scheduled",
                 data={
-                    "order_id": event.data.get("order_id"),
-                    "qty": qty,
-                    "stage": "packing",
+                    "order_id": created.get("order_id"),
+                    "carrier": "Correios",
+                    "eta_days": 5,
                 },
-                causation_id=event.event_id,
+                causation_id=created.get("order_id"),
+                correlation=correlation_middleware.continue_from(trigger),
             )
-        ]
-
-
-# ---------------------------------------------------------------------------
-# Tools
-# ---------------------------------------------------------------------------
-
-
-class _EchoTool(Tool):
-    def __init__(self, *, name: str, description: str, input_schema: dict) -> None:
-        self.name = name
-        self.description = description
-        self.input_schema = input_schema
-
-    async def invoke(
-        self, *, idempotency_key: str, **kwargs
-    ) -> Result[dict, ToolError]:
-        return Ok(
-            {
-                "tool": self.name,
-                "idempotency_key": idempotency_key,
-                "args": dict(kwargs),
-                "status": "ok",
-            }
         )
-
-
-def _build_registry() -> ToolRegistry:
-    registry = ToolRegistry()
-    # No tools needed for this demo — the agents do all the
-    # work via events. Tools would only be needed if an
-    # agent delegates to an external capability (e.g.
-    # `tools.crm.create_order`).
-    return registry
+    return out
 
 
 # ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _banner(title: str) -> None:
-    print()
-    print("=" * 72)
-    print(title)
-    print("=" * 72)
-
-
-# ---------------------------------------------------------------------------
-# Main flow
+# Main
 # ---------------------------------------------------------------------------
 
 
 async def main() -> None:
-    _banner("14 — Composed agents: Sales + Logistics with inconsistency")
+    _banner("14 — Per-stream isolation via composed agent_ids")
 
     redis = make_redis_client()
-    await redis.flushdb()
     log = EventLog(RedisEventLogAdapter(client=redis))
-
-    # Build the two agents for two orders.
-    sales_1 = SalesAgent.for_order(TENANT_ID, ORDER_1)
-    sales_2 = SalesAgent.for_order(TENANT_ID, ORDER_2)
-    logistics_1 = LogisticsAgent.for_order(TENANT_ID, ORDER_1)
-    # Note: NO logistics agent for ORDER_2 in this demo —
-    # the second order is not yet picked up by logistics.
-    # The dispatcher still processes its events through
-    # the sales agent (because `track_agent(sales_2)` is
-    # registered) — see scenario 3 below for what happens.
 
     dispatcher = ReactiveDispatcher(
         log,
-        systems=[
-            sales_1.handle,
-            sales_2.handle,
-            logistics_1.handle,
-        ],
+        systems=[sales, logistics],
         poll_interval=0.5,
+        redis=redis,
     )
-    dispatcher.track_agent(sales_1.agent_id)
-    dispatcher.track_agent(sales_2.agent_id)
-    dispatcher.track_agent(logistics_1.agent_id)
 
-    # --- Scenario 1: first order, 2 units -----------------------------
-    _banner("Scenario 1: first order, 2 units")
-    e1 = Event.domain_from(
-        agent_id="external:cashier",
-        type="order.requested",
-        data={
-            "tenant_id": TENANT_ID,
-            "order_id": ORDER_1,
-            "qty": 2,
-            "product": "ABC",
-        },
-    )
-    await log.append(e1)
-    n = await dispatcher.dispatch_once()
-    print(f"  dispatch_once processed {n} event(s)")
-    print(f"  logistics_1.state = {logistics_1.state}")
+    s1 = sales_agent_id(TENANT_ID, ORDER_1)
+    s2 = sales_agent_id(TENANT_ID, ORDER_2)
+    l1 = logistics_agent_id(TENANT_ID, ORDER_1)
+    l2 = logistics_agent_id(TENANT_ID, ORDER_2)
+    for agent_id in (s1, s2, l1, l2):
+        dispatcher.track_agent(agent_id)
 
-    # --- Scenario 2: customer places SECOND order -----------------------
-    _banner("Scenario 2: second order (different order_id), 3 units")
-    e2 = Event.domain_from(
-        agent_id="external:cashier",
-        type="order.requested",
-        data={
-            "tenant_id": TENANT_ID,
-            "order_id": ORDER_2,
-            "qty": 3,
-            "product": "XYZ",
-        },
-    )
-    await log.append(e2)
-    n = await dispatcher.dispatch_once()
-    print(f"  dispatch_once processed {n} event(s)")
-    # logistics_1 has its OWN stream — it does NOT see
-    # events from sales_2 / order_2. Its last_qty_seen
-    # stays at 2. The second order is silent on its end
-    # (no logistics agent registered for ORDER_2).
+    correlation_middleware.start(metadata={"example": "14"})
 
-    # --- Scenario 3: customer CHANGES the first order -----------------
-    _banner("Scenario 3: customer changes first order to 3 units")
-    e3 = Event.domain_from(
-        agent_id="external:cashier",
-        type="order.requested",
-        data={
-            "tenant_id": TENANT_ID,
-            "order_id": ORDER_1,
-            "qty": 3,
-            "product": "ABC",  # same product, different qty
-        },
-    )
-    await log.append(e3)
-    n = await dispatcher.dispatch_once()
-    print(f"  dispatch_once processed {n} event(s)")
-    # Sales_1 fires order.created {qty: 3} (deterministic
-    # event_id, so dedupe kicks in for prior orders with
-    # the same data — but qty changed, so new event_id).
-    # Logistics_1 observes qty=3 vs last_qty=2 → INCONSISTENCY.
+    try:
+        # --- Scenario 1: first order ---
+        _banner("Scenario 1: first order, 2 units")
+        await log.append(
+            Event.domain_from(
+                agent_id=s1,
+                type="order.requested",
+                data={"order_id": ORDER_1, "qty": 2, "product": "widget"},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 1: {n} event(s) (sales creates the order)")
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 2: {n} event(s) (logistics schedules shipping)")
 
-    print(f"  logistics_1.state = {logistics_1.state}")
+        # --- Scenario 2: second order ---
+        _banner("Scenario 2: second order, 3 units")
+        await log.append(
+            Event.domain_from(
+                agent_id=s2,
+                type="order.requested",
+                data={"order_id": ORDER_2, "qty": 3, "product": "gadget"},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 1: {n} event(s) (sales for order 2)")
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 2: {n} event(s) (logistics for order 2)")
 
-    # --- Scenario 4: try to ship — logistics is paused ----------------
-    _banner("Scenario 4: shipping request while logistics is paused")
-    # Even if some downstream system emits a shipping request,
-    # logistics_1 won't process it because state["paused"] is True.
-    e4 = Event.domain_from(
-        agent_id="external:scheduler",
-        type="shipping.requested",
-        data={"order_id": ORDER_1},
-    )
-    await log.append(e4)
-    n = await dispatcher.dispatch_once()
-    print(f"  dispatch_once processed {n} event(s)")
-    print("  (no system reacts to shipping.requested — paused)")
+        # --- Scenario 3: change order 1; verify order 2 is isolated ---
+        _banner("Scenario 3: change order 1 → order 2's World is unaffected")
+        await log.append(
+            Event.domain_from(
+                agent_id=s1,
+                type="order.requested",
+                data={"order_id": ORDER_1, "qty": 5, "product": "widget"},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        await dispatcher.dispatch_once()
+        final_world = await fold_world(log)
+        v1 = final_world.agents.get(s1)
+        v2 = final_world.agents.get(s2)
+        # ``view.components`` keeps the LATEST domain event
+        # payload. After the change, order 1's last domain
+        # event is the new `order.created`; order 2 still
+        # reflects its own last domain event.
+        v1_qty = v1.components.get("order.created", {}).get("qty")
+        v2_qty = v2.components.get("order.created", {}).get("qty")
+        print(
+            f"  {s1}: phase={v1.domain_phase!r} qty={v1_qty}"
+        )
+        print(
+            f"  {s2}: phase={v2.domain_phase!r} qty={v2_qty}"
+        )
+        assert v1_qty == 5, "order 1 should reflect the change"
+        assert v2_qty == 3, "order 2 must NOT see the change to order 1"
 
-    # --- Final view ----------------------------------------------------
-    _banner("Final EventLog view (per-agent stream isolation)")
-    for label, aid in (
-        ("sales_1 (order_001)", sales_1.agent_id),
-        ("sales_2 (order_002)", sales_2.agent_id),
-        ("logistics_1 (order_001)", logistics_1.agent_id),
-    ):
-        events = await log.read(aid)
-        type_counts: dict[str, int] = {}
-        for e in events:
-            type_counts[e.event_type] = type_counts.get(e.event_type, 0) + 1
-        types_str = ", ".join(f"{t}={c}" for t, c in sorted(type_counts.items()))
-        print(f"  {label:32s}  {types_str}")
-
-    await redis.aclose()
+        # --- Final view ---
+        _banner("Final World (4 agents, isolated streams)")
+        for agent_id in sorted(final_world.agents):
+            v = final_world.agents[agent_id]
+            print(
+                f"  {agent_id}: phase={v.domain_phase!r} "
+                f"components={list(v.components.keys())}"
+            )
+    finally:
+        correlation_middleware.clear()
+        await redis.aclose()
 
 
 if __name__ == "__main__":

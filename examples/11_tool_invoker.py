@@ -59,7 +59,7 @@ import asyncio
 
 import redis.asyncio as aioredis
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
 from kntgraph.agents.tools.invoker import ToolInvoker
@@ -119,6 +119,7 @@ async def request_summary_on_task_received(world, event: Event) -> list[Event]:
                 "think": False,
             },
             causation_id=event.event_id,
+            correlation=correlation_middleware.continue_from(event),
         )
     ]
 
@@ -159,6 +160,7 @@ async def react_to_summary(world, event: Event) -> list[Event]:
                 "request_id": event.data.get("request_id"),
             },
             causation_id=event.causation_id,
+            correlation=correlation_middleware.continue_from(event),
         )
     ]
 
@@ -211,46 +213,54 @@ async def main() -> None:
     #    The same payload is used on every run, so the
     #    event_id is stable: re-runs of the script are
     #    a no-op for this step (the EventLog dedupes).
-    task = Event.domain_from(
-        agent_id=AGENT_ID,
-        type="task.received",
-        data={
-            "description": (
-                "Event Sourcing stores state changes as a "
-                "sequence of events instead of persisting the "
-                "current state of an entity; it offers an "
-                "alternative approach to managing and querying "
-                "the state of a system."
-            )
-        },
-    )
-    append = await log.append(task)
-    if append.is_ok():
-        print(
-            f"[seed] event_id={task.event_id}  "
-            f"type={task.event_type}  stream_id={append.unwrap()}"
+    with correlation_middleware.scope(
+        metadata={"example": "11", "agent_id": AGENT_ID}
+    ):
+        task = Event.domain_from(
+            agent_id=AGENT_ID,
+            type="task.received",
+            data={
+                "description": (
+                    "Event Sourcing stores state changes as a "
+                    "sequence of events instead of persisting the "
+                    "current state of an entity; it offers an "
+                    "alternative approach to managing and querying "
+                    "the state of a system."
+                )
+            },
+            correlation=correlation_middleware.current(),
         )
-    else:
-        print(f"[seed] existing event (idempotent dedup): {task.event_id}")
-    print(f"[seed] agent={AGENT_ID}  model={cfg.default_model}")
-    print()
+        append = await log.append(task)
+        if append.is_ok():
+            print(
+                f"[seed] event_id={task.event_id}  "
+                f"type={task.event_type}  stream_id={append.unwrap()}"
+            )
+        else:
+            print(
+                f"[seed] existing event (idempotent dedup): {task.event_id}"
+            )
+        print(f"[seed] agent={AGENT_ID}  model={cfg.default_model}")
+        print()
 
-    # 6. Run the producer system. It emits
-    #    `tool.llm.complete.requested`. The system is
-    #    pure — it does not call the LLM.
-    request_events = await request_summary_on_task_received(world=None, event=task)
-    for e in request_events:
-        await log.append(e)
-        print(f"[system] emitted: type={e.event_type}")
-    print()
+        # 6. Run the producer system. It emits
+        #    `tool.llm.complete.requested`. The system is
+        #    pure — it does not call the LLM.
+        request_events = await request_summary_on_task_received(
+            world=None, event=task
+        )
+        for e in request_events:
+            await log.append(e)
+            print(f"[system] emitted: type={e.event_type}")
+        print()
 
-    # 7. Run the invoker. It picks the `.requested` event,
-    #    calls the tool, and appends `.completed` (or
-    #    `.failed`) back to the log. This is the round
-    #    trip to Ollama.
-    handled = await invoker.run_once(AGENT_ID)
-    print(f"[invoker] handled {handled} request(s)")
-    print()
+        # 7. Run the invoker. It picks the `.requested` event,
+        #    calls the tool, and appends `.completed` (or
+        #    `.failed`) back to the log. This is the round
+        #    trip to Ollama.
+        handled = await invoker.run_once(AGENT_ID)
+        print(f"[invoker] handled {handled} request(s)")
+        print()
 
     # 8. Read the .completed event back from Redis and
     #    run the consumer system against it.

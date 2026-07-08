@@ -36,6 +36,7 @@ from __future__ import annotations
 import asyncio
 import redis.asyncio as aioredis
 
+from kntgraph.core.event import correlation_middleware
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisSessionStorage
 from kntgraph.memory.session import SessionManager
@@ -88,41 +89,51 @@ async def main() -> None:
     user_id = "u-demo"
     tenant_id = "t-demo"
 
-    # Start the session (idempotent).
-    await session_mgr.start(
-        session_id=session_id,
-        user_id=user_id,
-        tenant_id=tenant_id,
-        metadata={"channel": "demo", "language": "pt-BR"},
-    )
-
-    for user_msg in TURNS:
-        print(f"\nuser: {user_msg}")
-
-        # 1. Read the session (cache → fold on miss).
-        state = await session_mgr.read(session_id)
-
-        # 2. Generate the next reply. `think=False` is
-        # forwarded to LiteLLM via the Role's
-        # **invoke_kwargs; required for thinking Ollama
-        # models so the answer lands in `content`
-        # instead of `reasoning`.
-        r = await chat.reply(state, user_msg, think=False)
-        if r.is_err():
-            print(f"  ERR: {r.err_value()}")
-            continue
-
-        reply = r.unwrap()
-        print(f"assistant: {reply.reply}")
-        if reply.follow_up_questions:
-            for q in reply.follow_up_questions:
-                print(f"  suggested: {q}")
-
-        # 3. Persist the turn (user + assistant).
-        await session_mgr.append_message(session_id, role="user", content=user_msg)
-        await session_mgr.append_message(
-            session_id, role="assistant", content=reply.reply
+    with correlation_middleware.scope(
+        metadata={
+            "example": "05",
+            "session_id": session_id,
+            "user_id": user_id,
+            "tenant_id": tenant_id,
+        }
+    ):
+        # Start the session (idempotent).
+        await session_mgr.start(
+            session_id=session_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            metadata={"channel": "demo", "language": "pt-BR"},
         )
+
+        for user_msg in TURNS:
+            print(f"\nuser: {user_msg}")
+
+            # 1. Read the session (cache → fold on miss).
+            state = await session_mgr.read(session_id)
+
+            # 2. Generate the next reply. `think=False` is
+            # forwarded to LiteLLM via the Role's
+            # **invoke_kwargs; required for thinking Ollama
+            # models so the answer lands in `content`
+            # instead of `reasoning`.
+            r = await chat.reply(state, user_msg, think=False)
+            if r.is_err():
+                print(f"  ERR: {r.err_value()}")
+                continue
+
+            reply = r.unwrap()
+            print(f"assistant: {reply.reply}")
+            if reply.follow_up_questions:
+                for q in reply.follow_up_questions:
+                    print(f"  suggested: {q}")
+
+            # 3. Persist the turn (user + assistant).
+            await session_mgr.append_message(
+                session_id, role="user", content=user_msg
+            )
+            await session_mgr.append_message(
+                session_id, role="assistant", content=reply.reply
+            )
 
     # Inspect the final state.
     final = await session_mgr.read(session_id)

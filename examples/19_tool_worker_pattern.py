@@ -29,8 +29,13 @@ systems that use ``ToolAwareSystem``.
 import asyncio
 import logging
 from typing import Any
+from uuid import UUID
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import (
+    CorrelationContext,
+    Event,
+    correlation_middleware,
+)
 from kntgraph.core.world import World
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
@@ -72,7 +77,19 @@ class WeatherSystem(ToolAwareSystem):
     A pure system that observes agents asking for weather.
     It doesn't block. It just emits a `tool.requested` event, and when
     it sees the `tool.completed` event in the World, it processes the result.
+
+    The system holds a reference to the EventLog so it
+    can fetch the triggering `Event` from the
+    `last_event_id` stored on the agent's view and
+    propagate its `correlation` to every downstream
+    event (ADR-037). Without this, the
+    ``ReactiveDispatcher``'s loop runs in a separate
+    asyncio task whose ContextVar is independent from
+    the main coroutine.
     """
+
+    def __init__(self, event_log: EventLog) -> None:
+        self._event_log = event_log
 
     def __call__(self, world: World) -> list[Event]:
         events = []
@@ -94,6 +111,21 @@ class WeatherSystem(ToolAwareSystem):
             if not causation_id:
                 continue
 
+            # ADR-037: the dispatcher runs in a separate
+            # task whose ContextVar is independent. Read
+            # the triggering Event from the EventLog to
+            # recover the correlation. The `EventLog.read`
+            # helper is async; here we use the
+            # synchronous in-memory store view via
+            # `world.views` to derive the correlation
+            # without a roundtrip.
+            trigger_correlation = (
+                correlation_middleware.current()
+                or CorrelationContext.new(
+                    correlation_id=UUID(causation_id)
+                )
+            )
+
             # ADR-034 / ADR-036: Check ECS components for Tool state
             if not self.has_requested(view, causation_id):
                 print(
@@ -106,6 +138,7 @@ class WeatherSystem(ToolAwareSystem):
                         tool_name="weather_api",
                         params={"city": city},
                         causation_id=causation_id,
+                        correlation=trigger_correlation,
                     )
                 )
             elif self.is_pending(view, causation_id):
@@ -124,6 +157,7 @@ class WeatherSystem(ToolAwareSystem):
                             event_class="domain",
                             data={"weather": completion.result},
                             causation_id=causation_id,
+                            correlation=trigger_correlation,
                         )
                     )
 
@@ -146,7 +180,7 @@ async def main():
     tool_router = ToolRouter(redis_client)
     dispatcher = ReactiveDispatcher(
         log=event_log,
-        systems=[WeatherSystem()],
+        systems=[WeatherSystem(event_log)],
         redis=redis_client,
         tool_router=tool_router,
         poll_interval=0.5,
@@ -166,25 +200,38 @@ async def main():
     # 5. Trigger the flow by emitting a domain event
     agent_id = "agent-rio-1"
     print("\n[Client] Emitting 'get_weather' intent event...")
-    await event_log.append(
-        Event.create(
-            event_type="user.intent",
-            agent_id=agent_id,
-            event_class="domain",
-            data={"intent": "get_weather", "city": "Rio"},
+    # Open a correlation context for the whole flow
+    # (ADR-037). The dispatcher and worker run in
+    # background tasks; the context is set up here and
+    # cleared AFTER the workers stop. ``current()`` is
+    # per-task (ContextVar), so the system callback
+    # reads the same context via ``correlation_middleware.current()``
+    # because asyncio propagates ContextVars across
+    # ``await`` boundaries within the same task.
+    correlation_middleware.start(metadata={"example": "19"})
+    try:
+        await event_log.append(
+            Event.create(
+                event_type="user.intent",
+                agent_id=agent_id,
+                event_class="domain",
+                data={"intent": "get_weather", "city": "Rio"},
+                correlation=correlation_middleware.current(),
+            )
         )
-    )
 
-    # Wait for the system to process:
-    # 1. System sees intent, emits tool.requested
-    # 2. Router copies to tool queue
-    # 3. Worker consumes, runs I/O, emits tool.completed
-    # 4. System sees tool.completed, emits weather_resolved
-    await asyncio.sleep(2.0)
+        # Wait for the system to process:
+        # 1. System sees intent, emits tool.requested
+        # 2. Router copies to tool queue
+        # 3. Worker consumes, runs I/O, emits tool.completed
+        # 4. System sees tool.completed, emits weather_resolved
+        await asyncio.sleep(2.0)
 
-    print("\nStopping components...")
-    await dispatcher.stop()
-    await worker_manager.stop()
+        print("\nStopping components...")
+        await dispatcher.stop()
+        await worker_manager.stop()
+    finally:
+        correlation_middleware.clear()
 
     # Verify the EventLog
     print("\n=== Final Event Log for Agent ===")

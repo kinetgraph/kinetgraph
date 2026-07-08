@@ -8,8 +8,8 @@
 Demonstrates how to bridge the `LiteLLMTool` with the
 framework's event-sourced world:
 
-  1. A reactive system `plan_after_validation` reacts to
-     a domain event.
+  1. A reactive system `plan_after_validation` reacts to a
+     `task.received` event by inspecting the World.
   2. The system calls a `PlannerRole` (which uses the
      LiteLLMTool under the hood).
   3. The result is emitted back as a `*.planned` domain
@@ -17,8 +17,8 @@ framework's event-sourced world:
   4. The ReactiveDispatcher appends the new event.
 
 The LLM call itself is a side effect, but the SYSTEM
-remains pure: it takes (world, event) → list[Event]. The
-tool call is wrapped in a system; the framework
+remains pure: it takes `World` → `list[Event]` (ADR-018).
+The tool call is wrapped in a system; the framework
 handles the I/O via the standard Tool / EventLog path.
 
 Configuration is loaded from env / `.env`. Requires Redis
@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import redis.asyncio as aioredis
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.core.world import World
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
@@ -46,50 +46,76 @@ from kntgraph.agents.roles import PlannerRole, Plan
 from kntgraph.agents.tools import LiteLLMTool
 
 
+TASK_ID = "task-001"
+
+
 # A reactive system that calls an LLM role. The system
-# signature is (World, Event) -> list[Event] — it is a pure
-# function of its inputs, but the LLM call is a side effect
-# that we model as "produce events based on external knowledge".
+# signature is `World -> list[Event]` (ADR-018) — it is a
+# pure function of the World, but the LLM call is a side
+# effect that we model as "produce events based on external
+# knowledge". The system inspects the World's components
+# (here: the seeded `task.received` payload stored on the
+# `task.received` component) to decide what to do.
 async def plan_after_validation(
-    world: World, event: Event, planner: PlannerRole
+    world: World, planner: PlannerRole
 ) -> list[Event]:
     """
-    Reacts to 'task.received' by asking the planner for a
-    plan. Emits 'task.planned' on success or
-    'task.planning_failed' on error.
+    For every tracked agent that has a `task.received`
+    component but no `task.planned` yet, ask the planner
+    for a plan. Emits `task.planned` on success or
+    `task.planning_failed` on error.
+
+    The triggering `task.received` is reconstructed from
+    the World component payload (immutable; ADR-018).
     """
-    if event.event_type != "task.received":
-        return []
-    result = await planner.plan(
-        task=event.data.get("description", ""),
-        context=event.data.get("context"),
-        # qwen3.5 is a thinking model: skip reasoning so
-        # the answer lands in `content` instead of
-        # `reasoning`.
-        think=False,
-    )
-    if result.is_err():
-        return [
-            Event.domain_from(
-                agent_id=event.agent_id,
-                type="task.planning_failed",
-                data={"error": str(result.err_value())},
-                causation_id=event.event_id,
-            )
-        ]
-    plan: Plan = result.unwrap()
-    return [
-        Event.domain_from(
-            agent_id=event.agent_id,
-            type="task.planned",
-            data={
-                "goal": plan.goal,
-                "steps": [s.model_dump() for s in plan.steps],
-                "rationale": plan.rationale,
-            },
-            causation_id=event.event_id,
+    out: list[Event] = []
+    for agent_id, view in world.agents.items():
+        received = view.components.get("task.received")
+        planned = view.components.get("task.planned")
+        failed = view.components.get("task.planning_failed")
+        if not received or planned or failed:
+            continue
+        # Reconstruct a synthetic `Event` envelope so the
+        # role's downstream `Event.domain_from(...)` calls
+        # can `continue_from` it for ADR-037 correlation.
+        trigger = Event.domain_from(
+            agent_id=agent_id,
+            type="task.received",
+            data=received,
+            correlation=correlation_middleware.current(),
         )
-    ]
+        result = await planner.plan(
+            task=received.get("description", ""),
+            context=received.get("context"),
+            # qwen3.5 is a thinking model: skip reasoning so
+            # the answer lands in `content` instead of
+            # `reasoning`.
+            think=False,
+        )
+        if result.is_err():
+            out.append(
+                Event.domain_from(
+                    agent_id=agent_id,
+                    type="task.planning_failed",
+                    data={"error": str(result.err_value())},
+                    correlation=correlation_middleware.continue_from(trigger),
+                )
+            )
+            continue
+        plan: Plan = result.unwrap()
+        out.append(
+            Event.domain_from(
+                agent_id=agent_id,
+                type="task.planned",
+                data={
+                    "goal": plan.goal,
+                    "steps": [s.model_dump() for s in plan.steps],
+                    "rationale": plan.rationale,
+                },
+                correlation=correlation_middleware.continue_from(trigger),
+            )
+        )
+    return out
 
 
 async def main() -> None:
@@ -113,30 +139,32 @@ async def main() -> None:
     )
     planner = PlannerRole(llm=llm)
 
-    # Seed: a task received event
-    task_id = "task-001"
-    await log.append(
-        Event.domain_from(
-            agent_id=task_id,
-            type="task.received",
-            data={
-                "description": "Migrar monolito para microsserviços",
-                "context": "Time de 5 devs, 3 meses de prazo",
-            },
-        )
+    dispatcher = ReactiveDispatcher(
+        log,
+        systems=[lambda world: plan_after_validation(world, planner)],
+        poll_interval=0.5,
+        redis=redis,
     )
-
-    # Bind the role into the system via closure
-    async def system(world: World, event: Event) -> list[Event]:
-        return await plan_after_validation(world, event, planner)
-
-    dispatcher = ReactiveDispatcher(log, systems=[system], poll_interval=0.5)
-    n = await dispatcher.dispatch_once()
+    with correlation_middleware.scope(
+        metadata={"example": "04", "task_id": TASK_ID}
+    ):
+        await log.append(
+            Event.domain_from(
+                agent_id=TASK_ID,
+                type="task.received",
+                data={
+                    "description": "Migrar monolito para microsserviços",
+                    "context": "Time de 5 devs, 3 meses de prazo",
+                },
+                correlation=correlation_middleware.current(),
+            )
+        )
+        n = await dispatcher.dispatch_once()
     print(f"dispatched {n} event(s)")
 
     # Inspect the resulting events
     world = await fold_world(log)
-    view = world.agents[task_id]
+    view = world.agents[TASK_ID]
     print(f"domain_phase: {view.domain_phase}")
     if view.domain_phase == "task.planned":
         steps = view.components.get("task.planned", {}).get("steps", [])

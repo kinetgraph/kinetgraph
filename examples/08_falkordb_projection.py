@@ -52,7 +52,7 @@ from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
 
-CNPJ = "12.345.678/0001-90"
+CNPJ = "12.345.678.0001-90"  # agent_id regex disallows '/'; use '.'
 
 
 def spawn_empresa() -> Event:
@@ -60,6 +60,7 @@ def spawn_empresa() -> Event:
         agent_id=CNPJ,
         type=OperationalEventType.SPAWNED,
         data={"cnpj": CNPJ, "razao_social": "Padaria do Zé"},
+        correlation=correlation_middleware.current(),
     )
 
 
@@ -75,6 +76,7 @@ def emit_nf_received(numero: str, valor: float, fornecedor: str) -> Event:
             "fornecedor": fornecedor,
             "data_emissao": date(2026, 1, 15).isoformat(),
         },
+        correlation=correlation_middleware.current(),
     )
 
 
@@ -84,6 +86,7 @@ def emit_invoice_call(numero: str) -> list[Event]:
         agent_id=numero,
         type="tool.invoice.issue.requested",
         data={"document_id": numero, "xml": "<sim/>"},
+        correlation=correlation_middleware.current(),
     )
     completion = Event.domain_from(
         agent_id=numero,
@@ -98,6 +101,7 @@ def emit_invoice_call(numero: str) -> list[Event]:
             "latency_ms": 12.0,
         },
         causation_id=request.event_id,
+        correlation=correlation_middleware.continue_from(request),
     )
     return [request, completion]
 

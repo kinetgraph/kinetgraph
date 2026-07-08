@@ -53,6 +53,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
+from kntgraph.core.event import correlation_middleware
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisContinuityStorage
 from kntgraph.memory.continuity import ContinuityManager
@@ -245,11 +246,19 @@ async def main() -> None:
     log = EventLog(RedisEventLogAdapter(client=redis))
     cm = ContinuityManager(event_log=log, storage=RedisContinuityStorage(client=redis))
 
-    await day1_issue_two_invoices(cm)
-    await day2_recency_lookup(cm)
-    await lgpd_erasure(cm)
-    await post_clear_recording(cm)
-    await pii_gate_demo(cm)
+    # Open a single correlation context for the whole
+    # demo (ADR-037). The `ContinuityManager` reads the
+    # current correlation via `correlation_middleware.current()`
+    # so every event it emits inherits the same flow id.
+    correlation_middleware.start(metadata={"example": "16"})
+    try:
+        await day1_issue_two_invoices(cm)
+        await day2_recency_lookup(cm)
+        await lgpd_erasure(cm)
+        await post_clear_recording(cm)
+        await pii_gate_demo(cm)
+    finally:
+        correlation_middleware.clear()
 
     print("\nAll assertions passed.")
     await redis.aclose()

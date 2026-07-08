@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import redis.asyncio as aioredis
 
+from kntgraph.core.event import correlation_middleware
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisProfileStorage
 from kntgraph.memory.profile import ProfileManager
@@ -92,44 +93,45 @@ async def main() -> None:
     )
     role = PersonalizedRole(llm=llm)
 
-    # Two users with different profiles.
-    await setup_profile(
-        profile_mgr,
-        tenant_id="t-demo",
-        user_id="u-formal-en",
-        language="en",
-        tone="formal",
-        verbosity="low",
-    )
-    await setup_profile(
-        profile_mgr,
-        tenant_id="t-demo",
-        user_id="u-casual-pt",
-        language="pt-BR",
-        tone="casual",
-        verbosity="high",
-    )
-
-    for user_id in ("u-formal-en", "u-casual-pt"):
-        p = await profile_mgr.read("t-demo", user_id)
-        if p is None:
-            print(f"profile not found: {user_id}")
-            continue
-        print(
-            f"\n# {user_id} "
-            f"(lang={p.preferences.get('language')}, "
-            f"tone={p.preferences.get('tone')}, "
-            f"verbosity={p.preferences.get('verbosity')})"
+    with correlation_middleware.scope(metadata={"example": "06"}):
+        # Two users with different profiles.
+        await setup_profile(
+            profile_mgr,
+            tenant_id="t-demo",
+            user_id="u-formal-en",
+            language="en",
+            tone="formal",
+            verbosity="low",
         )
-        # `think=False` is forwarded to LiteLLM via the
-        # Role's **invoke_kwargs; required for thinking
-        # Ollama models so the answer lands in `content`
-        # instead of `reasoning`.
-        r = await role.respond(p, TASK, think=False)
-        if r.is_err():
-            print(f"  ERR: {r.err_value()}")
-        else:
-            print(f"  > {r.unwrap()}")
+        await setup_profile(
+            profile_mgr,
+            tenant_id="t-demo",
+            user_id="u-casual-pt",
+            language="pt-BR",
+            tone="casual",
+            verbosity="high",
+        )
+
+        for user_id in ("u-formal-en", "u-casual-pt"):
+            p = await profile_mgr.read("t-demo", user_id)
+            if p is None:
+                print(f"profile not found: {user_id}")
+                continue
+            print(
+                f"\n# {user_id} "
+                f"(lang={p.preferences.get('language')}, "
+                f"tone={p.preferences.get('tone')}, "
+                f"verbosity={p.preferences.get('verbosity')})"
+            )
+            # `think=False` is forwarded to LiteLLM via the
+            # Role's **invoke_kwargs; required for thinking
+            # Ollama models so the answer lands in `content`
+            # instead of `reasoning`.
+            r = await role.respond(p, TASK, think=False)
+            if r.is_err():
+                print(f"  ERR: {r.err_value()}")
+            else:
+                print(f"  > {r.unwrap()}")
 
     await redis.aclose()
 

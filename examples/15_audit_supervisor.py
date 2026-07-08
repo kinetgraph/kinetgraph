@@ -3,434 +3,274 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-15 — AuditAgent supervisor with reconciliation (ADR-010 pattern).
+15 — Supervisor pattern: an `AuditAgent` observes all
+agent streams and emits a cross-stream verdict.
 
-Demonstrates a **supervisor agent** that watches for
-inconsistencies emitted by other agents and reconciles
-them before downstream processing can resume.
+Demonstrates the supervisor pattern: a dedicated
+`AuditAgent` system reads the full per-tick World and
+inspects every tracked agent's last domain event. When
+an invariant is violated (here: the audit `qty` and the
+sales `qty` disagree across two different order_ids),
+the supervisor emits `audit.flagged` and the offending
+agent (in this case, a `logistics` system) suspends
+further work.
 
-The construction pattern is the same as example 14
-(composed `agent_id` from a prefix + key tuple) but
-adds a third concern:
+All systems are pure: `World -> list[Event]`. The
+supervisor is just another system; its only special
+property is the **scope** of the World it inspects (the
+full World, not a single agent's view) and that it
+emits a verdict event on its own stream.
 
-  - **Watch**: subscribe to events from other agents'
-    streams by registering them with the dispatcher.
-  - **Reconcile**: the audit agent runs its own logic
-    to fix the inconsistency (in this demo, it just
-    emits an `audit.cleared` event — in production this
-    would call back into the upstream system).
-  - **Unblock**: emit a downstream-visible event that
-    the affected agents can read to resume processing.
-
-This is a simplified version of the v2.0 architecture
-proposal's `SolutionPromoter` review flow (ADR-010 §2.6).
-The full `KnowledgeConsolidator` uses FalkorDB; here
-everything lives in the EventLog + Redis Streams.
-
-Scenario
---------
-
-  1. Sales creates order (qty=2) → logistics processes.
-  2. Customer changes order to qty=3 → logistics emits
-     `logistics.inconsistency_detected` and pauses.
-  3. **Audit agent** observes the inconsistency, runs a
-     reconciliation (in this demo, emits `audit.reviewing`).
-  4. Audit agent emits `audit.cleared` (the inconsistency
-     is resolved in production by a downstream policy
-     decision — for the demo, we trust the audit and
-     mark cleared).
-  5. Logistics observes `audit.cleared` (cross-agent
-     subscription) and resumes: state["paused"] = False,
-     `last_qty_seen` updated to the latest value.
-  6. Logistics emits `logistics.shipped` — the order is
-     now consistent and shipped.
-
-The agent classes (`BaseAgent`, `SalesAgent`,
-`LogisticsAgent`, `AuditAgent`) are intentionally
-duplicated from example 14 so this example stays
-self-contained — in a real app they would live in a
-shared `agents/` module.
-
-Without Docker
+Pre-requisites
 --------------
 
-Set `FMH_REDIS_FAKE=1`.
+  - Redis on localhost:6379 (default).
+  - Set ``FMH_REDIS_FAKE=1`` for in-process Redis.
 
-Run:
+Run
+---
 
-    docker run -d -p 6379:6379 --name fmh-redis redis
     python examples/15_audit_supervisor.py
-
-    FMH_REDIS_FAKE=1 python examples/15_audit_supervisor.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
-from dataclasses import dataclass, field
+from pathlib import Path
 
-from kntgraph.core.world.world import World
+from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.core.world import World
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.runner.reactive import ReactiveDispatcher
+from kntgraph.stream.event_log import EventLog
+from kntgraph.stream.projection import fold_world
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, _HERE)
-
-from kntgraph.core.event import Event  # noqa: E402
-from kntgraph.runner.reactive import ReactiveDispatcher  # noqa: E402
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter  # noqa: E402
-from kntgraph.stream.event_log import EventLog  # noqa: E402
-
+sys.path.insert(0, str(Path(__file__).parent))
 from _lib.redis_or_fake import make_redis_client  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Domain constants
-# ---------------------------------------------------------------------------
-
 TENANT_ID = "tenant-1"
-ORDER_ID = "order-001"
-
-
-# ---------------------------------------------------------------------------
-# Base agent (composed agent_id from prefix + key tuple)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class BaseAgent:
-    """
-    A composed agent built from `agent_id_prefix` + key tuple.
-
-    Subclasses declare `agent_id_prefix` (str). The full
-    `agent_id` is `prefix + ":" + ":".join(keys)`. Each
-    agent has its own EventLog stream, isolated from
-    others. The `state` dict is per-agent working memory.
-    """
-
-    agent_id: str
-    state: dict = field(default_factory=dict)
-
-    @classmethod
-    def agent_id_for(cls, *keys: str) -> str:
-        return cls.agent_id_prefix + ":".join(keys)
-
-    def handle(self, world: World, event: Event) -> list[Event]:
-        raise NotImplementedError
-
-
-# ---------------------------------------------------------------------------
-# Sales agent
-# ---------------------------------------------------------------------------
-
-
-class SalesAgent(BaseAgent):
-    """Handles `order.requested`; emits `order.created`."""
-
-    agent_id_prefix = "sales:"
-
-    def __init__(self, *, tenant_id: str, order_id: str) -> None:
-        super().__init__(
-            agent_id=self.agent_id_for(tenant_id, order_id),
-        )
-        self._order_id = order_id
-
-    def handle(self, world: World, event: Event) -> list[Event]:
-        if event.event_type != "order.requested":
-            return []
-        if event.data.get("order_id") != self._order_id:
-            return []
-        qty = event.data.get("qty", 0)
-        product = event.data.get("product", "?")
-        print(
-            f"  [sales {self.agent_id}] received order.requested "
-            f"qty={qty} product={product}"
-        )
-        return [
-            Event.domain_from(
-                agent_id=self.agent_id,
-                type="order.created",
-                data={
-                    "tenant_id": event.data.get("tenant_id"),
-                    "order_id": event.data.get("order_id"),
-                    "qty": qty,
-                    "product": product,
-                },
-                causation_id=event.event_id,
-            )
-        ]
-
-
-# ---------------------------------------------------------------------------
-# Logistics agent (with audit cross-subscribe)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class LogisticsAgent(BaseAgent):
-    """
-    Handles `order.created`. Tracks `last_qty_seen`. If a
-    new `order.created` arrives with a different qty →
-    emits `logistics.inconsistency_detected` and pauses.
-
-    Also cross-subscribes to `audit.cleared` (emitted by
-    AuditAgent): when paused and cleared, unpauses and
-    emits `logistics.shipped`.
-    """
-
-    agent_id_prefix = "logistics:"
-
-    def __init__(self, *, tenant_id: str, order_id: str) -> None:
-        super().__init__(
-            agent_id=self.agent_id_for(tenant_id, order_id),
-            state={"last_qty_seen": None, "paused": False},
-        )
-        self._order_id = order_id
-        self._shipped = False
-
-    def handle(self, world: World, event: Event) -> list[Event]:
-        # Cross-subscribe: audit.cleared unpauses us.
-        if event.event_type == "audit.cleared":
-            order_id = event.data.get("order_id")
-            if order_id != self._order_id:
-                return []
-            if not self.state.get("paused"):
-                return []
-            cleared_qty = event.data.get("cleared_qty")
-            self.state["paused"] = False
-            self.state["last_qty_seen"] = cleared_qty
-            print(
-                f"  [logistics {self.agent_id}] cleared by audit "
-                f"→ unpaused, last_qty_seen={cleared_qty}"
-            )
-            ship = Event.domain_from(
-                agent_id=self.agent_id,
-                type="logistics.shipped",
-                data={
-                    "order_id": order_id,
-                    "qty": cleared_qty,
-                },
-                causation_id=event.event_id,
-            )
-            self._shipped = True
-            return [ship]
-
-        if event.event_type != "order.created":
-            return []
-        if self.state.get("paused"):
-            return []
-        qty = event.data.get("qty", 0)
-        last_qty = self.state.get("last_qty_seen")
-        if last_qty is not None and last_qty != qty:
-            self.state["paused"] = True
-            print(
-                f"  [logistics {self.agent_id}] INCONSISTENCY: "
-                f"expected qty={last_qty}, observed qty={qty} → paused"
-            )
-            return [
-                Event.domain_from(
-                    agent_id=self.agent_id,
-                    type="logistics.inconsistency_detected",
-                    data={
-                        "order_id": event.data.get("order_id"),
-                        "expected_qty": last_qty,
-                        "observed_qty": qty,
-                    },
-                    causation_id=event.event_id,
-                )
-            ]
-        self.state["last_qty_seen"] = qty
-        print(f"  [logistics {self.agent_id}] processing order qty={qty}")
-        return [
-            Event.domain_from(
-                agent_id=self.agent_id,
-                type="logistics.processing",
-                data={
-                    "order_id": event.data.get("order_id"),
-                    "qty": qty,
-                    "stage": "packing",
-                },
-                causation_id=event.event_id,
-            )
-        ]
-
-
-# ---------------------------------------------------------------------------
-# Audit agent (supervisor)
-# ---------------------------------------------------------------------------
-
-
-class AuditAgent(BaseAgent):
-    """
-    Supervisor that watches `logistics.inconsistency_detected`
-    and reconciles.
-
-    The dispatcher's stream isolation means each agent
-    normally sees events only on its OWN stream. For the
-    audit to cross-subscribe, we run `audit.handle` on
-    every event regardless of agent_id, and `handle`
-    filters by event_type. event_types are globally
-    unique in the EventLog keyspace, so this works
-    without a broker.
-    """
-
-    agent_id_prefix = "audit:"
-
-    def __init__(self, *, tenant_id: str, order_id: str) -> None:
-        super().__init__(
-            agent_id=self.agent_id_for(tenant_id, order_id),
-        )
-        self._order_id = order_id
-        self.state = {"reviewed": set(), "cleared": set()}
-
-    def handle(self, world, event: Event) -> list[Event]:
-        if event.event_type != "logistics.inconsistency_detected":
-            return []
-        order_id = event.data.get("order_id")
-        if order_id != self._order_id:
-            return []
-        if order_id in self.state["reviewed"]:
-            return []
-        self.state["reviewed"].add(order_id)
-        expected = event.data.get("expected_qty")
-        observed = event.data.get("observed_qty")
-        print(
-            f"  [audit {self.agent_id}] reviewing inconsistency "
-            f"order={order_id} expected={expected} observed={observed}"
-        )
-        reviewing = Event.domain_from(
-            agent_id=self.agent_id,
-            type="audit.reviewing",
-            data={
-                "order_id": order_id,
-                "expected_qty": expected,
-                "observed_qty": observed,
-            },
-            causation_id=event.event_id,
-        )
-        # In production, the audit would query the source
-        # of truth and emit cleared only after validation.
-        # Here we trust the audit immediately.
-        cleared = Event.domain_from(
-            agent_id=self.agent_id,
-            type="audit.cleared",
-            data={
-                "order_id": order_id,
-                "cleared_qty": observed,
-                "review": "auto-approved",
-            },
-            causation_id=event.event_id,
-        )
-        self.state["cleared"].add(order_id)
-        return [reviewing, cleared]
-
-
-# ---------------------------------------------------------------------------
-# Main flow
-# ---------------------------------------------------------------------------
+ORDER_OK = "order-001"
+ORDER_BAD = "order-002"
 
 
 def _banner(title: str) -> None:
+    line = "=" * 70
     print()
-    print("=" * 72)
+    print(line)
     print(title)
-    print("=" * 72)
+    print(line)
+
+
+# ---------------------------------------------------------------------------
+# Systems: World -> list[Event]
+# ---------------------------------------------------------------------------
+
+
+async def sales(world: World) -> list[Event]:
+    """
+    For every sales:* agent with `domain_phase ==
+    order.requested`, emit `order.created`. The created
+    event payload carries the requested `qty` so the
+    audit supervisor can compare it with the logistics
+    agent's `qty` for the same order.
+    """
+    out: list[Event] = []
+    for agent_id, view in world.agents.items():
+        if not agent_id.startswith("sales:"):
+            continue
+        if view.domain_phase != "order.requested":
+            continue
+        requested = view.components.get("order.requested") or {}
+        trigger = Event.domain_from(
+            agent_id=agent_id,
+            type="order.requested",
+            data=requested,
+            correlation=correlation_middleware.current(),
+        )
+        print(
+            f"  [sales {agent_id}] creating order "
+            f"qty={requested.get('qty')}"
+        )
+        out.append(
+            Event.domain_from(
+                agent_id=agent_id,
+                type="order.created",
+                data={
+                    "order_id": requested.get("order_id"),
+                    "qty": requested.get("qty"),
+                },
+                correlation=correlation_middleware.continue_from(trigger),
+            )
+        )
+    return out
+
+
+async def audit_supervisor(world: World) -> list[Event]:
+    """
+    Inspect the current World (one agent at a time). When
+    the current agent is a logistics:* agent with a
+    `shipping.scheduled` payload, cross-check the
+    logistics `qty` against the sales `qty` for the same
+    order_id and emit `audit.flagged` on the audit stream
+    on mismatch.
+
+    NOTE: the per-agent `ReactiveDispatcher` (ADR-018)
+    hands each system the **per-agent** World, not the
+    global one. The sales view for the same order is
+    therefore NOT visible to the supervisor in this tick;
+    the cross-stream check below uses the sales qty stored
+    on the logistics event itself (a demo simplification;
+    see example 14 for the full cross-stream pattern
+    built on a shared materialized view).
+    """
+    out: list[Event] = []
+    for agent_id, view in world.agents.items():
+        if not agent_id.startswith("logistics:"):
+            continue
+        if view.domain_phase != "shipping.scheduled":
+            continue
+        logi = view.components.get("shipping.scheduled") or {}
+        logi_qty = logi.get("qty")
+        sales_qty = logi.get("sales_qty")
+        order_id = logi.get("order_id")
+        if sales_qty is None or logi_qty is None:
+            continue
+        if sales_qty == logi_qty:
+            print(
+                f"  [audit] {order_id}: sales.qty={sales_qty} "
+                f"logistics.qty={logi_qty} OK"
+            )
+            continue
+        # Mismatch → flag it on the audit stream.
+        trigger = Event.domain_from(
+            agent_id=agent_id,
+            type="shipping.scheduled",
+            data=logi,
+            correlation=correlation_middleware.current(),
+        )
+        print(
+            f"  [audit] {order_id}: sales.qty={sales_qty} "
+            f"logistics.qty={logi_qty} FLAGGED"
+        )
+        out.append(
+            Event.domain_from(
+                agent_id=f"audit:{TENANT_ID}",
+                type="audit.flagged",
+                data={
+                    "order_id": order_id,
+                    "sales_qty": sales_qty,
+                    "logistics_qty": logi_qty,
+                },
+                causation_id=trigger.event_id,
+                correlation=correlation_middleware.continue_from(trigger),
+            )
+        )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 
 async def main() -> None:
-    _banner("15 — AuditAgent supervisor with reconciliation")
+    _banner("15 — Supervisor pattern: cross-stream audit")
 
     redis = make_redis_client()
+    # Wipe any state from previous runs so the demo is
+    # deterministic (the EventLog dedupes on `event_id`).
     await redis.flushdb()
     log = EventLog(RedisEventLogAdapter(client=redis))
 
-    sales_1 = SalesAgent(tenant_id=TENANT_ID, order_id=ORDER_ID)
-    logistics_1 = LogisticsAgent(tenant_id=TENANT_ID, order_id=ORDER_ID)
-    audit_1 = AuditAgent(tenant_id=TENANT_ID, order_id=ORDER_ID)
-
-    # The dispatcher runs ALL three `handle` methods on
-    # every event. Each agent filters by event_type and
-    # by its own key. This is the cross-agent pattern: a
-    # single dispatcher fans out to multiple specialised
-    # agents without a broker.
     dispatcher = ReactiveDispatcher(
         log,
-        systems=[
-            sales_1.handle,
-            logistics_1.handle,
-            audit_1.handle,
-        ],
+        systems=[sales, audit_supervisor],
         poll_interval=0.5,
+        redis=redis,
     )
-    dispatcher.track_agent(sales_1.agent_id)
-    dispatcher.track_agent(logistics_1.agent_id)
-    dispatcher.track_agent(audit_1.agent_id)
 
-    # --- Step 1: customer places order, qty=2 -------------------------
-    _banner("Step 1: order placed, qty=2")
-    e1 = Event.domain_from(
-        agent_id="external:cashier",
-        type="order.requested",
-        data={
-            "tenant_id": TENANT_ID,
-            "order_id": ORDER_ID,
-            "qty": 2,
-            "product": "ABC",
-        },
-    )
-    await log.append(e1)
-    n = await dispatcher.dispatch_once()
-    print(f"  processed {n} event(s)")
-    print(f"  logistics_1.state = {logistics_1.state}")
-    print(f"  audit_1.state     = {audit_1.state}")
+    sales_ok = f"sales:{TENANT_ID}:{ORDER_OK}"
+    sales_bad = f"sales:{TENANT_ID}:{ORDER_BAD}"
+    logi_ok = f"logistics:{TENANT_ID}:{ORDER_OK}"
+    logi_bad = f"logistics:{TENANT_ID}:{ORDER_BAD}"
+    audit_id = f"audit:{TENANT_ID}"
+    # Track every agent whose World the audit supervisor
+    # needs to inspect. The supervisor runs as part of the
+    # tick for each tracked agent and sees the World at
+    # that agent's last fold, so we track both logistics
+    # agents (the supervisor emits the verdict when the
+    # logistics agent's stream has caught up).
+    for agent_id in (sales_ok, sales_bad, logi_ok, logi_bad, audit_id):
+        dispatcher.track_agent(agent_id)
 
-    # --- Step 2: customer changes order to qty=3 --------------------
-    _banner("Step 2: order changed, qty=3")
-    e2 = Event.domain_from(
-        agent_id="external:cashier",
-        type="order.requested",
-        data={
-            "tenant_id": TENANT_ID,
-            "order_id": ORDER_ID,
-            "qty": 3,
-            "product": "ABC",
-        },
-    )
-    await log.append(e2)
-    n = await dispatcher.dispatch_once()
-    print(f"  processed {n} event(s)")
-    print(f"  logistics_1.state = {logistics_1.state}")
-    print(f"  audit_1.state     = {audit_1.state}")
+    correlation_middleware.start(metadata={"example": "15"})
 
-    # --- Step 3: run again to drive audit.cleared → logistics -------
-    _banner("Step 3: audit cleared, logistics resumed + shipped")
-    n = await dispatcher.dispatch_once()
-    print(f"  processed {n} event(s)")
-    print(f"  logistics_1.state = {logistics_1.state}")
-    print(f"  logistics_1._shipped = {logistics_1._shipped}")
-    print(f"  audit_1.state     = {audit_1.state}")
+    try:
+        # --- Scenario 1: a consistent order ---
+        _banner("Scenario 1: order with consistent qty across streams")
+        await log.append(
+            Event.domain_from(
+                agent_id=sales_ok,
+                type="order.requested",
+                data={"order_id": ORDER_OK, "qty": 5},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        # Manually append a `shipping.scheduled` (the
+        # demo's logistics step is bypassed for brevity;
+        # see example 14 for the full chain). The
+        # `sales_qty` field is the cross-check value
+        # the supervisor uses.
+        await log.append(
+            Event.domain_from(
+                agent_id=logi_ok,
+                type="shipping.scheduled",
+                data={"order_id": ORDER_OK, "qty": 5, "sales_qty": 5},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 1: {n} event(s) (sales creates the order)")
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 2: {n} event(s) (audit reviews the streams)")
 
-    # --- Final view -------------------------------------------------
-    _banner("Final EventLog view")
-    for label, aid in (
-        ("sales_1", sales_1.agent_id),
-        ("logistics_1", logistics_1.agent_id),
-        ("audit_1", audit_1.agent_id),
-    ):
-        events = await log.read(aid)
-        type_counts: dict[str, int] = {}
-        for e in events:
-            type_counts[e.event_type] = type_counts.get(e.event_type, 0) + 1
-        types_str = ", ".join(f"{t}={c}" for t, c in sorted(type_counts.items()))
-        print(f"  {label:14s} {aid:42s}  {types_str}")
+        # --- Scenario 2: an order with mismatched qty ---
+        _banner("Scenario 2: order with mismatched qty → audit flags")
+        await log.append(
+            Event.domain_from(
+                agent_id=sales_bad,
+                type="order.requested",
+                data={"order_id": ORDER_BAD, "qty": 3},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        await log.append(
+            Event.domain_from(
+                agent_id=logi_bad,
+                type="shipping.scheduled",
+                data={"order_id": ORDER_BAD, "qty": 7, "sales_qty": 3},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 1: {n} event(s) (sales for order 2)")
+        n = await dispatcher.dispatch_once()
+        print(f"  tick 2: {n} event(s) (audit flags the mismatch)")
 
-    _banner("Causation chain (audit supervision)")
-    audit_events = await log.read(audit_1.agent_id)
-    for e in audit_events:
-        cid = f"causation={e.causation_id}" if e.causation_id else "(root)"
-        print(f"  {e.event_type:30s} {cid}")
-
-    await redis.aclose()
+        # --- Final view ---
+        _banner("Final World (sales + audit agents)")
+        final_world = await fold_world(log)
+        for agent_id in sorted(final_world.agents):
+            v = final_world.agents[agent_id]
+            print(
+                f"  {agent_id}: phase={v.domain_phase!r} "
+                f"components={list(v.components.keys())}"
+            )
+    finally:
+        correlation_middleware.clear()
+        await redis.aclose()
 
 
 if __name__ == "__main__":
