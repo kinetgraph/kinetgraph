@@ -75,3 +75,44 @@ def system(
     
     target_file.write_text(tmpl.render(ctx))
     console.print(f"[green]Success![/green] Generated WorldSystem at {target_file}")
+
+@app.command()
+def component(
+    target: str = typer.Argument(..., help="Context and component name, e.g., sales.CartItem"),
+):
+    """
+    Generate an immutable ECS Component artifact.
+    """
+    if "." not in target:
+        console.print("[red]Error:[/red] Target must be in the format <context>.<ComponentName> (e.g., sales.CartItem)")
+        raise typer.Exit(code=1)
+        
+    context_name, component_name = target.split(".", 1)
+    package_name = _get_package_name()
+    
+    snake_case_name = camel_to_snake(component_name)
+        
+    target_dir = Path("src") / package_name / "contexts" / context_name / "components"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    for p in [target_dir, target_dir.parent]:
+        if not (p / "__init__.py").exists():
+            (p / "__init__.py").touch()
+            
+    target_file = target_dir / f"{snake_case_name}.py"
+    
+    if target_file.exists():
+        console.print(f"[red]Error:[/red] Component file {target_file} already exists.")
+        raise typer.Exit(code=1)
+        
+    templates_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
+    
+    tmpl = env.get_template("component.py.jinja")
+    
+    ctx = {
+        "camel_case_name": component_name,
+    }
+    
+    target_file.write_text(tmpl.render(ctx))
+    console.print(f"[green]Success![/green] Generated Component at {target_file}")
