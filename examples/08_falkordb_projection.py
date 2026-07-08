@@ -52,7 +52,7 @@ from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
 
-CNPJ = "12.345.678.0001-90"  # agent_id regex disallows '/'; use '.'
+CNPJ = "12.345.678/0001-90"
 
 
 def spawn_empresa() -> Event:

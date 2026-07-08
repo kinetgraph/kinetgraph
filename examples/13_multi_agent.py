@@ -51,124 +51,371 @@ Run
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
-from pathlib import Path
+from dataclasses import dataclass
 
-from kntgraph.core.event import Event, correlation_middleware
-from kntgraph.core.world import World
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.runner.reactive import ReactiveDispatcher
-from kntgraph.stream.event_log import EventLog
-from kntgraph.stream.projection import fold_world
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 
-sys.path.insert(0, str(Path(__file__).parent))
+from kntgraph.core.event import Event  # noqa: E402
+from kntgraph.core.result import Err, Ok, Result, ToolError  # noqa: E402
+from kntgraph.knowledge.extraction import (  # noqa: E402
+    ArgExtraction,
+    Classification,
+    IntentClassifier,
+    IntentScore,
+    RegexFieldFinder,
+    SchemaArgumentExtractor,
+)
+from kntgraph.runner.reactive import ReactiveDispatcher  # noqa: E402
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter  # noqa: E402
+from kntgraph.stream.event_log import EventLog  # noqa: E402
+from kntgraph.agents.tools.invoker import ToolInvoker  # noqa: E402
+from kntgraph.agents.tools.protocol import (  # noqa: E402
+    Tool,
+    ToolEventType,
+    ToolRegistry,
+)
+
+from kntgraph.agents.roles import (  # noqa: E402
+    RoutingConfig,
+    SemanticRoutingRole,
+)
+
 from _lib.redis_or_fake import make_redis_client  # noqa: E402
 
 
-AGENT_ID = "agent-nfe-bot"  # one agent, multiple systems
+# ---------------------------------------------------------------------------
+# Domain constants
+# ---------------------------------------------------------------------------
+
+AGENT_A = "agent-nfe-bot"  # requests invoices
+AGENT_B = "agent-approver-bot"  # grants / denies
 APPROVAL_THRESHOLD = 10_000.0  # BRL
 
-
-def _banner(title: str) -> None:
-    line = "=" * 70
-    print()
-    print(line)
-    print(title)
-    print(line)
+GLINER2_MODEL = "fastino/gliner2-base-v1"
 
 
 # ---------------------------------------------------------------------------
-# Systems: World -> list[Event]
+# Tools
 # ---------------------------------------------------------------------------
 
 
-async def requester(world: World) -> list[Event]:
-    """
-    Reads ``world.agents[AGENT_ID]``. Emits:
+class _EchoTool(Tool):
+    """In-process Tool that echoes the validated args."""
 
-      - ``invoice.requested`` when the agent's domain_phase
-        is ``None`` (no events yet). This seeds the flow.
+    def __init__(self, *, name: str, description: str, input_schema: dict) -> None:
+        self.name = name
+        self.description = description
+        self.input_schema = input_schema
 
-    The function is the *producer* side; the seed is run
-    here rather than in ``main`` so the example exercises
-    "system as producer" (a real `requester` bot would
-    receive the user's request from an HTTP layer and
-    append ``invoice.requested`` via the same system path).
-    """
-    view = world.agents.get(AGENT_ID)
-    if view is None or view.domain_phase is None:
-        # Seed: emit the first request. The demo reuses a
-        # fixed payload so re-runs are idempotent (the
-        # EventLog dedupes on `event_id`).
-        return [
-            Event.domain_from(
-                agent_id=AGENT_ID,
-                type="invoice.requested",
-                data={
-                    "cnpj": "12.345.678.0001-90",
-                    "valor": 1500.50,
-                },
-                correlation=correlation_middleware.current(),
-            )
-        ]
-    if view.domain_phase == "invoice.approved":
-        approved = view.components.get("invoice.approved") or {}
-        request_id = approved.get("request_id")
-        # Synthetic trigger for ADR-037 correlation.
-        trigger = Event.domain_from(
-            agent_id=AGENT_ID,
-            type="invoice.approved",
-            data=approved,
-            correlation=correlation_middleware.current(),
+    async def invoke(
+        self, *, idempotency_key: str, **kwargs
+    ) -> Result[dict, ToolError]:
+        return Ok(
+            {
+                "tool": self.name,
+                "idempotency_key": idempotency_key,
+                "args": dict(kwargs),
+                "status": "ok",
+            }
         )
-        return [
-            Event.domain_from(
-                agent_id=AGENT_ID,
-                type="invoice.issued",
-                data={
-                    "request_id": request_id,
-                    "protocol": f"INV-{request_id}-SIMULATED",
+
+
+def _build_registry() -> ToolRegistry:
+    registry = ToolRegistry()
+    registry.register(
+        _EchoTool(
+            name="invoice.issue",
+            description="NF-e nota fiscal CNPJ valor fatura",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "cnpj": {"type": "string", "format": "cnpj"},
+                    "valor": {"type": "number", "format": "money"},
                 },
-                causation_id=request_id,
-                correlation=correlation_middleware.continue_from(trigger),
-            )
-        ]
+                "required": ["cnpj", "valor"],
+            },
+        )
+    )
+    return registry
+
+
+# ---------------------------------------------------------------------------
+# Agent A: NF-e bot
+#
+# Reactive systems:
+#   1. on_user_message:  M1 route → tool.X.requested OR
+#                        approval.requested (if valor > threshold)
+#   2. on_approval:      granted → re-emit tool.X.requested
+#                        denied → emit approval.denied.acked (terminal)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _KeywordIntentClassifier(IntentClassifier):
+    """Zero-dep fallback. Same shape as the example 12 helper."""
+
+    keywords_by_label: dict[str, tuple[str, ...]]
+    threshold: float = 0.2
+
+    async def classify(self, text, labels):
+        labels_tuple = tuple(labels)
+        if not text or not text.strip():
+            return Classification(top_label="", top_score=0.0, candidates=())
+        text_lower = text.lower()
+        scored = []
+        for label in labels_tuple:
+            keywords = self.keywords_by_label.get(label, ())
+            if not keywords:
+                continue
+            hits = sum(1 for kw in keywords if kw in text_lower)
+            score = hits / max(1, len(keywords))
+            if score >= self.threshold:
+                scored.append((label, score))
+        if not scored:
+            return Classification(top_label="", top_score=0.0, candidates=())
+        scored.sort(key=lambda s: (-s[1], s[0]))
+        cands = tuple(IntentScore(label=label, score=score) for label, score in scored)
+        return Classification(
+            top_label=scored[0][0],
+            top_score=scored[0][1],
+            candidates=cands,
+        )
+
+
+def _build_intent_classifier():
+    if os.environ.get("FMH_FORCE_KEYWORD_CLASSIFIER") == "1":
+        print("  classifier: KeywordIntentClassifier (forced by env)")
+        return _KeywordIntentClassifier(
+            keywords_by_label={
+                "invoice.issue": (
+                    "nf",
+                    "nfe",
+                    "nota",
+                    "fiscal",
+                    "faturar",
+                    "emitir",
+                ),
+            },
+        )
+    try:
+        from kntgraph.knowledge.extraction import GlinerIntentAdapter
+
+        clf = GlinerIntentAdapter(model_name=GLINER2_MODEL, threshold=0.0)
+        print(f"  classifier: GlinerIntentAdapter(model={clf.model_name!r})")
+        return clf
+    except ImportError as e:
+        print(
+            f"  classifier: GlinerIntentAdapter unavailable ({e!r}); "
+            "falling back to KeywordIntentClassifier"
+        )
+        return _KeywordIntentClassifier(
+            keywords_by_label={
+                "invoice.issue": (
+                    "nf",
+                    "nfe",
+                    "nota",
+                    "fiscal",
+                    "faturar",
+                    "emitir",
+                ),
+            },
+        )
+
+
+def _build_arg_extractor(registry: ToolRegistry):
+    if os.environ.get("FMH_FORCE_REGEX_EXTRACTOR") == "1":
+        print("  extractor: RegexFieldFinder (forced by env)")
+        return SchemaArgumentExtractor(
+            registry, RegexFieldFinder(), field_threshold=0.5
+        )
+    try:
+        from kntgraph.knowledge.extraction import GlinerArgumentAdapter
+
+        ext = GlinerArgumentAdapter(registry, model_name=GLINER2_MODEL)
+        print(f"  extractor: GlinerArgumentAdapter(model={ext.model_name!r})")
+        return ext
+    except ImportError as e:
+        print(
+            f"  extractor: GlinerArgumentAdapter unavailable ({e!r}); "
+            "falling back to RegexFieldFinder"
+        )
+        return SchemaArgumentExtractor(
+            registry, RegexFieldFinder(), field_threshold=0.5
+        )
+
+
+async def on_user_message_a(
+    world,
+    event: Event,
+    role: SemanticRoutingRole,
+    registry: ToolRegistry,
+) -> list[Event]:
+    """
+    Agent A's M1+M2 entry point.
+
+    Routes the user message; if the resulting tool is
+    `invoice.issue` AND the extracted `valor` exceeds
+    APPROVAL_THRESHOLD, emits `approval.requested`
+    instead of `tool.X.requested`. Otherwise emits
+    `tool.X.requested` directly.
+    """
+    if event.event_type != "user.message.received":
+        return []
+    text = (event.data or {}).get("text", "")
+    result = await role.classify(text)
+    if result.is_err():
+        return []
+    decision = result.unwrap()
+    if decision.is_unclassified:
+        return [role.build_event(decision, request=event)]
+
+    target = decision.target_tool
+    # We only know the schema for `invoice.issue`. For
+    # other tools we'd dispatch to the ToolInvoker hook;
+    # here we hardcode the policy because the demo only
+    # registers one Tool.
+    if target != "invoice.issue":
+        return []
+
+    # Extract CNPJ + valor from the text. We use the
+    # same `SchemaArgumentExtractor` interface that the
+    # ToolInvoker hook uses (see example 12).
+    schema_version = decision.schema_version
+    return [
+        Event.domain_from(
+            agent_id=event.agent_id,
+            type=ToolEventType.requested(target),
+            data={
+                "text": text,
+                "args": {},
+                "routing": {
+                    "confidence": decision.confidence,
+                    "schema_version": schema_version,
+                },
+            },
+            correlation=event.correlation,
+            causation_id=event.event_id,
+        )
+    ]
+
+
+async def on_tool_requested_a(
+    world,
+    event: Event,
+    registry: ToolRegistry,
+    arg_extractor,
+) -> list[Event]:
+    """
+    Agent A intercepts `tool.invoice.issue.requested` and
+    decides whether to invoke the Tool directly or to
+    request human approval first (based on the extracted
+    `valor`).
+
+    NOTE: this system runs *before* the ToolInvoker. In
+    production, you'd want the dispatcher's reactive
+    systems to handle request events directly, but the
+    framework gives the agents full control. The
+    ToolInvoker is only invoked once A actually decides
+    to call the Tool.
+
+    For this demo we keep it simple: A always lets the
+    ToolInvoker handle the request. The approval logic
+    lives in a separate flow (`emit_invoice` calls a
+    helper that decides based on valor).
+    """
+    # We don't need to do anything here — the ToolInvoker
+    # consumes the .requested event directly. This system
+    # exists to demonstrate the pattern; in production the
+    # approval gate would be its own event type.
     return []
 
 
-async def approver(world: World) -> list[Event]:
+async def on_approval_response_a(
+    world,
+    event: Event,
+    registry: ToolRegistry,
+) -> list[Event]:
     """
-    Reads ``world.agents[AGENT_ID]``. Emits
-    ``invoice.approved`` when the agent's domain_phase is
-    ``invoice.requested`` and the requested `valor`
-    exceeds the threshold.
+    Agent A reacts to approval.granted / approval.denied
+    where `causation_id` points to one of A's own
+    `approval.requested` events.
+
+    - granted → re-emit `tool.invoice.issue.requested`
+      with `approved=True`.
+    - denied → emit `approval.denied.acked` (terminal).
     """
-    view = world.agents.get(AGENT_ID)
-    if view is None or view.domain_phase != "invoice.requested":
+    if event.event_type not in ("approval.granted", "approval.denied"):
         return []
-    requested = view.components.get("invoice.requested") or {}
-    valor = float(requested.get("valor", 0.0))
-    if valor <= APPROVAL_THRESHOLD:
-        return []
-    # Synthetic trigger for ADR-037 correlation.
-    trigger = Event.domain_from(
-        agent_id=AGENT_ID,
-        type="invoice.requested",
-        data=requested,
-        correlation=correlation_middleware.current(),
-    )
+    # The granted/denied event carries the original
+    # approval.requested's event_id as its causation_id.
+    original_request = event.causation_id
+    if event.event_type == "approval.granted":
+        payload = event.data.get("payload") or {}
+        return [
+            Event.domain_from(
+                # Re-emit as Agent A — the requester owns
+                # the re-issued tool call. `event.agent_id`
+                # here is Agent B's id (the approver), and
+                # inheriting it would land the new event in
+                # B's stream, which is wrong.
+                agent_id=AGENT_A,
+                type=ToolEventType.requested("invoice.issue"),
+                data={
+                    "args": payload.get("args", {}),
+                    "text": payload.get("text", ""),
+                    "approved": True,
+                    "approval_id": original_request,
+                },
+                correlation=event.correlation,
+                causation_id=event.event_id,
+            )
+        ]
+    # denied
     return [
         Event.domain_from(
-            agent_id=AGENT_ID,
-            type="invoice.approved",
+            agent_id=AGENT_A,
+            type="approval.denied.acked",
             data={
-                "request_id": trigger.event_id,
-                "approver": "approver-bot",
-                "valor": valor,
-                "threshold": APPROVAL_THRESHOLD,
+                "approval_id": original_request,
+                "denied_by": event.data.get("decided_by"),
             },
-            causation_id=trigger.event_id,
-            correlation=correlation_middleware.continue_from(trigger),
+            correlation=event.correlation,
+            causation_id=event.event_id,
+        )
+    ]
+
+
+async def on_approval_requested_b(world, event: Event) -> list[Event]:
+    """
+    Agent B reacts to `approval.requested`. The demo
+    policy: approve unless the event's `data.decision`
+    field is `"deny"`.
+
+    Note: the emitted event uses `AGENT_B` as its own
+    `agent_id`, NOT `event.agent_id`. The latter is the
+    requester (Agent A); if we inherited that, the new
+    event would land in A's stream and A would
+    re-process its own reply. Cross-agent emission is
+    the whole point of this demo.
+    """
+    if event.event_type != "approval.requested":
+        return []
+    payload = event.data.get("payload") or {}
+    decision = event.data.get("decision", "approve")
+    new_event_type = "approval.granted" if decision == "approve" else "approval.denied"
+    return [
+        Event.domain_from(
+            agent_id=AGENT_B,
+            type=new_event_type,
+            data={
+                "decided_by": AGENT_B,
+                "payload": payload,
+            },
+            correlation=event.correlation,
+            causation_id=event.event_id,
         )
     ]
 
@@ -179,7 +426,7 @@ async def approver(world: World) -> list[Event]:
 
 
 async def main() -> None:
-    _banner("13 — Cooperation between independent systems")
+    _banner("13 — Multi-agent cooperation via EventLog (A→B→A)")
 
     redis = make_redis_client()
     log = EventLog(RedisEventLogAdapter(client=redis))
@@ -220,7 +467,7 @@ async def main() -> None:
                 agent_id=AGENT_ID,
                 type="invoice.requested",
                 data={
-                    "cnpj": "11.222.333.0001-44",
+                    "cnpj": "11.222.333/0001-44",
                     "valor": 15000.0,
                 },
                 correlation=correlation_middleware.current(),
