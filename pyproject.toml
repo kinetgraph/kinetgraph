@@ -19,7 +19,15 @@ dependencies = [
     "tenacity>=8.0",
 ] 
 
+[project.scripts]
+knt = "kntgraph.cli.main:app"
+
 [project.optional-dependencies]
+cli = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "jinja2>=3.0.0",
+]
 falkordb = [
     "falkordb>=1.6.1",
 ]
@@ -48,7 +56,7 @@ llm = [
 ]
 # Convenience meta-extras
 all-runtime = [
-    "kntgraph[falkordb,ollama,gliner,api,crypto,llm]",
+    "kntgraph[falkordb,ollama,gliner,api,crypto,llm,cli]",
 ]
 
 [build-system]

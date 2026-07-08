@@ -1,0 +1,17 @@
+import asyncio
+from kntgraph.runner import ReactiveDispatcher
+from kntgraph.stream.event_log import EventLog
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._pool import make_redis_client
+
+async def main() -> None:
+    print("Starting {{ project_name }} Modular Monolith...")
+    redis = make_redis_client()
+    log = EventLog(RedisEventLogAdapter(client=redis))
+    
+    # Register contexts/agents here
+    # dispatcher = ReactiveDispatcher(log=log, world_systems=[], max_parallel_agents=5)
+    # await dispatcher.run_forever()
+
+if __name__ == "__main__":
+    asyncio.run(main())
