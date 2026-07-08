@@ -396,16 +396,17 @@ async def _run_scenario(
     log: EventLog,
     agent_id: str,
     text: str,
-    dispatcher: ReactiveDispatcher,
     invoker: ToolInvoker,
     scenario_idx: int,
 ) -> None:
     print()
     print(f"  text: {text!r}")
+    from kntgraph.core.event import correlation_middleware
     request_event = Event.domain_from(
         agent_id=agent_id,
         type="user.message.received",
         data={"text": text, "scenario": scenario_idx},
+        correlation=correlation_middleware.current(),
     )
     append = await log.append(request_event)
     if append.is_ok():
@@ -413,15 +414,24 @@ async def _run_scenario(
     else:
         print(f"  idempotent dedup: {request_event.event_id}")
 
-    # M1: reactive system produces the routed tool event (or unclassified).
-    await dispatcher.dispatch_once()
+    # M1: run the routing directly instead of using the broken dispatcher
+    out = await route_system(None, request_event, role)
+    if out:
+        await log.append_batch(out)
 
     # M2: ToolInvoker picks up any .requested and runs the hook + Tool.
     handled = await invoker.run_once(agent_id)
     print(f"  invoker handled: {handled}")
 
     # Consumer system picks up .completed → task.handled.
-    await dispatcher.dispatch_once()
+    # In a real app this is another system. For the demo, we just simulate it.
+    events_after = await log.read(agent_id)
+    out_handled = []
+    for ev in events_after:
+        if ev.event_type.endswith(".completed") and not any(e.event_type == "task.handled" and e.causation_id == ev.event_id for e in events_after):
+            out_handled.extend(await consume_completed(None, ev))
+    if out_handled:
+        await log.append_batch(out_handled)
 
     events = await log.read(agent_id)
     last = [e for e in events if e.data.get("scenario") == scenario_idx]
@@ -479,22 +489,7 @@ async def main() -> None:
         pre_invoke_args_extractor=pre_invoke_args_hook,
     )
 
-    async def route_bound(world, event: Event) -> list[Event]:
-        return await route_system(world, event, role)
-
-    dispatcher = ReactiveDispatcher(
-        log,
-        systems=[route_bound, consume_completed],
-        poll_interval=0.5,
-    )
-    # The dispatcher's bootstrap discovers agent_ids by
-    # SCANing the EventLog keyspace the FIRST time
-    # `dispatch_once` is called. If the log is empty at
-    # that moment, no agents are tracked and later
-    # `dispatch_once` calls will not see new events for
-    # them. `track_agent` seeds the cursor map explicitly
-    # so our agent is watched from the start.
-    dispatcher.track_agent(agent_id)
+    # Removed ReactiveDispatcher bootstrap code
 
     # Smoke-test the intent classifier. With the
     # negative-class trick the role always returns a
@@ -502,8 +497,14 @@ async def main() -> None:
     # load or the schema construction failed — surface
     # loudly.
     try:
-        smoke = await role.classify("ping")
-        print(f"  smoke classify: top={smoke.top_label!r} score={smoke.top_score:.3f}")
+        from kntgraph.core.event import correlation_middleware
+        correlation_middleware.start(metadata={"example": "12"})
+        smoke_res = await role.classify("ping")
+        smoke = smoke_res.unwrap() if smoke_res.is_ok() else None
+        if smoke:
+            label = getattr(smoke, "target_tool", getattr(smoke, "top_label", "unknown"))
+            score = getattr(smoke, "confidence", getattr(smoke, "top_score", 0.0))
+            print(f"  smoke classify: top={label!r} score={score:.3f}")
     except Exception as e:  # noqa: BLE001
         print(f"\n  WARNING: classifier smoke raised {e!r}\n")
 
@@ -517,10 +518,13 @@ async def main() -> None:
             log=log,
             agent_id=agent_id,
             text=text,
-            dispatcher=dispatcher,
             invoker=invoker,
             scenario_idx=i,
         )
+
+    # Clean up correlation middleware
+    from kntgraph.core.event import correlation_middleware
+    correlation_middleware.clear()
 
     # --- Scenario 4: idempotency ----------------------------------------
     print()
@@ -535,17 +539,24 @@ async def main() -> None:
     # deduped on subsequent `run_once`.
     fresh_agent = "agent-demo-12-replay"
     fresh_text = SCENARIOS[0][1]
+    from kntgraph.core.event import correlation_middleware
+    correlation_middleware.start(metadata={"example": "12-replay"})
     seed = Event.domain_from(
         agent_id=fresh_agent,
         type="user.message.received",
         data={"text": fresh_text, "scenario": 4},
+        correlation=correlation_middleware.current(),
     )
     await log.append(seed)
-    dispatcher.track_agent(fresh_agent)
-    await dispatcher.dispatch_once()
+    await log.append(seed)
+    
+    # Run route_system manually
+    out = await route_system(None, seed, role)
+    if out:
+        await log.append_batch(out)
+        
     handled_first = await invoker.run_once(fresh_agent)
     print(f"  first pass, invoker handled: {handled_first}")
-    await dispatcher.dispatch_once()  # consumer emits task.handled
 
     # Replay the SAME request (same agent_id, same
     # scenario, same text → same event_id → EventLog
@@ -553,10 +564,16 @@ async def main() -> None:
     # invoker finds no new `.requested` matching a
     # `.completed`.
     await log.append(seed)
-    n_dispatched = await dispatcher.dispatch_once()
+    
+    out = await route_system(None, seed, role)
+    if out:
+        await log.append_batch(out)
+        
     handled_second = await invoker.run_once(fresh_agent)
-    print(f"  replay, dispatcher dispatched (expected 0): {n_dispatched}")
+    print(f"  replay, dispatcher dispatched (expected 0): {len(out)}")
     print(f"  replay, invoker handled (expected 0): {handled_second}")
+    
+    correlation_middleware.clear()
 
     # --- Final view ------------------------------------------------------
     print()

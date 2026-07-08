@@ -52,7 +52,7 @@ from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
 
-CNPJ = "12.345.678/0001-90"
+CNPJ = "12.345.678-0001-90"
 
 
 def spawn_empresa() -> Event:
@@ -70,7 +70,7 @@ def emit_nf_received(numero: str, valor: float, fornecedor: str) -> Event:
         type="nf.received",
         data={
             "numero": numero,
-            "cnpj_emitente": "11.222.333/0001-44",
+            "cnpj_emitente": "11.222.333-0001-44",
             "cnpj_destinatario": CNPJ,
             "valor_total": valor,
             "fornecedor": fornecedor,
@@ -113,7 +113,7 @@ async def main() -> None:
     print()
 
     # 1. Connect
-    redis = aioredis.from_url("redis://localhost:6379", db=15)
+    redis = aioredis.from_url("redis://:redispassword@localhost:6379", db=15)
     await redis.flushdb()
     fdb = GraphPool(
         host=os.environ.get("FMH_FALKORDB_HOST", "localhost"),
@@ -157,7 +157,7 @@ async def main() -> None:
     )
     # Drop existing data first (clean slate)
     try:
-        fdb.graph(CNPJ).query("MATCH (n) DETACH DELETE n")
+        await fdb.graph(CNPJ).query("MATCH (n) DETACH DELETE n")
     except Exception:
         pass
     stats = await projector.project_all()
@@ -173,7 +173,7 @@ async def main() -> None:
     print("=" * 70)
     g = fdb.graph(CNPJ)
     for label in ("Agent", "Document", "ToolCall"):
-        result = g.query(f"MATCH (n:{label}) RETURN count(n) AS n")
+        result = await g.query(f"MATCH (n:{label}) RETURN count(n) AS n")
         n = result.result_set[0][0]
         print(f"  :{label} = {n}")
 

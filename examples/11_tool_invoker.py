@@ -205,7 +205,7 @@ async def main() -> None:
     # 4. Open Redis-backed EventLog. The framework's
     #    production EventLog lives in
     #    `fmh_backend.stream.event_log.EventLog`.
-    redis = aioredis.from_url("redis://localhost:6379")
+    redis = aioredis.from_url("redis://:redispassword@localhost:6379")
     log = EventLog(RedisEventLogAdapter(client=redis))
     invoker = ToolInvoker(log=log, registry=registry)
 

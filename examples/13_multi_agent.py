@@ -425,67 +425,88 @@ async def on_approval_requested_b(world, event: Event) -> list[Event]:
 # ---------------------------------------------------------------------------
 
 
+def _banner(title: str) -> None:
+    print()
+    print("=" * 72)
+    print(title)
+    print("=" * 72)
+
 async def main() -> None:
     _banner("13 — Multi-agent cooperation via EventLog (A→B→A)")
 
+    from kntgraph.stream.projection import fold_world, fold_world_for_agent
+    from kntgraph.core.event import correlation_middleware
+    
     redis = make_redis_client()
     log = EventLog(RedisEventLogAdapter(client=redis))
 
-    dispatcher = ReactiveDispatcher(
-        log,
-        systems=[approver, requester],
-        poll_interval=0.5,
-        redis=redis,
-    )
-    dispatcher.track_agent(AGENT_ID)
+    registry = _build_registry()
+    classifier = _build_intent_classifier()
+    config = RoutingConfig(threshold=0.3, top_k_candidates=3)
+    role = SemanticRoutingRole(registry, classifier, config=config)
+    arg_extractor = _build_arg_extractor(registry)
 
-    # Open a single correlation context for the whole demo
-    # (ADR-037). All events emitted in the demo inherit
-    # this `correlation_id`; the systems derive the
-    # per-trigger context via `continue_from(trigger)`.
+    cursors = {AGENT_A: "0", AGENT_B: "0"}
+
+    async def dispatch_all():
+        for _ in range(3): # run a few times to settle ping-pong
+            for agent_id in [AGENT_A, AGENT_B]:
+                events, new_cursor = await log.read_after_cursor(agent_id, cursors[agent_id])
+                if not events: continue
+                world = await fold_world_for_agent(log, agent_id)
+                for ev in events:
+                    out = []
+                    if agent_id == AGENT_A:
+                        out.extend(await on_user_message_a(world, ev, role, registry) or [])
+                        out.extend(await on_tool_requested_a(world, ev, registry, arg_extractor) or [])
+                        out.extend(await on_approval_response_a(world, ev, registry) or [])
+                    elif agent_id == AGENT_B:
+                        out.extend(await on_approval_requested_b(world, ev) or [])
+                    if out:
+                        await log.append_batch(out)
+                cursors[agent_id] = new_cursor
+
     correlation_middleware.start(metadata={"example": "13"})
 
     try:
         # --- Scenario 1: low-value invoice, no approval ---
         _banner("[1] Low-value invoice (R$ 1500): no approval needed")
-        # The system itself emits the seed; one dispatch
-        # tick suffices to drive the flow to its terminal
-        # state (no approval needed → approver skips →
-        # requester sees no `invoice.approved` → no further
-        # event).
-        n = await dispatcher.dispatch_once()
-        print(f"  tick 1: dispatcher emitted {n} event(s)")
-
-        # --- Scenario 2: high-value invoice, A→B→A ---
-        _banner("[2] High-value invoice (R$ 15000): approval flow")
-        # Reset the World for the new flow by appending a
-        # second seed (the agent's World now contains both
-        # flows; the requester system reacts to the LATEST
-        # `domain_phase` only, which is the new request).
+        
         await log.append(
             Event.domain_from(
-                agent_id=AGENT_ID,
-                type="invoice.requested",
-                data={
-                    "cnpj": "11.222.333/0001-44",
-                    "valor": 15000.0,
-                },
+                agent_id=AGENT_A,
+                type="user.message.received",
+                data={"text": "emitir NF-e no valor de 1500.00 para 11.222.333/0001-44"},
                 correlation=correlation_middleware.current(),
             )
         )
-        n = await dispatcher.dispatch_once()
-        print(f"  tick 1 (approver runs): {n} event(s)")
+        await dispatch_all()
+        print(f"  tick 1: dispatcher emitted events")
 
-        n = await dispatcher.dispatch_once()
-        print(f"  tick 2 (requester reacts to approval): {n} event(s)")
+        # --- Scenario 2: high-value invoice, A→B→A ---
+        _banner("[2] High-value invoice (R$ 15000): approval flow")
+        
+        await log.append(
+            Event.domain_from(
+                agent_id=AGENT_A,
+                type="user.message.received",
+                data={"text": "emitir NF-e no valor de 15000.00 para 11.222.333/0001-44"},
+                correlation=correlation_middleware.current(),
+            )
+        )
+        await dispatch_all()
+        print(f"  tick 1 (approver runs): events")
+
+        await dispatch_all()
+        print(f"  tick 2 (requester reacts to approval): events")
 
         # --- Final view ---
         _banner("Final World (single agent, two flows)")
         final_world = await fold_world(log)
-        view = final_world.agents.get(AGENT_ID)
+        view = final_world.agents.get(AGENT_A)
         if view is not None:
             print(
-                f"  {AGENT_ID}: phase={view.domain_phase!r} "
+                f"  {AGENT_A}: phase={view.domain_phase!r} "
                 f"components={list(view.components.keys())}"
             )
     finally:

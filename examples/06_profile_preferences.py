@@ -79,7 +79,7 @@ async def main() -> None:
             timeout_s=60.0,
         )
 
-    redis = aioredis.from_url("redis://localhost:6379")
+    redis = aioredis.from_url("redis://:redispassword@localhost:6379")
     log = EventLog(RedisEventLogAdapter(client=redis))
     profile_mgr = ProfileManager(
         event_log=log, storage=RedisProfileStorage(client=redis)

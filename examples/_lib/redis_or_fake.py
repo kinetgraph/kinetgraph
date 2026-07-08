@@ -35,7 +35,7 @@ def make_redis_client() -> "aioredis.Redis":
       (in-process, no Docker required; surfaces the same
       `xadd` / `xrange` / `xrevrange` / `EVALSHA` calls used
       by `EventLog`).
-    - otherwise → `redis.asyncio.from_url("redis://localhost:6379")`.
+    - otherwise → `redis.asyncio.from_url("redis://:redispassword@localhost:6379")`.
 
     `decode_responses=False` matches the `EventLog` wire format
     (bytes in, bytes out).
@@ -52,7 +52,7 @@ def make_redis_client() -> "aioredis.Redis":
         return fakeredis_aioredis.FakeRedis(decode_responses=False)
     import redis.asyncio as aioredis
 
-    return aioredis.from_url("redis://localhost:6379")
+    return aioredis.from_url("redis://:redispassword@localhost:6379")
 
 
 __all__ = ["make_redis_client"]

@@ -37,7 +37,8 @@ import asyncio
 
 from kntgraph.agents.config import LLMConfig, load_env
 from kntgraph.agents.roles import SummarizerRole, Summary
-from kntgraph.agents.tools import CachingLLMTransport, LiteLLMTool
+from kntgraph.agents.tools import LiteLLMTool
+from kntgraph.agents.tools.cache import CachingLLMTransport
 from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
 
 
@@ -82,6 +83,8 @@ async def main() -> None:
     # **invoke_kwargs; required for thinking Ollama
     # models.
     r1 = await summarizer.summarize(SAMPLE_TEXT, max_words=30, think=False)
+    if r1.is_err():
+        print(f"Error 1: {r1.unwrap_err()}")
     assert r1.is_ok()
     s1: Summary = r1.unwrap()
     print(f"[1] {s1.summary}")

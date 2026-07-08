@@ -140,7 +140,7 @@ class FalkorDBProjector:
         }
         for agent_id in await self._log.list_agents():
             events = await self._log.read(agent_id)
-            n = await self._project_agent(agent_id, events)
+            n = await self.project_agent(agent_id, events)
             stats["agents"] += 1
             stats["documents"] += n["documents"]
             stats["tool_calls"] += n["tool_calls"]
