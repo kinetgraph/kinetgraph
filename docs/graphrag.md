@@ -6,12 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 
 # GraphRAG
 
-GraphRAG no FMH = **busca em dois sub-grafos FalkorDB por
-tenant**, mantidos por consolidadores separados:
+GraphRAG in FMH = **search across two FalkorDB sub-graphs per
+tenant**, maintained by separate consolidators:
 
-- **Sub-grafo de Documentos** — busca semântica livre sobre
-  eventos indexados (`Document.embedding` por cosine). Path
-  herdado do MVP (v0.2.x).
+- **Documents sub-graph** — free semantic search over
+  indexed events (`Document.embedding` by cosine). Path
+  inherited from the MVP (v0.2.x).
 - **Solutions sub-graph** — retrieve oriented to **reuse of
   successful tool calls**. Path introduced by
   [ADR-010](../ADRs/ADR-010-Memory-Business-Tier.md).
@@ -35,11 +35,11 @@ This document covers:
 6. Man-in-the-loop: review queue.
 7. Tests.
 
-> **Pré-requisitos**
+> **Prerequisites**
 >
-> - Redis Streams rodando (fonte da verdade).
-> - FalkorDB rodando (`uv add 'kntgraph[falkordb]'`).
-> - Um `EmbeddingProvider` (veja [embedding.md](./embedding.md)).
+> - Redis Streams running (source of truth).
+> - FalkorDB running (`uv add 'kntgraph[falkordb]'`).
+> - An `EmbeddingProvider` (see [embedding.md](./embedding.md)).
 > - For the Solutions sub-graph with PII level 2/3:
 >   `uv add 'kntgraph[gliner]'` (opt-in).
 
@@ -603,8 +603,8 @@ FalkorDB setup instructions in tests.
 - [consolidation.md](./consolidation.md) — Redis + FalkorDB consolidation loop.
 - [ADR-004: Memory Tiers, Tools and Knowledge](../ADRs/ADR-004-Memory-Tools-Knowledge.md) — Documents sub-graph.
 - [ADR-010: Memory Tier "business"](../ADRs/ADR-010-Memory-Business-Tier.md) — Solutions sub-graph.
-- [GraphRAG retriever](../../src/fmh_backend/knowledge/graphrag/retriever.py)
-- [FalkorDB projector](../../src/fmh_backend/knowledge/falkordb/adapter.py)
-- [FalkorDB client](../../src/fmh_backend/knowledge/falkordb/client.py)
-- [Example: Documents projection](../../../fmh_agents/examples/08_falkordb_projection.py)
-- [Example: Solutions consolidation](../../../fmh_agents/examples/09_knowledge_consolidation.py)
+- [GraphRAG retriever](../../src/kntgraph/knowledge/graphrag/retriever.py)
+- [FalkorDB projector](../../src/kntgraph/knowledge/falkordb/adapter.py)
+- [GraphPool (client)](../../src/kntgraph/infra/graph/_pool.py)
+- [Example: Documents projection](../../examples/08_falkordb_projection.py)
+- [Example: Solutions consolidation](../../examples/09_knowledge_consolidation.py)
