@@ -56,20 +56,23 @@ needed to build autonomous, replayable agents:
 
 ## Install
 
+Currently, `kntgraph` is not published to PyPI. You can install it directly from GitHub:
+
 ```bash
-uv add kntgraph
+uv add git+https://github.com/kinetgraph/kinetgraph.git
 ```
 
 Optional extras (install only what you need):
 
 ```bash
-uv add "kntgraph[falkordb]"   # graph projection + Cypher
-uv add "kntgraph[ollama]"     # local LLM / embeddings
-uv add "kntgraph[gliner]"     # NER-based PII redaction
-uv add "kntgraph[api]"        # HTTP gateway (FastAPI)
-uv add "kntgraph[crypto]"     # Ed25519 event signing
-uv add "kntgraph[llm]"        # LiteLLM adapter
-uv add "kntgraph[all-runtime]" # everything above
+uv add "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"      # CLI Boilerplate Generator (ADR-038)
+uv add "kntgraph[falkordb]@git+https://github.com/kinetgraph/kinetgraph.git" # graph projection + Cypher
+uv add "kntgraph[ollama]@git+https://github.com/kinetgraph/kinetgraph.git"   # local LLM / embeddings
+uv add "kntgraph[gliner]@git+https://github.com/kinetgraph/kinetgraph.git"   # NER-based PII redaction
+uv add "kntgraph[api]@git+https://github.com/kinetgraph/kinetgraph.git"      # HTTP gateway (FastAPI)
+uv add "kntgraph[crypto]@git+https://github.com/kinetgraph/kinetgraph.git"   # Ed25519 event signing
+uv add "kntgraph[llm]@git+https://github.com/kinetgraph/kinetgraph.git"      # LiteLLM adapter
+uv add "kntgraph[all-runtime]@git+https://github.com/kinetgraph/kinetgraph.git" # everything above
 ```
 
 ## Hello world
