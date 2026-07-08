@@ -1,0 +1,34 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+SPDX-License-Identifier: CC0-1.0
+-->
+
+kntgraph
+Copyright 2026 kinetgraph
+
+This product includes software developed at
+kinetgraph (https://kinetgraph.com).
+
+This product includes software developed by
+third parties:
+
+- fakeredis (MIT License)
+  Copyright (c) 2018, Daniel Hoherd
+- falkordblite (Apache 2.0)
+  FalkorDB authors
+- litellm (MIT License)
+  BerriAI et al.
+- gliner2 (Apache 2.0)
+  Fastino authors
+- pydantic (MIT License)
+  Samuel Colvin et al.
+- redis-py (MIT License)
+  Redis Inc.
+- structlog (dual MIT / Apache 2.0)
+  Hynek Schlawack et al.
+- tenacity (Apache 2.0)
+  Julien Danjou et al.
+
+For the full list of dependencies and their
+licenses, see `pyproject.toml` and the
+respective PyPI pages.

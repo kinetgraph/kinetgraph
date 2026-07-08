@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+# SPDX-License-Identifier: Apache-2.0
+
+version = 1
+
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "Apache-2.0"
+
+# Generated artefacts that don't carry a license
+# header: coverage HTML, build metadata, lock files,
+# pyright + radon baselines. Each generated JSON has
+# a sidecar ``.json.license`` file (REUSE convention
+# for files that don't support comments).
+[[annotations]]
+path = "htmlcov/**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "src/kntgraph.egg-info/**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "**/__pycache__/**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ".venv/**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ".venv/**/*"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = "dist/**"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"

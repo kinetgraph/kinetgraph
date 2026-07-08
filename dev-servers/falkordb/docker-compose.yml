@@ -1,0 +1,20 @@
+services:
+  falkordb:
+    image: falkordb/falkordb:latest
+    container_name: falkordb
+    ports:
+      - "16379:6379"
+      - "7687:7687"
+      - "3000:3000"
+    environment:
+      - REDIS_ARGS=--requirepass falkordb
+      - FALKORDB_ARGS=BOLT_PORT 7687
+    volumes:
+      - ./falkordb_data:/var/lib/falkordb/data
+    networks:
+      - kntgraph_net
+
+networks:
+  kntgraph_net:
+    name: kntgraph_net
+    external: true
