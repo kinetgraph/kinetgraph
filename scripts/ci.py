@@ -226,7 +226,7 @@ def step_audit() -> Step:
             "set -e; "
             "uv export --format requirements-txt --no-hashes "
             "--no-emit-workspace > /tmp/kntgraph-reqs.txt; "
-            "pip-audit --strict -r /tmp/kntgraph-reqs.txt "
+            "uv run pip-audit --strict -r /tmp/kntgraph-reqs.txt "
             "--vulnerability-service osv",
         ),
     )
