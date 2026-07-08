@@ -159,3 +159,45 @@ def event(
     
     target_file.write_text(tmpl.render(ctx))
     console.print(f"[green]Success![/green] Generated Event factory at {target_file}")
+
+@app.command()
+def tool(
+    target: str = typer.Argument(..., help="Context and tool name, e.g., sales.ProcessPayment"),
+):
+    """
+    Generate an impure Tool artifact.
+    """
+    if "." not in target:
+        console.print("[red]Error:[/red] Target must be in the format <context>.<ToolName> (e.g., sales.ProcessPayment)")
+        raise typer.Exit(code=1)
+        
+    context_name, tool_name = target.split(".", 1)
+    package_name = _get_package_name()
+    
+    snake_case_name = camel_to_snake(tool_name)
+        
+    target_dir = Path("src") / package_name / "contexts" / context_name / "tools"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    for p in [target_dir, target_dir.parent]:
+        if not (p / "__init__.py").exists():
+            (p / "__init__.py").touch()
+            
+    target_file = target_dir / f"{snake_case_name}.py"
+    
+    if target_file.exists():
+        console.print(f"[red]Error:[/red] Tool file {target_file} already exists.")
+        raise typer.Exit(code=1)
+        
+    templates_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
+    
+    tmpl = env.get_template("tool.py.jinja")
+    
+    ctx = {
+        "tool_name": snake_case_name,
+        "camel_case_name": tool_name,
+    }
+    
+    target_file.write_text(tmpl.render(ctx))
+    console.print(f"[green]Success![/green] Generated Tool at {target_file}")

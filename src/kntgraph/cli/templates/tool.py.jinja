@@ -1,0 +1,24 @@
+import asyncio
+from typing import Any
+from kntgraph.core.result import Ok, Result
+from kntgraph.core.tools import tool_worker
+
+@tool_worker(name="{{ tool_name }}", description="Description for {{ camel_case_name }}.")
+class {{ camel_case_name }}:
+    """
+    An impure tool that performs I/O or side effects.
+    """
+
+    async def invoke(
+        self,
+        # Define your input parameters here
+        # param1: str,
+        *,
+        idempotency_key: str
+    ) -> Result[dict[str, Any], Exception]:
+        
+        # Simulate I/O or perform actual side-effect
+        await asyncio.sleep(0.1)
+        
+        # Return the structured result
+        return Ok({"status": "success"})
