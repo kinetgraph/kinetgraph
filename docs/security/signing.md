@@ -133,6 +133,35 @@ The `KeyRegistry` is a `Protocol`. Production code accepts the
 Protocol; tests use `InMemoryKeyRegistry`. v2 plugs in
 Vault / KMS without changing call sites.
 
+### 2.5 Loading keys from Environment Variables (v1 Mitigation)
+
+Since the `InMemoryKeyRegistry` loses keys on process restart, a common mitigation for v1 deployments is to inject the private key via an environment variable. You can use the standard `cryptography` library to parse the PEM string and wrap it for Kinetgraph:
+
+```python
+import os
+from cryptography.hazmat.primitives import serialization
+from kntgraph.security.keys import InMemoryKeyRegistry, Ed25519PrivateKeyWrapper
+
+def load_key_from_env(agent_id: str, env_var_name: str, registry: InMemoryKeyRegistry):
+    pem_data = os.environ.get(env_var_name)
+    if not pem_data:
+        raise ValueError(f"Key not found in env var {env_var_name}")
+
+    # Parse the PEM into an Ed25519PrivateKey
+    raw_key = serialization.load_pem_private_key(
+        pem_data.encode("utf-8"),
+        password=None  # or provide a password if encrypted
+    )
+    
+    # Wrap it for the registry
+    priv_wrapper = Ed25519PrivateKeyWrapper(_key=raw_key, algorithm="ed25519-v1")
+    registry.register(agent_id, priv=priv_wrapper)
+
+# Example usage:
+# registry = InMemoryKeyRegistry()
+# load_key_from_env("session-42", "MY_SECRET_AGENT_KEY", registry)
+```
+
 ---
 
 ## 3. Wiring through `EventLog`
