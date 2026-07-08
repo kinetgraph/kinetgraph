@@ -13,7 +13,7 @@ and what to expect at runtime. For the design rationale
 [ADR-016](../../ADRs/ADR-016-Event-Signing.md) directly.
 
 > **Status**: proposed (code lives in PRs 0-8 of ADR-016).
-> **Audience**: anyone integrating the FMH with multi-tenant
+> **Audience**: anyone integrating the Kinetgraph with multi-tenant
 > Redis or any deployment where event authenticity matters.
 
 ---
@@ -39,7 +39,7 @@ After enabling L1:
 ### 2.1 The `Signature` dataclass
 
 ```python
-# fmh_backend/src/fmh_backend/security/signing.py
+# src/kntgraph/security/signing.py
 @dataclass(frozen=True, slots=True)
 class Signature:
     alg: str          # "ed25519-v1"
@@ -276,7 +276,7 @@ asyncio.run(main())
 
 ## 5. Performance
 
-Measured on a modern CPU (`fmh_backend/tests/perf/bench_sign.py`):
+Measured on a modern CPU (`tests/perf/bench_sign.py`):
 
 | Operation | Median | p99 |
 |---|---|---|
@@ -285,7 +285,7 @@ Measured on a modern CPU (`fmh_backend/tests/perf/bench_sign.py`):
 | `canonical_event_bytes` (JCS) | 35µs | 52µs |
 | **Combined sign + canonicalise** | 63µs | 93µs |
 
-For the fmh_office MVP (5 events/pedido), end-to-end signing adds
+For the kinetgraph MVP (5 events/pedido), end-to-end signing adds
 ~300µs to a ~1.5s pipeline. **Negligible.**
 
 For high-throughput pipelines (> 10k events/s/agent), PR 1.1 adds

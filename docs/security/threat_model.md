@@ -13,7 +13,7 @@ and by the per-level documents ([signing.md](./signing.md),
 [anchor.md](./anchor.md)).
 
 > **Audience**: security reviewers, compliance teams,
-> architects evaluating the FMH for sensitive deployments.
+> architects evaluating the Kinetgraph for sensitive deployments.
 
 ---
 
@@ -21,7 +21,7 @@ and by the per-level documents ([signing.md](./signing.md),
 
 ### In scope
 
-- Events at rest in Redis Streams (`fmh:agents:{id}:events`).
+- Events at rest in Redis Streams (`knt:agents:{id}:events`).
 - Events in flight through `EventLog.append`, `EventLog.read`.
 - Downstream projections (FalkorDB, knowledge graphs).
 - The producer side: keys, signing, policies.
@@ -40,7 +40,7 @@ and by the per-level documents ([signing.md](./signing.md),
 
 ### Trust assumptions
 
-The FMH assumes:
+The Kinetgraph assumes:
 
 - The host running the framework is **not** root-compromised
   (otherwise no defence works).
@@ -66,7 +66,7 @@ assumptions; they do not replace them.
 | **Insider with long-term key access** | Access to `long_term_key` (L3) or `KeyRegistry`. | Forge anchors; hide retro-editing. | L4 (HSM), operational rotation discipline. |
 
 The **escalation path** is left-to-right: as an attacker
-gains more capability, the FMH raises the bar via L1 → L2 →
+gains more capability, the Kinetgraph raises the bar via L1 → L2 →
 L3 → L4. **No level fully eliminates the insider**; the goal
 is to **make the attack detectable and containable**.
 
@@ -201,7 +201,7 @@ Each threat is enumerated with:
 
 ## 5. Security objectives
 
-For a **production L3 deployment**, the FMH claims:
+For a **production L3 deployment**, the Kinetgraph claims:
 
 | Objective | Statement |
 |---|---|
@@ -216,14 +216,14 @@ For a **production L3 deployment**, the FMH claims:
 
 - Insider with `long_term_key` access (T-08) — L4 mitigates.
 - Confused-deputy within allowed event types (T-03) —
-  addressed by application-level validation, not FMH.
+  addressed by application-level validation, not Kinetgraph.
 - Compromised host (TCB assumption violated) — out of scope.
 
 ---
 
 ## 6. Mapping to compliance frameworks
 
-| Framework | Control | FMH level |
+| Framework | Control | Kinetgraph level |
 |---|---|---|
 | **LGPD Art. 46** | Security measures for personal data | L1 (signed audit trail) |
 | **LGPD Art. 48** | Notification of security incidents | L2 (rate limit + audit log) |
@@ -240,10 +240,10 @@ For a **production L3 deployment**, the FMH claims:
 
 ### NIST SP 800-207 mapping
 
-NIST 800-207 §3.1 enumerates zero-trust principles. The FMH
+NIST 800-207 §3.1 enumerates zero-trust principles. The Kinetgraph
 maps as follows:
 
-| Principle | FMH level |
+| Principle | Kinetgraph level |
 |---|---|
 | All data sources are considered security objects | L3 (everything is signed) |
 | All communication is secured regardless of location | out of scope (TLS) |
@@ -253,7 +253,7 @@ maps as follows:
 | All resource authentication and authorization are dynamic and strictly enforced | L2+L3 |
 | The enterprise collects as much information as possible about the current state of assets and uses it to improve security posture | L2 audit log + L3 anchor API |
 
-The FMH is **not** a complete zero-trust architecture in the
+The Kinetgraph is **not** a complete zero-trust architecture in the
 NIST sense (network, identity provider, runtime attestation
 are out of scope). It is the **event-substrate layer** of one.
 

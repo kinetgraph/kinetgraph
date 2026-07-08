@@ -43,7 +43,7 @@ After enabling L3:
 ### 2.1 Verification cache
 
 ```python
-# fmh_backend/src/fmh_backend/security/verification_cache.py
+# src/kntgraph/security/verification_cache.py
 @dataclass(frozen=True, slots=True)
 class CacheEntry:
     event_id: UUID
@@ -73,7 +73,7 @@ authoritative source — it is a perf optimisation.
 ### 2.2 Hash-chain anchor
 
 ```python
-# fmh_backend/src/fmh_backend/security/anchor.py
+# src/kntgraph/security/anchor.py
 @dataclass(frozen=True, slots=True)
 class Anchor:
     agent_id: str
@@ -106,13 +106,13 @@ if (now - last_anchor_at) >= interval_s
        XADD fmh:anchors:{agent_id} anchor_dict
 ```
 
-The scheduler is per-agent. A single FMH process can schedule
+The scheduler is per-agent. A single Kinetgraph process can schedule
 hundreds of agents; the cost is amortised.
 
 ### 2.4 Retro-editing detector
 
 ```python
-# fmh_backend/src/fmh_backend/security/detector.py
+# src/kntgraph/security/detector.py
 class RetroEditingDetector:
     """Walks EventLog + anchor chain; reports divergences."""
 
@@ -200,7 +200,7 @@ each append tick.
 ### 3.3 HTTP audit API
 
 ```python
-# fmh_office/src/fmh_office/mvp/http.py (extension)
+# kinetgraph/src/kinetgraph/mvp/http.py (extension)
 @app.get("/agents/{agent_id}/anchors")
 async def get_anchors(
     agent_id: str,
@@ -328,7 +328,7 @@ the per-event signing key (L1) because:
 
 ```bash
 # 1. Generate new long-term key
-python -m fmh_backend.security.scripts.rotate_long_term_key \
+python -m kntgraph.security.scripts.rotate_long_term_key \
     --agent-id "anchor:session-42" \
     --new-key-out /etc/fmh/keys/anchor-session-42-2026Q3.pem
 
@@ -406,7 +406,7 @@ failure mode. Mitigation:
 
 ### 7.3 What if anchors are never written
 
-The scheduler must be running. If the FMH process dies and
+The scheduler must be running. If the Kinetgraph process dies and
 restarts, the scheduler resumes from `last_anchor_epoch` (in
 the long-term registry's metadata). A liveness check should
 alert if `now - latest_anchor.created_at > 2 * interval_s`.

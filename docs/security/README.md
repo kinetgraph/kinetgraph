@@ -4,9 +4,9 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Zero-Trust Security in the FMH
+# Zero-Trust Security in the Kinetgraph
 
-The FMH is a content-addressed, event-sourced framework. By
+The Kinetgraph is a content-addressed, event-sourced framework. By
 default, events are **integrity-protected** (UUID5 over payload)
 but **not authenticated** — there is no proof that an event with
 `agent_id = "session-42"` was actually emitted by the agent that
@@ -25,7 +25,7 @@ the four ADRs that close this gap.
 
 ## 1. Threat model
 
-The FMH considers three threat classes:
+The Kinetgraph considers three threat classes:
 
 | Class | Example | Default defence |
 |---|---|---|
@@ -45,7 +45,7 @@ Out of scope (handled by other layers):
 
 ## 2. The four levels
 
-The FMH organises security into four progressive levels. Each
+The Kinetgraph organises security into four progressive levels. Each
 level preserves compatibility with the previous one (load of
 events written under lower levels continues to work). Levels
 build on each other; you cannot skip a level without explicit
@@ -75,7 +75,7 @@ L4: + HSM-backed keys + external transparency log
 
 | You are... | Read |
 |---|---|
-| Evaluating FMH for a single-tenant deployment | This document (overview) + [signing.md](./signing.md) |
+| Evaluating Kinetgraph for a single-tenant deployment | This document (overview) + [signing.md](./signing.md) |
 | Deploying multi-tenant, audit-required | This + [signing.md](./signing.md) + [authorization.md](./authorization.md) |
 | Operating in a regulated vertical (LGPD/SOC 2/HIPAA) | All four documents, in order |
 | Implementing or reviewing L1 code | [signing.md](./signing.md) §4 (API) + [ADR-016](../ADRs/ADR-016-Event-Signing.md) |
@@ -99,7 +99,7 @@ in `EventLog` constructor.
 ### Multi-tenant, shared Redis
 **L1 + L2.** Without L2, any signed agent can emit any event
 type. The `CapabilityPolicy` per `agent_id` is the cheapest
-control. fmh_office ships with L1 + L2 enabled by default.
+control. kinetgraph ships with L1 + L2 enabled by default.
 
 ### Regulated (health, finance, public sector)
 **L1 + L2 + L3.** The Merkle anchor gives auditors a
@@ -124,7 +124,7 @@ Honesty about the model:
 | Replay (L1+) | Dedup by `event_id` (UUID5) | Cross-key replay within dedup window (rate limit L2) |
 | Confidentiality | `SecureComponent` (ADR-014), `rediss://` | — |
 
-The FMH is not a single-vendor security stack; it is a
+The Kinetgraph is not a single-vendor security stack; it is a
 **content-addressed event substrate**. Other layers (network,
 storage, runtime) carry their part of the zero-trust burden.
 
@@ -145,7 +145,7 @@ storage, runtime) carry their part of the zero-trust burden.
 - **Backwards-compat**: signing continues to work; policy is
   additive.
 - **Action**: declare `CapabilityPolicy` per `agent_id` in your
-  configuration. fmh_office accepts a YAML block `agents:` with
+  configuration. kinetgraph accepts a YAML block `agents:` with
   `allowed_event_types`, `denied_event_types`, and
   `max_event_rate_per_sec`.
 
@@ -167,7 +167,7 @@ are **loadable** under any higher level. Verification may return
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ Producer (fmh_office.PedidoRunner or your code)          │
+│ Producer (kinetgraph.PedidoRunner or your code)          │
 │                                                          │
 │  ┌─────────────┐     ┌─────────────────────────────┐    │
 │  │ Event.build │ ──► │ canonical_event_bytes(...)  │    │
@@ -254,7 +254,7 @@ computed over it would not verify across Python versions or
 implementations. JCS is the canonicalisation contract.
 
 ### Q: Do I lose performance?
-Sign + verify is ~30µs per event on a modern CPU. The fmh_office
+Sign + verify is ~30µs per event on a modern CPU. The kinetgraph
 MVP (5 events/pedido, ~1.5s end-to-end) loses ~200µs to signing.
 Negligible.
 
@@ -263,9 +263,9 @@ Negligible.
 (dict). A v2 implementation against HashiCorp Vault or AWS KMS
 plugs in without touching call sites.
 
-### Q: Is the FMH "zero-trust" out of the box?
+### Q: Is the Kinetgraph "zero-trust" out of the box?
 **No.** L0 is content-addressed but not authenticated. Calling
-the FMH "zero-trust" requires at least L1 + L2, ideally L3. The
+the Kinetgraph "zero-trust" requires at least L1 + L2, ideally L3. The
 levels exist to make the upgrade path explicit.
 
 ---

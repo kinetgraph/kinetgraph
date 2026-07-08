@@ -42,7 +42,7 @@ After enabling L2:
 ### 2.1 `CapabilityPolicy`
 
 ```python
-# fmh_backend/src/fmh_backend/security/authorization.py
+# src/kntgraph/security/authorization.py
 @dataclass(frozen=True, slots=True)
 class CapabilityPolicy:
     """Per-agent_id authorisation for event_type emission.
@@ -92,7 +92,7 @@ ZCARD fmh:rate:{agent_id}  # current rate
 ```
 
 The check is atomic via a Lua script (provided in
-`fmh_backend.security.rate_limit`). Failure mode: if Redis is
+`kntgraph.security.rate_limit`). Failure mode: if Redis is
 down, **fail closed** (reject) — never fail open in a
 zero-trust deployment.
 
@@ -144,7 +144,7 @@ log = EventLog(
 )
 ```
 
-### 3.2 YAML configuration (fmh_office)
+### 3.2 YAML configuration (kinetgraph)
 
 ```yaml
 # examples/pedido.yml
@@ -389,7 +389,7 @@ timestamp.
 | **`EventLog.append` overhead vs L0** | **+150µs** | **+330µs** |
 
 L2 adds ~150µs/event vs L1 — driven by the rate-limit Lua call.
-For the fmh_office MVP, total overhead vs L0 is ~480µs/event
+For the kinetgraph MVP, total overhead vs L0 is ~480µs/event
 (sign + verify + policy + rate-limit). Still negligible
 against the 1.5s smoke-test budget.
 
@@ -409,7 +409,7 @@ with the policies in code; restart to pick up new YAML. v2
 ships `RedisPolicyRegistry` for hot-reload.
 
 ### 9.3 Setting `max_event_rate_per_sec` too low for legitimate bursts
-The fmh_office engine emits ~5 events/pedido in a burst. A
+The kinetgraph engine emits ~5 events/pedido in a burst. A
 rate limit of 1/s will reject legitimate traffic. Set the
 limit at **2-3× peak observed rate** and use `policy_dry_run`
 to validate before enforcement.
@@ -455,7 +455,7 @@ def test_signature_required_when_policy_says_so():
 ## 11. Migration from L1
 
 1. **Declare policies in YAML.** Add `agents:` block to your
-   `fmh_office` config or `CapabilityPolicy` set calls.
+   `kinetgraph` config or `CapabilityPolicy` set calls.
 2. **Deploy with `policy_dry_run=True`.** Collect metrics on
    what would be rejected.
 3. **Switch to `policy_dry_run=False`.** Rejections now
