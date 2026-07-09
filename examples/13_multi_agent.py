@@ -59,19 +59,16 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 
 from kntgraph.core.event import Event  # noqa: E402
-from kntgraph.core.result import Err, Ok, Result, ToolError  # noqa: E402
+from kntgraph.core.result import Ok, Result, ToolError  # noqa: E402
 from kntgraph.knowledge.extraction import (  # noqa: E402
-    ArgExtraction,
     Classification,
     IntentClassifier,
     IntentScore,
     RegexFieldFinder,
     SchemaArgumentExtractor,
 )
-from kntgraph.runner.reactive import ReactiveDispatcher  # noqa: E402
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter  # noqa: E402
 from kntgraph.stream.event_log import EventLog  # noqa: E402
-from kntgraph.agents.tools.invoker import ToolInvoker  # noqa: E402
 from kntgraph.agents.tools.protocol import (  # noqa: E402
     Tool,
     ToolEventType,
@@ -431,12 +428,13 @@ def _banner(title: str) -> None:
     print(title)
     print("=" * 72)
 
+
 async def main() -> None:
     _banner("13 — Multi-agent cooperation via EventLog (A→B→A)")
 
     from kntgraph.stream.projection import fold_world, fold_world_for_agent
     from kntgraph.core.event import correlation_middleware
-    
+
     redis = make_redis_client()
     log = EventLog(RedisEventLogAdapter(client=redis))
 
@@ -449,17 +447,29 @@ async def main() -> None:
     cursors = {AGENT_A: "0", AGENT_B: "0"}
 
     async def dispatch_all():
-        for _ in range(3): # run a few times to settle ping-pong
+        for _ in range(3):  # run a few times to settle ping-pong
             for agent_id in [AGENT_A, AGENT_B]:
-                events, new_cursor = await log.read_after_cursor(agent_id, cursors[agent_id])
-                if not events: continue
+                events, new_cursor = await log.read_after_cursor(
+                    agent_id, cursors[agent_id]
+                )
+                if not events:
+                    continue
                 world = await fold_world_for_agent(log, agent_id)
                 for ev in events:
                     out = []
                     if agent_id == AGENT_A:
-                        out.extend(await on_user_message_a(world, ev, role, registry) or [])
-                        out.extend(await on_tool_requested_a(world, ev, registry, arg_extractor) or [])
-                        out.extend(await on_approval_response_a(world, ev, registry) or [])
+                        out.extend(
+                            await on_user_message_a(world, ev, role, registry) or []
+                        )
+                        out.extend(
+                            await on_tool_requested_a(
+                                world, ev, registry, arg_extractor
+                            )
+                            or []
+                        )
+                        out.extend(
+                            await on_approval_response_a(world, ev, registry) or []
+                        )
                     elif agent_id == AGENT_B:
                         out.extend(await on_approval_requested_b(world, ev) or [])
                     if out:
@@ -471,34 +481,38 @@ async def main() -> None:
     try:
         # --- Scenario 1: low-value invoice, no approval ---
         _banner("[1] Low-value invoice (R$ 1500): no approval needed")
-        
+
         await log.append(
             Event.domain_from(
                 agent_id=AGENT_A,
                 type="user.message.received",
-                data={"text": "emitir NF-e no valor de 1500.00 para 11.222.333/0001-44"},
+                data={
+                    "text": "emitir NF-e no valor de 1500.00 para 11.222.333/0001-44"
+                },
                 correlation=correlation_middleware.current(),
             )
         )
         await dispatch_all()
-        print(f"  tick 1: dispatcher emitted events")
+        print("  tick 1: dispatcher emitted events")
 
         # --- Scenario 2: high-value invoice, A→B→A ---
         _banner("[2] High-value invoice (R$ 15000): approval flow")
-        
+
         await log.append(
             Event.domain_from(
                 agent_id=AGENT_A,
                 type="user.message.received",
-                data={"text": "emitir NF-e no valor de 15000.00 para 11.222.333/0001-44"},
+                data={
+                    "text": "emitir NF-e no valor de 15000.00 para 11.222.333/0001-44"
+                },
                 correlation=correlation_middleware.current(),
             )
         )
         await dispatch_all()
-        print(f"  tick 1 (approver runs): events")
+        print("  tick 1 (approver runs): events")
 
         await dispatch_all()
-        print(f"  tick 2 (requester reacts to approval): events")
+        print("  tick 2 (requester reacts to approval): events")
 
         # --- Final view ---
         _banner("Final World (single agent, two flows)")

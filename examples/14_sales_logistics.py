@@ -244,12 +244,8 @@ async def main() -> None:
         # reflects its own last domain event.
         v1_qty = v1.components.get("order.created", {}).get("qty")
         v2_qty = v2.components.get("order.created", {}).get("qty")
-        print(
-            f"  {s1}: phase={v1.domain_phase!r} qty={v1_qty}"
-        )
-        print(
-            f"  {s2}: phase={v2.domain_phase!r} qty={v2_qty}"
-        )
+        print(f"  {s1}: phase={v1.domain_phase!r} qty={v1_qty}")
+        print(f"  {s2}: phase={v2.domain_phase!r} qty={v2_qty}")
         assert v1_qty == 5, "order 1 should reflect the change"
         assert v2_qty == 3, "order 2 must NOT see the change to order 1"
 

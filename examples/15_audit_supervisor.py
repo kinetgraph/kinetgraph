@@ -89,10 +89,7 @@ async def sales(world: World) -> list[Event]:
             data=requested,
             correlation=correlation_middleware.current(),
         )
-        print(
-            f"  [sales {agent_id}] creating order "
-            f"qty={requested.get('qty')}"
-        )
+        print(f"  [sales {agent_id}] creating order qty={requested.get('qty')}")
         out.append(
             Event.domain_from(
                 agent_id=agent_id,

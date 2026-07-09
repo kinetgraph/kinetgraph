@@ -213,9 +213,7 @@ async def main() -> None:
     #    The same payload is used on every run, so the
     #    event_id is stable: re-runs of the script are
     #    a no-op for this step (the EventLog dedupes).
-    with correlation_middleware.scope(
-        metadata={"example": "11", "agent_id": AGENT_ID}
-    ):
+    with correlation_middleware.scope(metadata={"example": "11", "agent_id": AGENT_ID}):
         task = Event.domain_from(
             agent_id=AGENT_ID,
             type="task.received",
@@ -237,18 +235,14 @@ async def main() -> None:
                 f"type={task.event_type}  stream_id={append.unwrap()}"
             )
         else:
-            print(
-                f"[seed] existing event (idempotent dedup): {task.event_id}"
-            )
+            print(f"[seed] existing event (idempotent dedup): {task.event_id}")
         print(f"[seed] agent={AGENT_ID}  model={cfg.default_model}")
         print()
 
         # 6. Run the producer system. It emits
         #    `tool.llm.complete.requested`. The system is
         #    pure — it does not call the LLM.
-        request_events = await request_summary_on_task_received(
-            world=None, event=task
-        )
+        request_events = await request_summary_on_task_received(world=None, event=task)
         for e in request_events:
             await log.append(e)
             print(f"[system] emitted: type={e.event_type}")

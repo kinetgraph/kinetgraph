@@ -24,13 +24,13 @@ Run:
 
 import asyncio
 import os
-import json
 
-from kntgraph.infra.graph import GraphPool, graph_name_for_tenant
+from kntgraph.infra.graph import GraphPool
 from kntgraph.knowledge.embedding.provider import EmbeddingClient
 from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 
 TENANT = "demo-graphrag-tenant"
+
 
 async def _mock_embedding(text: str) -> list[float]:
     """Returns a fixed vector to mock text embedding."""
@@ -42,7 +42,7 @@ async def setup_mock_data(fdb: GraphPool, tenant: str, embedding: EmbeddingClien
     """Injects synthetic nodes into the graph to mock both approaches (Documents and Solutions)."""
     print("-> Populating mock graph...")
     g = fdb.graph(tenant)
-    
+
     try:
         await g.query("MATCH (n) DETACH DELETE n")
     except Exception:
@@ -59,7 +59,7 @@ async def setup_mock_data(fdb: GraphPool, tenant: str, embedding: EmbeddingClien
             "OPTIONS {dim: 768, similarityFunction: 'cosine'}"
         )
     except Exception:
-        pass # Ignore if unsupported or already exists
+        pass  # Ignore if unsupported or already exists
 
     # 1. Mock Documents Sub-graph
     emb_doc = await embedding.embed("test fiscal document")
@@ -73,7 +73,7 @@ async def setup_mock_data(fdb: GraphPool, tenant: str, embedding: EmbeddingClien
             embedding: vecf32($emb)
         })
         """,
-        params={"emb": emb_doc}
+        params={"emb": emb_doc},
     )
 
     # 2. Mock Solutions Sub-graph
@@ -105,7 +105,7 @@ async def setup_mock_data(fdb: GraphPool, tenant: str, embedding: EmbeddingClien
         CREATE (a)-[:ON_TOOL]->(t)
         CREATE (a)-[:PRODUCED]->(o)
         """,
-        params={"emb": emb_prob}
+        params={"emb": emb_prob},
     )
 
 
@@ -122,7 +122,7 @@ async def main():
     )
     fdb.connect()
     embedding = EmbeddingClient()
-    
+
     await setup_mock_data(fdb, TENANT, embedding)
 
     # Initialize Retriever
@@ -134,7 +134,7 @@ async def main():
     print("\n--- MODE 1: vector_search ---")
     query_doc = await embedding.embed("test fiscal document")
     doc_results = await retriever.vector_search(query_doc, k=2)
-    
+
     if doc_results:
         for r in doc_results:
             print(f"Doc Found: {r.doc_id}")
@@ -143,28 +143,23 @@ async def main():
     else:
         print("(No vector results supported by local FalkorDB)")
 
-
     # -------------------------------------------------------------
     # MODE 2: find_solutions_by_problem (Solutions via Similarity + Tags)
     # -------------------------------------------------------------
     print("\n--- MODE 2: find_solutions_by_problem ---")
     # Emulate a query similar to the problem we created
     query_prob = await embedding.embed("generate invoice for SP client")
-    
+
     # Example: Find solutions where UF = SP
     sol_results = await retriever.find_solutions_by_problem(
-        query_prob,
-        tags={"uf": "SP"},
-        tool_name="invoice.issue",
-        k=2
+        query_prob, tags={"uf": "SP"}, tool_name="invoice.issue", k=2
     )
-    
+
     for r in sol_results:
         print(f"Tool: {r.tool_name}")
         print(f"  Suggested Action (Example): {r.action_params_example}")
         print(f"  Vector Score: {r.score:.4f}")
         print(f"  Historical Confidence: {r.confidence}")
-
 
     # -------------------------------------------------------------
     # MODE 3: find_solutions_by_tool (Pure Structural Retrieval)
@@ -172,16 +167,13 @@ async def main():
     print("\n--- MODE 3: find_solutions_by_tool ---")
     # Example: Fetch all action history for the 'invoice.issue' tool
     tool_results = await retriever.find_solutions_by_tool(
-        "invoice.issue",
-        status="completed",
-        k=5
+        "invoice.issue", status="completed", k=5
     )
-    
+
     for r in tool_results:
         print(f"Tool History: {r.tool_name}")
         print(f"  Status: {r.outcome_status}")
         print(f"  Example of parameters that worked: {r.action_params_example}")
-
 
     # Cleanup
     print("\nCleaning up environment...")
@@ -189,7 +181,7 @@ async def main():
         await fdb.graph(TENANT).query("MATCH (n) DETACH DELETE n")
     except Exception:
         pass
-    
+
     fdb.close()
     print("OK.")
 

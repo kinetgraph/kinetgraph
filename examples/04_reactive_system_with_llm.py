@@ -56,9 +56,7 @@ TASK_ID = "task-001"
 # knowledge". The system inspects the World's components
 # (here: the seeded `task.received` payload stored on the
 # `task.received` component) to decide what to do.
-async def plan_after_validation(
-    world: World, planner: PlannerRole
-) -> list[Event]:
+async def plan_after_validation(world: World, planner: PlannerRole) -> list[Event]:
     """
     For every tracked agent that has a `task.received`
     component but no `task.planned` yet, ask the planner
@@ -145,9 +143,7 @@ async def main() -> None:
         poll_interval=0.5,
         redis=redis,
     )
-    with correlation_middleware.scope(
-        metadata={"example": "04", "task_id": TASK_ID}
-    ):
+    with correlation_middleware.scope(metadata={"example": "04", "task_id": TASK_ID}):
         await log.append(
             Event.domain_from(
                 agent_id=TASK_ID,

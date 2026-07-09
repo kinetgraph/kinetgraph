@@ -1165,7 +1165,7 @@ class TestToolRegistryRegistration:
     default ACL is assigned automatically).
     """
 
-    def test_register_under_default_acl(self):
+    async def test_register_under_default_acl(self):
         from kntgraph.agents.tools.protocol import (
             ToolACL,
             ToolRegistry,
@@ -1181,7 +1181,7 @@ class TestToolRegistryRegistration:
         assert isinstance(acl, ToolACL)
         assert acl.tenant_pinned is False
 
-    def test_register_with_explicit_acl(self):
+    async def test_register_with_explicit_acl(self):
         from kntgraph.agents.tools.protocol import (
             ToolACL,
             ToolRegistry,
@@ -1200,7 +1200,7 @@ class TestToolRegistryRegistration:
         registry.register(tool, acl=acl)
         assert registry.acl_for(tool.name) is acl
 
-    def test_duplicate_registration_rejected(self):
+    async def test_duplicate_registration_rejected(self):
         from kntgraph.agents.tools.protocol import ToolRegistry
 
         tool_a = LiteLLMTool(default_model="a")
@@ -1212,7 +1212,7 @@ class TestToolRegistryRegistration:
             # rejects silent overrides).
             registry.register(tool_b)
 
-    def test_lookup_by_name(self):
+    async def test_lookup_by_name(self):
         from kntgraph.agents.tools.protocol import ToolRegistry
 
         tool = LiteLLMTool(default_model="x")

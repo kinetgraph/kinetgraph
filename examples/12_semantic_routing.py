@@ -124,7 +124,6 @@ from kntgraph.knowledge.extraction import (  # noqa: E402
     RegexFieldFinder,
     SchemaArgumentExtractor,
 )
-from kntgraph.runner.reactive import ReactiveDispatcher  # noqa: E402
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter  # noqa: E402
 from kntgraph.stream.event_log import EventLog  # noqa: E402
 from kntgraph.agents.tools.invoker import ToolInvoker  # noqa: E402
@@ -402,6 +401,7 @@ async def _run_scenario(
     print()
     print(f"  text: {text!r}")
     from kntgraph.core.event import correlation_middleware
+
     request_event = Event.domain_from(
         agent_id=agent_id,
         type="user.message.received",
@@ -415,7 +415,7 @@ async def _run_scenario(
         print(f"  idempotent dedup: {request_event.event_id}")
 
     # M1: run the routing directly instead of using the broken dispatcher
-    out = await route_system(None, request_event, role)
+    out = await route_system(None, request_event)
     if out:
         await log.append_batch(out)
 
@@ -428,7 +428,10 @@ async def _run_scenario(
     events_after = await log.read(agent_id)
     out_handled = []
     for ev in events_after:
-        if ev.event_type.endswith(".completed") and not any(e.event_type == "task.handled" and e.causation_id == ev.event_id for e in events_after):
+        if ev.event_type.endswith(".completed") and not any(
+            e.event_type == "task.handled" and e.causation_id == ev.event_id
+            for e in events_after
+        ):
             out_handled.extend(await consume_completed(None, ev))
     if out_handled:
         await log.append_batch(out_handled)
@@ -498,11 +501,14 @@ async def main() -> None:
     # loudly.
     try:
         from kntgraph.core.event import correlation_middleware
+
         correlation_middleware.start(metadata={"example": "12"})
         smoke_res = await role.classify("ping")
         smoke = smoke_res.unwrap() if smoke_res.is_ok() else None
         if smoke:
-            label = getattr(smoke, "target_tool", getattr(smoke, "top_label", "unknown"))
+            label = getattr(
+                smoke, "target_tool", getattr(smoke, "top_label", "unknown")
+            )
             score = getattr(smoke, "confidence", getattr(smoke, "top_score", 0.0))
             print(f"  smoke classify: top={label!r} score={score:.3f}")
     except Exception as e:  # noqa: BLE001
@@ -524,6 +530,7 @@ async def main() -> None:
 
     # Clean up correlation middleware
     from kntgraph.core.event import correlation_middleware
+
     correlation_middleware.clear()
 
     # --- Scenario 4: idempotency ----------------------------------------
@@ -540,6 +547,7 @@ async def main() -> None:
     fresh_agent = "agent-demo-12-replay"
     fresh_text = SCENARIOS[0][1]
     from kntgraph.core.event import correlation_middleware
+
     correlation_middleware.start(metadata={"example": "12-replay"})
     seed = Event.domain_from(
         agent_id=fresh_agent,
@@ -549,12 +557,12 @@ async def main() -> None:
     )
     await log.append(seed)
     await log.append(seed)
-    
+
     # Run route_system manually
     out = await route_system(None, seed, role)
     if out:
         await log.append_batch(out)
-        
+
     handled_first = await invoker.run_once(fresh_agent)
     print(f"  first pass, invoker handled: {handled_first}")
 
@@ -564,15 +572,15 @@ async def main() -> None:
     # invoker finds no new `.requested` matching a
     # `.completed`.
     await log.append(seed)
-    
+
     out = await route_system(None, seed, role)
     if out:
         await log.append_batch(out)
-        
+
     handled_second = await invoker.run_once(fresh_agent)
     print(f"  replay, dispatcher dispatched (expected 0): {len(out)}")
     print(f"  replay, invoker handled (expected 0): {handled_second}")
-    
+
     correlation_middleware.clear()
 
     # --- Final view ------------------------------------------------------

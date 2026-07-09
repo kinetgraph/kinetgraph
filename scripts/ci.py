@@ -422,67 +422,6 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
     return r.stdout or ""
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="kntgraph quality gates")
-    parser.add_argument(
-        "--baseline", action="store_true", help="Generate complexity baseline"
-    )
-    parser.add_argument(
-        "--update-baseline",
-        action="store_true",
-        help="Update complexity baseline after intentional refactor",
-    )
-    parser.add_argument(
-        "--update-pyright-baseline",
-        action="store_true",
-        help="Update pyright baseline (run scripts/update_pyright_baseline.py)",
-    )
-    parser.add_argument(
-        "--only",
-        choices=list(ALL_STEPS.keys()),
-        help="Run one step only (skips all others)",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Stream each step's output live (default: silent on success)",
-    )
-    args = parser.parse_args()
-
-    if args.update_pyright_baseline:
-        return subprocess.call(
-            ["uv", "run", "python", "scripts/update_pyright_baseline.py"],
-            cwd=ROOT,
-        )
-    if args.baseline or args.update_baseline:
-        return cmd_baseline()
-
-    selected = [args.only] if args.only else list(ALL_STEPS.keys())
-    failed: list[str] = []
-    capture = not args.verbose
-
-    for name in selected:
-        if name == "complexity":
-            print(f"\n>>> {name}")
-            if not gate_complexity(verbose=args.verbose):
-                failed.append("complexity")
-            continue
-        if name == "pyright":
-            if not gate_pyright():
-                failed.append("pyright")
-            continue
-        print(f"\n>>> {name}")
-        step = ALL_STEPS[name]
-        _run_step(step, failed, capture=capture)
-
-    print()
-    if failed:
-        print(f"FAILED: {', '.join(failed)}")
-        return 1
-    print("All gates passed")
-    return 0
-
-
 def gate_pyright() -> bool:
     """Pyright type-check gate with regression detection.
 

@@ -45,7 +45,6 @@ from kntgraph.agents.memory.solution_extractor import SolutionExtractorSystem
 from kntgraph.agents.memory.solution_promoter import SolutionPromoterSystem
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
-from kntgraph.runner.reactive import ReactiveDispatcher
 
 
 TENANT = "demo-cnpj-12.345.678/0001-99"
@@ -81,6 +80,7 @@ def _pair(
 async def seed_event_log(log: EventLog) -> None:
     """Seed three agents with overlapping tool calls."""
     from kntgraph.core.event import correlation_middleware
+
     correlation_middleware.start(metadata={"example": "09"})
     print("Seeding EventLog with 3 agents × 2 tool events each ...")
     for a in ["agent-001", "agent-002", "agent-003"]:
@@ -100,6 +100,7 @@ async def seed_event_log(log: EventLog) -> None:
 
 async def main() -> None:
     import os
+
     os.environ["FMH_EMBEDDING_TIMEOUT_SECONDS"] = "120.0"
 
     redis = aioredis.from_url("redis://:redispassword@localhost:6379", db=15)
@@ -126,6 +127,7 @@ async def main() -> None:
 
         print("\nRunning one consolidation pass ...")
         from kntgraph.stream.projection import fold_world
+
         world = await fold_world(log)
 
         extracted = extractor(world)
@@ -143,6 +145,7 @@ async def main() -> None:
             await log.append_batch(promoted)
     finally:
         from kntgraph.core.event import correlation_middleware
+
         correlation_middleware.clear()
 
     print("\nRetrieval:")
@@ -160,12 +163,16 @@ async def main() -> None:
     by_problem = await retriever.find_solutions_by_problem(query_emb, k=5)
     print(f"  find_solutions_by_problem returned {len(by_problem)} hit(s):")
     for r in by_problem:
-        print(f"    tool={r.tool_name!r} status={r.outcome_status!r} score={r.score:.4f}")
+        print(
+            f"    tool={r.tool_name!r} status={r.outcome_status!r} score={r.score:.4f}"
+        )
         print(f"    params={r.action_params_example!r}")
 
     print("  find_solutions_by_tool('bank.transfer', status=...)")
     for status in ("completed", "failed", "all"):
-        by_tool = await retriever.find_solutions_by_tool("bank.transfer", k=5, status=status)
+        by_tool = await retriever.find_solutions_by_tool(
+            "bank.transfer", k=5, status=status
+        )
         print(f"    status={status!r:>12}: {len(by_tool)} hit(s)")
         for r in by_tool:
             print(f"      tool={r.tool_name!r} status={r.outcome_status!r}")

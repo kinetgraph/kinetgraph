@@ -128,9 +128,7 @@ async def main() -> None:
                     print(f"  suggested: {q}")
 
             # 3. Persist the turn (user + assistant).
-            await session_mgr.append_message(
-                session_id, role="user", content=user_msg
-            )
+            await session_mgr.append_message(session_id, role="user", content=user_msg)
             await session_mgr.append_message(
                 session_id, role="assistant", content=reply.reply
             )

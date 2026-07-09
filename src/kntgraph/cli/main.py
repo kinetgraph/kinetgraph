@@ -8,10 +8,12 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+
 @app.callback()
 def main_callback():
     """Kinetgraph CLI."""
     pass
+
 
 app.command(name="init")(init.init)
 app.add_typer(new.app, name="new")

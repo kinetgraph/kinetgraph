@@ -1,19 +1,20 @@
-from typing import Any
 from typing import TypedDict
 from kntgraph.core.event import Event
 from kntgraph.core.correlation import correlation_middleware
+
 
 class WeatherResolvedPayload(TypedDict):
     """
     Payload for the WeatherResolved event.
     """
+
     city: str
     temperature_celsius: float
     condition: str
+
+
 def weather_resolved(
-    agent_id: str,
-    data: WeatherResolvedPayload,
-    causation_id: str | None = None
+    agent_id: str, data: WeatherResolvedPayload, causation_id: str | None = None
 ) -> Event:
     """
     Creates a 'weather.weather_resolved' event.
@@ -25,5 +26,5 @@ def weather_resolved(
         type="weather.weather_resolved",
         data=data,  # type: ignore
         causation_id=causation_id,
-        correlation=correlation_middleware.current()
+        correlation=correlation_middleware.current(),
     )

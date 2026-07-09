@@ -42,7 +42,6 @@ git history.
 from __future__ import annotations
 
 import hashlib
-import os
 import sys
 import tarfile
 from datetime import datetime, timezone

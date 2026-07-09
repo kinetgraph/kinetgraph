@@ -176,7 +176,9 @@ class WorkerManager:
             await self._redis.xack(stream_key, self._group_name, message_id)
             return
 
-        tool_params = request_event.data.get("params") or request_event.data.get("args") or {}
+        tool_params = (
+            request_event.data.get("params") or request_event.data.get("args") or {}
+        )
         idempotency_key = str(request_event.event_id)
 
         try:

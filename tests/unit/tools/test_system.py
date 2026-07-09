@@ -31,7 +31,7 @@ def test_tool_aware_system_request_tool():
         correlation=correlation,
     )
 
-    assert event.event_type == "tool.requested"
+    assert event.event_type == "tool.math_doubler.requested"
     assert event.agent_id == "a-1"
     assert event.data == {"tool": "math_doubler", "params": {"x": 2}}
     assert event.correlation.correlation_id == correlation.correlation_id

@@ -1,5 +1,3 @@
-from typing import Any
-
 from kntgraph.core.world import World
 from kntgraph.core.event import Event
 
@@ -11,5 +9,5 @@ def weather_router_system(world: World) -> list[Event]:
         # Check if the tool has completed
         # For simplicity, we assume we check components or something
         pass
-        
+
     return events

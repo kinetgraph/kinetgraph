@@ -121,9 +121,7 @@ class WeatherSystem(ToolAwareSystem):
             # without a roundtrip.
             trigger_correlation = (
                 correlation_middleware.current()
-                or CorrelationContext.new(
-                    correlation_id=UUID(causation_id)
-                )
+                or CorrelationContext.new(correlation_id=UUID(causation_id))
             )
 
             # ADR-034 / ADR-036: Check ECS components for Tool state
