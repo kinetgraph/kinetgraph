@@ -1,0 +1,29 @@
+from kntgraph.runner import ReactiveDispatcher
+from kntgraph.stream.event_log import EventLog
+
+# Import all systems and tools from your context's agents here.
+# For example:
+# from .agents.checkout_agent import get_checkout_agent_systems, get_checkout_agent_tools
+
+def build_{{ context_name }}_dispatcher(log: EventLog) -> ReactiveDispatcher:
+    """
+    Orchestrates the ReactiveDispatcher for the entire '{{ context_name }}' context.
+    Aggregates pure WorldSystems and impure Tools from all its Agents.
+    """
+    
+    # 1. Aggregate Tools
+    # tools = get_checkout_agent_tools() + ...
+    tools = []
+    
+    # 2. Aggregate Systems
+    # systems = get_checkout_agent_systems() + ...
+    systems = []
+    
+    # 3. Create the dispatcher
+    dispatcher = ReactiveDispatcher(
+        log=log,
+        world_systems=systems,
+        max_parallel_agents=5
+    )
+    
+    return dispatcher

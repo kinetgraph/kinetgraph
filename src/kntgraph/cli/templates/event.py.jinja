@@ -1,0 +1,30 @@
+from typing import Any
+from typing import TypedDict
+from kntgraph.core.event import Event
+from kntgraph.core.correlation import correlation_middleware
+
+class {{ camel_case_name }}Payload(TypedDict):
+    """
+    Payload for the {{ camel_case_name }} event.
+    Must be pure data according to ADR-037.
+    """
+    # example_field: str
+    pass
+
+def {{ event_name }}(
+    agent_id: str,
+    data: {{ camel_case_name }}Payload,
+    causation_id: str | None = None
+) -> Event:
+    """
+    Creates a '{{ event_type }}' event.
+    """
+    # Use continue_from if causation_id is provided, otherwise current()
+    # Or implement custom correlation logic here.
+    return Event.domain_from(
+        agent_id=agent_id,
+        type="{{ event_type }}",
+        data=data,  # type: ignore
+        causation_id=causation_id,
+        correlation=correlation_middleware.current()
+    )

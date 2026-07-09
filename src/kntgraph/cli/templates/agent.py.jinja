@@ -1,0 +1,26 @@
+from kntgraph.security.authorization import CapabilityPolicy
+from kntgraph.stream.event_log import EventLog
+
+# Import your Systems and Tools here
+# from ..systems.example_system import example_system
+# from ..tools.example_tool import ExampleTool
+
+def build_{{ agent_name }}_policy() -> CapabilityPolicy:
+    """
+    Define the Level 2 Security Policy for this agent.
+    Which events is it allowed to emit?
+    """
+    return CapabilityPolicy(
+        allowed_events=["{{ context_name }}.*"],
+        denied_events=[],
+    )
+
+def get_{{ agent_name }}_systems() -> list:
+    """Return the pure WorldSystems for this agent."""
+    # return [example_system]
+    return []
+
+def get_{{ agent_name }}_tools() -> list:
+    """Return the impure Tools for this agent."""
+    # return [ExampleTool()]
+    return []

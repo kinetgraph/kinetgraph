@@ -1,0 +1,123 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+[project]
+name = "kntgraph"
+version = "0.7.0"
+description = "Pure ECS agent framework: event-sourced via Redis Streams, semantic routing via GLiNER2, tool re-use via the Solution tier (ADR-010). Sub-package `agents` ships concrete LLM/cache/PII adapters over the framework."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "deal>=4.24",
+    "immutables>=0.20",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "redis>=5.0",
+    "result>=0.17",
+    "structlog>=24.0",
+    "tenacity>=8.0",
+] 
+
+[project.scripts]
+knt = "kntgraph.cli.main:app"
+
+[project.optional-dependencies]
+cli = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "jinja2>=3.0.0",
+]
+falkordb = [
+    "falkordb>=1.6.1",
+]
+ollama = [
+    "ollama>=0.4.0",
+]
+# GLiNER2 — opt-in NER for the `PiiRedactionTool` (ADR-010
+# §2.5, level 2/3) and for the `GlinerEntityExtractor`.
+gliner = [
+    "gliner2>=0.1.0",
+]
+# HTTP gateway (ADR-012)
+api = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+]
+# Zero-Trust Level 1 (ADR-016): Ed25519 signatures + RFC 8785
+# JCS canonicalisation
+crypto = [
+    "cryptography>=41.0.0",
+    "canonicaljson>=2.0.0",
+]
+# LiteLLM is the unified LLM provider used by LiteLLMTool.
+llm = [
+    "litellm>=1.88.1",
+]
+# Convenience meta-extras
+all-runtime = [
+    "kntgraph[falkordb,ollama,gliner,api,crypto,llm,cli]",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["kntgraph*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.jinja", "*.json"]
+
+[tool.ruff] 
+line-length = 88
+target-version = "py312"
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src", "tests"]
+exclude = [
+    "**/__pycache__",
+    "**/htmlcov",
+    "**/.pytest_cache",
+    "**/examples",
+]
+reportMissingTypeStubs = false
+reportMissingImports = "none"
+reportOptionalMemberAccess = "warning"
+reportGeneralTypeIssues = "none"
+reportUnknownMemberType = "warning"
+reportUnknownVariableType = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownParameterType = "warning"
+reportUnknownLambdaType = "warning"
+reportMissingTypeArgument = "warning"
+reportImplicitOverride = "none"
+reportUnnecessaryTypeIgnoreComment = "error"
+useLibraryCodeForTypes = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+    "bandit>=1.7",
+    "pyright>=1.1.390",
+    "fakeredis>=2.20",
+    "falkordblite>=0.1.0",
+    "fastapi>=0.110.0",
+    "httpx2>=2.4",
+    "cryptography>=41.0",
+    "canonicaljson>=2.0",
+    "pip-audit>=2.7",
+    "radon>=6.0",
+]
+
+[tool.radon]
+exclude_paths = ["tests", "examples", ".venv", "htmlcov", "docs"]

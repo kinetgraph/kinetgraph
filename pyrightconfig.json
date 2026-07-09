@@ -1,0 +1,28 @@
+{
+    "include": [
+        "src/kntgraph"
+    ],
+    "exclude": [
+        "**/__pycache__",
+        "**/htmlcov",
+        "**/.pytest_cache",
+        "**/examples",
+        "**/.venv",
+        "**/.radon-baseline.json",
+        "**/.pyright-baseline.json"
+    ],
+    "reportMissingTypeStubs": false,
+    "reportMissingImports": "none",
+    "reportOptionalMemberAccess": "warning",
+    "reportGeneralTypeIssues": "none",
+    "reportUnknownMemberType": "warning",
+    "reportUnknownVariableType": "warning",
+    "reportUnknownArgumentType": "warning",
+    "reportUnknownParameterType": "warning",
+    "reportUnknownLambdaType": "warning",
+    "reportMissingTypeArgument": "warning",
+    "reportImplicitOverride": "none",
+    "reportUnnecessaryTypeIgnoreComment": "error",
+    "useLibraryCodeForTypes": true,
+    "pythonVersion": "3.12"
+}

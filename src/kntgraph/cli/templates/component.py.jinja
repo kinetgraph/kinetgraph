@@ -1,0 +1,13 @@
+from dataclasses import dataclass
+
+@dataclass(frozen=True, slots=True)
+class {{ camel_case_name }}:
+    """
+    ECS Component: {{ camel_case_name }}.
+    
+    Components must be immutable (`frozen=True`) and should primarily contain
+    data (no complex logic or side effects) in accordance with ADR-034.
+    """
+    # Define your fields here
+    # example_field: str
+    pass
