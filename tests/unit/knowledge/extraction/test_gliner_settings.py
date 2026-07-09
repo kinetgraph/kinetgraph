@@ -111,13 +111,13 @@ class TestGLiNERReadsSettings:
 
     def test_env_override_changes_model(self, monkeypatch):
         """
-        When ``FMH_ARG_EXTRACTOR_MODEL_ID`` is set, the
+        When ``KNT_ARG_EXTRACTOR_MODEL_ID`` is set, the
         classifier's default changes. Operators can
         point the framework at a private HF checkpoint
         or a local path.
         """
         monkeypatch.setenv(
-            "FMH_ARG_EXTRACTOR_MODEL_ID",
+            "KNT_ARG_EXTRACTOR_MODEL_ID",
             "urchen/gliner-multi-pii-base",
         )
         fresh_settings.cache_clear()
@@ -134,7 +134,7 @@ class TestGLiNERExplicitOverrides:
         "Settings unless told otherwise".
         """
         monkeypatch.setenv(
-            "FMH_ARG_EXTRACTOR_MODEL_ID",
+            "KNT_ARG_EXTRACTOR_MODEL_ID",
             "urchen/gliner-multi-pii-base",
         )
         fresh_settings.cache_clear()

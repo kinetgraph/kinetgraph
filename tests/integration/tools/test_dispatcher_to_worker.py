@@ -14,7 +14,7 @@ End-to-end integration test for the Tool Worker Pattern
     EventLog (append)
         |
         v  (fan-out: route_batch)
-    fmh:tools:weather:queue  (Redis Stream)
+    knt:tools:weather:queue  (Redis Stream)
         |
         v  (WorkerManager._consume_loop)
     WeatherTool.invoke(...)  (in ProcessPoolExecutor)
@@ -221,13 +221,13 @@ async def test_dispatcher_to_worker_end_to_end(clean_redis) -> None:
 
         # First tick: the system sees user.intent and
         # emits tool.requested. The tool_router fans
-        # it out to fmh:tools:weather:queue.
+        # it out to knt:tools:weather:queue.
         await dispatcher.dispatch_once()
 
         # Verify the fan-out reached the tool queue.
         # The router should have xadd'd a message to
         # the queue with the full request payload.
-        queue_len = await clean_redis.xlen("fmh:tools:weather:queue")
+        queue_len = await clean_redis.xlen("knt:tools:weather:queue")
         assert queue_len >= 1, (
             f"ToolRouter did not fan-out the request (queue len={queue_len})"
         )

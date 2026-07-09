@@ -183,7 +183,7 @@ class _KeywordIntentClassifier(IntentClassifier):
 
 
 def _build_intent_classifier():
-    if os.environ.get("FMH_FORCE_KEYWORD_CLASSIFIER") == "1":
+    if os.environ.get("KNT_FORCE_KEYWORD_CLASSIFIER") == "1":
         print("  classifier: KeywordIntentClassifier (forced by env)")
         return _KeywordIntentClassifier(
             keywords_by_label={
@@ -223,7 +223,7 @@ def _build_intent_classifier():
 
 
 def _build_arg_extractor(registry: ToolRegistry):
-    if os.environ.get("FMH_FORCE_REGEX_EXTRACTOR") == "1":
+    if os.environ.get("KNT_FORCE_REGEX_EXTRACTOR") == "1":
         print("  extractor: RegexFieldFinder (forced by env)")
         return SchemaArgumentExtractor(
             registry, RegexFieldFinder(), field_threshold=0.5

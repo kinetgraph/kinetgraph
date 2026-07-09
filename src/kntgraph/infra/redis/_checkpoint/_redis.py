@@ -13,7 +13,7 @@ domain objects from the parsed dicts.
 Wire format
 -----------
 
-Single Redis Hash at ``fmh:reactive:checkpoints`` with one
+Single Redis Hash at ``knt:reactive:checkpoints`` with one
 field per agent. Each field value is a JSON-encoded dict
 with the keys ``last_event_id``, ``last_stream_id``,
 ``confirmed_at``, ``state_hash``.
@@ -40,7 +40,7 @@ logger = structlog.get_logger()
 
 # Key prefix. Centralised here so the store does not
 # need to know the wire convention.
-CHECKPOINT_KEY = "fmh:reactive:checkpoints"
+CHECKPOINT_KEY = "knt:reactive:checkpoints"
 
 
 @dataclass(frozen=True)

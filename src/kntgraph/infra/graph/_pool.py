@@ -78,7 +78,7 @@ class GraphPool:
     password:
         Explicit password. If ``None``, the client reads
         ``Settings.falkordb_password`` (or the
-        ``FMH_FALKORDB_PASSWORD`` env var as a fallback).
+        ``KNT_FALKORDB_PASSWORD`` env var as a fallback).
         An unset password opens an unauthenticated
         connection — explicit operator decision.
 
@@ -136,7 +136,7 @@ class GraphPool:
         Resolution order:
           1. Explicit ``password`` passed to ``__init__``.
           2. ``Settings.falkordb_password``.
-          3. ``FMH_FALKORDB_PASSWORD`` env var.
+          3. ``KNT_FALKORDB_PASSWORD`` env var.
         """
         if self._password is not None:
             return self._password
@@ -154,7 +154,7 @@ class GraphPool:
                 "graph_pool.password.settings_unavailable",
                 exc_info=True,
             )
-        env_pw = os.environ.get("FMH_FALKORDB_PASSWORD")
+        env_pw = os.environ.get("KNT_FALKORDB_PASSWORD")
         return env_pw if env_pw else None
 
     def graph(self, tenant_id: str) -> GraphAdapter:

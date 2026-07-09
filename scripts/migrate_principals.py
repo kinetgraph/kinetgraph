@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-migrate_principals — upgrade legacy ``fmh:api:keys:*``
+migrate_principals — upgrade legacy ``knt:api:keys:*``
 bindings from the pre-ADR-017 format (plain agent_id
 string) to the post-ADR-017 JSON Principal format.
 
@@ -22,7 +22,7 @@ Usage::
 
 The script:
 
-  1. Scans ``fmh:api:keys:*`` in Redis.
+  1. Scans ``knt:api:keys:*`` in Redis.
   2. For each binding:
      - If already JSON with all required fields → skip.
      - If a legacy string → parse it as ``agent_id`` and
@@ -52,7 +52,7 @@ from collections.abc import Iterator
 import redis.asyncio as aioredis
 
 
-KEY_PREFIX = "fmh:api:keys:"
+KEY_PREFIX = "knt:api:keys:"
 SCAN_COUNT = 100
 
 
@@ -61,7 +61,7 @@ async def _scan_bindings(
 ) -> Iterator[tuple[str, bytes]]:
     """
     Yield ``(redis_key, raw_value)`` for every key
-    under ``fmh:api:keys:*``.
+    under ``knt:api:keys:*``.
 
     Uses SCAN to avoid blocking Redis on large
     deployments; the prefix is hard-coded so we don't
@@ -180,8 +180,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--redis-url",
-        default=os.environ.get("FMH_REDIS_URL", "redis://localhost:6379"),
-        help="Redis connection URL (default: $FMH_REDIS_URL)",
+        default=os.environ.get("KNT_REDIS_URL", "redis://localhost:6379"),
+        help="Redis connection URL (default: $KNT_REDIS_URL)",
     )
     parser.add_argument(
         "--apply",

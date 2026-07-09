@@ -185,7 +185,7 @@ asyncio.run(main())
 ## 6. Configuration
 
 All settings are loaded from env vars with the
-`FMH_` prefix. The canonical schema is
+`KNT_` prefix. The canonical schema is
 `kntgraph.infra.config.Settings`:
 
 ```python

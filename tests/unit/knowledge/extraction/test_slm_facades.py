@@ -198,10 +198,10 @@ class TestSLMIntentClassifier:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_model(self, monkeypatch) -> None:
-        """``FMH_ARG_EXTRACTOR_MODEL_ID`` propagates
+        """``KNT_ARG_EXTRACTOR_MODEL_ID`` propagates
         through the facade to the adapter."""
         monkeypatch.setenv(
-            "FMH_ARG_EXTRACTOR_MODEL_ID",
+            "KNT_ARG_EXTRACTOR_MODEL_ID",
             "urchen/gliner-multi-pii-base",
         )
         fresh_settings.cache_clear()
@@ -274,11 +274,11 @@ class TestSLMArgumentExtractor:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_model(self, monkeypatch) -> None:
-        """``FMH_ARG_EXTRACTOR_MODEL_ID`` propagates
+        """``KNT_ARG_EXTRACTOR_MODEL_ID`` propagates
         through the facade to the adapter."""
         reg = _make_tool_registry()
         monkeypatch.setenv(
-            "FMH_ARG_EXTRACTOR_MODEL_ID",
+            "KNT_ARG_EXTRACTOR_MODEL_ID",
             "urchen/gliner-multi-pii-base",
         )
         fresh_settings.cache_clear()

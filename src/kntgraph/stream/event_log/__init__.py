@@ -9,13 +9,13 @@ Layout
 ------
 Each agent has its own stream:
 
-    fmh:agents:{agent_id}:events
+    knt:agents:{agent_id}:events
 
 Events are serialized as Redis Stream entries. The `event_id` UUID
 (generated deterministically) is stored as a secondary index entry
 to enable idempotent appends:
 
-    fmh:eventids:{event_id}  = stream_entry_id
+    knt:eventids:{event_id}  = stream_entry_id
 
 A new event is appended only if `event_id` is not yet present. This
 guarantees that re-running a system on the same world (replay) does
@@ -29,7 +29,7 @@ Idempotency protocol
 1. Caller computes event_id deterministically (already done by
    Event.create with the right causation_id).
 2. Caller calls `await log.append(event)`.
-3. Log checks if `fmh:eventids:{event_id}` exists.
+3. Log checks if `knt:eventids:{event_id}` exists.
 4. If yes → no-op (returns the existing stream entry id).
 5. If no → XADD + SET eventid key, atomically via MULTI/EXEC.
 

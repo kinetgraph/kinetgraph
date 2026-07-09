@@ -11,7 +11,7 @@ LiteLLMTool instance, one call, Ok(text) result.
 Configuration is read from environment variables (or
 `.env` file in the project root). See `.env.example` for
 the full list. The default target is Ollama running
-locally with `qwen3.5:4b`; if `FMH_LLM_DEFAULT_MODEL` is
+locally with `qwen3.5:4b`; if `KNT_LLM_DEFAULT_MODEL` is
 not set, the example overrides the framework default
 (`gpt-4o-mini`) so it runs without an OpenAI key.
 
@@ -32,7 +32,7 @@ async def main() -> None:
     load_env()
     cfg = LLMConfig.from_env()
     if cfg.default_model == "gpt-4o-mini":
-        # No FMH_LLM_DEFAULT_MODEL set; default to local
+        # No KNT_LLM_DEFAULT_MODEL set; default to local
         # Ollama so the example runs out-of-the-box.
         cfg = LLMConfig(
             default_model="ollama/qwen3.5:4b",

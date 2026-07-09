@@ -24,7 +24,7 @@ last domain event's data as a single component; for richer
 semantics the application can supply a custom projection
 that aggregates messages and context keys.
 
-The cache at `fmh:session:{id}` is a **TTL cache** of the
+The cache at `knt:session:{id}` is a **TTL cache** of the
 folded state, with a default TTL of 24h. It is rebuilt on
 demand from the EventLog when the TTL expires.
 
@@ -52,7 +52,7 @@ import structlog
 logger = structlog.get_logger()
 
 
-SESSION_KEY_PREFIX = "fmh:session:"
+SESSION_KEY_PREFIX = "knt:session:"
 
 # Backwards-compat re-export. The default TTL now lives
 # in ``Settings.session_ttl_seconds`` (see

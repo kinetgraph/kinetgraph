@@ -86,9 +86,9 @@ v1 ships `InMemoryPolicyRegistry`. v2 plugs in a
 with timestamps:
 
 ```
-ZADD fmh:rate:{agent_id} <unix_ms> <event_id>
-ZREMRANGEBYSCORE fmh:rate:{agent_id} -inf <unix_ms - 1000>
-ZCARD fmh:rate:{agent_id}  # current rate
+ZADD knt:rate:{agent_id} <unix_ms> <event_id>
+ZREMRANGEBYSCORE knt:rate:{agent_id} -inf <unix_ms - 1000>
+ZCARD knt:rate:{agent_id}  # current rate
 ```
 
 The check is atomic via a Lua script (provided in
@@ -103,7 +103,7 @@ to:
 
 - `KeyRegistry._revoked: dict[(agent_id, key_epoch), str]` —
   in-memory.
-- `fmh:revocations:{agent_id}` — Redis sorted set, for cross-
+- `knt:revocations:{agent_id}` — Redis sorted set, for cross-
   verifier propagation.
 
 `verify_event` checks `is_revoked(agent_id, signature.key_epoch)`
@@ -188,7 +188,7 @@ EventLog.append(event)
     │     ├─► policy.rate_limit check
     │     └─► any fail → EventTypeForbidden  → reject
     │
-    └─► XADD fmh:agents:{agent_id}:events
+    └─► XADD knt:agents:{agent_id}:events
 ```
 
 Order matters: signature first (cheap, cryptographic), policy
@@ -257,11 +257,11 @@ control (e.g. allow 1000 `pedido.received`/s but only 10
 
 ### 5.2 Audit trail
 
-Revocations are appended to `fmh:revocations:{agent_id}` as a
+Revocations are appended to `knt:revocations:{agent_id}` as a
 Redis Stream (immutable, append-only):
 
 ```
-XADD fmh:revocations:session-42
+XADD knt:revocations:session-42
     * key_epoch 0
       reason "operator_key_compromised_2026_06_22"
       revoked_by "operator-id-42"
@@ -269,7 +269,7 @@ XADD fmh:revocations:session-42
 ```
 
 Auditors can replay the revocation history via
-`XREAD fmh:revocations:session-42`.
+`XREAD knt:revocations:session-42`.
 
 ### 5.3 Propagation
 
@@ -374,7 +374,7 @@ count = await policy_registry.audit_log.count(
 )
 ```
 
-The audit log is `fmh:policy_audit` (Redis Stream); each
+The audit log is `knt:policy_audit` (Redis Stream); each
 rejection is one entry with reason, agent_id, event_type,
 timestamp.
 

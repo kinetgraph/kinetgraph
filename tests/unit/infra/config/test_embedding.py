@@ -48,7 +48,7 @@ class TestEmbeddingDefaults:
 
 class TestEmbeddingEnvOverride:
     def test_model_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()
@@ -57,7 +57,7 @@ class TestEmbeddingEnvOverride:
         fresh_settings.cache_clear()
 
     def test_dimension_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_DIMENSION", "1536")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_DIMENSION", "1536")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()
@@ -66,7 +66,7 @@ class TestEmbeddingEnvOverride:
         fresh_settings.cache_clear()
 
     def test_timeout_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_EMBEDDING_TIMEOUT_SECONDS", "15.0")
+        monkeypatch.setenv("KNT_EMBEDDING_TIMEOUT_SECONDS", "15.0")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()

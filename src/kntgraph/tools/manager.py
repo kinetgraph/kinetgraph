@@ -103,7 +103,7 @@ class WorkerManager:
 
         for tool_name in self._tools:
             # Ensure Consumer Group exists
-            stream_key = f"fmh:tools:{tool_name}:queue"
+            stream_key = f"knt:tools:{tool_name}:queue"
             try:
                 await self._redis.xgroup_create(
                     stream_key, self._group_name, id="0", mkstream=True
@@ -134,7 +134,7 @@ class WorkerManager:
             self._pool = None
 
     async def _consume_loop(self, tool_name: str) -> None:
-        stream_key = f"fmh:tools:{tool_name}:queue"
+        stream_key = f"knt:tools:{tool_name}:queue"
         while self._running:
             try:
                 # Block for 1 second waiting for new messages
@@ -253,7 +253,7 @@ class WorkerManager:
 
     async def _reaper_loop(self, tool_name: str) -> None:
         """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
-        stream_key = f"fmh:tools:{tool_name}:queue"
+        stream_key = f"knt:tools:{tool_name}:queue"
         # Idle time is in milliseconds for redis
         idle_time_ms = int(self._reaper_idle_time * 1000)
 

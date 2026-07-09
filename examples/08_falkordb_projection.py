@@ -116,15 +116,15 @@ async def main() -> None:
     redis = aioredis.from_url("redis://:redispassword@localhost:6379", db=15)
     await redis.flushdb()
     fdb = GraphPool(
-        host=os.environ.get("FMH_FALKORDB_HOST", "localhost"),
-        port=int(os.environ.get("FMH_FALKORDB_PORT", "16379")),
-        password=os.environ.get("FMH_FALKORDB_PASSWORD", "falkordb"),
+        host=os.environ.get("KNT_FALKORDB_HOST", "localhost"),
+        port=int(os.environ.get("KNT_FALKORDB_PORT", "16379")),
+        password=os.environ.get("KNT_FALKORDB_PASSWORD", "falkordb"),
     )
     fdb.connect()
     print(
         f"✓ Connected to FalkorDB at "
-        f"{os.environ.get('FMH_FALKORDB_HOST', 'localhost')}:"
-        f"{os.environ.get('FMH_FALKORDB_PORT', '16379')}"
+        f"{os.environ.get('KNT_FALKORDB_HOST', 'localhost')}:"
+        f"{os.environ.get('KNT_FALKORDB_PORT', '16379')}"
     )
 
     # 2. Seed the EventLog

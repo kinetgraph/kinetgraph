@@ -85,7 +85,7 @@ def load_env(dotenv_path: Optional[Path] = None) -> bool:
 class _LLMSettings(BaseSettings):
     """
     Internal Pydantic-settings wrapper that reads the
-    `FMH_LLM_*` env vars and coerces their types (int /
+    `KNT_LLM_*` env vars and coerces their types (int /
     float / CSV tuple) before they land in the frozen
     `LLMConfig` dataclass.
 
@@ -95,10 +95,10 @@ class _LLMSettings(BaseSettings):
     """
 
     model_config = BaseSettings.model_config | {
-        "env_prefix": "FMH_LLM_",
+        "env_prefix": "KNT_LLM_",
     }
 
-    def __init__(self, *, _env_prefix: str = "FMH_LLM_", **data) -> None:
+    def __init__(self, *, _env_prefix: str = "KNT_LLM_", **data) -> None:
         # `model_config` is class-level; per-instance
         # overrides are not supported. We accept the prefix
         # argument for API symmetry with
@@ -107,11 +107,11 @@ class _LLMSettings(BaseSettings):
         # `env_prefix`. Non-default prefixes (e.g. in
         # tests) are surfaced as a typed warning so
         # operators don't get silent wrong-var lookups.
-        if _env_prefix != "FMH_LLM_":
+        if _env_prefix != "KNT_LLM_":
             import warnings
 
             warnings.warn(
-                f"_LLMSettings only honours the FMH_LLM_ "
+                f"_LLMSettings only honours the KNT_LLM_ "
                 f"prefix; requested {_env_prefix!r} is "
                 f"ignored.",
                 UserWarning,
@@ -167,7 +167,7 @@ class LLMConfig:
             raise ValueError(f"timeout_s must be > 0, got {self.timeout_s}")
 
     @classmethod
-    def from_env(cls, prefix: str = "FMH_LLM_") -> "LLMConfig":
+    def from_env(cls, prefix: str = "KNT_LLM_") -> "LLMConfig":
         """
         Carrega configuração de variáveis de ambiente.
 

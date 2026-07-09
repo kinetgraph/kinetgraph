@@ -20,8 +20,8 @@ The validator enforces a strict ASCII identifier shape
 (``[A-Za-z0-9._:-]{1,128}``) because ``agent_id``
 flows directly into Redis Stream keys:
 
-    fmh:agents:{agent_id}:events
-    fmh:eventids:{event_id}
+    knt:agents:{agent_id}:events
+    knt:eventids:{event_id}
 
 A string containing ``:`` could collide with key
 prefixes; ``*`` and whitespace break SCAN patterns

@@ -53,7 +53,7 @@ class ReactiveCheckpoint:
     state_hash: Optional[str] = None
 ```
 
-Armazenado em **um único hash Redis** (`fmh:reactive:checkpoints`,
+Armazenado em **um único hash Redis** (`knt:reactive:checkpoints`,
 um field por agente). Escrito pelo dispatcher **após** o batch
 ter sido commitado no EventLog.
 

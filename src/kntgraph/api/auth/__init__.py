@@ -12,7 +12,7 @@ header and returns a ``Principal`` (per ADR-017 §2.1).
 Binding table format
 --------------------
 
-The Redis binding ``fmh:api:keys:<sha256>`` stores a
+The Redis binding ``knt:api:keys:<sha256>`` stores a
 JSON payload:
 
     {

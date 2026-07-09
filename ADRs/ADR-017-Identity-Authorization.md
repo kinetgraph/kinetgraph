@@ -68,10 +68,10 @@ class Role(StrEnum):
 
 ```
 # Legacy binding (kept for compat):
-fmh:api:keys:<sha256(key)>  →  agent_id
+knt:api:keys:<sha256(key)>  →  agent_id
 
 # Zero-Trust binding:
-fmh:api:keys:<sha256(key)>  →  JSON {
+knt:api:keys:<sha256(key)>  →  JSON {
     "agent_id":  "agent-A1",
     "role":      "agent",
     "tenant_id": "tenant-A",
@@ -127,8 +127,8 @@ The `admin` role is the only one that crosses tenant boundaries. The `service` r
 We ship Zero-Trust as a **feature-flagged mode** to avoid breaking every consumer at once:
 
 ```
-FMH_AUTH_MODE=legacy      # default in 0.8.x — current behaviour
-FMH_AUTH_MODE=zero_trust  # opt-in; becomes default in 0.9.0
+KNT_AUTH_MODE=legacy      # default in 0.8.x — current behaviour
+KNT_AUTH_MODE=zero_trust  # opt-in; becomes default in 0.9.0
 ```
 
 In `legacy` mode:
@@ -141,7 +141,7 @@ In `zero_trust` mode:
 - The `Policy` enforces request/route/event-tool checks (per §2.1).
 - The `EventLog.append` rejects events whose `agent_id` is not under the principal's `tenant_id` (and `agent_id` does not start with `principal.tenant_id + "."`).
 
-A deployment flips by setting `FMH_AUTH_MODE=zero_trust` and updating the binding table. The mode is a single source-of-truth read by `fresh_settings()`; flipping does not require a code change.
+A deployment flips by setting `KNT_AUTH_MODE=zero_trust` and updating the binding table. The mode is a single source-of-truth read by `fresh_settings()`; flipping does not require a code change.
 
 **Removal timeline**: `legacy` mode is removed in `0.10.0` (one minor version after `zero_trust` becomes default).
 
@@ -328,7 +328,7 @@ Cons: still role-only — no per-agent ACL; coarse-grained sharing ("all service
 
 ### Risks
 
-- **`legacy` mode never turned off**: if a deployment never flips `FMH_AUTH_MODE`, they stay at L0 forever. Mitigated by the deprecation timeline (`0.10.0` removes `legacy`); operators see the warning in `Settings` validator output.
+- **`legacy` mode never turned off**: if a deployment never flips `KNT_AUTH_MODE`, they stay at L0 forever. Mitigated by the deprecation timeline (`0.10.0` removes `legacy`); operators see the warning in `Settings` validator output.
 - **Predicate in `Scenario C` is a footgun**: not chosen by §5 recommendation, but if added later, must be sandboxed (no `eval`, no filesystem access, no network).
 - **`ContextVar` leak across awaits**: mitigated by per-request middleware; the `EventLog.append` reads but never writes the principal.
 

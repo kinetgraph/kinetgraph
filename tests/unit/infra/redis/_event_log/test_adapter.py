@@ -138,8 +138,8 @@ class TestRedisEventLogAdapter:
 
         async def fake_scan(match, count=None):
             for k in [
-                b"fmh:agents:tenant-a:events",
-                b"fmh:agents:tenant-b:events",
+                b"knt:agents:tenant-a:events",
+                b"knt:agents:tenant-b:events",
             ]:
                 yield k
 

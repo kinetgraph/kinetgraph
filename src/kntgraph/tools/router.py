@@ -27,7 +27,7 @@ class ToolRouter:
     Implements the Full Payload Fan-Out strategy.
 
     Observes outgoing events from systems and routes any 'tool.*.requested'
-    events to the global tool queues (fmh:tools:<name>:queue), allowing
+    events to the global tool queues (knt:tools:<name>:queue), allowing
     the Tool Workers to execute without querying the agent's EventLog.
     """
 
@@ -45,7 +45,7 @@ class ToolRouter:
             if parsed is not None and parsed.kind == ToolEventKind.REQUESTED:
                 tool_name = parsed.tool_name
 
-                stream_key = f"fmh:tools:{tool_name}:queue"
+                stream_key = f"knt:tools:{tool_name}:queue"
                 try:
                     payload = event.to_json()
                     await self._redis.xadd(stream_key, {"payload": payload})

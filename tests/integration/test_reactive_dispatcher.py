@@ -126,7 +126,7 @@ class TestCursorSemantics:
         event on the floor.
         """
         log = EventLog(clean_redis)
-        await clean_redis.delete("fmh:agents:a-1:events")
+        await clean_redis.delete("knt:agents:a-1:events")
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -154,7 +154,7 @@ class TestCursorSemantics:
         assert 1 in fired_steps, fired_steps
 
         # Aggressively trim the stream past the cursor.
-        await clean_redis.xtrim("fmh:agents:a-1:events", maxlen=1, approximate=False)
+        await clean_redis.xtrim("knt:agents:a-1:events", maxlen=1, approximate=False)
 
         # Add a NEW event after the trim.
         await log.append(

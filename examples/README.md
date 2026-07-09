@@ -48,7 +48,7 @@ directly with `python` or via `uv run`.
    (`ollama pull gemma4:31b-cloud`).
 3. **For cloud providers**: set `OPENAI_API_KEY` /
    `ANTHROPIC_API_KEY` and override
-   `FMH_LLM_DEFAULT_MODEL`.
+   `KNT_LLM_DEFAULT_MODEL`.
 4. **For examples 08 and 09**: FalkorDB on
    `localhost:16379` (password `falkordb`). Run
    `docker run -d -p 16379:6379 --name kntgraph-falkordb falkordb/falkordb`.
@@ -73,7 +73,7 @@ Examples 04, 08, 09, and 11 also need Redis on
 `localhost:6379`. Example 11 needs Ollama
 running locally with the `qwen3.5:4b` model
 pulled (`ollama pull qwen3.5:4b`); set
-`FMH_LLM_DEFAULT_MODEL` to point at another
+`KNT_LLM_DEFAULT_MODEL` to point at another
 model or provider.
 
 ## Without Docker (Redis)
@@ -86,7 +86,7 @@ which is enough for `EventLog` and
 `ToolInvoker`. Example 12 already wires this:
 it uses the helper
 `_lib.redis_or_fake.make_redis_client()` which
-reads `FMH_REDIS_FAKE=1` and falls back to
+reads `KNT_REDIS_FAKE=1` and falls back to
 `fakeredis.aioredis.FakeRedis(decode_responses=False)`.
 
 ## Without Docker (FalkorDB)
@@ -110,26 +110,26 @@ adapter (≤ 40 lines) that delegates to
 `graph(name).query(...)` with the same
 signature that `GraphPool` expects. Once the
 path is standardised, it will read an env
-(e.g. `FMH_FALKORDB_LITE=1`) and instantiate the
+(e.g. `KNT_FALKORDB_LITE=1`) and instantiate the
 adapter.
 
 ## Recognised env vars
 
 See `.env.example`. Summary:
 
-- `FMH_LLM_DEFAULT_MODEL` — primary model
+- `KNT_LLM_DEFAULT_MODEL` — primary model
   (with provider prefix, e.g.
   `ollama/gemma4:31b-cloud`,
   `openai/gpt-4o-mini`).
-- `FMH_LLM_FALLBACK_MODELS` — CSV of fallbacks.
-- `FMH_LLM_RATE_LIMIT_RPM` — requests per
+- `KNT_LLM_FALLBACK_MODELS` — CSV of fallbacks.
+- `KNT_LLM_RATE_LIMIT_RPM` — requests per
   minute.
-- `FMH_LLM_COST_BUDGET_USD` — per-hour budget.
-- `FMH_LLM_TIMEOUT_S` — per-call timeout.
-- `FMH_KNOWLEDGE_INTERVAL_S` — interval of the
+- `KNT_LLM_COST_BUDGET_USD` — per-hour budget.
+- `KNT_LLM_TIMEOUT_S` — per-call timeout.
+- `KNT_KNOWLEDGE_INTERVAL_S` — interval of the
   Solution tier consolidator (default `10.0`).
-- `FMH_PII_LEVEL` — PII level (default `1`).
-- `FMH_SOLUTIONS_TOOL_ALLOWLIST` — CSV of
+- `KNT_PII_LEVEL` — PII level (default `1`).
+- `KNT_SOLUTIONS_TOOL_ALLOWLIST` — CSV of
   tools allowed in the Solution tier.
 - `OLLAMA_API_BASE` — Ollama endpoint (default
   `localhost:11434`).

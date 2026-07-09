@@ -25,7 +25,7 @@ Pre-requisites
 --------------
 
   - Redis on localhost:6379 (default).
-  - Set ``FMH_REDIS_FAKE=1`` for in-process Redis.
+  - Set ``KNT_REDIS_FAKE=1`` for in-process Redis.
 
 Run
 ---

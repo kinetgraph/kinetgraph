@@ -116,9 +116,9 @@ async def main():
 
     # 1. Connection
     fdb = GraphPool(
-        host=os.environ.get("FMH_FALKORDB_HOST", "localhost"),
-        port=int(os.environ.get("FMH_FALKORDB_PORT", "16379")),
-        password=os.environ.get("FMH_FALKORDB_PASSWORD", "falkordb"),
+        host=os.environ.get("KNT_FALKORDB_HOST", "localhost"),
+        port=int(os.environ.get("KNT_FALKORDB_PORT", "16379")),
+        password=os.environ.get("KNT_FALKORDB_PASSWORD", "falkordb"),
     )
     fdb.connect()
     embedding = EmbeddingClient()

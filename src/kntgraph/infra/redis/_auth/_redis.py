@@ -6,7 +6,7 @@
 RedisAPIKeyStorage — Redis impl of APIKeyStorage.
 
 Iteration 3 (ADR-019). Owns the Redis I/O and the key prefix
-``fmh:api:keys:<digest>``. Does NOT decode the wire format;
+``knt:api:keys:<digest>``. Does NOT decode the wire format;
 the verifier does that.
 
 Result contract (AGENTS.md §6): see ``APIKeyStorage``
@@ -30,7 +30,7 @@ logger = structlog.get_logger()
 
 # Key prefix. Centralised here so the verifier does not
 # need to know the wire convention.
-KEY_PREFIX = "fmh:api:keys:"
+KEY_PREFIX = "knt:api:keys:"
 
 
 def storage_key(digest: str) -> str:

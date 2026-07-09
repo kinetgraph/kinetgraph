@@ -25,9 +25,9 @@ Three redaction levels
 | 3 (opt-in) | GLiNER2 v1.5 with ``task="pii"`` (async batch audit) | + remaining semantic PII | batch |
 
 The level is set by the constructor (``level=1`` default)
-or by the env ``FMH_PII_LEVEL``. The default label set
+or by the env ``KNT_PII_LEVEL``. The default label set
 covers the most common PII in Brazilian fiscal / ERP
-data; tenants override via ``fmh:tenant:{cnpj}:pii_labels``
+data; tenants override via ``knt:tenant:{cnpj}:pii_labels``
 (Fase 4 wiring).
 
 Idempotency

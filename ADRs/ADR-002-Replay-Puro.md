@@ -146,7 +146,7 @@ def generate_deterministic_event_id(
     causation_id: UUID, event_type: str, data: Mapping
 ) -> UUID:
     payload_str = json.dumps(dict(data), sort_keys=True)
-    return uuid5(FMH_EVENT_NAMESPACE, f"{causation_id}|{event_type}|{payload_str}")
+    return uuid5(KNT_EVENT_NAMESPACE, f"{causation_id}|{event_type}|{payload_str}")
 ```
 
 Sistemas que respondem a um evento devem propagar

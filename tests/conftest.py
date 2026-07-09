@@ -281,7 +281,7 @@ try:
         """Real Redis client for integration tests."""
         import os
 
-        redis_password = os.environ.get("FMH_REDIS_PASSWORD", "redispassword")
+        redis_password = os.environ.get("KNT_REDIS_PASSWORD", "redispassword")
         client = aioredis.Redis(
             host="localhost",
             port=6379,

@@ -131,7 +131,7 @@ class TestGetMiss:
     @pytest.mark.asyncio
     async def test_returns_none_when_key_absent(self):
         redis = _MockRedisLike()
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         result = await adapter.get("missing")
         assert result is None
 
@@ -140,7 +140,7 @@ class TestGetMiss:
         import time
 
         redis = _MockRedisLike()
-        redis.hgetall_data["fmh:llm:cache:k-1"] = {
+        redis.hgetall_data["knt:llm:cache:k-1"] = {
             "completion": json.dumps({"answer": "42"}),
             "model": "gpt-4",
             "stored_at": repr(time.time()),
@@ -148,7 +148,7 @@ class TestGetMiss:
             "completion_tokens": "5",
             "cost_usd": "0.001",
         }
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         result = await adapter.get("k-1")
         assert result is not None
         assert result.model == "gpt-4"
@@ -158,7 +158,7 @@ class TestGetMiss:
     @pytest.mark.asyncio
     async def test_propagates_redis_error(self):
         redis = _MockRedisLike(raise_on_hgetall=ConnectionError("redis down"))
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         with pytest.raises(ConnectionError):
             await adapter.get("k-1")
 
@@ -167,7 +167,7 @@ class TestSet:
     @pytest.mark.asyncio
     async def test_pipeline_hset_and_expire_when_ttl_set(self):
         redis = _MockRedisLike()
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache", ttl_s=3600)
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache", ttl_s=3600)
         entry = _CacheEntry(
             completion={"answer": "42"},
             model="gpt-4",
@@ -180,12 +180,12 @@ class TestSet:
         # The pipeline was used (single round-trip).
         assert len(redis.hset_calls) == 1
         # The EXPIRE was set.
-        assert redis.expire_calls == [("fmh:llm:cache:k-1", 3600)]
+        assert redis.expire_calls == [("knt:llm:cache:k-1", 3600)]
 
     @pytest.mark.asyncio
     async def test_no_expire_when_ttl_is_none(self):
         redis = _MockRedisLike()
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         entry = _CacheEntry(
             completion={"x": 1},
             model="gpt-4",
@@ -198,7 +198,7 @@ class TestSet:
     @pytest.mark.asyncio
     async def test_handles_none_cost(self):
         redis = _MockRedisLike()
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache", ttl_s=60)
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache", ttl_s=60)
         entry = _CacheEntry(
             completion={"x": 1},
             model="gpt-4",
@@ -214,9 +214,9 @@ class TestDelete:
     @pytest.mark.asyncio
     async def test_delete_uses_full_key(self):
         redis = _MockRedisLike()
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         await adapter.delete("k-1")
-        assert redis.delete_calls == [("fmh:llm:cache:k-1",)]
+        assert redis.delete_calls == [("knt:llm:cache:k-1",)]
 
 
 # ---------------------------------------------------------------------------
@@ -229,25 +229,25 @@ class TestClearPrefix:
     async def test_scan_iter_then_unlink(self):
         redis = _MockRedisLike()
         redis.scan_data = [
-            ["fmh:llm:cache:k-1", "fmh:llm:cache:k-2"],
-            ["fmh:llm:cache:k-3"],
+            ["knt:llm:cache:k-1", "knt:llm:cache:k-2"],
+            ["knt:llm:cache:k-3"],
         ]
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         await adapter.clear_prefix("k-1|")
         # All 3 keys were unlinked (UNLINK, not DELETE).
         assert redis.unlink_calls == [
-            ("fmh:llm:cache:k-1",),
-            ("fmh:llm:cache:k-2",),
-            ("fmh:llm:cache:k-3",),
+            ("knt:llm:cache:k-1",),
+            ("knt:llm:cache:k-2",),
+            ("knt:llm:cache:k-3",),
         ]
 
     @pytest.mark.asyncio
     async def test_count_scans_with_prefix(self):
         redis = _MockRedisLike()
         redis.scan_data = [
-            ["fmh:llm:cache:k-1", "fmh:llm:cache:k-2"],
+            ["knt:llm:cache:k-1", "knt:llm:cache:k-2"],
         ]
-        adapter = RedisCacheAdapter(redis, prefix="fmh:llm:cache")
+        adapter = RedisCacheAdapter(redis, prefix="knt:llm:cache")
         n = await adapter.count()
         assert n == 2
 

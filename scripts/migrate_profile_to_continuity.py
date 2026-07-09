@@ -50,7 +50,7 @@ Usage
     python scripts/migrate_profile_to_continuity.py            # dry-run
     python scripts/migrate_profile_to_continuity.py --commit   # apply
     python scripts/migrate_profile_to_continuity.py --tenant 12.345.678/0001-90
-    FMH_REDIS_FAKE=1 python scripts/migrate_profile_to_continuity.py
+    KNT_REDIS_FAKE=1 python scripts/migrate_profile_to_continuity.py
 
 Heuristics (the classification table)
 -------------------------------------
@@ -462,7 +462,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--redis-url",
         default=settings.redis_url,
-        help="Redis URL (default: $FMH_REDIS_URL or redis://localhost:6379).",
+        help="Redis URL (default: $KNT_REDIS_URL or redis://localhost:6379).",
     )
     p.add_argument(
         "--quiet",

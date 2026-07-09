@@ -6,7 +6,7 @@
 Tests for RedisCheckpointStorage — Redis impl of CheckpointStorage.
 
 Iteration 4 (ADR-019). The storage uses a single Redis Hash
-``fmh:reactive:checkpoints`` with one field per agent. The
+``knt:reactive:checkpoints`` with one field per agent. The
 payload is JSON-encoded by the storage (the protocol is
 storage-format-agnostic, but the checkpoint is always
 JSON in practice — see ``ReactiveCheckpoint.to_dict``).

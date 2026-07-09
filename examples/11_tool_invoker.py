@@ -36,7 +36,7 @@ Pre-requisites:
   - Ollama running locally with the `qwen3.5:4b` model
     pulled (`ollama pull qwen3.5:4b`).
 
-The example reads the model name from `FMH_LLM_DEFAULT_MODEL`
+The example reads the model name from `KNT_LLM_DEFAULT_MODEL`
 (defaults to `ollama/qwen3.5:4b`) and other settings from
 `fmh_agents.config.LLMConfig.from_env()`. Copy `.env.example`
 to `.env` to override; real env vars take precedence.
@@ -180,7 +180,7 @@ async def main() -> None:
         # Default from LLMConfig.from_env is the OpenAI
         # model. The example targets local Ollama; switch
         # to qwen3.5:4b if the user has not set
-        # FMH_LLM_DEFAULT_MODEL.
+        # KNT_LLM_DEFAULT_MODEL.
         cfg = LLMConfig(
             default_model="ollama/qwen3.5:4b",
             rate_limit_rpm=cfg.rate_limit_rpm,

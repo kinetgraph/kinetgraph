@@ -25,7 +25,7 @@ deterministic `event_id` (UUID5 over
 which gives strong *integrity* — the framework can
 detect any mutation of an event already written to the
 `EventLog` because the recomputed `event_id` would not
-match the one stored in `fmh:eventids:{event_id}`.
+match the one stored in `knt:eventids:{event_id}`.
 
 What the framework does **not** give us is
 *authentication*: there is no way to verify that an
@@ -93,7 +93,7 @@ Today, the framework offers:
 - **Causal chain** (`causation_id`,
   `correlation_id`). ✅ Auditability of *flow*. ❌
   Authentication of *who emitted*.
-- **Idempotency** (`fmh:eventids:{event_id}`
+- **Idempotency** (`knt:eventids:{event_id}`
   SETNX in `EventLog.append`). ✅ Replay-safety.
   ❌ Source authentication.
 - **DLQ** (`DeadLetterQueue` in ADR-009). ✅

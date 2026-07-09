@@ -127,6 +127,28 @@ uv run --package kntgraph pytest kntgraph/tests/unit/
 uv run --package kntgraph pytest kntgraph/tests/integration/
 ```
 
+## CLI Boilerplate Generator
+
+Kinetgraph provides a first-party CLI (`knt`) to scaffold complete, ADR-compliant Modular Monoliths and Contexts.
+
+Install the framework with the `[cli]` extra and initialize a new project:
+
+```bash
+# 1. Install Kinetgraph with the CLI extra globally or in your venv
+uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
+
+# 2. Scaffold a new application with the HTTP Gateway included
+knt init my_platform --use-intent-http
+
+# 3. Enter the project and scaffold domain contexts
+cd my_platform
+knt new context weather
+knt new system weather.WeatherRouter
+knt new tool weather.OpenMeteoApi
+```
+
+For a comprehensive walkthrough on building an application from scratch using the CLI, refer to the [CLI Guide](docs/cli_guide.md).
+
 ## Architecture
 
 ```

@@ -40,7 +40,7 @@ PME's accounting assistant:
      None, even though the EventLog retains the history.
 
 Configuration is loaded from env / `.env`. Requires Redis
-running on localhost:6379. Set `FMH_REDIS_FAKE=1` to use
+running on localhost:6379. Set `KNT_REDIS_FAKE=1` to use
 `fakeredis` in-process instead.
 
 Run:

@@ -53,7 +53,7 @@ class TestShortMemoryStorageGetReturnsMappingOrNone:
         storage = MagicMock(spec=ShortMemoryStorage)
         storage.get_record = MagicMock(return_value={"a": "1", "b": "2"})
 
-        result = storage.get_record("fmh:session:abc")
+        result = storage.get_record("knt:session:abc")
         assert result is not None
         assert result["a"] == "1"
 
@@ -66,12 +66,12 @@ class TestShortMemoryStoragePutRecord:
         storage.put_record = MagicMock()
 
         storage.put_record(
-            "fmh:session:abc",
+            "knt:session:abc",
             {"messages": ["hi"]},
             ttl_seconds=3600,
         )
         storage.put_record.assert_called_once_with(
-            "fmh:session:abc",
+            "knt:session:abc",
             {"messages": ["hi"]},
             ttl_seconds=3600,
         )
@@ -82,9 +82,9 @@ class TestShortMemoryStoragePutRecord:
         storage = MagicMock(spec=ShortMemoryStorage)
         storage.put_record = MagicMock()
 
-        storage.put_record("fmh:profile:t1:u1", {"tier": "vip"})
+        storage.put_record("knt:profile:t1:u1", {"tier": "vip"})
         storage.put_record.assert_called_once_with(
-            "fmh:profile:t1:u1",
+            "knt:profile:t1:u1",
             {"tier": "vip"},
         )
 
@@ -96,8 +96,8 @@ class TestShortMemoryStorageDeleteRecord:
         storage = MagicMock(spec=ShortMemoryStorage)
         storage.delete_record = MagicMock()
 
-        storage.delete_record("fmh:session:abc")
-        storage.delete_record.assert_called_once_with("fmh:session:abc")
+        storage.delete_record("knt:session:abc")
+        storage.delete_record.assert_called_once_with("knt:session:abc")
 
 
 class TestShortMemoryStorageIterKeys:
@@ -116,11 +116,11 @@ class TestShortMemoryStorageIterKeys:
         import asyncio
 
         async def collect():
-            async for k in storage.iter_keys("fmh:session:"):
+            async for k in storage.iter_keys("knt:session:"):
                 keys.append(k)
 
         asyncio.run(collect())
-        assert keys == ["fmh:session:1", "fmh:session:2"]
+        assert keys == ["knt:session:1", "knt:session:2"]
 
 
 class TestNoDirectRedisImportInMemory:

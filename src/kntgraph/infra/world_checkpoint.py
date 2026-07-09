@@ -12,7 +12,7 @@ after a restart without re-folding the entire agent history.
 Storage layout
 --------------
 
-Key:    ``fmh:world:{agent_id}``
+Key:    ``knt:world:{agent_id}``
 Value:  pickled ``(World, last_stream_id)`` tuple
 TTL:    7 days (matches the continuity default — an agent
          that has been idle for more than 7 days is re-bootstrapped

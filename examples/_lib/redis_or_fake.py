@@ -5,7 +5,7 @@
 """
 make_redis_client — choose between real Redis and `fakeredis`.
 
-Opt-in env: `FMH_REDIS_FAKE=1` switches to an in-process
+Opt-in env: `KNT_REDIS_FAKE=1` switches to an in-process
 `fakeredis.aioredis.FakeRedis` so examples run without a
 Redis container. The default (`0` or unset) uses real Redis
 at `localhost:6379` — unchanged from the previous examples.
@@ -31,7 +31,7 @@ def make_redis_client() -> "aioredis.Redis":
     """
     Build an async Redis client.
 
-    - `FMH_REDIS_FAKE=1` → `fakeredis.aioredis.FakeRedis(decode_responses=False)`
+    - `KNT_REDIS_FAKE=1` → `fakeredis.aioredis.FakeRedis(decode_responses=False)`
       (in-process, no Docker required; surfaces the same
       `xadd` / `xrange` / `xrevrange` / `EVALSHA` calls used
       by `EventLog`).
@@ -40,12 +40,12 @@ def make_redis_client() -> "aioredis.Redis":
     `decode_responses=False` matches the `EventLog` wire format
     (bytes in, bytes out).
     """
-    if os.environ.get("FMH_REDIS_FAKE") == "1":
+    if os.environ.get("KNT_REDIS_FAKE") == "1":
         try:
             import fakeredis.aioredis as fakeredis_aioredis
         except ImportError as e:
             raise ImportError(
-                "FMH_REDIS_FAKE=1 was set but `fakeredis` is not "
+                "KNT_REDIS_FAKE=1 was set but `fakeredis` is not "
                 "installed. Run `uv sync --extra dev` for "
                 "kntgraph."
             ) from e

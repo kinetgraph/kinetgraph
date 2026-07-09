@@ -64,12 +64,12 @@ A tabela de tiers em ADR-004 §2.1 ganha uma linha:
 | Tier | Caso de uso | Estrutura | Chave | Vida útil |
 |------|-------------|-----------|-------|-----------|
 | **Working** | ECS (World, AgentView) | In-memory | — | Tick (volátil) |
-| **Session** | Conversa, working memory | Redis JSON com TTL | `fmh:session:{session_id}` | min–horas |
-| **Profile** | Preferências estáticas da PME | Redis Hash | `fmh:profile:{tenant_id}:{user_id}` | meses–anos |
-| **Continuity** | Estado-de-uso recente (última tool, último cliente) | Redis Hash com TTL sliding | `fmh:continuity:{tenant_id}:{user_id}` | dias–semanas (sliding) |
-| **Knowledge** (Documentos) | Busca semântica livre em eventos indexados | FalkorDB — sub-grafo `(:Document)` | `fmh:tenant:{cnpj}` (graph) | permanente |
-| **Knowledge** (Solutions) | Reuso de tool calls bem-sucedidas | FalkorDB — sub-grafo `(:Problem)-[:SOLVED_BY]->(:Action)-[:ON_TOOL]->(:Tool)` | `fmh:tenant:{cnpj}` (graph) | permanente |
-| **Event log** | Source of truth (TUDO) | Redis Streams per-agent | `fmh:agents:{id}:events` | permanente (trim) |
+| **Session** | Conversa, working memory | Redis JSON com TTL | `knt:session:{session_id}` | min–horas |
+| **Profile** | Preferências estáticas da PME | Redis Hash | `knt:profile:{tenant_id}:{user_id}` | meses–anos |
+| **Continuity** | Estado-de-uso recente (última tool, último cliente) | Redis Hash com TTL sliding | `knt:continuity:{tenant_id}:{user_id}` | dias–semanas (sliding) |
+| **Knowledge** (Documentos) | Busca semântica livre em eventos indexados | FalkorDB — sub-grafo `(:Document)` | `knt:tenant:{cnpj}` (graph) | permanente |
+| **Knowledge** (Solutions) | Reuso de tool calls bem-sucedidas | FalkorDB — sub-grafo `(:Problem)-[:SOLVED_BY]->(:Action)-[:ON_TOOL]->(:Tool)` | `knt:tenant:{cnpj}` (graph) | permanente |
+| **Event log** | Source of truth (TUDO) | Redis Streams per-agent | `knt:agents:{id}:events` | permanente (trim) |
 
 ### 2.2 Princípio de separação
 
@@ -152,7 +152,7 @@ data = {
 
 ### 2.5 Hash layout (Redis cache)
 
-`fmh:continuity:{tenant_id}:{user_id}` — Hash com prefixos por tipo de slot (mesma convenção de `ProfileManager` em `profile.py:295-322`):
+`knt:continuity:{tenant_id}:{user_id}` — Hash com prefixos por tipo de slot (mesma convenção de `ProfileManager` em `profile.py:295-322`):
 
 | Campo Hash | Conteúdo | Exemplo |
 |---|---|---|
@@ -182,7 +182,7 @@ async with self._redis.pipeline(transaction=True) as pipe:
     await pipe.execute()
 ```
 
-Configurável por env `FMH_CONTINUITY_TTL_S` (default `7776000`).
+Configurável por env `KNT_CONTINUITY_TTL_S` (default `7776000`).
 
 **Por que sliding, não fixo**: o último CFOP usado em 2024-01 e nunca mais é informação morta — vence. O último CFOP usado ontem continua relevante. Sliding captura "ainda está em uso" sem precisar de job de limpeza.
 
@@ -266,7 +266,7 @@ Extensão do diagrama de ADR-010 §4:
 - [ ] `CacheRefreshKind = Literal["session", "profile", "continuity"]` no `cache_warmer.py`.
 - [ ] `CacheWarmer.pump_once` despacha os 3 kinds; falhas em um não abortam o batch.
 - [ ] `Projector.project_continuity(tenant_id, user_id)` + entrada em `project_all`.
-- [ ] TTL sliding: `EXPIRE` renovado a cada `_store_cache`. Configurável via env `FMH_CONTINUITY_TTL_S`.
+- [ ] TTL sliding: `EXPIRE` renovado a cada `_store_cache`. Configurável via env `KNT_CONTINUITY_TTL_S`.
 - [ ] `continuity.entity_seen` armazena **apenas** `value_hash` (sha256 truncado); `value` raw nunca chega no EventLog do `continuity` agent.
 - [ ] `continuity.tool_used.params_fingerprint` é hash dos params, não params raw.
 - [ ] Falha no hash → `record_entity_seen` propaga erro, não emite evento (fail-closed).

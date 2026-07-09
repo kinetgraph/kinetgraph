@@ -52,8 +52,8 @@ ROOT = Path(__file__).resolve().parent.parent
 BASELINE_PATH = ROOT / ".radon-baseline.json"
 PYRIGHT_BASELINE_PATH = ROOT / ".pyright-baseline.json"
 
-FMH_KNITGRAPH_SRC = ROOT / "src" / "kntgraph"
-FMH_KNITGRAPH_TESTS = ROOT / "tests"
+KNT_KNITGRAPH_SRC = ROOT / "src" / "kntgraph"
+KNT_KNITGRAPH_TESTS = ROOT / "tests"
 
 
 @dataclass
@@ -83,7 +83,7 @@ def _resolve(cmd_name: str) -> str:
 
 def step_syntax() -> Step:
     files: list[str] = []
-    for sub in (FMH_KNITGRAPH_SRC, FMH_KNITGRAPH_TESTS):
+    for sub in (KNT_KNITGRAPH_SRC, KNT_KNITGRAPH_TESTS):
         for p in sub.rglob("*.py"):
             files.append(str(p))
     return Step(
@@ -239,7 +239,7 @@ def _run_radon_cc() -> dict[str, Any]:
             "run",
             "radon",
             "cc",
-            str(FMH_KNITGRAPH_SRC),
+            str(KNT_KNITGRAPH_SRC),
             "-s",
             "-a",
             "-j",
@@ -262,7 +262,7 @@ def _run_radon_mi() -> dict[str, Any]:
             "run",
             "radon",
             "mi",
-            str(FMH_KNITGRAPH_SRC),
+            str(KNT_KNITGRAPH_SRC),
             "-s",
             "-j",
         ),

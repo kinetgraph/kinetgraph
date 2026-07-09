@@ -58,7 +58,7 @@ class TestRedisProfileStorage:
             }
         )
         storage = RedisProfileStorage(client=redis)
-        result = await storage.get_record("fmh:profile:t1:u1")
+        result = await storage.get_record("knt:profile:t1:u1")
         assert result.is_ok()
         assert result.ok_value() == {
             "tier": "vip",
@@ -81,10 +81,10 @@ class TestRedisProfileStorage:
         redis = _fake_redis()
         redis.hgetall = AsyncMock(return_value={})
         storage = RedisProfileStorage(client=redis)
-        result = await storage.get_record("fmh:profile:t1:u1")
+        result = await storage.get_record("knt:profile:t1:u1")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryMiss)
-        assert result.err_value().key == "fmh:profile:t1:u1"
+        assert result.err_value().key == "knt:profile:t1:u1"
 
     async def test_put_record_returns_ok(self):
         from kntgraph.infra.redis._memory import RedisProfileStorage
@@ -102,12 +102,12 @@ class TestRedisProfileStorage:
 
         storage = RedisProfileStorage(client=redis)
         result = await storage.put_record(
-            "fmh:profile:t1:u1",
+            "knt:profile:t1:u1",
             {"tier": "vip", "pref:lang": "pt-BR"},
             ttl_seconds=None,
         )
         assert result.is_ok()
-        pipe.delete.assert_called_once_with("fmh:profile:t1:u1")
+        pipe.delete.assert_called_once_with("knt:profile:t1:u1")
         pipe.hset.assert_called_once()
         pipe.execute.assert_awaited_once()
 
@@ -126,12 +126,12 @@ class TestRedisProfileStorage:
 
         storage = RedisProfileStorage(client=redis, ttl_seconds=3600)
         result = await storage.put_record(
-            "fmh:profile:t1:u1",
+            "knt:profile:t1:u1",
             {"tier": "vip"},
             ttl_seconds=3600,
         )
         assert result.is_ok()
-        pipe.expire.assert_called_once_with("fmh:profile:t1:u1", 3600)
+        pipe.expire.assert_called_once_with("knt:profile:t1:u1", 3600)
 
     async def test_put_record_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._errors import MemoryError
@@ -140,7 +140,7 @@ class TestRedisProfileStorage:
         redis = _fake_redis()
         redis.pipeline = MagicMock(side_effect=RuntimeError("pipeline broken"))
         storage = RedisProfileStorage(client=redis)
-        result = await storage.put_record("fmh:profile:t1:u1", {"tier": "vip"})
+        result = await storage.put_record("knt:profile:t1:u1", {"tier": "vip"})
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryError)
 
@@ -149,9 +149,9 @@ class TestRedisProfileStorage:
 
         redis = _fake_redis()
         storage = RedisProfileStorage(client=redis)
-        result = await storage.delete_record("fmh:profile:t1:u1")
+        result = await storage.delete_record("knt:profile:t1:u1")
         assert result.is_ok()
-        redis.delete.assert_awaited_once_with("fmh:profile:t1:u1")
+        redis.delete.assert_awaited_once_with("knt:profile:t1:u1")
 
     async def test_iter_keys_yields_with_prefix(self):
         from kntgraph.infra.redis._memory import RedisProfileStorage
@@ -160,9 +160,9 @@ class TestRedisProfileStorage:
 
         async def fake_scan(match, count=None):
             for k in [
-                b"fmh:profile:t1:u1",
-                b"fmh:profile:t1:u2",
-                b"fmh:session:s-1",  # should NOT match
+                b"knt:profile:t1:u1",
+                b"knt:profile:t1:u2",
+                b"knt:session:s-1",  # should NOT match
             ]:
                 yield k
 
@@ -171,6 +171,6 @@ class TestRedisProfileStorage:
         )
         storage = RedisProfileStorage(client=redis)
         keys = []
-        async for k in storage.iter_keys("fmh:profile:t1:"):
+        async for k in storage.iter_keys("knt:profile:t1:"):
             keys.append(k)
-        assert keys == ["fmh:profile:t1:u1", "fmh:profile:t1:u2"]
+        assert keys == ["knt:profile:t1:u1", "knt:profile:t1:u2"]

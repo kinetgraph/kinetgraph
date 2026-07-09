@@ -10,8 +10,8 @@ in-process fakeredis toggle used by benchmarks / CI
 smoke tests.
 
 The mixin does NOT set ``env_prefix``; the parent
-``Settings`` pins ``"FMH_"`` and env vars like
-``FMH_REDIS_URL`` map to ``redis_url``.
+``Settings`` pins ``"KNT_"`` and env vars like
+``KNT_REDIS_URL`` map to ``redis_url``.
 """
 
 from __future__ import annotations

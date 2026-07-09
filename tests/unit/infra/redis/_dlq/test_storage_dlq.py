@@ -6,10 +6,10 @@
 Tests for RedisDLQStorage — Redis impl of DLQStorage.
 
 Iteration 5 (ADR-019). The storage owns 4 Redis keys:
-- ``fmh:dlq:events`` (Stream)
-- ``fmh:dlq:by_event_id`` (Hash: <event_id>:<reason> → stream_id)
-- ``fmh:dlq:reasons`` (Hash: reason → counter)
-- ``fmh:dlq:by_agent`` (Hash: agent_id → first-failure stream_id)
+- ``knt:dlq:events`` (Stream)
+- ``knt:dlq:by_event_id`` (Hash: <event_id>:<reason> → stream_id)
+- ``knt:dlq:reasons`` (Hash: reason → counter)
+- ``knt:dlq:by_agent`` (Hash: agent_id → first-failure stream_id)
 
 All mutating operations return ``Result`` per AGENTS.md §6.
 """
@@ -178,7 +178,7 @@ class TestRedisDLQStorage:
         storage = RedisDLQStorage(client=redis)
         result = await storage.bump_reason_counter("timeout", -1)
         assert result.is_ok()
-        redis.hincrby.assert_awaited_once_with("fmh:dlq:reasons", "timeout", -1)
+        redis.hincrby.assert_awaited_once_with("knt:dlq:reasons", "timeout", -1)
 
     async def test_get_stats_returns_aggregate(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
@@ -230,7 +230,7 @@ class TestRedisDLQStorage:
         storage = RedisDLQStorage(client=redis)
         result = await storage.drop_entry("abc", "timeout", "1-0")
         assert result.is_ok()
-        redis.xdel.assert_awaited_once_with("fmh:dlq:events", "1-0")
+        redis.xdel.assert_awaited_once_with("knt:dlq:events", "1-0")
         redis.hdel.assert_awaited_once_with(DLQ_EVENT_INDEX, "abc:timeout")
 
     async def test_drop_entry_skips_xdel_for_placeholder(self):

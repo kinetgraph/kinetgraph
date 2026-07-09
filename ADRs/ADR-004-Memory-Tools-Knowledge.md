@@ -39,12 +39,12 @@ Este ADR registra as decisões para o F8.
 | Tier | Caso de uso | Estrutura | Chave | Vida útil |
 |------|-------------|-----------|-------|-----------|
 | **Working** | ECS (World, AgentView) | In-memory | — | Tick (volátil) |
-| **Session** | Conversa, working memory | Redis JSON com TTL | `fmh:session:{session_id}` | min–horas |
-| **Profile** | Preferências estáticas da PME / usuário | Redis Hash | `fmh:profile:{tenant_id}:{user_id}` | meses–anos |
-| **Continuity** | Estado-de-uso recente (última tool, último cliente, último CFOP) | Redis Hash com TTL sliding | `fmh:continuity:{tenant_id}:{user_id}` | dias–semanas (sliding) |
-| **Knowledge** (Documentos) | Busca semântica livre em eventos indexados | FalkorDB — sub-grafo `(:Document)` | `fmh:tenant:{cnpj}` (graph) | permanente |
-| **Knowledge** (Solutions) | Reuso de tool calls bem-sucedidas | FalkorDB — sub-grafo `(:Problem)-[:SOLVED_BY]->(:Action)-[:ON_TOOL]->(:Tool)` | `fmh:tenant:{cnpj}` (graph) | permanente |
-| **Event log** | Source of truth (TUDO) | Redis Streams per-agent | `fmh:agents:{id}:events` | permanente (trim) |
+| **Session** | Conversa, working memory | Redis JSON com TTL | `knt:session:{session_id}` | min–horas |
+| **Profile** | Preferências estáticas da PME / usuário | Redis Hash | `knt:profile:{tenant_id}:{user_id}` | meses–anos |
+| **Continuity** | Estado-de-uso recente (última tool, último cliente, último CFOP) | Redis Hash com TTL sliding | `knt:continuity:{tenant_id}:{user_id}` | dias–semanas (sliding) |
+| **Knowledge** (Documentos) | Busca semântica livre em eventos indexados | FalkorDB — sub-grafo `(:Document)` | `knt:tenant:{cnpj}` (graph) | permanente |
+| **Knowledge** (Solutions) | Reuso de tool calls bem-sucedidas | FalkorDB — sub-grafo `(:Problem)-[:SOLVED_BY]->(:Action)-[:ON_TOOL]->(:Tool)` | `knt:tenant:{cnpj}` (graph) | permanente |
+| **Event log** | Source of truth (TUDO) | Redis Streams per-agent | `knt:agents:{id}:events` | permanente (trim) |
 
 **Separação `profile` vs `continuity`** (ADR-014):
 `profile` modela "o que a PME é" (regime tributário, tier SLA,
@@ -112,9 +112,9 @@ Os outros tiers são **projeções cacheáveis e reconstruíveis**:
   mesmo `user` no mesmo tick = 1 evento; dois tools emitindo
   `continuity.tool_used` para a mesma `params_fingerprint`
   colapsam em 1).
-- TTL em `fmh:session:{id}` é **cosmético** — a verdade está
+- TTL em `knt:session:{id}` é **cosmético** — a verdade está
   no stream. TTL apenas libera memória no Redis. O TTL sliding
-  de `fmh:continuity:{tenant}:{user}` segue a mesma filosofia
+  de `knt:continuity:{tenant}:{user}` segue a mesma filosofia
   (libera memória, não é fonte da verdade).
 
 ### 2.3 Tools são **Protocol** no core, com resiliência
@@ -308,10 +308,10 @@ fmh_agents/src/fmh_agents/
 
 - [ ] Session/Profile/Continuity são agentes (mesmo `World.fold`,
       mesma idempotência, mesmo replay puro).
-- [ ] `fmh:session:{id}` é Redis JSON com TTL ≤ 24h.
-- [ ] `fmh:profile:{tenant}:{user}` é Redis Hash, sem TTL
+- [ ] `knt:session:{id}` é Redis JSON com TTL ≤ 24h.
+- [ ] `knt:profile:{tenant}:{user}` é Redis Hash, sem TTL
       obrigatório.
-- [ ] `fmh:continuity:{tenant}:{user}` é Redis Hash com TTL
+- [ ] `knt:continuity:{tenant}:{user}` é Redis Hash com TTL
       sliding (renovado a cada write).
 - [ ] `continuity.entity_seen` armazena apenas `value_hash`;
       `value` raw nunca chega no EventLog do `continuity` agent.

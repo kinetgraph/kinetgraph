@@ -147,7 +147,7 @@ class SolutionExtractor:
             that are eligible for Solution promotion. When
             set, requests for tools NOT in the list are
             filtered out at extraction time. The env
-            `FMH_SOLUTIONS_TOOL_ALLOWLIST` is consumed by
+            `KNT_SOLUTIONS_TOOL_ALLOWLIST` is consumed by
             `KnowledgeConsolidator`, NOT here — the
             extractor does not read env. This keeps the
             extractor pure.

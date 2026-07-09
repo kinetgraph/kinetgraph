@@ -22,7 +22,7 @@ pytestmark = pytest.mark.asyncio
 
 PLACEHOLDER = "PLACEHOLDER"
 STREAM_ID = "1-0"
-IDEM_KEY = "fmh:eventids:abc"
+IDEM_KEY = "knt:eventids:abc"
 
 
 def _make_pipeline_mock(stream_id: str = STREAM_ID) -> MagicMock:
@@ -93,7 +93,7 @@ class TestClaimPhase:
 
         await _claim_phase(
             redis,
-            stream_key="fmh:agents:a-1:events",
+            stream_key="knt:agents:a-1:events",
             payload={"k": "v"},
             maxlen=1000,
             idem_key=IDEM_KEY,

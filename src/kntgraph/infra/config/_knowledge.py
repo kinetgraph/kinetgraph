@@ -44,7 +44,7 @@ class KnowledgeSettingsMixin(BaseSettings):
 
     knowledge_interval_s: float = Field(default=1.0, gt=0)
     solutions_review_threshold: float = Field(default=0.7, ge=0, le=1)
-    solutions_review_queue: str = Field(default="fmh:solutions:review")
+    solutions_review_queue: str = Field(default="knt:solutions:review")
     solutions_review_ttl_s: int = Field(default=7 * 24 * 60 * 60, gt=0)
     solutions_tool_allowlist: str = Field(default="")
     arg_threshold: float = Field(default=0.5, ge=0, le=1)

@@ -101,7 +101,7 @@ async def seed_event_log(log: EventLog) -> None:
 async def main() -> None:
     import os
 
-    os.environ["FMH_EMBEDDING_TIMEOUT_SECONDS"] = "120.0"
+    os.environ["KNT_EMBEDDING_TIMEOUT_SECONDS"] = "120.0"
 
     redis = aioredis.from_url("redis://:redispassword@localhost:6379", db=15)
     await redis.flushdb()

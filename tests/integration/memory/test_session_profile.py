@@ -48,9 +48,9 @@ class TestSessionManager:
         await sm.start("sess-1", user_id="u-1", tenant_id="t-1")
 
         # Cache key exists
-        assert await clean_redis.exists("fmh:session:sess-1")
+        assert await clean_redis.exists("knt:session:sess-1")
         # TTL was set
-        ttl = await clean_redis.ttl("fmh:session:sess-1")
+        ttl = await clean_redis.ttl("knt:session:sess-1")
         assert ttl > 0
 
     async def test_append_message_aggregates(self, clean_redis):
@@ -107,18 +107,18 @@ class TestSessionManager:
         await sm.append_message("sess-1", "user", "hello")
 
         # Cache should exist
-        assert await clean_redis.exists("fmh:session:sess-1")
+        assert await clean_redis.exists("knt:session:sess-1")
 
         # Delete the cache
-        await clean_redis.delete("fmh:session:sess-1")
-        assert not await clean_redis.exists("fmh:session:sess-1")
+        await clean_redis.delete("knt:session:sess-1")
+        assert not await clean_redis.exists("knt:session:sess-1")
 
         # Read should rebuild from log
         state = await sm.read("sess-1")
         assert state is not None
         assert len(state.messages) == 1
         # Cache is now re-populated
-        assert await clean_redis.exists("fmh:session:sess-1")
+        assert await clean_redis.exists("knt:session:sess-1")
 
     async def test_idempotent_start(self, clean_redis):
         log = EventLog(clean_redis)
@@ -158,9 +158,9 @@ class TestProfileManager:
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
 
         # Cache key exists
-        assert await clean_redis.exists("fmh:profile:t-1:u-1")
+        assert await clean_redis.exists("knt:profile:t-1:u-1")
         # It's a hash, not a JSON string
-        key_type = await clean_redis.type("fmh:profile:t-1:u-1")
+        key_type = await clean_redis.type("knt:profile:t-1:u-1")
         assert key_type == b"hash"
 
     async def test_set_preference(self, clean_redis):
@@ -198,12 +198,12 @@ class TestProfileManager:
         await pm.set_preference("t-1", "u-1", "currency", "BRL")
 
         # Delete cache
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
         # Read rebuilds
         state = await pm.read("t-1", "u-1")
         assert state.preferences == {"lang": "pt-BR", "currency": "BRL"}
         # Cache re-populated
-        assert await clean_redis.exists("fmh:profile:t-1:u-1")
+        assert await clean_redis.exists("knt:profile:t-1:u-1")
 
     async def test_read_unknown_returns_none(self, clean_redis):
         log = EventLog(clean_redis)
@@ -239,8 +239,8 @@ class TestConsolidator:
         # Set up a session + delete its cache
         await sm.start("s-1", user_id="u", tenant_id="t")
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
 
         # Run a cyclic tick with the consolidator
         system = cons.as_cyclic_system()
@@ -252,8 +252,8 @@ class TestConsolidator:
         # No events emitted
         assert out == []
         # Caches are STILL cold — the Consolidator is pure.
-        assert not await clean_redis.exists("fmh:session:s-1")
-        assert not await clean_redis.exists("fmh:profile:t-1:u-1")
+        assert not await clean_redis.exists("knt:session:s-1")
+        assert not await clean_redis.exists("knt:profile:t-1:u-1")
         # But the bus has 2 pending requests.
         assert len(bus) == 2
 
@@ -272,8 +272,8 @@ class TestConsolidator:
         # Set up + delete caches
         await sm.start("s-1", user_id="u", tenant_id="t")
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
 
         # Publish via the Consolidator's cyclic system
         from kntgraph.stream.projection import fold_world
@@ -289,8 +289,8 @@ class TestConsolidator:
         assert len(bus) == 0
 
         # Caches are now warm
-        assert await clean_redis.exists("fmh:session:s-1")
-        assert await clean_redis.exists("fmh:profile:t-1:u-1")
+        assert await clean_redis.exists("knt:session:s-1")
+        assert await clean_redis.exists("knt:profile:t-1:u-1")
 
     async def test_warmer_is_idempotent_on_empty_bus(self, clean_redis):
         log = EventLog(clean_redis)
@@ -337,8 +337,8 @@ class TestConsolidator:
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
 
         # Wipe caches
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
 
         # Project all
         result = await proj.project_all()
@@ -347,8 +347,8 @@ class TestConsolidator:
         assert result == {"sessions": 1, "profiles": 1, "continuity": 0}
 
         # Caches are warm
-        assert await clean_redis.exists("fmh:session:s-1")
-        assert await clean_redis.exists("fmh:profile:t-1:u-1")
+        assert await clean_redis.exists("knt:session:s-1")
+        assert await clean_redis.exists("knt:profile:t-1:u-1")
 
 
 # ---------------------------------------------------------------------------
@@ -397,11 +397,11 @@ class TestPublicCacheContract:
         await sm.start("s-1", user_id="u", tenant_id="t")
         await sm.append_message("s-1", "user", "olá")
         # Wipe the cache manually
-        await clean_redis.delete("fmh:session:s-1")
+        await clean_redis.delete("knt:session:s-1")
         # The public method rebuilds it
         await sm.refresh_cache("s-1")
         # The cache is back
-        assert await clean_redis.exists("fmh:session:s-1")
+        assert await clean_redis.exists("knt:session:s-1")
         state = await sm.read("s-1")
         assert state is not None
         assert len(state.messages) == 1
@@ -428,7 +428,7 @@ class TestPublicCacheContract:
         pm = ProfileManager(log, clean_redis)
         await pm.create("t", "u", preferences={"lang": "pt-BR"})
         await pm.set_preference("t", "u", "currency", "BRL")
-        await clean_redis.delete("fmh:profile:t:u")
+        await clean_redis.delete("knt:profile:t:u")
         await pm.refresh_cache("t", "u")
         state = await pm.read("t", "u")
         assert state is not None
@@ -450,8 +450,8 @@ class TestPublicCacheContract:
         await sm.start("s-1", user_id="u", tenant_id="t")
         await sm.append_message("s-1", "user", "olá")
         await pm.create("t-1", "u-1", tier="vip")
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
 
         # The Projector must call the public methods. If the
         # contract is broken (e.g. someone reintroduces a
@@ -480,11 +480,11 @@ class TestPublicCacheContract:
         warmer = CacheWarmer(bus, sm, pm)
 
         await sm.start("s-1", user_id="u", tenant_id="t")
-        await clean_redis.delete("fmh:session:s-1")
+        await clean_redis.delete("knt:session:s-1")
         bus.publish(CacheRefreshRequest(kind="session", id1="s-1"))
 
         # If the contract is broken, the warmer will raise
         # AttributeError on the underscore-prefixed call.
         applied = await warmer.pump_once()
         assert applied == 1
-        assert await clean_redis.exists("fmh:session:s-1")
+        assert await clean_redis.exists("knt:session:s-1")

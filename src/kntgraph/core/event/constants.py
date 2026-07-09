@@ -31,8 +31,8 @@ from ..agent_id import AGENT_ID_RE
 # Deterministic namespaces for uuid5. Reserved for future
 # framework-owned deterministic ids; the framework itself does
 # not currently assign agent_ids — the application owns that.
-FMH_EVENT_NAMESPACE = UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
-FMH_AGENT_NAMESPACE = UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
+KNT_EVENT_NAMESPACE = UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+KNT_AGENT_NAMESPACE = UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8")
 
 # Two event classes share the same stream; the value flows in
 # `event.event_class` so systems can filter.
@@ -52,6 +52,6 @@ _AGENT_ID_RE = AGENT_ID_RE
 __all__ = [
     "ALLOWED_EVENT_CLASSES",
     "EventClass",
-    "FMH_AGENT_NAMESPACE",
-    "FMH_EVENT_NAMESPACE",
+    "KNT_AGENT_NAMESPACE",
+    "KNT_EVENT_NAMESPACE",
 ]

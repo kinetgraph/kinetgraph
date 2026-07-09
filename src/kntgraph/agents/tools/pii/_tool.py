@@ -52,7 +52,7 @@ class PiiRedactionTool(Tool):
         Args:
           level: 1, 2 or 3. Default from
             `Settings.pii_level` (env
-            `FMH_PII_LEVEL`), fallback `1`. Levels 2/3
+            `KNT_PII_LEVEL`), fallback `1`. Levels 2/3
             require `entity_extractor` (or the
             construction raises).
           entity_extractor: an `EntityExtractor`
