@@ -329,8 +329,8 @@ class TestProjectorContinuity:
         )
 
         # Wipe all caches
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
         await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
 
         result = await proj.project_all()

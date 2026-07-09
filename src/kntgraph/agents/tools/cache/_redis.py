@@ -50,7 +50,7 @@ class RedisCacheAdapter:
     from kntgraph.agents.tools.cache import RedisCacheAdapter
 
     client = await create_redis_pool()
-    storage = RedisCacheAdapter(client, prefix="fmh:llm:cache")
+    storage = RedisCacheAdapter(client, prefix="knt:llm:cache")
     transport = CachingLLMTransport(
         inner=LiteLLMTransport(),
         storage=storage,
@@ -100,7 +100,7 @@ class RedisCacheAdapter:
         self,
         redis: RedisLike,
         *,
-        prefix: str = "fmh:llm:cache",
+        prefix: str = "knt:llm:cache",
         ttl_s: Optional[float] = None,
         maxsize: Optional[int] = None,
     ) -> None:
@@ -111,7 +111,7 @@ class RedisCacheAdapter:
             ``create_redis_pool`` or a ``FakeRedis`` in
             tests.
           prefix: namespace for the keys. Default
-            ``fmh:llm:cache``. Useful when multiple
+            ``knt:llm:cache``. Useful when multiple
             applications share a Redis instance.
           ttl_s: same TTL the transport uses. The
             storage applies it as ``EXPIRE`` on every

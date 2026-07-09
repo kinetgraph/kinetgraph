@@ -394,7 +394,7 @@ class TestLegacyVerifierFallback:
         redis_client = fakeredis.aioredis.FakeRedis(server=server)
         api_key = "any-key"
         digest = hashlib.sha256(api_key.encode()).hexdigest()
-        await redis_client.set(f"fmh:api:keys:{digest}", b"tenant-A.agent-1")
+        await redis_client.set(f"knt:api:keys:{digest}", b"tenant-A.agent-1")
         verifier = RedisAPIKeyVerifier.from_redis(redis_client)
         result = await verifier.verify(api_key)
         assert result.is_ok()
@@ -414,7 +414,7 @@ class TestLegacyVerifierFallback:
         api_key = "any-key"
         digest = hashlib.sha256(api_key.encode()).hexdigest()
         await redis_client.set(
-            f"fmh:api:keys:{digest}",
+            f"knt:api:keys:{digest}",
             json.dumps(
                 {
                     "agent_id": "tenant-A.admin-1",

@@ -140,13 +140,13 @@ no tick do `Runner` via `as_cyclic_system()`.
 **exclusivamente do FalkorDB**:
 
 - Roda em **coroutine própria**, fora do tick loop.
-- `interval` configurável (env `FMH_KNOWLEDGE_INTERVAL_S`,
+- `interval` configurável (env `KNT_KNOWLEDGE_INTERVAL_S`,
   default `10.0`).
 - Lê o `World` (fold do EventLog), chama
   `SolutionExtractor.extract(world)`, publica no
   `SolutionPromotionBus`, dispara `SolutionPromoter.pump_once()`.
 - **Opt-in por tenant**: a flag fica em
-  `fmh:tenant:{cnpj}:flags` (hash Redis) com campo
+  `knt:tenant:{cnpj}:flags` (hash Redis) com campo
   `knowledge_enabled: "1"`. Default: desabilitado. Cold
   start sem FalkorDB = zero overhead.
 
@@ -171,8 +171,8 @@ não `fmh_agents` — PII é transversal). Níveis:
 | Nível | Mecanismo | Quando ativa | Custo | Cobre |
 |------|-----------|--------------|-------|-------|
 | **1 — Heurístico** | Regex PT/EN (CPF, CNPJ, e-mail, telefone, CEP, chave PIX) | **Sempre** | < 1ms | ~60% dos casos |
-| **2 — GLiNER2 (NER)** | `gliner2` classifica com `labels=` do schema da tool | Opt-in, env `FMH_PII_LEVEL=2` | ~20ms | +25% (nomes, endereços) |
-| **3 — GLiNER2 v1.5 (task `pii`)** | Classificação de PII dedicada | Opt-in, env `FMH_PII_LEVEL=3` | batch assíncrono | +15% residuais |
+| **2 — GLiNER2 (NER)** | `gliner2` classifica com `labels=` do schema da tool | Opt-in, env `KNT_PII_LEVEL=2` | ~20ms | +25% (nomes, endereços) |
+| **3 — GLiNER2 v1.5 (task `pii`)** | Classificação de PII dedicada | Opt-in, env `KNT_PII_LEVEL=3` | batch assíncrono | +15% residuais |
 
 Lista de labels default shipped pelo framework:
 
@@ -184,7 +184,7 @@ DEFAULT_PII_LABELS = (
 )
 ```
 
-Override por tenant: `fmh:tenant:{cnpj}:pii_labels` (set
+Override por tenant: `knt:tenant:{cnpj}:pii_labels` (set
 Redis).
 
 **Política fail-closed**: se a `PiiRedactionTool` lançar
@@ -203,17 +203,17 @@ FalkorDB — ou grava redacted, ou nem chega lá.
 pura no `SolutionExtractor` (lê histórico do `World`):
 se o par `(problem_fingerprint, action_params_fingerprint)`
 foi visto em **N agentes diferentes** (N configurável, env
-`FMH_SOLUTIONS_CONFIDENCE_BUMP_AGENTS`, default `2`),
+`KNT_SOLUTIONS_CONFIDENCE_BUMP_AGENTS`, default `2`),
 `confidence++`. Sem LLM.
 
 **Threshold 2 — `approval_list`**: por tool, por tenant.
-Configuração em `fmh:tenant:{cnpj}:approval_list` (set
+Configuração em `knt:tenant:{cnpj}:approval_list` (set
 Redis). Tools listadas **nunca** auto-promovem, mesmo com
 confidence alta.
 
 Candidatos que falham qualquer limiar vão para a **review
-queue** (Redis Stream `fmh:solutions:review`, TTL
-`FMH_SOLUTIONS_REVIEW_TTL_S`, default `604800` = 7 dias).
+queue** (Redis Stream `knt:solutions:review`, TTL
+`KNT_SOLUTIONS_REVIEW_TTL_S`, default `604800` = 7 dias).
 Operador consome via API HTTP da aplicação (fora do escopo
 do framework). Aprovação emite `solution.promoted` event no
 EventLog, que o `SolutionPromoter` consome e grava no
@@ -335,14 +335,14 @@ e o `KnowledgeConsolidator` em sua própria coroutine com
 - [ ] `MemoryKind` aceita `"business"` e o `match` no Consolidator trata exaustivamente.
 - [ ] `SolutionExtractor.extract(world)` é puro: mesma entrada → mesma saída. Testado sem Redis.
 - [ ] `KnowledgeConsolidator.start()`/`stop()` funcionam como coroutines independentes; interval configurável.
-- [ ] `KnowledgeConsolidator` é opt-in: desabilitado por default, flag em `fmh:tenant:{cnpj}:flags`.
+- [ ] `KnowledgeConsolidator` é opt-in: desabilitado por default, flag em `knt:tenant:{cnpj}:flags`.
 - [ ] `SolutionPromoter.upsert_solution` é idempotente: rodar 2x produz o mesmo grafo.
 - [ ] `PiiRedactionTool` (nível 1) substitui CPF/CNPJ/e-mail/telefone por placeholders antes do MERGE.
 - [ ] `PiiRedactionTool` falhando → `pii.check_failed` event no EventLog + DLQ. Nada grava.
 - [ ] `find_solutions_by_problem(embedding, k=5)` retorna top-k por similaridade cosseno em `(:Problem).embedding`.
 - [ ] `find_solutions_by_tool("invoice.issue", k=5)` retorna actions daquele tool, ordenadas por confidence.
 - [ ] Confidence bump cross-agent: `SolutionExtractor` incrementa `confidence` quando o par é visto em N agentes diferentes.
-- [ ] Approval list por tenant: tools listadas em `fmh:tenant:{cnpj}:approval_list` vão pra review queue, nunca auto-promovem.
+- [ ] Approval list por tenant: tools listadas em `knt:tenant:{cnpj}:approval_list` vão pra review queue, nunca auto-promovem.
 - [ ] GLiNER2 nível 2/3 são opcionais (deps opcionais `fmh-backend[gliner]`). Default = só nível 1.
 - [ ] 1 dimensão de embedding por tenant; doc explícito em `graphrag.md` §3.
 
@@ -362,7 +362,7 @@ e o `KnowledgeConsolidator` em sua própria coroutine com
 ### Negativas
 
 - ⚠️ **Mais uma dependência opcional**: `gliner2` no caminho de PII nível 2/3. Mitigação: extra opcional, default nível 1 sem GLiNER2.
-- ⚠️ **Custo de embedding por tool event**: cada `tool.completed` vira embedding em `(:Problem)`. Mitigação: allow-list de tools (env `FMH_SOLUTIONS_TOOL_ALLOWLIST`).
+- ⚠️ **Custo de embedding por tool event**: cada `tool.completed` vira embedding em `(:Problem)`. Mitigação: allow-list de tools (env `KNT_SOLUTIONS_TOOL_ALLOWLIST`).
 - ⚠️ **Review queue acumula sem operador**: TTL de 7 dias esvazia por DLQ; sem SLA. Mitigação: doc recomenda integração com API HTTP de operação (fora do framework).
 - ⚠️ **Confidence bump cross-agent exige fold caro**: o `SolutionExtractor` precisa ler o histórico. Mitigação: cursor `last_event_id` por agente; reuso cross-agent é O(history) por tick, mas amortizado pelo interval de 10s.
 

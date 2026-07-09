@@ -7,7 +7,7 @@ Revocation record dataclass for the keys package.
 
 Audit-trail entry for revoked keys, stored in
 ``InMemoryKeyRegistry._revoked`` and (in L2) in the
-``fmh:revocations:{agent_id}`` Redis Stream for
+``knt:revocations:{agent_id}`` Redis Stream for
 cross-verifier propagation.
 """
 
@@ -23,7 +23,7 @@ class RevocationRecord:
     """Audit-trail entry for a revoked key.
 
     Stored in ``InMemoryKeyRegistry._revoked`` and (in L2) in
-    the ``fmh:revocations:{agent_id}`` Redis Stream for
+    the ``knt:revocations:{agent_id}`` Redis Stream for
     cross-verifier propagation.
     """
 

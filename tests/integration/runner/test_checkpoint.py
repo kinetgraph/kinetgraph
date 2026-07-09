@@ -272,7 +272,7 @@ class TestRestartSkipsProcessed:
         await d1.dispatch_once()
 
         # Aggressively trim the stream past the cursor.
-        await clean_redis.xtrim("fmh:agents:a-1:events", maxlen=1, approximate=False)
+        await clean_redis.xtrim("knt:agents:a-1:events", maxlen=1, approximate=False)
 
         # Add a NEW event after the trim.
         await log.append(

@@ -42,8 +42,8 @@ The `ReactiveDispatcher` will no longer poll a static list of agents. Instead, i
 
 ### 2.1 The Mechanism (Wakeup Stream)
 
-1. **The Global Stream:** We create a single Redis stream named `fmh:wakeup`.
-2. **The Consumer Group:** All `ReactiveDispatcher` Pods connect to this stream using the same Consumer Group (e.g., `fmh:dispatchers_group`).
+1. **The Global Stream:** We create a single Redis stream named `knt:wakeup`.
+2. **The Consumer Group:** All `ReactiveDispatcher` Pods connect to this stream using the same Consumer Group (e.g., `knt:dispatchers_group`).
 3. **Publishing (XADD):** Whenever an external webhook arrives or a scheduler timer triggers for `agent-123`, the system publishes a lightweight message to the stream: `{"agent_id": "agent-123"}`.
 4. **Exclusive Consumption (XREADGROUP):** Redis mathematically guarantees that only *one* Pod will receive this message.
 5. **Processing and Acknowledge (XACK):** The Pod that received the message will:
@@ -68,7 +68,7 @@ Each Pod is assigned an ordinal ID (0, 1, 2) and processes only the agents where
 
 ### 3.2 Strategy B: Distributed Locks (Redis SET NX)
 
-Before processing an agent, the Pod attempts to acquire a temporary lock (`fmh:lock:{agent_id}`).
+Before processing an agent, the Pod attempts to acquire a temporary lock (`knt:lock:{agent_id}`).
 
 * **Pros:** Extremely simple to implement in the current codebase (just one extra `if` statement in the dispatcher loop).
 * **Cons:** Predatory network traffic (aggressive polling). With 50 Pods and 10,000 agents, we would generate thousands of `SET NX` requests per second returning `False`, saturating the Redis Single-Thread entirely with lock checks and stealing bandwidth from actual event writes.
@@ -81,7 +81,7 @@ Before processing an agent, the Pod attempts to acquire a temporary lock (`fmh:l
 
 * ✅ **Infinite Horizontal Scaling:** We can scale from 1 to 1,000 Pods. Load balancing is handled natively and perfectly by Redis.
 * ✅ **Zero CPU Waste:** No Pod processes redundant agents.
-* ✅ **Spike Isolation (Backpressure):** If events arrive for 50,000 agents simultaneously, the `fmh:wakeup` queue absorbs the spike. Pods consume at their own pace, preventing the cluster from crashing due to Out Of Memory (OOM) errors.
+* ✅ **Spike Isolation (Backpressure):** If events arrive for 50,000 agents simultaneously, the `knt:wakeup` queue absorbs the spike. Pods consume at their own pace, preventing the cluster from crashing due to Out Of Memory (OOM) errors.
 
 ### Negatives / Risks
 
@@ -92,8 +92,8 @@ Before processing an agent, the Pod attempts to acquire a temporary lock (`fmh:l
 
 ## 5. Migration Plan (Rollout)
 
-1. **Phase 1:** Create the Consumer Group infrastructure during server boot (`XGROUP CREATE fmh:wakeup fmh:dispatchers_group MKSTREAM`).
-2. **Phase 2:** Update inbound adapters (HTTP Gateway, Schedulers) to emit messages to `fmh:wakeup` whenever they receive intents.
+1. **Phase 1:** Create the Consumer Group infrastructure during server boot (`XGROUP CREATE knt:wakeup knt:dispatchers_group MKSTREAM`).
+2. **Phase 2:** Update inbound adapters (HTTP Gateway, Schedulers) to emit messages to `knt:wakeup` whenever they receive intents.
 3. **Phase 3:** Refactor the `ReactiveDispatcher` class, replacing the static loop with continuous consumption via `XREADGROUP`.
 4. **Phase 4:** Monitor the `consumer_lag` metric in Datadog/Grafana to create auto-scaling rules for Kubernetes Pods based on the wakeup queue size.
 

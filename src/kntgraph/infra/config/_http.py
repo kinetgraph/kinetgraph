@@ -27,7 +27,7 @@ class HttpSettingsMixin(BaseSettings):
 
     # Whether the framework exposes the OpenAPI surface
     # at ``/docs`` and ``/openapi.json``. Production
-    # deployments should set ``FMH_EXPOSE_DOCS=0`` so
+    # deployments should set ``KNT_EXPOSE_DOCS=0`` so
     # the tool registry cannot be enumerated by
     # anyone who reaches the host.
     expose_docs: bool = Field(default=True)

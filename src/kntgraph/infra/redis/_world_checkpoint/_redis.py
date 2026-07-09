@@ -8,7 +8,7 @@ RedisWorldCheckpointStorage — Redis impl of WorldCheckpointStorage.
 Iteration 5 (ADR-019). Owns the Redis I/O for the per-agent
 World checkpoint (one key per agent, pickled payload).
 
-Wire format: ``SET fmh:world:{agent_id} <pickled payload> EX <ttl>``.
+Wire format: ``SET knt:world:{agent_id} <pickled payload> EX <ttl>``.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from .._errors import MemoryError
 logger = structlog.get_logger()
 
 # Re-export the legacy constant for backward compat.
-WORLD_CHECKPOINT_KEY_TEMPLATE = "fmh:world:{agent_id}"
+WORLD_CHECKPOINT_KEY_TEMPLATE = "knt:world:{agent_id}"
 
 
 def storage_key(agent_id: str) -> str:

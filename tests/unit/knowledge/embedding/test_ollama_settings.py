@@ -76,10 +76,10 @@ class TestOllamaAdapterReadsSettings:
 
     def test_env_override_changes_model(self, monkeypatch):
         """
-        When ``FMH_EMBEDDING_DEFAULT_MODEL`` is set,
+        When ``KNT_EMBEDDING_DEFAULT_MODEL`` is set,
         the adapter's default changes to match.
         """
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -91,13 +91,13 @@ class TestOllamaAdapterReadsSettings:
 
     def test_env_override_changes_dimension(self, monkeypatch):
         """
-        When ``FMH_EMBEDDING_DEFAULT_DIMENSION`` is set,
+        When ``KNT_EMBEDDING_DEFAULT_DIMENSION`` is set,
         the adapter's default changes. The
         operator MUST also update the model to one
         that returns the new dimension — this test
         just verifies the dimension knob works.
         """
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_DIMENSION", "1536")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_DIMENSION", "1536")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -114,7 +114,7 @@ class TestOllamaAdapterExplicitOverrides:
         Passing ``model=`` to the constructor must
         still win over Settings.
         """
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_MODEL", "nomic-embed-text")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -125,7 +125,7 @@ class TestOllamaAdapterExplicitOverrides:
         fresh_settings.cache_clear()
 
     def test_explicit_dimension_wins_over_settings(self, monkeypatch):
-        monkeypatch.setenv("FMH_EMBEDDING_DEFAULT_DIMENSION", "1536")
+        monkeypatch.setenv("KNT_EMBEDDING_DEFAULT_DIMENSION", "1536")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -170,10 +170,10 @@ class TestOllamaAdapterTimeoutFromSettings:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_timeout(self, monkeypatch):
-        """When ``FMH_EMBEDDING_TIMEOUT_SECONDS`` is set,
+        """When ``KNT_EMBEDDING_TIMEOUT_SECONDS`` is set,
         the adapter's default timeout changes to match.
         """
-        monkeypatch.setenv("FMH_EMBEDDING_TIMEOUT_SECONDS", "15.0")
+        monkeypatch.setenv("KNT_EMBEDDING_TIMEOUT_SECONDS", "15.0")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -187,7 +187,7 @@ class TestOllamaAdapterTimeoutFromSettings:
         """Passing ``timeout_s=`` to the constructor must
         still win over Settings.
         """
-        monkeypatch.setenv("FMH_EMBEDDING_TIMEOUT_SECONDS", "15.0")
+        monkeypatch.setenv("KNT_EMBEDDING_TIMEOUT_SECONDS", "15.0")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,
@@ -221,7 +221,7 @@ class TestOllamaAdapterResolveDefaultsHelper:
     def test_helper_uses_settings_when_arg_is_none(self, monkeypatch):
         """When timeout_s=None, the helper reads from
         ``settings.embedding_timeout_seconds``."""
-        monkeypatch.setenv("FMH_EMBEDDING_TIMEOUT_SECONDS", "12.5")
+        monkeypatch.setenv("KNT_EMBEDDING_TIMEOUT_SECONDS", "12.5")
         fresh_settings.cache_clear()
         from kntgraph.knowledge.embedding._ollama import (
             OllamaEmbeddingAdapter,

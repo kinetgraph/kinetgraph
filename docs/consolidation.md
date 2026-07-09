@@ -229,14 +229,14 @@ def _gate(self, candidates):
     return auto, review
 ```
 
-`approval_list` = `fmh:tenant:{cnpj}:approval_list` (Redis
-set). `threshold` = `FMH_SOLUTIONS_REVIEW_THRESHOLD` (env).
+`approval_list` = `knt:tenant:{cnpj}:approval_list` (Redis
+set). `threshold` = `KNT_SOLUTIONS_REVIEW_THRESHOLD` (env).
 
 ### 4.4 Review queue
 
-Redis Stream `fmh:solutions:review`. Each entry is a
+Redis Stream `knt:solutions:review`. Each entry is a
 serialized `SolutionCandidate`. TTL
-`FMH_SOLUTIONS_REVIEW_TTL_S` (default 7 days). After the
+`KNT_SOLUTIONS_REVIEW_TTL_S` (default 7 days). After the
 TTL, the event becomes `stale_review` in the DLQ.
 
 The application plugs in its own HTTP review endpoint
@@ -277,15 +277,15 @@ to the DLQ. Fail-closed.
 
 | Variable | Default | Where it applies |
 |----------|---------|------------------|
-| `FMH_KNOWLEDGE_INTERVAL_S` | `10.0` | Solutions coroutine interval |
-| `FMH_PII_LEVEL` | `1` | `PiiRedactionTool.level` |
-| `FMH_SOLUTIONS_TOOL_ALLOWLIST` | (empty) | `SolutionExtractor` filters by tool |
-| `FMH_SOLUTIONS_CONFIDENCE_BUMP_AGENTS` | `2` | `SolutionExtractor.bump_confidence` threshold |
-| `FMH_SOLUTIONS_REVIEW_THRESHOLD` | `1` | Promotion gate review threshold |
-| `FMH_SOLUTIONS_REVIEW_TTL_S` | `604800` | Redis Stream TTL |
+| `KNT_KNOWLEDGE_INTERVAL_S` | `10.0` | Solutions coroutine interval |
+| `KNT_PII_LEVEL` | `1` | `PiiRedactionTool.level` |
+| `KNT_SOLUTIONS_TOOL_ALLOWLIST` | (empty) | `SolutionExtractor` filters by tool |
+| `KNT_SOLUTIONS_CONFIDENCE_BUMP_AGENTS` | `2` | `SolutionExtractor.bump_confidence` threshold |
+| `KNT_SOLUTIONS_REVIEW_THRESHOLD` | `1` | Promotion gate review threshold |
+| `KNT_SOLUTIONS_REVIEW_TTL_S` | `604800` | Redis Stream TTL |
 
 Per-tenant opt-in: Redis hash
-`fmh:tenant:{cnpj}:flags` with field
+`knt:tenant:{cnpj}:flags` with field
 `knowledge_enabled: "1"`.
 
 ---

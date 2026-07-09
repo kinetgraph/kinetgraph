@@ -73,7 +73,7 @@ ou `routing.unclassified` (abaixo do threshold).
 | `IntentClassifier` (Protocol) | `fmh_backend/.../knowledge/extraction/base.py` | `async classify(text, labels) -> Result[Classification, ToolError]` — desacopla Role de GLiNER2 |
 
 **Critério de unclassified:** `confidence < threshold`, onde
-`threshold` é configurável via env `FMH_ROUTING_THRESHOLD` (default
+`threshold` é configurável via env `KNT_ROUTING_THRESHOLD` (default
 `0.6`). Configurabilidade é importante porque o operador pode
 querer ser mais conservador (0.7) se houver um consumer LLM
 confiável no DLQ, ou mais permissivo (0.5) se as descrições das
@@ -263,7 +263,7 @@ Métricas mínimas (futuro, ADR-014): contadores
   e `fmh_agents/tests/unit/roles/test_semantic_router.py` usando
   fake `IntentClassifier` (mesmo padrão de `FakeLLMTransport`
   do ADR-008).
-- Configurar `FMH_ROUTING_THRESHOLD` no `.env` por ambiente.
+- Configurar `KNT_ROUTING_THRESHOLD` no `.env` por ambiente.
 - Calibrar threshold com corpus real (ADR-014 proposto).
 
 ### Para a arquitetura

@@ -61,12 +61,12 @@ class TestLiteLLMToolReadsSettings:
         # and the import itself reads ``<cwd>/.env`` (via
         # ``litellm``'s own bootstrap). When pytest runs
         # from ``kntgraph.agents/`` with a ``.env`` file that
-        # sets ``FMH_LLM_DEFAULT_MODEL``, that value leaks
+        # sets ``KNT_LLM_DEFAULT_MODEL``, that value leaks
         # into ``os.environ`` after any prior test invoked
         # the tool. ``monkeypatch.delenv(..., raising=False)``
         # ensures the env var is absent for this test
         # so ``Settings()`` returns the framework default.
-        monkeypatch.delenv("FMH_LLM_DEFAULT_MODEL", raising=False)
+        monkeypatch.delenv("KNT_LLM_DEFAULT_MODEL", raising=False)
         # Reload to make sure no env override is in
         # effect from another test.
         fresh_settings.cache_clear()
@@ -101,11 +101,11 @@ class TestLiteLLMToolReadsSettings:
 
     def test_env_override_changes_default_model(self, monkeypatch):
         """
-        When ``FMH_LLM_DEFAULT_MODEL`` is set, the
+        When ``KNT_LLM_DEFAULT_MODEL`` is set, the
         tool's default changes to match. This is
         the operator's main tuning surface.
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MODEL", "claude-3-haiku-20240307")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MODEL", "claude-3-haiku-20240307")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -120,10 +120,10 @@ class TestLiteLLMToolReadsSettings:
 
     def test_env_override_changes_timeout(self, monkeypatch):
         """
-        When ``FMH_LLM_TIMEOUT`` is set, the tool's
+        When ``KNT_LLM_TIMEOUT`` is set, the tool's
         ``_timeout_s`` matches.
         """
-        monkeypatch.setenv("FMH_LLM_TIMEOUT", "60.0")
+        monkeypatch.setenv("KNT_LLM_TIMEOUT", "60.0")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -144,7 +144,7 @@ class TestLiteLLMToolExplicitOverrides:
         must still win over Settings. The tool's
         default is "Settings unless told otherwise".
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MODEL", "claude-3-haiku-20240307")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MODEL", "claude-3-haiku-20240307")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -160,7 +160,7 @@ class TestLiteLLMToolExplicitOverrides:
         fresh_settings.cache_clear()
 
     def test_explicit_timeout_wins_over_settings(self, monkeypatch):
-        monkeypatch.setenv("FMH_LLM_TIMEOUT", "60.0")
+        monkeypatch.setenv("KNT_LLM_TIMEOUT", "60.0")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -232,10 +232,10 @@ class TestLiteLLMToolTemperatureAndTokens:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_temperature(self, monkeypatch):
-        """When ``FMH_LLM_DEFAULT_TEMPERATURE`` is set,
+        """When ``KNT_LLM_DEFAULT_TEMPERATURE`` is set,
         the tool's default temperature changes to match.
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_TEMPERATURE", "0.0")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_TEMPERATURE", "0.0")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -249,10 +249,10 @@ class TestLiteLLMToolTemperatureAndTokens:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_max_tokens(self, monkeypatch):
-        """When ``FMH_LLM_DEFAULT_MAX_TOKENS`` is set,
+        """When ``KNT_LLM_DEFAULT_MAX_TOKENS`` is set,
         the tool's default changes to match.
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MAX_TOKENS", "4096")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MAX_TOKENS", "4096")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -269,7 +269,7 @@ class TestLiteLLMToolTemperatureAndTokens:
         """Passing ``temperature=`` to the constructor
         must still win over Settings.
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_TEMPERATURE", "0.0")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_TEMPERATURE", "0.0")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -287,7 +287,7 @@ class TestLiteLLMToolTemperatureAndTokens:
         """Passing ``max_tokens=`` to the constructor
         must still win over Settings.
         """
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MAX_TOKENS", "4096")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MAX_TOKENS", "4096")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -417,10 +417,10 @@ class TestLiteLLMToolCostCap:
         fresh_settings.cache_clear()
 
     def test_env_override_changes_cost_cap(self, monkeypatch):
-        """When ``FMH_LLM_MAX_COST_USD_PER_REQUEST``
+        """When ``KNT_LLM_MAX_COST_USD_PER_REQUEST``
         is set, the tool's cap changes to match.
         """
-        monkeypatch.setenv("FMH_LLM_MAX_COST_USD_PER_REQUEST", "0.5")
+        monkeypatch.setenv("KNT_LLM_MAX_COST_USD_PER_REQUEST", "0.5")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (
@@ -437,7 +437,7 @@ class TestLiteLLMToolCostCap:
         """Passing ``max_cost_usd_per_request=`` to the
         constructor must still win over Settings.
         """
-        monkeypatch.setenv("FMH_LLM_MAX_COST_USD_PER_REQUEST", "0.5")
+        monkeypatch.setenv("KNT_LLM_MAX_COST_USD_PER_REQUEST", "0.5")
         fresh_settings.cache_clear()
         from kntgraph.agents.tools.llm import LiteLLMTool
         from .._fake_transport import (

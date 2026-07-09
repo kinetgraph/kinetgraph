@@ -266,8 +266,8 @@ class TestProjectAll:
         await pm.create("t-1", "u-1", tier="vip")
         await pm.set_preference("t-1", "u-1", "lang", "pt-BR")
 
-        await clean_redis.delete("fmh:session:s-1")
-        await clean_redis.delete("fmh:profile:t-1:u-1")
+        await clean_redis.delete("knt:session:s-1")
+        await clean_redis.delete("knt:profile:t-1:u-1")
 
         result = await proj.project_all()
         # ``continuity`` always appears in the counts (ADR-014),

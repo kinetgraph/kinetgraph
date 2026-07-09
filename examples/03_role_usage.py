@@ -59,7 +59,7 @@ async def main() -> None:
         # Default from LLMConfig.from_env is the OpenAI
         # model. The example targets local Ollama; switch
         # to qwen3.5:4b if the user has not set
-        # FMH_LLM_DEFAULT_MODEL.
+        # KNT_LLM_DEFAULT_MODEL.
         cfg = LLMConfig(
             default_model="ollama/qwen3.5:4b",
             rate_limit_rpm=cfg.rate_limit_rpm,

@@ -13,12 +13,12 @@ hash-based idempotency protocol. The queue class
 Wire format
 -----------
 
-  - ``fmh:dlq:events``           — Stream (one entry per DLQ row)
-  - ``fmh:dlq:by_event_id``      — Hash:
+  - ``knt:dlq:events``           — Stream (one entry per DLQ row)
+  - ``knt:dlq:by_event_id``      — Hash:
                                    ``<event_id>:<reason>`` → stream_id
                                    (with ``PLACEHOLDER`` marker during claim)
-  - ``fmh:dlq:by_agent``         — Hash: ``agent_id`` → first stream id
-  - ``fmh:dlq:reasons``          — Hash: ``reason`` → counter
+  - ``knt:dlq:by_agent``         — Hash: ``agent_id`` → first stream id
+  - ``knt:dlq:reasons``          — Hash: ``reason`` → counter
 
 Result contract (AGENTS.md §6): see ``DLQStorage``.
 """
@@ -42,10 +42,10 @@ logger = structlog.get_logger()
 
 # Key prefix conventions. Centralised here so the queue
 # does not need to know the wire convention.
-DLQ_STREAM_KEY = "fmh:dlq:events"
-DLQ_REASON_INDEX = "fmh:dlq:reasons"
-DLQ_AGENT_INDEX = "fmh:dlq:by_agent"
-DLQ_EVENT_INDEX = "fmh:dlq:by_event_id"
+DLQ_STREAM_KEY = "knt:dlq:events"
+DLQ_REASON_INDEX = "knt:dlq:reasons"
+DLQ_AGENT_INDEX = "knt:dlq:by_agent"
+DLQ_EVENT_INDEX = "knt:dlq:by_event_id"
 
 # Idempotency placeholder. A concurrent writer holds this
 # key while it appends; the next reader treats it as a

@@ -20,7 +20,7 @@ by every mixin and by the aggregated ``Settings``:
   - ``BaseSettings``: thin wrapper over Pydantic v2's
     ``BaseSettings``. Subclasses MUST set
     ``model_config`` to override ``env_prefix`` (the
-    aggregate pins ``"FMH_"``).
+    aggregate pins ``"KNT_"``).
   - ``load_dotenv_files``: walks a list of paths and
     loads the first existing ``.env``. Mirrors the
     legacy ``load_env`` behaviour (explicit env wins
@@ -37,8 +37,8 @@ Prefix model
 ------------
 
 The aggregate's ``model_config`` pins
-``env_prefix="FMH_"`` so existing deployments using
-``FMH_REDIS_URL``, ``FMH_FALKORDB_PASSWORD``, etc.
+``env_prefix="KNT_"`` so existing deployments using
+``KNT_REDIS_URL``, ``KNT_FALKORDB_PASSWORD``, etc.
 keep working unchanged. The base class does NOT set
 a prefix — subclasses opt in. That way the
 aggregated ``Settings`` is the only canonical
@@ -70,8 +70,8 @@ class BaseSettings(_PydanticBaseSettings):
 
     No prefix is set on this base — each subclass
     chooses its own. The aggregated ``Settings`` pins
-    ``"FMH_"``; an LLM-only sub-config can pick
-    ``"FMH_LLM_"`` etc.
+    ``"KNT_"``; an LLM-only sub-config can pick
+    ``"KNT_LLM_"`` etc.
     """
 
     model_config = SettingsConfigDict(
@@ -132,7 +132,7 @@ def env_or_default(name: str, default: Optional[str] = None) -> Optional[str]:
     or fallback" rule.
 
     Empty strings are treated as unset so a typo like
-    ``FMH_FOO=`` does not accidentally set the value to
+    ``KNT_FOO=`` does not accidentally set the value to
     the empty string and bypass validation downstream.
     """
     raw = os.environ.get(name)

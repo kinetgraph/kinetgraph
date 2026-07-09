@@ -6,13 +6,13 @@
 Integration tests for the FalkorDB projection system.
 
 These tests require a real FalkorDB instance reachable at
-localhost:16379 (or whatever the FMH_FALKORDB_HOST/PORT
+localhost:16379 (or whatever the KNT_FALKORDB_HOST/PORT
 env vars point to). If falkordb is not installed, tests
 are skipped.
 
 Run with:
     docker run -d -p 16379:6379 --name fmh-falkordb falkordb/falkordb
-    FMH_FALKORDB_PASSWORD=falkordb uv run --package kntgraph pytest \\
+    KNT_FALKORDB_PASSWORD=falkordb uv run --package kntgraph pytest \\
         kntgraph/tests/integration/knowledge -v
 """
 
@@ -62,8 +62,8 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def falkordb_client() -> Iterator[GraphPool]:
-    host = os.environ.get("FMH_FALKORDB_HOST", "localhost")
-    port = int(os.environ.get("FMH_FALKORDB_PORT", "16379"))
+    host = os.environ.get("KNT_FALKORDB_HOST", "localhost")
+    port = int(os.environ.get("KNT_FALKORDB_PORT", "16379"))
     password = "falkordb"
     c = GraphPool(host=host, port=port, password=password)
     try:
@@ -100,7 +100,7 @@ async def clean_falkordb_graph(falkordb_client: GraphPool):
 async def event_log():
     from kntgraph.infra.redis._event_log._adapter import RedisEventLogAdapter
 
-    redis_password = os.environ.get("FMH_REDIS_PASSWORD", "redispassword")
+    redis_password = os.environ.get("KNT_REDIS_PASSWORD", "redispassword")
     redis_url = f"redis://:{redis_password}@localhost:6379"
     redis = aioredis.from_url(redis_url, db=15)
     await redis.flushdb()

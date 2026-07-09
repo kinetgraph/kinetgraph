@@ -85,7 +85,7 @@ class ReactiveCheckpoint:
 Todos os checkpoints vivem num único hash:
 
 ```
-fmh:reactive:checkpoints
+knt:reactive:checkpoints
   ├── "a-1" → {"last_event_id": "...", "last_stream_id": "1-0", ...}
   ├── "b-2" → {"last_event_id": "...", "last_stream_id": "1-0", ...}
   └── ...

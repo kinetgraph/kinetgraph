@@ -496,15 +496,15 @@ class TestRoutingConfig:
             RoutingConfig(top_k_candidates=0)
 
     def test_from_env_uses_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        for k in ("FMH_ROUTING_THRESHOLD", "FMH_ROUTING_TOP_K_CANDIDATES"):
+        for k in ("KNT_ROUTING_THRESHOLD", "KNT_ROUTING_TOP_K_CANDIDATES"):
             monkeypatch.delenv(k, raising=False)
         cfg = RoutingConfig.from_env()
         assert cfg.threshold == pytest.approx(0.6)
         assert cfg.top_k_candidates == 3
 
     def test_from_env_overrides(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("FMH_ROUTING_THRESHOLD", "0.75")
-        monkeypatch.setenv("FMH_ROUTING_TOP_K_CANDIDATES", "5")
+        monkeypatch.setenv("KNT_ROUTING_THRESHOLD", "0.75")
+        monkeypatch.setenv("KNT_ROUTING_TOP_K_CANDIDATES", "5")
         cfg = RoutingConfig.from_env()
         assert cfg.threshold == pytest.approx(0.75)
         assert cfg.top_k_candidates == 5
@@ -514,7 +514,7 @@ class TestRoutingConfig:
         A malformed env value MUST raise instead of
         silently falling back to the default. The previous
         behaviour (silent fallback) masked operator typos
-        such as `FMH_ROUTING_THRESHOLD=0,6` (comma in
+        such as `KNT_ROUTING_THRESHOLD=0,6` (comma in
         pt-BR) and led to routing running with the
         default threshold of 0.6 when the operator
         believed it was 0.75. The `Settings`-backed
@@ -522,7 +522,7 @@ class TestRoutingConfig:
         """
         from pydantic import ValidationError
 
-        monkeypatch.setenv("FMH_ROUTING_THRESHOLD", "not-a-float")
-        monkeypatch.setenv("FMH_ROUTING_TOP_K_CANDIDATES", "not-an-int")
+        monkeypatch.setenv("KNT_ROUTING_THRESHOLD", "not-a-float")
+        monkeypatch.setenv("KNT_ROUTING_TOP_K_CANDIDATES", "not-an-int")
         with pytest.raises(ValidationError):
             RoutingConfig.from_env()

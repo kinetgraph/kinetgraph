@@ -75,10 +75,10 @@ class TestRedisSessionStorage:
 
         redis = _fake_redis()
         storage = RedisSessionStorage(client=redis)
-        result = await storage.get_record("fmh:session:abc")
+        result = await storage.get_record("knt:session:abc")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryMiss)
-        assert result.err_value().key == "fmh:session:abc"
+        assert result.err_value().key == "knt:session:abc"
 
     async def test_get_record_returns_parsed_mapping(self):
         from kntgraph.infra.redis._memory import RedisSessionStorage
@@ -88,7 +88,7 @@ class TestRedisSessionStorage:
             return_value=json.dumps({"session_id": "abc", "messages": ["hi"]}).encode()
         )
         storage = RedisSessionStorage(client=redis)
-        result = await storage.get_record("fmh:session:abc")
+        result = await storage.get_record("knt:session:abc")
         assert result.is_ok()
         assert result.ok_value() == {"session_id": "abc", "messages": ["hi"]}
 
@@ -99,7 +99,7 @@ class TestRedisSessionStorage:
         redis = _fake_redis()
         redis.get = AsyncMock(return_value=b"not-json")
         storage = RedisSessionStorage(client=redis)
-        result = await storage.get_record("fmh:session:abc")
+        result = await storage.get_record("knt:session:abc")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryDecodeError)
 
@@ -110,7 +110,7 @@ class TestRedisSessionStorage:
         redis = _fake_redis()
         redis.get = AsyncMock(side_effect=RuntimeError("redis down"))
         storage = RedisSessionStorage(client=redis)
-        result = await storage.get_record("fmh:session:abc")
+        result = await storage.get_record("knt:session:abc")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryError)
 
@@ -120,14 +120,14 @@ class TestRedisSessionStorage:
         redis = _fake_redis()
         storage = RedisSessionStorage(client=redis, ttl_seconds=60)
         result = await storage.put_record(
-            "fmh:session:abc",
+            "knt:session:abc",
             {"session_id": "abc", "messages": ["hi"]},
             ttl_seconds=60,
         )
         assert result.is_ok()
         redis.set.assert_awaited_once()
         args, kwargs = redis.set.await_args
-        assert args[0] == "fmh:session:abc"
+        assert args[0] == "knt:session:abc"
         payload = json.loads(args[1])
         assert payload == {"session_id": "abc", "messages": ["hi"]}
         assert kwargs.get("ex") == 60
@@ -137,7 +137,7 @@ class TestRedisSessionStorage:
 
         redis = _fake_redis()
         storage = RedisSessionStorage(client=redis)
-        result = await storage.put_record("fmh:session:abc", {"k": "v"})
+        result = await storage.put_record("knt:session:abc", {"k": "v"})
         assert result.is_ok()
         args, kwargs = redis.set.await_args
         assert kwargs.get("ex") is None
@@ -151,7 +151,7 @@ class TestRedisSessionStorage:
         # A circular reference breaks json.dumps.
         circular: dict = {}
         circular["self"] = circular
-        result = await storage.put_record("fmh:session:abc", circular)
+        result = await storage.put_record("knt:session:abc", circular)
         assert result.is_err()
         assert isinstance(result.err_value(), MemorySerializationError)
 
@@ -160,9 +160,9 @@ class TestRedisSessionStorage:
 
         redis = _fake_redis()
         storage = RedisSessionStorage(client=redis)
-        result = await storage.delete_record("fmh:session:abc")
+        result = await storage.delete_record("knt:session:abc")
         assert result.is_ok()
-        redis.delete.assert_awaited_once_with("fmh:session:abc")
+        redis.delete.assert_awaited_once_with("knt:session:abc")
 
     async def test_iter_keys_yields_with_prefix(self):
         from kntgraph.infra.redis._memory import RedisSessionStorage
@@ -171,9 +171,9 @@ class TestRedisSessionStorage:
 
         async def fake_scan(match, count=None):
             for k in [
-                b"fmh:session:s-1",
-                b"fmh:session:s-2",
-                b"fmh:profile:t1:u1",  # should NOT match
+                b"knt:session:s-1",
+                b"knt:session:s-2",
+                b"knt:profile:t1:u1",  # should NOT match
             ]:
                 yield k
 
@@ -182,6 +182,6 @@ class TestRedisSessionStorage:
         )
         storage = RedisSessionStorage(client=redis)
         keys = []
-        async for k in storage.iter_keys("fmh:session:"):
+        async for k in storage.iter_keys("knt:session:"):
             keys.append(k)
-        assert keys == ["fmh:session:s-1", "fmh:session:s-2"]
+        assert keys == ["knt:session:s-1", "knt:session:s-2"]

@@ -8,8 +8,8 @@ Application configuration.
 Loads from environment variables and ``.env``. The base
 class is a thin wrapper over Pydantic v2's
 ``BaseSettings``; the project-specific ``Settings``
-sits below and pins ``env_prefix="FMH_"`` so env
-vars like ``FMH_REDIS_URL`` map to fields.
+sits below and pins ``env_prefix="KNT_"`` so env
+vars like ``KNT_REDIS_URL`` map to fields.
 
 Two ways to read settings:
 
@@ -26,9 +26,9 @@ Two ways to read settings:
 Prefix
 ------
 
-The ``Settings`` class pins ``env_prefix="FMH_"`` so
-existing deployments using ``FMH_REDIS_URL``,
-``FMH_FALKORDB_PASSWORD``, etc. keep working
+The ``Settings`` class pins ``env_prefix="KNT_"`` so
+existing deployments using ``KNT_REDIS_URL``,
+``KNT_FALKORDB_PASSWORD``, etc. keep working
 unchanged. The base class does NOT set a prefix —
 subclasses opt in. That way ``Settings`` is the only
 canonical env-reading class, and other future
@@ -138,10 +138,10 @@ class Settings(
     # Pin ``env_prefix`` once on the aggregate. Each
     # mixin inherits it; setting it again on a mixin
     # would shadow this and break the flat env-var
-    # namespace (``FMH_REDIS_URL``, ``FMH_TICK_INTERVAL``,
+    # namespace (``KNT_REDIS_URL``, ``KNT_TICK_INTERVAL``,
     # ...).
     model_config = SettingsConfigDict(
-        env_prefix="FMH_",
+        env_prefix="KNT_",
         env_file=None,
         env_file_encoding="utf-8",
         extra="ignore",
@@ -172,8 +172,8 @@ class Settings(
             and self.falkordb_password == _DEFAULT_DEV_FALKORDB_PASSWORD
         ):
             raise ValueError(
-                f"FMH_FALKORDB_PASSWORD={_DEFAULT_DEV_FALKORDB_PASSWORD!r} is "
-                f"rejected when FMH_ENV=prod; choose a unique password."
+                f"KNT_FALKORDB_PASSWORD={_DEFAULT_DEV_FALKORDB_PASSWORD!r} is "
+                f"rejected when KNT_ENV=prod; choose a unique password."
             )
         # https_redirect_status must be one of the
         # redirect codes Starlette's RedirectResponse

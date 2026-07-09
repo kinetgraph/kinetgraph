@@ -7,7 +7,7 @@ Reactive checkpoint store — durable commit points for the
 ReactiveDispatcher.
 
 A checkpoint is the dispatcher's "commit point" for a single
-agent. It is persisted in Redis (`fmh:reactive:checkpoints` as
+agent. It is persisted in Redis (`knt:reactive:checkpoints` as
 a hash, one field per agent) and survives process restarts and
 deploys. The ReactiveDispatcher reads it on startup to know
 "where to resume from" without re-scanning the keyspace and
@@ -121,7 +121,7 @@ class CheckpointStore:
     """
     Redis-backed store for ReactiveCheckpoint.
 
-    One hash key (``fmh:reactive:checkpoints``) holds every
+    One hash key (``knt:reactive:checkpoints``) holds every
     agent's checkpoint as one field. Reads and writes are
     O(1) per agent. The store is safe to share across
     dispatcher processes — ``HSET`` is atomic in Redis.

@@ -330,6 +330,6 @@ class TestToolProtocol:
 
 class TestEnvLevel:
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("FMH_PII_LEVEL", "3")
+        monkeypatch.setenv("KNT_PII_LEVEL", "3")
         tool = PiiRedactionTool()
         assert tool._level == 3

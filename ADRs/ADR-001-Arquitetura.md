@@ -124,9 +124,9 @@ Adotar uma arquitetura **event-sourced pura** com:
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    REDIS STREAMS (FONTE DA VERDADE)                │
-│  Per-agent:  fmh:agents:{id}:events  (MAXLEN 100k)                 │
-│  Idemp:      fmh:eventids:{id}                                    │
-│  DLQ:        fmh:dlq:events + indexes                              │
+│  Per-agent:  knt:agents:{id}:events  (MAXLEN 100k)                 │
+│  Idemp:      knt:eventids:{id}                                    │
+│  DLQ:        knt:dlq:events + indexes                              │
 └────────┬──────────────────────────────────┬─────────────────────────┘
          │ XRANGE                              │ XADD
          ▼                                     ▲
@@ -252,25 +252,25 @@ eventual do modelo.
 Layout:
 
 ```
-fmh:agents:{agent_id}:events     # per-agent stream (MAXLEN 100k)
-fmh:eventids:{event_id}         # idempotency index → stream_id
+knt:agents:{agent_id}:events     # per-agent stream (MAXLEN 100k)
+knt:eventids:{event_id}         # idempotency index → stream_id
 ```
 
 **Protocolo de append:**
 
 1. Caller computa `event_id` (já determinístico via `uuid5`).
-2. `SETNX fmh:eventids:{event_id}` — se já existir, no-op.
-3. `XADD fmh:agents:{id}:events` (per-agent).
+2. `SETNX knt:eventids:{event_id}` — se já existir, no-op.
+3. `XADD knt:agents:{id}:events` (per-agent).
 4. (sem global stream desde 2026-06-22; ver ADR-022)
-5. `SET fmh:eventids:{event_id} = stream_id` (valor final).
+5. `SET knt:eventids:{event_id} = stream_id` (valor final).
 
 ### 4.6 DLQ
 
 ```
-fmh:dlq:events                   # stream de eventos falhos
-fmh:dlq:by_event_id              # hash {event_id:reason: stream_id}
-fmh:dlq:by_agent                 # hash {agent_id: first_failed_stream_id}
-fmh:dlq:reasons                  # hash {reason: count}  (stats)
+knt:dlq:events                   # stream de eventos falhos
+knt:dlq:by_event_id              # hash {event_id:reason: stream_id}
+knt:dlq:by_agent                 # hash {agent_id: first_failed_stream_id}
+knt:dlq:reasons                  # hash {reason: count}  (stats)
 ```
 
 Idempotente em `(event_id, reason)`. Reprocess devolve o

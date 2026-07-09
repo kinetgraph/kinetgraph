@@ -9,13 +9,13 @@ When a system (cyclic or reactive) cannot process an event, the
 event is sent to the DLQ with a `DLQReason` and an error message.
 The DLQ is itself a Redis Stream:
 
-    fmh:dlq:events
+    knt:dlq:events
 
 Indexed by:
 
-    HASH  fmh:dlq:reasons         = { reason: count }   (stats)
-    HASH  fmh:dlq:by_agent        = { agent_id: stream_id }  (lookup)
-    HASH  fmh:dlq:by_event_id     = { event_id:  stream_id } (idempotency)
+    HASH  knt:dlq:reasons         = { reason: count }   (stats)
+    HASH  knt:dlq:by_agent        = { agent_id: stream_id }  (lookup)
+    HASH  knt:dlq:by_event_id     = { event_id:  stream_id } (idempotency)
 
 DLQ entries are also idempotent: a second failure of the same
 event (same event_id, same reason) is a no-op.

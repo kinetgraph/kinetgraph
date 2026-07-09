@@ -22,7 +22,7 @@ The state is a flat dict[str, str]. The current state is
 derived by fold: for each `preference_set`, the value
 overrides; for `preference_unset`, the key is removed.
 
-The Redis Hash at `fmh:profile:{tenant_id}:{user_id}` is a
+The Redis Hash at `knt:profile:{tenant_id}:{user_id}` is a
 **cache** (no TTL by default — profiles are long-lived). On
 miss, the cache is rebuilt from the EventLog.
 
@@ -58,7 +58,7 @@ from .base import BaseShortTermMemory
 logger = structlog.get_logger()
 
 
-PROFILE_KEY_PREFIX = "fmh:profile:"
+PROFILE_KEY_PREFIX = "knt:profile:"
 
 # Backwards-compat re-export. The default TTL now lives
 # in ``Settings.profile_ttl_seconds`` (None = no TTL);

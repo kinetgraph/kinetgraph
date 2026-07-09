@@ -93,11 +93,11 @@ EVENT_TYPE_ROUTING_UNCLASSIFIED = "routing.unclassified"
 class _RoutingSettings(BaseSettings):
     """
     Internal Pydantic-settings wrapper for `RoutingConfig`.
-    Honours `FMH_ROUTING_*` env vars with type coercion.
+    Honours `KNT_ROUTING_*` env vars with type coercion.
     """
 
     model_config = BaseSettings.model_config | {
-        "env_prefix": "FMH_ROUTING_",
+        "env_prefix": "KNT_ROUTING_",
     }
 
     threshold: float = 0.6
@@ -129,7 +129,7 @@ class RoutingConfig:
     threshold: float = 0.6
     top_k_candidates: int = 3
     request_event_type: str = EVENT_TYPE_USER_MESSAGE
-    env_prefix: str = "FMH_ROUTING_"
+    env_prefix: str = "KNT_ROUTING_"
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.threshold <= 1.0:
@@ -140,35 +140,35 @@ class RoutingConfig:
             )
 
     @classmethod
-    def from_env(cls, prefix: str = "FMH_ROUTING_") -> "RoutingConfig":
+    def from_env(cls, prefix: str = "KNT_ROUTING_") -> "RoutingConfig":
         """
         Build a `RoutingConfig` from env vars.
 
         Reads (via `_RoutingSettings`, a Pydantic
         `BaseSettings`):
-          - `FMH_ROUTING_THRESHOLD` (float, default 0.6)
-          - `FMH_ROUTING_TOP_K_CANDIDATES` (int, default 3)
+          - `KNT_ROUTING_THRESHOLD` (float, default 0.6)
+          - `KNT_ROUTING_TOP_K_CANDIDATES` (int, default 3)
 
         Malformed values now raise a clear validation
         error instead of silently falling back to the
         default — silently masking a typo
-        (`FMH_ROUTING_THRESHOLD=0,6` written in pt-BR)
+        (`KNT_ROUTING_THRESHOLD=0,6` written in pt-BR)
         was the previous behaviour and the new contract
         is louder. To preserve compatibility with callers
         passing a non-default `prefix`, that argument is
-        accepted but only the canonical `FMH_ROUTING_`
+        accepted but only the canonical `KNT_ROUTING_`
         is honoured by the underlying settings class.
 
         Variables already set in the process win over the
         `.env` file (the same `override=False` semantics
         the rest of the workspace uses).
         """
-        if prefix != "FMH_ROUTING_":
+        if prefix != "KNT_ROUTING_":
             import warnings
 
             warnings.warn(
                 f"RoutingConfig.from_env honours only the "
-                f"FMH_ROUTING_ prefix; requested "
+                f"KNT_ROUTING_ prefix; requested "
                 f"{prefix!r} is ignored.",
                 UserWarning,
                 stacklevel=2,

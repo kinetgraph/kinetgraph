@@ -39,9 +39,9 @@ singletons (each would need its own
 Env prefix
 ----------
 
-The base ``Settings`` pins ``env_prefix="FMH_"``;
+The base ``Settings`` pins ``env_prefix="KNT_"``;
 the mixin therefore reads from
-``FMH_LLM_DEFAULT_MODEL`` etc. Operators set
+``KNT_LLM_DEFAULT_MODEL`` etc. Operators set
 these in the deployment manifest (Kubernetes
 ``ConfigMap``, Docker ``--env-file``, etc).
 """

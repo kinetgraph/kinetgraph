@@ -16,7 +16,7 @@ declared in three places:
 
 All three encoded the same wire-level invariant: the
 producer identifier flows directly into Redis Stream
-keys (``fmh:agents:{agent_id}:events``), bulkhead names,
+keys (``knt:agents:{agent_id}:events``), bulkhead names,
 and the FalkorDB tenant-id namespace. A character
 outside ``[A-Za-z0-9._:-]`` could collide with the key
 namespace or break SCAN patterns.

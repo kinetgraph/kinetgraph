@@ -42,7 +42,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 import migrate_principals  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 
-KEY_PREFIX = "fmh:api:keys:"
+KEY_PREFIX = "knt:api:keys:"
 
 
 @pytest.fixture

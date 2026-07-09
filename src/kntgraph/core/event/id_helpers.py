@@ -20,7 +20,7 @@ from typing import Mapping
 from .._typing import JsonValue
 from uuid import UUID, uuid5
 
-from .constants import FMH_EVENT_NAMESPACE
+from .constants import KNT_EVENT_NAMESPACE
 
 
 def generate_deterministic_event_id(
@@ -49,7 +49,7 @@ def generate_deterministic_event_id(
     base = f"{causation_id}|{event_type}|{payload_str}"
     if agent_id is not None:
         base = f"{agent_id}|{base}"
-    return uuid5(FMH_EVENT_NAMESPACE, base)
+    return uuid5(KNT_EVENT_NAMESPACE, base)
 
 
 __all__ = ["generate_deterministic_event_id"]

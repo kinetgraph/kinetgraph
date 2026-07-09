@@ -53,7 +53,7 @@ Requirements
 Without Docker
 --------------
 
-`FMH_REDIS_FAKE=1` switches the EventLog to an in-process
+`KNT_REDIS_FAKE=1` switches the EventLog to an in-process
 `fakeredis` client (no container required). FalkorDB is
 not exercised in this example — the EventLog +
 ToolInvoker path is pure Redis. The `LiteFalkorDBClient`
@@ -67,11 +67,11 @@ Run:
     python examples/12_semantic_routing.py
 
     # In-process Redis (zero-dep):
-    FMH_REDIS_FAKE=1 python examples/12_semantic_routing.py
+    KNT_REDIS_FAKE=1 python examples/12_semantic_routing.py
 
     # Force the regex arg extractor (GLiNER2 is still
     # used for intent classification):
-    FMH_FORCE_REGEX_EXTRACTOR=1 python examples/12_semantic_routing.py
+    KNT_FORCE_REGEX_EXTRACTOR=1 python examples/12_semantic_routing.py
 
 Known limitations
 -----------------
@@ -178,12 +178,12 @@ def _build_arg_extractor(
 
     Production: `GlinerArgumentAdapter` (zero-shot entity
     spans from the same GLiNER2 model). Honours
-    `FMH_FORCE_REGEX_EXTRACTOR=1` to switch to the
+    `KNT_FORCE_REGEX_EXTRACTOR=1` to switch to the
     dependency-free `RegexFieldFinder` path (useful for
     CI on hosts without GLiNER2 or when deterministic
     span extraction is required).
     """
-    if os.environ.get("FMH_FORCE_REGEX_EXTRACTOR") == "1":
+    if os.environ.get("KNT_FORCE_REGEX_EXTRACTOR") == "1":
         print("  extractor: RegexFieldFinder (forced by env)")
         return SchemaArgumentExtractor(
             registry, RegexFieldFinder(), field_threshold=0.5

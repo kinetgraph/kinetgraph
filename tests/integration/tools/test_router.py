@@ -56,14 +56,14 @@ async def test_tool_router_fan_out(clean_redis):
 
     # 3. Check queues
     # math_doubler queue should have 1 message
-    math_q = await clean_redis.xrange("fmh:tools:math_doubler:queue")
+    math_q = await clean_redis.xrange("knt:tools:math_doubler:queue")
     assert len(math_q) == 1
     math_payload = json.loads(math_q[0][1][b"payload"].decode())
     assert math_payload["event_id"] == str(tool_req_1.event_id)
     assert math_payload["data"]["params"]["number"] == 10
 
     # pii_redactor queue should have 1 message
-    pii_q = await clean_redis.xrange("fmh:tools:pii_redactor:queue")
+    pii_q = await clean_redis.xrange("knt:tools:pii_redactor:queue")
     assert len(pii_q) == 1
     pii_payload = json.loads(pii_q[0][1][b"payload"].decode())
     assert pii_payload["event_id"] == str(tool_req_2.event_id)

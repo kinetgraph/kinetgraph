@@ -18,7 +18,7 @@ Storage layer:
 Note: the Redis impl does NOT touch the JSON encoding;
 that's the verifier's job (``RedisAPIKeyVerifier``). The
 storage is just bytes-in-bytes-out with key prefix
-``fmh:api:keys:<digest>``.
+``knt:api:keys:<digest>``.
 """
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class TestRedisAPIKeyStorage:
         redis.get = AsyncMock(return_value=b"x")
         storage = RedisAPIKeyStorage(client=redis)
         await storage.lookup("digest-abc")
-        redis.get.assert_awaited_once_with("fmh:api:keys:digest-abc")
+        redis.get.assert_awaited_once_with("knt:api:keys:digest-abc")
 
     async def test_lookup_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._errors import MemoryError
@@ -108,7 +108,7 @@ class TestRedisAPIKeyStorage:
         payload = b'{"agent_id": "tenant-A.a-1"}'
         result = await storage.store("digest-abc", payload)
         assert result.is_ok()
-        redis.set.assert_awaited_once_with("fmh:api:keys:digest-abc", payload)
+        redis.set.assert_awaited_once_with("knt:api:keys:digest-abc", payload)
 
     async def test_store_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._errors import MemoryError
@@ -128,7 +128,7 @@ class TestRedisAPIKeyStorage:
         storage = RedisAPIKeyStorage(client=redis)
         result = await storage.delete("digest-abc")
         assert result.is_ok()
-        redis.delete.assert_awaited_once_with("fmh:api:keys:digest-abc")
+        redis.delete.assert_awaited_once_with("knt:api:keys:digest-abc")
 
     async def test_delete_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._errors import MemoryError

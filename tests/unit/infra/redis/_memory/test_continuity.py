@@ -56,7 +56,7 @@ class TestRedisContinuityStorage:
             }
         )
         storage = RedisContinuityStorage(client=redis)
-        result = await storage.get_record("fmh:continuity:t1:u1")
+        result = await storage.get_record("knt:continuity:t1:u1")
         assert result.is_ok()
         assert result.ok_value() == {
             "last_tool": "city.lookup",
@@ -78,10 +78,10 @@ class TestRedisContinuityStorage:
         redis = _fake_redis()
         redis.hgetall = AsyncMock(return_value={})
         storage = RedisContinuityStorage(client=redis)
-        result = await storage.get_record("fmh:continuity:t1:u1")
+        result = await storage.get_record("knt:continuity:t1:u1")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryMiss)
-        assert result.err_value().key == "fmh:continuity:t1:u1"
+        assert result.err_value().key == "knt:continuity:t1:u1"
 
     async def test_put_record_renews_sliding_ttl(self):
         """Continuity cache has a sliding TTL: every write resets EXPIRE."""
@@ -99,18 +99,18 @@ class TestRedisContinuityStorage:
 
         storage = RedisContinuityStorage(client=redis, ttl_seconds=1800)
         result = await storage.put_record(
-            "fmh:continuity:t1:u1",
+            "knt:continuity:t1:u1",
             {"last_tool": "city.lookup"},
             ttl_seconds=1800,
         )
         assert result.is_ok()
-        pipe.expire.assert_called_once_with("fmh:continuity:t1:u1", 1800)
+        pipe.expire.assert_called_once_with("knt:continuity:t1:u1", 1800)
 
     async def test_delete_record_returns_ok(self):
         from kntgraph.infra.redis._memory import RedisContinuityStorage
 
         redis = _fake_redis()
         storage = RedisContinuityStorage(client=redis)
-        result = await storage.delete_record("fmh:continuity:t1:u1")
+        result = await storage.delete_record("knt:continuity:t1:u1")
         assert result.is_ok()
-        redis.delete.assert_awaited_once_with("fmh:continuity:t1:u1")
+        redis.delete.assert_awaited_once_with("knt:continuity:t1:u1")

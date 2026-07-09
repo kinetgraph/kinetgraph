@@ -18,7 +18,7 @@ on the 4th call. Local Ollama has no cost — the
 cost_budget stays None.
 
 By default targets a local Ollama + `qwen3.5:4b`. If
-`FMH_LLM_DEFAULT_MODEL` is not set, the example overrides
+`KNT_LLM_DEFAULT_MODEL` is not set, the example overrides
 the framework default (`gpt-4o-mini`) so it runs without
 an OpenAI key.
 

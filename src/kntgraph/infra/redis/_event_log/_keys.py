@@ -21,13 +21,13 @@ without leaking it back into ``stream/event_log``.
 from __future__ import annotations
 
 
-AGENT_STREAM_KEY: str = "fmh:agents:{agent_id}:events"
+AGENT_STREAM_KEY: str = "knt:agents:{agent_id}:events"
 """Per-agent event log Redis Stream key."""
 
-EVENT_ID_INDEX: str = "fmh:eventids:{event_id}"
+EVENT_ID_INDEX: str = "knt:eventids:{event_id}"
 """SET-based idempotency index. Maps event_id → stream_id."""
 
-SCAN_PATTERN: str = "fmh:agents:*:events"
+SCAN_PATTERN: str = "knt:agents:*:events"
 """Glob pattern for ``scan_iter`` when listing all agents."""
 
 MAXLEN_DEFAULT: int = 100_000
@@ -51,7 +51,7 @@ def parse_agent_id_from_stream_key(key: str) -> str | None:
     pattern. Used by ``RedisEventLogAdapter.list_agents`` to
     decode the result of ``scan_iter``.
     """
-    prefix = "fmh:agents:"
+    prefix = "knt:agents:"
     suffix = ":events"
     if key.startswith(prefix) and key.endswith(suffix):
         return key[len(prefix) : -len(suffix)]

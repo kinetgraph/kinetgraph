@@ -128,7 +128,7 @@ class GlinerArgumentAdapter(ArgumentExtractor):
          pointing to ``kntgraph[gliner]``.
       2. The :class:`SchemaArgumentExtractor` reads
          ``Settings.arg_threshold`` (env
-         ``FMH_ARG_THRESHOLD``) for the field
+         ``KNT_ARG_THRESHOLD``) for the field
          confidence floor.
 
     Iter 28: the framework's own

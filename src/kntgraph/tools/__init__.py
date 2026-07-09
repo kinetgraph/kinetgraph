@@ -26,7 +26,7 @@ Public surface
     registers with a ``WorkerManager``.
   - ``WorkerManager`` -- runs ``@tool_worker``-decorated
     tools in a ``ProcessPoolExecutor``, consuming
-    ``fmh:tools:<name>:queue`` Redis Streams via
+    ``knt:tools:<name>:queue`` Redis Streams via
     Consumer Groups (ADR-036 §2.2, §2.5).
   - ``ToolRouter`` -- fan-out helper that copies
     ``tool.requested`` events from the agent's

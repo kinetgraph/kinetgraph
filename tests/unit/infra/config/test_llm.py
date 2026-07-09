@@ -56,7 +56,7 @@ class TestLLMDefaults:
 
 class TestLLMEnvOverride:
     def test_model_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MODEL", "claude-3-haiku")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MODEL", "claude-3-haiku")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()
@@ -65,7 +65,7 @@ class TestLLMEnvOverride:
         fresh_settings.cache_clear()
 
     def test_temperature_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_LLM_DEFAULT_TEMPERATURE", "0.0")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_TEMPERATURE", "0.0")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()
@@ -74,7 +74,7 @@ class TestLLMEnvOverride:
         fresh_settings.cache_clear()
 
     def test_max_tokens_override(self, monkeypatch):
-        monkeypatch.setenv("FMH_LLM_DEFAULT_MAX_TOKENS", "4096")
+        monkeypatch.setenv("KNT_LLM_DEFAULT_MAX_TOKENS", "4096")
         from kntgraph.infra.config import fresh_settings
 
         fresh_settings.cache_clear()

@@ -108,7 +108,7 @@ significado das fases. Exemplos para notas fiscais:
 ### 2.3 Mesma Stream, Dois Eixos
 
 ```
-fmh:agents:{agent_id}:events
+knt:agents:{agent_id}:events
   ├── e1: { type: "agent.spawned",      class: "lifecycle" }
   ├── e2: { type: "document.received",  class: "domain" }
   ├── e3: { type: "document.validated", class: "domain" }

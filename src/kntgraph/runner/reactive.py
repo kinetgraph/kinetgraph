@@ -143,7 +143,7 @@ class ReactiveDispatcher:
             tool_router: optional ``ToolRouter`` (ADR-036).
                 When set, every ``tool.requested`` event
                 emitted by a system is fanned out to the
-                global tool queue (``fmh:tools:<name>:queue``)
+                global tool queue (``knt:tools:<name>:queue``)
                 right after being appended to the EventLog.
                 Without a router, the dispatcher behaves as
                 before -- no fan-out is attempted.

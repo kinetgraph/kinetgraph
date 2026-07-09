@@ -103,7 +103,7 @@ if (now - last_anchor_at) >= interval_s
    or (events_since_last_anchor) >= events_per_anchor:
        compute_anchor()
        sign_anchor()
-       XADD fmh:anchors:{agent_id} anchor_dict
+       XADD knt:anchors:{agent_id} anchor_dict
 ```
 
 The scheduler is per-agent. A single Kinetgraph process can schedule
@@ -187,7 +187,7 @@ EventLog.append(event)
     │
     ├─► policy check                      (L2)
     │
-    └─► XADD fmh:agents:{agent_id}:events
+    └─► XADD knt:agents:{agent_id}:events
             │
             └─► scheduler.notify(event_count++)   (L3 background)
 ```
@@ -281,7 +281,7 @@ async def main():
     await scheduler.run_once()
 
     # Attacker edits event #15's data field in the Stream
-    stream_key = "fmh:agents:session-42:events"
+    stream_key = "knt:agents:session-42:events"
     # ... redis-cli XADD with modified fields ...
 
     # Detector finds the divergence
@@ -389,7 +389,7 @@ offline (audit runs); not in the hot path.
 
 ### 7.1 What happens if Redis is wiped
 
-If an attacker has the access to wipe `fmh:agents:{id}:events`,
+If an attacker has the access to wipe `knt:agents:{id}:events`,
 the detector will report **all** events as missing (anchor
 chain references them, stream doesn't have them). This is
 **detectable**, not preventable. Recovery: re-emit from
@@ -431,7 +431,7 @@ curl -H "X-Audit-API-Key: ..." \
 
 # 2. Auditor fetches the EventLog dump
 redis-cli --no-raw XRANGE \
-    fmh:agents:session-42:events - + COUNT 1000 \
+    knt:agents:session-42:events - + COUNT 1000 \
     > stream.json
 
 # 3. Offline verification (Python script)

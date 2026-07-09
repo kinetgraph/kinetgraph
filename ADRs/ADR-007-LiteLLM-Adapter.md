@@ -98,8 +98,8 @@ class LLMConfig:
     drop_unsupported_params: bool = True
 ```
 
-`from_env()` lê `FMH_LLM_DEFAULT_MODEL`, `FMH_LLM_FALLBACK_MODELS`
-(CSV), `FMH_LLM_RATE_LIMIT_RPM`, etc.
+`from_env()` lê `KNT_LLM_DEFAULT_MODEL`, `KNT_LLM_FALLBACK_MODELS`
+(CSV), `KNT_LLM_RATE_LIMIT_RPM`, etc.
 
 ### 2.4 Fallback chain
 
@@ -201,7 +201,7 @@ cache server-side. Roles são responsáveis por:
 - Toda nova role usa `LiteLLMTool` (injetada) — não chama
   LiteLLM diretamente.
 - Configuração do LLM vive em `LLMConfig`, lido de env
-  (`FMH_LLM_*`).
+  (`KNT_LLM_*`).
 - Tests de role usam `FakeLLMTransport`. Sem rede.
 - Em produção, `LiteLLMTool` é registrado no `ToolRegistry`
   para que o `ToolInvoker` possa chamá-lo se algum sistema
@@ -221,7 +221,7 @@ cache server-side. Roles são responsáveis por:
 
 - `OPENAI_API_KEY` (ou `ANTHROPIC_API_KEY`, etc) no env.
 - Rate limit e cost budget configuráveis via env
-  (`FMH_LLM_RATE_LIMIT_RPM`, `FMH_LLM_COST_BUDGET_USD`).
+  (`KNT_LLM_RATE_LIMIT_RPM`, `KNT_LLM_COST_BUDGET_USD`).
 - LiteLLM aceita base URL customizada para provedores
   self-hosted (vLLM, TGI, etc).
 

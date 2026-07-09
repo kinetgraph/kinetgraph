@@ -13,7 +13,7 @@ into ``kntgraph``, the tests moved here. The class
 ``BaseSettings`` (formerly ``FMHBaseSettings``) is now
 defined in ``kntgraph.infra.config`` alongside the
 project-specific ``Settings`` (which pins
-``env_prefix="FMH_"``).
+``env_prefix="KNT_"``).
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class _Sample(BaseSettings):
     Note: ``BaseSettings`` has no prefix by default —
     env vars are read as-is (e.g. ``FOO`` maps to
     ``foo``). The ``Settings`` class in this same module
-    pins ``env_prefix="FMH_"``; this sample is the
+    pins ``env_prefix="KNT_"``; this sample is the
     prefix-less form so the tests read the vars without
     the prefix.
     """
@@ -80,20 +80,20 @@ class TestBaseSettings:
 
 class TestEnvOrDefault:
     def test_unset_returns_default(self, monkeypatch) -> None:
-        monkeypatch.delenv("FMH_NONEXISTENT", raising=False)
-        assert env_or_default("FMH_NONEXISTENT", "fallback") == "fallback"
+        monkeypatch.delenv("KNT_NONEXISTENT", raising=False)
+        assert env_or_default("KNT_NONEXISTENT", "fallback") == "fallback"
 
     def test_set_returns_value(self, monkeypatch) -> None:
-        monkeypatch.setenv("FMH_NONEXISTENT", "value")
-        assert env_or_default("FMH_NONEXISTENT") == "value"
+        monkeypatch.setenv("KNT_NONEXISTENT", "value")
+        assert env_or_default("KNT_NONEXISTENT") == "value"
 
     def test_empty_returns_default(self, monkeypatch) -> None:
         # An empty env var is treated as unset so a
-        # typo like `FMH_FOO=` does not bypass
+        # typo like `KNT_FOO=` does not bypass
         # downstream validation by injecting the empty
         # string.
-        monkeypatch.setenv("FMH_NONEXISTENT", "   ")
-        assert env_or_default("FMH_NONEXISTENT", "fallback") == "fallback"
+        monkeypatch.setenv("KNT_NONEXISTENT", "   ")
+        assert env_or_default("KNT_NONEXISTENT", "fallback") == "fallback"
 
 
 class TestLoadDotenvFiles:
@@ -103,23 +103,23 @@ class TestLoadDotenvFiles:
 
     def test_loads_existing_file(self, tmp_path: Path) -> None:
         env_file = tmp_path / "test.env"
-        env_file.write_text("FMH_FOO=from-file\n")
+        env_file.write_text("KNT_FOO=from-file\n")
         # Caller controls the override semantics; the
         # helper itself uses `override=False` so an
         # explicit env wins over the file.
-        os.environ.pop("FMH_FOO", None)
+        os.environ.pop("KNT_FOO", None)
         loaded = load_dotenv_files(env_file)
         assert loaded == [env_file]
-        assert os.environ.get("FMH_FOO") == "from-file"
-        os.environ.pop("FMH_FOO", None)
+        assert os.environ.get("KNT_FOO") == "from-file"
+        os.environ.pop("KNT_FOO", None)
 
     def test_existing_env_wins_over_file(self, tmp_path: Path) -> None:
         env_file = tmp_path / "test.env"
-        env_file.write_text("FMH_FOO=from-file\n")
-        os.environ["FMH_FOO"] = "from-env"
+        env_file.write_text("KNT_FOO=from-file\n")
+        os.environ["KNT_FOO"] = "from-env"
         load_dotenv_files(env_file)
-        assert os.environ.get("FMH_FOO") == "from-env"
-        os.environ.pop("FMH_FOO", None)
+        assert os.environ.get("KNT_FOO") == "from-env"
+        os.environ.pop("KNT_FOO", None)
 
 
 class TestDefaultDotenvCandidates:

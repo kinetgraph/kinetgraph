@@ -86,9 +86,9 @@ their imports in the same commit.
 
 ### 2.3 Env-var prefix
 
-`FMH_*` is the env-var prefix (pinned in
-`Settings.model_config(env_prefix="FMH_")`).
-This is **unchanged** — `FMH_` is treated as a
+`KNT_*` is the env-var prefix (pinned in
+`Settings.model_config(env_prefix="KNT_")`).
+This is **unchanged** — `KNT_` is treated as a
 public contract and renaming the prefix would
 break every deployment.
 

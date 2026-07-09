@@ -38,10 +38,10 @@ from ...core.event import CorrelationContext, Event
 
 
 # Redis keys for the DLQ.
-DLQ_STREAM_KEY = "fmh:dlq:events"
-DLQ_REASON_INDEX = "fmh:dlq:reasons"
-DLQ_AGENT_INDEX = "fmh:dlq:by_agent"
-DLQ_EVENT_INDEX = "fmh:dlq:by_event_id"
+DLQ_STREAM_KEY = "knt:dlq:events"
+DLQ_REASON_INDEX = "knt:dlq:reasons"
+DLQ_AGENT_INDEX = "knt:dlq:by_agent"
+DLQ_EVENT_INDEX = "knt:dlq:by_event_id"
 
 
 class DLQReason(str, Enum):

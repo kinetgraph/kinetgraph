@@ -43,7 +43,7 @@ tool name, the latest entity per (kind, value_hash), and the
 latest categorical slot per slot name. The current state is
 derived by fold: each event overwrites the corresponding slot.
 
-The Redis Hash at ``fmh:continuity:{tenant_id}:{user_id}`` is
+The Redis Hash at ``knt:continuity:{tenant_id}:{user_id}`` is
 a **cache** with sliding TTL (default 90 days, configurable
 via ``ttl_seconds``). On every write, the TTL is renewed
 (sliding). On miss, the cache is rebuilt from the EventLog.

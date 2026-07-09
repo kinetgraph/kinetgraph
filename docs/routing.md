@@ -128,8 +128,8 @@ trivial de backend.
 
 | Env var | Default | Significado |
 |---|---|---|
-| `FMH_ROUTING_THRESHOLD` | `0.6` | Mínimo top-1 score para rotear |
-| `FMH_ROUTING_TOP_K_CANDIDATES` | `3` | Quantos top candidates no `routing.unclassified` |
+| `KNT_ROUTING_THRESHOLD` | `0.6` | Mínimo top-1 score para rotear |
+| `KNT_ROUTING_TOP_K_CANDIDATES` | `3` | Quantos top candidates no `routing.unclassified` |
 
 ---
 
@@ -236,7 +236,7 @@ datas silenciosamente.
 `GlinerArgumentExtractor(registry, model_name="gliner2-base", field_threshold=0.5)`.
 `field_threshold` filtra campos com confiança abaixo. Para
 configurar via env, faça seu próprio wrapper
-(`FMH_ARG_THRESHOLD`, etc.) — o framework não dita.
+(`KNT_ARG_THRESHOLD`, etc.) — o framework não dita.
 
 ---
 

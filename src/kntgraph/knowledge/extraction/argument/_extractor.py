@@ -72,7 +72,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
       - `field_threshold`: minimum confidence to keep
         a field. Default from
         `Settings.arg_threshold` (env
-        `FMH_ARG_THRESHOLD`), fallback `0.5`.
+        `KNT_ARG_THRESHOLD`), fallback `0.5`.
 
     The extractor is **stateless** across calls: same
     (text, tool_name, schema_version) -> same result.

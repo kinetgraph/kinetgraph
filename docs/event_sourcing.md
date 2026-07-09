@@ -201,13 +201,13 @@ last_id = await store.get_latest_event_id("agent-123")
 ### Streams Redis
 
 ```
-fmh:agents:{agent_id}:events    # Stream por agente
-fmh:dlq:events                   # Dead Letter Queue
-fmh:revocations:{agent_id}       # Revogações de chaves (Nível 2+)
-fmh:anchors:{agent_id}           # Hash-chain anchors (Nível 3+)
+knt:agents:{agent_id}:events    # Stream por agente
+knt:dlq:events                   # Dead Letter Queue
+knt:revocations:{agent_id}       # Revogações de chaves (Nível 2+)
+knt:anchors:{agent_id}           # Hash-chain anchors (Nível 3+)
 ```
 
-> **Nota histórica**: `fmh:events:global` foi removido na
+> **Nota histórica**: `knt:events:global` foi removido na
 > v0.7.0 (consumidor ausente, dead code). Stream global fica
 > como responsabilidade do consumidor se necessário.
 

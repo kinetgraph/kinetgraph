@@ -221,7 +221,7 @@ For production L3 deployment:
   / audit requirements.
 - [ ] Audit API (`GET /agents/{id}/anchors`) is exposed to the
   security / compliance team (read-only credentials).
-- [ ] Revocation list (`fmh:revocations:{agent_id}`) is
+- [ ] Revocation list (`knt:revocations:{agent_id}`) is
   replicated to all verifiers within the revocation window
   (default: cache TTL + 1 anchor window).
 - [ ] Anchor `long_term_key` is rotated quarterly; rotation

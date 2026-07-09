@@ -139,7 +139,7 @@ class IncrementalWorldStore:
     Per-agent World checkpoint persistence.
 
     Storage layout:
-        Key: ``fmh:world:{agent_id}``
+        Key: ``knt:world:{agent_id}``
         Value: pickled ``(World, last_stream_id)`` tuple
         TTL: 7 days (matches continuity default)
 
@@ -170,7 +170,7 @@ class IncrementalWorldStore:
 
     @staticmethod
     def _key(agent_id: str) -> str:
-        return f"fmh:world:{agent_id}"
+        return f"knt:world:{agent_id}"
 ```
 
 ### 2.3 ReactiveDispatcher refatorado
@@ -412,7 +412,7 @@ A versão 2.2 mantém ambos. A versão 3.0 remove o path legacy.
       reconstrói `World` via `World.from_snapshot(snap)`.
 
   Benefícios: schema versioning automático, validação no
-  load, human-readable (`redis-cli GET fmh:world:a-1 |
+  load, human-readable (`redis-cli GET knt:world:a-1 |
   jq`), sem risco de execução de código.
 
 - **TTL de 7 dias**: matches o TTL de `continuity_ttl_seconds`

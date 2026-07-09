@@ -230,7 +230,7 @@ Opt-in per tenant via a Redis hash:
 
 ```bash
 # Enable the Knowledge tier for the tenant
-redis-cli HSET fmh:tenant:12.345.678/0001-90:flags knowledge_enabled 1
+redis-cli HSET knt:tenant:12.345.678/0001-90:flags knowledge_enabled 1
 ```
 
 The coroutine checks the flag before calling `pump_once`.
@@ -241,12 +241,12 @@ promoter (structured log `knowledge.tenant_disabled`).
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `FMH_KNOWLEDGE_INTERVAL_S` | `10.0` | Post-tick loop interval |
-| `FMH_PII_LEVEL` | `1` | PII level: 1 (regex), 2 (GLiNER2 NER), 3 (GLiNER2 v1.5 `pii` task) |
-| `FMH_SOLUTIONS_TOOL_ALLOWLIST` | (empty = all) | CSV of tool names that generate candidates |
-| `FMH_SOLUTIONS_CONFIDENCE_BUMP_AGENTS` | `2` | N distinct agents to trigger a confidence bump |
-| `FMH_SOLUTIONS_REVIEW_TTL_S` | `604800` | Review queue TTL (7 days) |
-| `FMH_SOLUTIONS_REVIEW_THRESHOLD` | `1` | Confidence below which the candidate goes to review |
+| `KNT_KNOWLEDGE_INTERVAL_S` | `10.0` | Post-tick loop interval |
+| `KNT_PII_LEVEL` | `1` | PII level: 1 (regex), 2 (GLiNER2 NER), 3 (GLiNER2 v1.5 `pii` task) |
+| `KNT_SOLUTIONS_TOOL_ALLOWLIST` | (empty = all) | CSV of tool names that generate candidates |
+| `KNT_SOLUTIONS_CONFIDENCE_BUMP_AGENTS` | `2` | N distinct agents to trigger a confidence bump |
+| `KNT_SOLUTIONS_REVIEW_TTL_S` | `604800` | Review queue TTL (7 days) |
+| `KNT_SOLUTIONS_REVIEW_THRESHOLD` | `1` | Confidence below which the candidate goes to review |
 
 ### 5.4 Wiring
 
@@ -344,7 +344,7 @@ DEFAULT_PII_LABELS = (
 )
 ```
 
-Per-tenant override: Redis set `fmh:tenant:{cnpj}:pii_labels`.
+Per-tenant override: Redis set `knt:tenant:{cnpj}:pii_labels`.
 
 ---
 
@@ -355,16 +355,16 @@ instead of auto-promoting:
 
 - **Threshold 1 — confidence (cross-agent bump)**: when the
   pair `(problem_fingerprint, action_params_fingerprint)`
-  appears in `>= FMH_SOLUTIONS_CONFIDENCE_BUMP_AGENTS`
+  appears in `>= KNT_SOLUTIONS_CONFIDENCE_BUMP_AGENTS`
   distinct agents, `confidence++`. Candidates with
-  `confidence < FMH_SOLUTIONS_REVIEW_THRESHOLD` go to
+  `confidence < KNT_SOLUTIONS_REVIEW_THRESHOLD` go to
   review.
 - **Threshold 2 — approval list**: tool names in
-  `fmh:tenant:{cnpj}:approval_list` (Redis set) **never**
+  `knt:tenant:{cnpj}:approval_list` (Redis set) **never**
   auto-promote.
 
-The review queue is a Redis Stream `fmh:solutions:review`
-with TTL `FMH_SOLUTIONS_REVIEW_TTL_S` (default 7 days).
+The review queue is a Redis Stream `knt:solutions:review`
+with TTL `KNT_SOLUTIONS_REVIEW_TTL_S` (default 7 days).
 When the TTL expires, the candidate goes to the DLQ.
 
 The HTTP review API is **out of scope of the framework** —

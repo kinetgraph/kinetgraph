@@ -69,7 +69,7 @@ No *startup*, o `WorkerManager` escaneia os metadados, inicializa o `ProcessPool
 
 ### 2.5. Roteamento (Full Payload Fan-Out) e Confiabilidade (Redis)
 O roteamento entre o Agente e a Ferramenta priorizará latência mínima para a Tool:
-1. **Full Payload Fan-Out:** O Sistema gera o `tool.requested` com o payload integral e o salva no `EventLog` do agente (garantindo que o agente crie o componente `ToolCallRequest` e mantenha a memória da requisição pendente). Um roteador automático copia o evento, com o payload intacto, para a fila global da ferramenta (`fmh:tools:tool_name:queue`). Assim, a tool executa instantaneamente lendo da própria fila, sem necessidade de consultar o log do agente para resgatar parâmetros.
+1. **Full Payload Fan-Out:** O Sistema gera o `tool.requested` com o payload integral e o salva no `EventLog` do agente (garantindo que o agente crie o componente `ToolCallRequest` e mantenha a memória da requisição pendente). Um roteador automático copia o evento, com o payload intacto, para a fila global da ferramenta (`knt:tools:tool_name:queue`). Assim, a tool executa instantaneamente lendo da própria fila, sem necessidade de consultar o log do agente para resgatar parâmetros.
 2. **Confiabilidade:** O `GenericToolWorker` implementa os padrões de stream do Redis nativamente: balanceamento via **Consumer Groups** (`XREADGROUP`), garantia de entrega at-least-once via **PEL e XACK**, recuperação de processos mortos via **XAUTOCLAIM**, e uma **Dead-Letter Queue (DLQ)** adaptada (se o limite de retries estourar, o worker injeta um `tool.failed` de volta no log do agente, evitando que a máquina de estados fique bloqueada eternamente).
 
 ## 3. Consequências
@@ -104,7 +104,7 @@ passing (`syntax`, `lint`, `format`, `complexity`, `pyright`).
     reaper (`xautoclaim`), DLQ via `XPENDING` + re-emit de
     `tool.<name>.failed`.
   - `tools/router.py` — `ToolRouter.route_batch` (Full Payload
-    Fan-Out para `fmh:tools:<name>:queue`).
+    Fan-Out para `knt:tools:<name>:queue`).
   - `tools/system.py` — `ToolAwareSystem` mixin com
     `request_tool`, `get_request`, `get_completion`,
     `has_requested`, `is_pending`.

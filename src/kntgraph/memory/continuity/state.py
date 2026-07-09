@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-CONTINUITY_KEY_PREFIX = "fmh:continuity:"
+CONTINUITY_KEY_PREFIX = "knt:continuity:"
 
 # Backwards-compat re-export. The default TTL now lives
 # in ``Settings.continuity_ttl_seconds`` (90 days,

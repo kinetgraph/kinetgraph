@@ -74,7 +74,7 @@ async def test_worker_manager_happy_path(clean_redis):
     )
 
     await clean_redis.xadd(
-        "fmh:tools:math_doubler:queue", {"payload": json.dumps(request_event.to_dict())}
+        "knt:tools:math_doubler:queue", {"payload": json.dumps(request_event.to_dict())}
     )
 
     # 3. Start the manager (runs in background)
@@ -125,7 +125,7 @@ async def test_worker_manager_railway_error(clean_redis):
     )
 
     await clean_redis.xadd(
-        "fmh:tools:math_doubler:queue", {"payload": json.dumps(request_event.to_dict())}
+        "knt:tools:math_doubler:queue", {"payload": json.dumps(request_event.to_dict())}
     )
 
     await manager.start()
@@ -177,7 +177,7 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
     )
 
     await clean_redis.xadd(
-        "fmh:tools:poison_pill:queue", {"payload": json.dumps(request_event.to_dict())}
+        "knt:tools:poison_pill:queue", {"payload": json.dumps(request_event.to_dict())}
     )
 
     await manager.start()
