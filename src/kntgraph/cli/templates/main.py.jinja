@@ -1,17 +1,116 @@
+{% if use_intent_http %}
 import asyncio
+import logging
+import uvicorn
+from contextlib import asynccontextmanager
+
+from kntgraph.api import create_app
+from kntgraph.api.auth import RedisAPIKeyVerifier
+from kntgraph.agents.tools.protocol import ToolRegistry
+from kntgraph.stream.event_log import EventLog
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._pool import create_redis_pool
+from kntgraph.tools.router import ToolRouter
+from kntgraph.tools.manager import WorkerManager
+
+# from src.contexts.sales.dispatcher import build_sales_dispatcher
+
+# 1. Global variables for background components
+worker_manager = None
+# sales_dispatcher = None
+
+@asynccontextmanager
+async def lifespan(app):
+    global worker_manager
+    # global sales_dispatcher
+    print("\n[Lifespan] Starting Background Dispatchers and Workers...")
+    
+    # Start the event loops in the background
+    worker_task = asyncio.create_task(worker_manager.start())
+    # sales_task = asyncio.create_task(sales_dispatcher.start())
+    
+    yield
+    
+    print("\n[Lifespan] Stopping Background components...")
+    # await sales_dispatcher.stop()
+    await worker_manager.stop()
+
+def build_monolith():
+    global worker_manager
+    # global sales_dispatcher
+    
+    redis = create_redis_pool().client
+    log = EventLog(RedisEventLogAdapter(client=redis))
+    
+    tool_router = ToolRouter(redis)
+    worker_manager = WorkerManager(redis=redis, event_log=log)
+    
+    # Initialize Context Dispatchers
+    # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
+    
+    # Configure API Gateway (Intent Router)
+    registry = ToolRegistry()
+    verifier = RedisAPIKeyVerifier(redis)
+    
+    app = create_app(log=log, registry=registry, verifier=verifier)
+    app.router.lifespan_context = lifespan
+    return app
+
+app = build_monolith()
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+{% else %}
+import asyncio
+import logging
 from kntgraph.runner import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.infra.redis._pool import make_redis_client
+from kntgraph.infra.redis._pool import create_redis_pool
+from kntgraph.tools.router import ToolRouter
+from kntgraph.tools.manager import WorkerManager
+
+# Example imports for your Context Dispatchers
+# from src.contexts.sales.dispatcher import build_sales_dispatcher
+# from src.contexts.logistics.dispatcher import build_logistics_dispatcher
 
 async def main() -> None:
+    logging.basicConfig(level=logging.INFO)
     print("Starting {{ project_name }} Modular Monolith...")
-    redis = make_redis_client()
+    
+    redis = create_redis_pool().client
     log = EventLog(RedisEventLogAdapter(client=redis))
     
-    # Register contexts/agents here
-    # dispatcher = ReactiveDispatcher(log=log, world_systems=[], max_parallel_agents=5)
-    # await dispatcher.run_forever()
+    # 1. Initialize the ToolRouter (Fan-out for impure tools)
+    tool_router = ToolRouter(redis)
+    
+    # 2. Initialize the WorkerManager (Execution pool for tools)
+    worker_manager = WorkerManager(redis=redis, event_log=log)
+    
+    # Example: Register impure tools here
+    # from src.contexts.sales.tools.payment_api import PaymentApiTool
+    # worker_manager.register(PaymentApiTool)
+    
+    # 3. Initialize Context Dispatchers (The pure brains)
+    # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
+    # logistics_dispatcher = build_logistics_dispatcher(log, redis, tool_router)
+    
+    try:
+        print("\n[Orchestrator] Starting Event Loops...")
+        # 4. Start everything concurrently in the same asyncio Event Loop
+        await asyncio.gather(
+            worker_manager.start(),
+            # sales_dispatcher.start(),
+            # logistics_dispatcher.start()
+        )
+    finally:
+        print("\n[Orchestrator] Stopping components...")
+        # await sales_dispatcher.stop()
+        # await logistics_dispatcher.stop()
+        await worker_manager.stop()
+        await redis.aclose()
 
 if __name__ == "__main__":
     asyncio.run(main())
+{% endif %}

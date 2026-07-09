@@ -1,7 +1,7 @@
 import asyncio
 from typing import Any
 from kntgraph.core.result import Ok, Result
-from kntgraph.core.tools import tool_worker
+from kntgraph.tools.worker import tool_worker
 
 @tool_worker(name="{{ tool_name }}", description="Description for {{ camel_case_name }}.")
 class {{ camel_case_name }}:

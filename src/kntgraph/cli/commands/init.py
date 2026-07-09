@@ -8,6 +8,7 @@ console = Console()
 
 def init(
     project_name: str = typer.Argument(..., help="Name of the Kinetgraph project to create"),
+    use_intent_http: bool = typer.Option(False, "--use-intent-http", help="Scaffold FastAPI HTTP gateway (IntentRouter)"),
 ):
     """
     Initialize a new Kinetgraph Modular Monolith repository.
@@ -41,7 +42,10 @@ def init(
     templates_dir = Path(__file__).parent.parent / "templates"
     env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
     
-    context = {"project_name": project_name}
+    context = {
+        "project_name": project_name,
+        "use_intent_http": use_intent_http,
+    }
     
     # pyproject.toml
     pyproject_tmpl = env.get_template("pyproject.toml.jinja")

@@ -1,21 +1,22 @@
-from typing import AsyncIterator
+from typing import Any
 
 from kntgraph.core.world import World
 from kntgraph.core.event import Event
 
 
-async def {{ system_name }}(world: World) -> AsyncIterator[Event]:
+def {{ system_name }}(world: World) -> list[Event]:
     """
     Pure WorldSystem: {{ camel_case_name }}.
     
-    This system examines the pure `World` state and yields zero or more
+    This system examines the pure `World` state and returns a list of
     `Event`s. It must NOT perform side effects (no network, no disk, no DB).
     """
+    events = []
     # 1. Query the world state
     # e.g., agent = world.agents.get("my-agent-id")
-    # if not agent: return
+    # if not agent: return []
     
     # 2. Yield events based on conditions
-    # yield Event.domain_from(...)
+    # events.append(Event.domain_from(...))
     
-    pass
+    return events

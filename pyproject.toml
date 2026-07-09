@@ -67,6 +67,9 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 include = ["kntgraph*"]
 
+[tool.setuptools.package-data]
+"*" = ["*.jinja", "*.json"]
+
 [tool.ruff] 
 line-length = 88
 target-version = "py312"

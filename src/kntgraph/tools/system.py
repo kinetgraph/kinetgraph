@@ -60,7 +60,7 @@ class ToolAwareSystem:
             "params": dict(params),
         }
         return Event.create(
-            event_type="tool.requested",
+            event_type=f"tool.{tool_name}.requested",
             agent_id=agent_id,
             event_class="domain",
             data=payload,

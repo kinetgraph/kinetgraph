@@ -232,7 +232,7 @@ class ReactiveDispatcher:
 
         world, new_event_count = self._fold_with_filter(ckpt.world, new_events)
         await self._run_systems_and_persist(
-            agent_id, world, new_last_stream_id, new_event_count
+            agent_id, world, new_last_stream_id, new_event_count, new_events
         )
         return new_event_count
 
@@ -279,6 +279,7 @@ class ReactiveDispatcher:
         world: "World",
         last_stream_id: str,
         new_event_count: int,
+        new_events: list[Event],
     ) -> None:
         """Run the systems, append the resulting events,
         and persist the checkpoint.
@@ -288,6 +289,8 @@ class ReactiveDispatcher:
         by the EventLog dedupe on the next dispatch.
         """
         if new_event_count > 0:
+            if self._tool_router is not None:
+                await self._tool_router.route_batch(new_events)
             await self._append_system_outgoing(world, agent_id)
         await self._save_checkpoint(agent_id, world, last_stream_id)
 

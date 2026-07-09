@@ -6,6 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "kntgraph",
+    {% if use_intent_http %}
+    "kntgraph[api]",
+    "uvicorn",
+    {% endif %}
 ]
 
 [build-system]

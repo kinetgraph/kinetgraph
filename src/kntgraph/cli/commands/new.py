@@ -201,3 +201,90 @@ def tool(
     
     target_file.write_text(tmpl.render(ctx))
     console.print(f"[green]Success![/green] Generated Tool at {target_file}")
+
+@app.command()
+def agent(
+    target: str = typer.Argument(..., help="Context and agent name, e.g., sales.CheckoutAgent"),
+):
+    """
+    Generate an Agent orchestration file (wiring Systems and Tools).
+    """
+    if "." not in target:
+        console.print("[red]Error:[/red] Target must be in the format <context>.<AgentName> (e.g., sales.CheckoutAgent)")
+        raise typer.Exit(code=1)
+        
+    context_name, agent_name = target.split(".", 1)
+    package_name = _get_package_name()
+    
+    snake_case_name = camel_to_snake(agent_name)
+    if not snake_case_name.endswith("_agent"):
+        snake_case_name += "_agent"
+        
+    target_dir = Path("src") / package_name / "contexts" / context_name / "agents"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    for p in [target_dir, target_dir.parent]:
+        if not (p / "__init__.py").exists():
+            (p / "__init__.py").touch()
+            
+    target_file = target_dir / f"{snake_case_name}.py"
+    
+    if target_file.exists():
+        console.print(f"[red]Error:[/red] Agent file {target_file} already exists.")
+        raise typer.Exit(code=1)
+        
+    templates_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
+    
+    tmpl = env.get_template("agent.py.jinja")
+    
+    ctx = {
+        "agent_name": snake_case_name,
+        "camel_case_name": agent_name,
+        "context_name": context_name,
+    }
+    
+    target_file.write_text(tmpl.render(ctx))
+    console.print(f"[green]Success![/green] Generated Agent at {target_file}")
+
+@app.command()
+def context(
+    target: str = typer.Argument(..., help="Context name, e.g., sales"),
+):
+    """
+    Generate a Bounded Context directory structure and its ReactiveDispatcher.
+    """
+    context_name = camel_to_snake(target)
+    package_name = _get_package_name()
+        
+    target_dir = Path("src") / package_name / "contexts" / context_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Create subdirectories
+    subdirs = ["agents", "components", "events", "systems", "tools"]
+    for subdir in subdirs:
+        sub_path = target_dir / subdir
+        sub_path.mkdir(exist_ok=True)
+        if not (sub_path / "__init__.py").exists():
+            (sub_path / "__init__.py").touch()
+            
+    if not (target_dir / "__init__.py").exists():
+        (target_dir / "__init__.py").touch()
+            
+    dispatcher_file = target_dir / "dispatcher.py"
+    
+    if dispatcher_file.exists():
+        console.print(f"[red]Error:[/red] Dispatcher file {dispatcher_file} already exists.")
+        raise typer.Exit(code=1)
+        
+    templates_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)
+    
+    tmpl = env.get_template("dispatcher.py.jinja")
+    
+    ctx = {
+        "context_name": context_name,
+    }
+    
+    dispatcher_file.write_text(tmpl.render(ctx))
+    console.print(f"[green]Success![/green] Generated Bounded Context '{context_name}' at {target_dir}")
