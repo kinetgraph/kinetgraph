@@ -132,7 +132,102 @@ Systems read the state and emit new Events. They are 100% pure and fast.
 ```bash
 uv run knt new system weather.WeatherRouter
 ```
-*The CLI generated a boilerplate AsyncIterator function in `systems/weather_router.py`. Here is how you would implement it to request the `open_meteo_api` tool when a user intents to check the weather.*
+
+The CLI generated a boilerplate function in `systems/weather_router_system.py`. 
+
+To illustrate how Kinetgraph handles execution paths, this system will support **Path B (System-Mediated Flow)** by responding to a high-level intent (`weather.get_weather` or gateway role request `tool.weather_agent.requested`) to request the weather tool, and then reacting to its completion to emit the resolved weather event. 
+
+*(Note: **Path A - Direct Tool Invocation** is when the client bypasses this system and calls the tool directly via the API gateway using `type: "tool.invoke"`).*
+
+Open `src/weather_platform/contexts/weather/systems/weather_router_system.py` and implement the two-step reactive flow:
+
+```python
+from kntgraph.core.world import World
+from kntgraph.core.event import Event, CorrelationContext, correlation_middleware
+from kntgraph.tools.system import ToolAwareSystem
+from ..events.weather_resolved import weather_resolved
+
+def weather_router_system(world: World) -> list[Event]:
+    events = []
+    helper = ToolAwareSystem()
+
+    for agent_id, view in world.views.items():
+        # --- PATH B: Step 1 & 2 - Detect Intent Event and Request Tool ---
+        is_intent = False
+        intent_data = {}
+        correlation_id = None
+
+        if view.domain_phase == "weather.get_weather":
+            intent_data = view.components.get("weather.get_weather") or {}
+            is_intent = True
+        elif view.domain_phase == "tool.weather_agent.requested":
+            req = helper.get_request(view, view.last_event_id)
+            if req:
+                intent_data = req.params.get("args") or {}
+                correlation_id = req.correlation_id
+                is_intent = True
+
+        if is_intent and view.last_event_id:
+            city = intent_data.get("city", "Unknown")
+            lat = intent_data.get("latitude")
+            lon = intent_data.get("longitude")
+            if lat is None or lon is None:
+                continue
+
+            # Propagate the correlation context via middleware
+            correlation = correlation_middleware.start(correlation_id=correlation_id)
+
+            # Request the tool. Since causation_id is stable (the ID of the intent event),
+            # `request_tool` produces a stable, deterministic event_id.
+            req_event = helper.request_tool(
+                agent_id=agent_id,
+                tool_name="open_meteo_api",
+                params={
+                    "latitude": float(lat),
+                    "longitude": float(lon),
+                    "city": city,  # Carry the city parameter to correlate it in the result
+                },
+                causation_id=view.last_event_id,
+                correlation=correlation,
+            )
+
+            # Check if this tool request has already been appended to the stream
+            if not helper.has_requested(view, str(req_event.event_id)):
+                events.append(req_event)
+
+        # --- PATH B: Step 3 & 4 - Detect Tool Completion and Resolve Weather ---
+        elif view.domain_phase == "tool.open_meteo_api.completed":
+            tool_completions = view.components.get("tool_completions", {})
+            for req_id, completion in tool_completions.items():
+                req = helper.get_request(view, req_id)
+                if req and req.tool_name == "open_meteo_api" and completion.status == "completed":
+                    # Retrieve the parameters (like city name) from the request
+                    city = req.params.get("params", {}).get("city") or "Unknown"
+                    
+                    # Extract the raw weather data returned by the tool
+                    weather_data = completion.result or {}
+                    temp = weather_data.get("temperature", 0.0)
+                    wind = weather_data.get("windspeed", 0.0)
+
+                    # Propagate the correlation context of the tool completion
+                    correlation_middleware.start(correlation_id=completion.correlation_id)
+
+                    # Emit the clean domain event representing the resolved weather.
+                    # This updates `domain_phase` to `weather.weather_resolved`, stopping the loop.
+                    resolved_event = weather_resolved(
+                        agent_id=agent_id,
+                        data={
+                            "city": city,
+                            "temperature_celsius": float(temp),
+                            "condition": f"Windspeed: {wind} km/h",
+                        },
+                        causation_id=completion.request_event_id,
+                    )
+                    events.append(resolved_event)
+                    break
+
+    return events
+```
 
 ### 5. Agents (L2 Security & Orchestration)
 The Agent definition binds specific Systems and Tools together under a Security Capability Policy.
@@ -194,7 +289,10 @@ Ensure Redis is running locally on port 6379, then start your FastAPI monolith:
 python src/weather_platform/main.py
 ```
 
-Send a request via the HTTP Gateway!
+Send a request via the HTTP Gateway using one of the two execution paths:
+
+#### Path A: Direct Tool Invocation (Bypass Systems)
+Trigger the tool directly from the client:
 
 ```bash
 curl -X POST "http://localhost:8000/agents/user-123/intents" \
@@ -207,9 +305,29 @@ curl -X POST "http://localhost:8000/agents/user-123/intents" \
          }'
 ```
 
-**Success!** The HTTP Gateway ingested your intent, the `ReactiveDispatcher` queued the tool request directly to the background `WorkerManager` via the `ToolRouter`. The worker hit the Open-Meteo API using `httpx`, and the result was written back to the Event Log. 
+**What happens:** The HTTP Gateway ingests the intent, detects `type: "tool.invoke"`, and queues the tool request directly to the background `WorkerManager` via the `ToolRouter`. The worker invokes `OpenMeteoApi` directly and publishes the completion.
 
-You have successfully used the `knt` CLI to build a scalable, production-ready Modular Monolith!
+#### Path B: System-Mediated Flow (Reactive Agent)
+Trigger the high-level intent via the agent role:
+
+```bash
+curl -X POST "http://localhost:8000/agents/user-123/intents" \
+     -H "Content-Type: application/json" \
+     -H "X-API-Key: demo-key" \
+     -d '{
+           "type": "role.invoke",
+           "role": "weather_agent",
+           "args": {
+             "city": "London",
+             "latitude": 51.5,
+             "longitude": -0.12
+           }
+         }'
+```
+
+**What happens:** The gateway emits a `tool.weather_agent.requested` event containing the city and coordinates. The reactive dispatcher folds this event. `weather_router_system` detects the phase, starts/propagates the correlation context, and emits `tool.open_meteo_api.requested`. Once the worker manager completes the tool call, `weather_router_system` reads the result and emits the final `weather.weather_resolved` event to the stream.
+
+You have successfully used the `knt` CLI to build a scalable, production-ready Modular Monolith supporting both execution paths!
 
 ---
 
