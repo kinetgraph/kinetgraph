@@ -8,7 +8,7 @@ SPDX-License-Identifier: Apache-2.0
 
 | | |
 |---|---|
-| **Status** | Proposed |
+| **Status** | Accepted |
 | **Date** | 2026-06-22 |
 | **Deciders** | @adriano |
 | **Supersedes** | — |

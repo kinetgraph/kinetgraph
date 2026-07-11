@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-027: Argument Extraction Migration to Framework (Iter 28)
 
-**Status:** Aceito
+**Status:** Aceito (obsoleto em parte pelo ADR-028, que removeu o shim de compatibilidade legado do vertical fmh_agents)
 **Data:** 30 de junho de 2026
 **Autores:** Equipe de Arquitetura FMH
 **Relacionado:** [ADR-019](./ADR-019-Epilogo-Typed-Adapters.md), [ADR-024](./ADR-024-FalkorDBClient-GraphClient-Migration.md), [ADR-025](./ADR-025-Tool-Protocol-Split-Cycle-Resolution.md), [ADR-026](./ADR-026-Close-GLiNER2-Binding-Leak.md), [AGENTS.md §1](../../AGENTS.md), §2

@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-029: Migrate `LiteFalkorDBClient` → `LiteGraphClient` (Iter 28 FU 2) → `LiteGraphPool` (Iter 28 FU 7)
 
-**Status:** Aceito
+**Status:** Aceito (obsoleto em parte: o protocolo GraphLike foi removido pelo ADR-031; a classe LiteGraphClient foi renomeada/reorganizada para LiteGraphPool pelo ADR-033)
 **Data:** 30 de junho de 2026
 **Autores:** Equipe de Arquitetura FMH
 **Relacionado:** [ADR-019](./ADR-019-Epilogo-Typed-Adapters.md), [ADR-024](./ADR-024-FalkorDBClient-GraphClient-Migration.md), [ADR-025](./ADR-025-Tool-Protocol-Split-Cycle-Resolution.md), [ADR-026](./ADR-026-Close-GLiNER2-Binding-Leak.md), [ADR-027](./ADR-027-Argument-Extraction-Migration.md), [ADR-028](./ADR-028-Delete-Argument-Extraction-Vertical.md), [ADR-033](./ADR-033-GraphPool-Reorg.md), [AGENTS.md §1](../../AGENTS.md), §2

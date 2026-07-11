@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-019-Epilogo: Typed Adapters — Iter 2 a 21
 
-**Status:** Aceito
+**Status:** Aceito (parcialmente obsoleto: a facade LLMClient foi removida pelo ADR-032; o protocolo GraphLike foi removido pelo ADR-031; a facade GraphClient foi renomeada/reorganizada para GraphPool pelo ADR-033)
 **Data:** 28-29 de junho de 2026
 **Autores:** Equipe de Arquitetura FMH
 **Relacionado:** [ADR-019](./ADR-019-Redis-Adapter-Typing.md), [AGENTS.md §1](../../AGENTS.md), §2, §3, §4, §6

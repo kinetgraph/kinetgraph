@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-024: Migrate `FalkorDBClient` → `GraphClient` (Iter 24) → `GraphPool` (Iter 28 FU 7)
 
-**Status:** Aceito
+**Status:** Aceito (obsoleto em parte: o protocolo GraphLike (§2.5) foi removido pelo ADR-031; a classe GraphClient foi renomeada/reorganizada para GraphPool pelo ADR-033)
 **Data:** 29 de junho de 2026
 **Autores:** Equipe de Arquitetura FMH
 **Relacionado:** [ADR-019](./ADR-019-Epilogo-Typed-Adapters.md), [ADR-033](./ADR-033-GraphPool-Reorg.md), [AGENTS.md §1](../../AGENTS.md), §2, §3, §6

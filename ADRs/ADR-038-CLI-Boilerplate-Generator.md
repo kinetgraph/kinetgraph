@@ -1,7 +1,7 @@
 # ADR 038: CLI Boilerplate Generator
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 Developing applications with Kinetgraph requires adhering to strict architectural patterns. These include pure `WorldSystem` functions (ADR-018), immutable `@dataclass` ECS components (ADR-034), required correlation contexts (ADR-037), and zero-trust security key management (ADR-016). 
