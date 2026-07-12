@@ -144,16 +144,11 @@ the `agents` namespace.
 
 ## Agents sub-module (`kntgraph.agents`)
 
-### `roles` — agent personas
+### `roles` — pure ECS components and intent resolution
 
-- [`kntgraph.agents.roles.semantic_router`](src/kntgraph/agents/roles/semantic_router.py)
-  — `SemanticRoutingRole` (ADR-013 M1).
-- [`kntgraph.agents.roles.summarizer`](src/kntgraph/agents/roles/summarizer.py)
-  — `SummarizerRole`.
-- [`kntgraph.agents.roles.planner`](src/kntgraph/agents/roles/planner.py)
-  — `PlannerRole`.
-- [`kntgraph.agents.roles.personalized`](src/kntgraph/agents/roles/personalized.py)
-  — `PersonalizedRole`.
+- [`kntgraph.agents.roles.resolution`](src/kntgraph/agents/roles/resolution.py)
+  — `RoleComponent` (persona, instructions, allowed tools data), `IntentComponent` (pending intent state, correlation context), and `IntentResolutionSystem` (pure resolution system).
+- Note: The legacy LLM role wrappers (`SemanticRoutingRole`, `SummarizerRole`, `PlannerRole`, `PersonalizedRole`) are deprecated in favor of this pure ECS data component model (ADR-039).
 
 ### `tools` — vertical tool adapters
 

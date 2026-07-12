@@ -10,9 +10,15 @@ Aqui está a consolidação das nossas definições arquiteturais formatada como
 
 # ADR 005: Arquitetura ECS Baseada em Arrow e Spark para Agentes Operadores de Processo
 
+> [!WARNING]
+> **ESTE ADR ESTÁ OBSOLETO**
+> A proposta de arquitetura ECS baseada em Apache Spark, PyArrow e Polars foi abandonada/rejeitada.
+> O framework adotou uma arquitetura orientada a eventos pura baseada em Redis Streams e replay determinístico,
+> conforme definido no [ADR-001](./ADR-001-Arquitetura.md) e [ADR-002](./ADR-002-Replay-Puro.md).
+
 ## 1. Status
 
-**Aceito** (Data: Junho 2026)
+**Obsoleto / Rejeitado** (Substituído pelo ADR-001 v2.0 e pelo ADR-002-Replay-Puro.md)
 
 ## 2. Contexto (O Problema)
 

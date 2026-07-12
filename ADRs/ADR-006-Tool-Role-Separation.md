@@ -6,7 +6,12 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-006: Separação Tool × Role
 
-**Status:** Aceito
+> [!WARNING]
+> **ESTE ADR FOI SUBSTITUÍDO (SUPERSEDED)**
+> O conceito de `Role` como um wrapper de comportamento síncrono para `Tool` foi substituído pelo modelo do [ADR-039](./ADR-039-Role-rethinking-and-intentions-routing.md).
+> No novo design, a Role é puramente um componente de dados (`RoleComponent`) e a execução de intenções é resolvida de forma pura e assíncrona pelo `IntentResolutionSystem`.
+
+**Status:** Superseded by [ADR-039](./ADR-039-Role-rethinking-and-intentions-routing.md)
 **Data:** 08 de junho de 2026
 **Versão:** 0.3.0
 **Autores:** Equipe de Arquitetura FMH
