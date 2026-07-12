@@ -1,6 +1,6 @@
 # ADR-039: Redefining Role as a Pure ECS Component and Intent Resolution
 
-**Status:** Proposed
+**Status:** Accepted / Implemented
 
 **Date:** July 11, 2026
 

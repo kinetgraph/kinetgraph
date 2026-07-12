@@ -186,9 +186,7 @@ backend, a specific PII detection model:
 from kntgraph.agents.tools import LiteLLMTool
 from kntgraph.agents.tools.cache import CachingLLMTransport
 from kntgraph.agents.tools.pii import PiiRedactionTool
-from kntgraph.agents.roles.semantic_router import (
-    SemanticRoutingRole,
-)
+from kntgraph.agents.roles import RoleComponent, IntentResolutionSystem
 ```
 
 Users who only need the core ECS / event-sourcing
