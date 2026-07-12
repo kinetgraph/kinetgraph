@@ -1,5 +1,7 @@
 from kntgraph.runner import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
+from kntgraph.tools.registry import ToolRegistry
+from kntgraph.agents.roles import IntentResolutionSystem
 
 # Import all systems and tools from your context's agents here.
 # For example:
@@ -15,14 +17,19 @@ def build_{{ context_name }}_dispatcher(log: EventLog) -> ReactiveDispatcher:
     # tools = get_checkout_agent_tools() + ...
     tools = []
     
-    # 2. Aggregate Systems
-    # systems = get_checkout_agent_systems() + ...
-    systems = []
+    # 2. Register tools for IntentResolutionSystem
+    registry = ToolRegistry()
+    for tool in tools:
+        registry.register(tool)
     
-    # 3. Create the dispatcher
+    # 3. Aggregate Systems (including the universal IntentResolutionSystem)
+    # systems = [IntentResolutionSystem(registry)] + get_checkout_agent_systems() + ...
+    systems = [IntentResolutionSystem(registry)]
+    
+    # 4. Create the dispatcher
     dispatcher = ReactiveDispatcher(
         log=log,
-        world_systems=systems,
+        systems=systems,
         max_parallel_agents=5
     )
     

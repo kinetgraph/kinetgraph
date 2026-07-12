@@ -43,7 +43,7 @@ def test_knt_new_context(tmp_path: Path):
         content = dispatcher_file.read_text()
         assert "ReactiveDispatcher" in content
         assert "def build_sales_dispatcher" in content
-        assert "systems = []" in content
+        assert "systems = [IntentResolutionSystem(registry)]" in content
         assert "tools = []" in content
 
     finally:

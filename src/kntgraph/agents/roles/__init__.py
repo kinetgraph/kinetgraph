@@ -5,6 +5,7 @@
 from .chat import ChatReply, ChatRole
 from .personalized import PersonalizedRole
 from .planner import Plan, PlannerRole, PlanStep
+from .resolution import IntentComponent, IntentResolutionSystem, RoleComponent
 from .semantic_router import (
     EVENT_TYPE_ROUTING_UNCLASSIFIED,
     EVENT_TYPE_USER_MESSAGE,
@@ -23,6 +24,9 @@ __all__ = [
     "Plan",
     "PlannerRole",
     "PlanStep",
+    "IntentComponent",
+    "IntentResolutionSystem",
+    "RoleComponent",
     "EVENT_TYPE_ROUTING_UNCLASSIFIED",
     "EVENT_TYPE_USER_MESSAGE",
     "RoutingConfig",
