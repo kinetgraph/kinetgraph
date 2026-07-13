@@ -78,7 +78,7 @@ def tool_worker(
                 model_fields[param_name] = (param_type, param.default)
 
         # Create a dynamic Pydantic model
-        InputModel = create_model(  # type: ignore[call-overload]
+        InputModel = create_model(
             f"{cls.__name__}Input", __module__=cls.__module__, **model_fields
         )
 

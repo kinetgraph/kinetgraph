@@ -55,9 +55,6 @@ logger = structlog.get_logger()
 # ``R`` is the result type of the wrapped zero-argument
 # callable. The fallback (when supplied) must return
 # the same ``R``. Generic so callers keep their concrete
-# ``R`` is the result type of the wrapped zero-argument
-# callable. The fallback (when supplied) must return
-# the same ``R``. Generic so callers keep their concrete
 # types.
 R = TypeVar("R")
 # ``P`` captures the parameter shape of the wrapped
