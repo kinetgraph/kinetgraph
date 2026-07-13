@@ -73,7 +73,7 @@ class DeadLetterActions:
         """
         if queue is not None:
             self._queue = queue
-            self._storage = queue._storage  # type: ignore[attr-defined]
+            self._storage = queue._storage
         elif storage is not None:
             self._storage = storage
             self._queue = None
@@ -130,7 +130,9 @@ class DeadLetterActions:
         lookup = await self._storage.find_by_event_id(event_id)
         if lookup.is_err() or lookup.ok_value() is None:
             return None
-        entry_result = await self._storage.read(lookup.ok_value())
+        stream_id = lookup.ok_value()
+        assert stream_id is not None  # narrowed above
+        entry_result = await self._storage.read(stream_id)
         if entry_result.is_err() or entry_result.ok_value() is None:
             return None
         return self._build_event(entry_result.ok_value())

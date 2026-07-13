@@ -84,7 +84,11 @@ class RedisProfileStorage:
         # All Mapping[str, JsonValue] values must be string-coercible
         # for Hash storage; reject early with a typed error.
         try:
-            mapping = {str(k): str(v) for k, v in record.items()}
+            mapping: dict[str, str] = (
+                {str(k): str(v) for k, v in record.items()}
+                if isinstance(record, Mapping)
+                else {}
+            )
         except Exception as e:
             return Err(
                 MemorySerializationError(f"cannot serialize to hash: {e}", key=key)

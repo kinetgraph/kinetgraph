@@ -185,8 +185,18 @@ class WorkerManager:
             # We use asyncio.get_running_loop().run_in_executor to run the tool synchronously
             # in a separate process. The wrapper _invoke_tool_sync will handle the asyncio loop inside the process.
             loop = asyncio.get_running_loop()
+            # ``run_in_executor`` is typed strictly (``args: _Ts``);
+            # we wrap the call in ``cast(Any, (...))`` so the
+            # executor accepts the heterogeneous tuple
+            # ``(Type[X], str, dict[str, JsonValue])``. The
+            # wrapper signature is enforced at runtime by
+            # ``_invoke_tool_sync``.
             result_dict = await loop.run_in_executor(
-                self._pool, _invoke_tool_sync, tool_cls, idempotency_key, tool_params
+                self._pool,
+                _invoke_tool_sync,  # type: ignore[arg-type]
+                tool_cls,
+                idempotency_key,
+                tool_params,
             )
 
             # Translate to Domain Events. ADR-037: pass

@@ -11,7 +11,7 @@ Uses the Railway Pattern for error handling.
 import asyncio
 from collections import OrderedDict
 from types import TracebackType
-from typing import Callable, ParamSpec, TypeVar
+from typing import Any, Callable, Coroutine, ParamSpec, TypeVar
 
 import structlog
 
@@ -174,11 +174,12 @@ class BulkheadPool:
 
         try:
             self.total_executed += 1
-            result = fn(*args, **kwargs)
+            result: R | Coroutine[Any, Any, R] = fn(*args, **kwargs)
             # If ``fn`` returned a coroutine, await it. If it
             # returned a plain value, pass it through.
             if asyncio.iscoroutine(result):
-                result = await result
+                awaited = await result
+                return Ok(awaited)
             return Ok(result)
         except asyncio.CancelledError:
             # Task was cancelled mid-execution. Propagate so

@@ -239,8 +239,12 @@ async def retry_async(
     ):
         with attempt:
             return await fn(*args, **kwargs)
-    # Unreachable (reraise=True).
-    return None  # pragma: no cover
+    # Unreachable (reraise=True): tenacity always
+    # re-raises the last exception instead of returning
+    # ``None``. The cast documents that and keeps the
+    # static checker honest (the function signature is
+    # ``-> R``, not ``-> R | None``).
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 class RetryConfig:

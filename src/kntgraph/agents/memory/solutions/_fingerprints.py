@@ -99,7 +99,7 @@ def _coerce_to_json(v: JsonValue) -> JsonValue:
     functions use it once, internally.
     """
     if v is None or isinstance(v, (str, int, float, bool)):
-        return v  # type: ignore[return-value]
+        return v
     if isinstance(v, dict):
         return {str(k): _coerce_to_json(vv) for k, vv in v.items()}
     if isinstance(v, list):
@@ -116,6 +116,6 @@ def maybe_float(v: JsonValue) -> float | None:
     if v is None:
         return None
     try:
-        return float(v)  # type: ignore[arg-type]
+        return float(v)
     except (TypeError, ValueError):
         return None

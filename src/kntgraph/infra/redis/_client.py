@@ -33,7 +33,16 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class PipelineLike(Protocol):
-    """Subset of ``redis.asyncio.client.Pipeline`` used by the EventLog."""
+    """Subset of ``redis.asyncio.client.Pipeline`` used by
+    the EventLog + the short-memory adapters.
+
+    Method coverage was audited against all module-level
+    call sites that consume the result of
+    ``client.pipeline()`` (the EventLog idempotency
+    claim, the Session/Profile/Continuity cache writers,
+    the tool cache adapter). Adding a new pipeline op at
+    a call site must be followed by declaring it here.
+    """
 
     def xadd(
         self,
@@ -49,6 +58,18 @@ class PipelineLike(Protocol):
         *,
         nx: bool = False,
     ) -> "PipelineLike": ...
+
+    def delete(self, *keys: str) -> "PipelineLike": ...
+
+    def hset(
+        self,
+        key: str,
+        field: str | None = None,
+        value: str | None = None,
+        mapping: dict | None = None,
+    ) -> "PipelineLike": ...
+
+    def expire(self, key: str, seconds: int) -> "PipelineLike": ...
 
     async def execute(self) -> list: ...
 
@@ -66,7 +87,7 @@ class RedisLike(Protocol):
     async def set(
         self,
         key: str,
-        value: str,
+        value: str | bytes,
         *,
         ex: int | None = None,
         nx: bool = False,

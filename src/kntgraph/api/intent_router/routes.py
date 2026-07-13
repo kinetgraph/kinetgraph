@@ -100,10 +100,11 @@ def register_healthz(
 def register_list_tools(
     app: RouterApp,
     FastAPI: type | None = None,
-    Depends: Dependable | None = None,
+    *,
+    Depends: Dependable,
     Principal: type | None = None,
     registry: ToolRegistry | None = None,
-    auth: PrincipalDep | None = None,
+    auth: PrincipalDep,
 ) -> None:
     """
     Install ``GET /agents/{agent_id}/tools`` (list the
@@ -115,7 +116,7 @@ def register_list_tools(
         response_model=list[ToolDescriptorSchema],
     )
     async def list_tools(
-        principal=Depends(auth),  # type: ignore[valid-type]
+        principal: Principal = Depends(auth),  # type: ignore[valid-type]
         agent_id: str = "",
     ) -> list[ToolDescriptorSchema]:
         """
@@ -142,13 +143,14 @@ def register_list_tools(
 def register_post_intent(
     app: RouterApp,
     FastAPI: type | None = None,
-    Depends: Dependable | None = None,
-    Header: HeaderParam | None = None,
-    HTTPException: type[HTTPExceptionLike] | None = None,
+    *,
+    Depends: Dependable,
+    Header: HeaderParam,
+    HTTPException: type[HTTPExceptionLike],
     Principal: type | None = None,
     log: EventLog | None = None,
     registry: ToolRegistry | None = None,
-    auth: PrincipalDep | None = None,
+    auth: PrincipalDep,
 ) -> None:
     """
     Install ``POST /agents/{agent_id}/intents`` (the
@@ -173,7 +175,7 @@ def register_post_intent(
     async def post_intent(
         agent_id: str,
         body: IntentRequest,
-        principal=Depends(auth),
+        principal: Principal = Depends(auth),  # type: ignore[valid-type]
         idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
     ) -> IntentResponse:
         """
@@ -293,10 +295,11 @@ def register_post_intent(
 def register_get_status(
     app: RouterApp,
     FastAPI: type | None = None,
-    Depends: Dependable | None = None,
+    *,
+    Depends: Dependable,
     Principal: type | None = None,
     log: EventLog | None = None,
-    auth: PrincipalDep | None = None,
+    auth: PrincipalDep,
 ) -> None:
     """
     Install ``GET /agents/{agent_id}/events/{event_id}/status``
@@ -310,7 +313,7 @@ def register_get_status(
     async def get_status(
         agent_id: str,
         event_id: str,
-        principal=Depends(auth),
+        principal: Principal = Depends(auth),  # type: ignore[valid-type]
         timeout_s: float = 5.0,
     ) -> StatusResponse:
         """

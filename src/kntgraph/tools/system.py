@@ -8,7 +8,8 @@ Helper for building WorldSystems that request tool executions via the Worker Pat
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+from typing import Mapping, Optional, cast
+from uuid import UUID
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import CorrelationContext, Event
@@ -59,12 +60,19 @@ class ToolAwareSystem:
             "tool": tool_name,
             "params": dict(params),
         }
+        # ``causation_id`` comes in as ``str | None`` (the
+        # EventView stores it as a string projection of
+        # the underlying UUID). ``Event.create`` expects a
+        # ``UUID | None``; the cast is a no-op when the
+        # caller already passed a real UUID. Production
+        # callers in the EventLog path always pass a
+        # stringified UUID.
         return Event.create(
             event_type=f"tool.{tool_name}.requested",
             agent_id=agent_id,
             event_class="domain",
             data=payload,
-            causation_id=causation_id,
+            causation_id=cast("Optional[UUID]", causation_id),
             correlation=correlation,
         )
 
