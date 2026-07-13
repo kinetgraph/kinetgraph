@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional, cast
+from uuid import UUID
 
 from kntgraph.core.world import World
 from kntgraph.core.world.view import AgentView
@@ -108,7 +109,10 @@ class IntentResolutionSystem:
                         "tool": target_tool_name,
                         "params": intent.parameters,
                     },
-                    causation_id=view.last_event_id,
+                    causation_id=cast(
+                        "Optional[UUID]",
+                        view.last_event_id,
+                    ),
                     correlation=intent.correlation,
                 )
             )
@@ -126,7 +130,7 @@ class IntentResolutionSystem:
             agent_id=agent_id,
             type="intent.validation_failed",
             data={"reason": reason},
-            causation_id=view.last_event_id,
+            causation_id=cast("Optional[UUID]", view.last_event_id),
             correlation=correlation,
         )
 

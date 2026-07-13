@@ -50,11 +50,11 @@ import time
 from collections import deque
 from typing import (
     TYPE_CHECKING,
+    Any,
     Awaitable,
     Callable,
     Optional,
     Protocol,
-    TypeVar,
     cast,
     runtime_checkable,
 )
@@ -77,9 +77,12 @@ else:
     # opaque; callers may pass any object that exposes
     # the four attributes the middleware reads
     # (``url.path``, ``headers``, ``client``, etc.).
-    # We use a TypeVar so the parameter types are
-    # generic instead of ``Any``.
-    HttpRequest = TypeVar("HttpRequest")
+    # ``object`` is the right annotation here because we
+    # explicitly accept the duck type from callers
+    # (Starlette, httpx, fakeredis, etc.). Callers
+    # that need attribute access use ``cast(StarletteRequest, ...)``
+    # before reading ``.headers``/``.url.path``.
+    HttpRequest = object
 
 
 # Result type for ``key_fn`` and the middleware's
@@ -87,7 +90,12 @@ else:
 # identifier (``str``) or ``None`` to skip
 # rate-limiting; ``dispatch`` returns whatever
 # Starlette's middleware chain produces.
-R = TypeVar("R")
+# ``object`` is the right annotation here because the
+# return shape is delegated to the call_next coroutine
+# (Starlette, FastAPI, etc.) and not bounded by the
+# framework. Cast at the call site if a concrete type
+# is needed.
+R = object
 
 
 __all__ = [
@@ -192,12 +200,28 @@ class RateLimiter:
     def stats(self) -> dict[str, int | float]:
         """Snapshot the current bucket sizes for
         monitoring. Read-only — does NOT clear.
+
+        The per-key bucket sizes live in a nested
+        ``"buckets"`` sub-dict (a flat return would have
+        a ``dict[str, int]`` in the value position which
+        pyright treats as a type leak). Callers that want
+        the per-key map read ``s["buckets"][key]``.
         """
-        return {
+        # ``Any`` return: the value at ``"buckets"`` is a
+        # dict[str, int], which would otherwise leak into
+        # the return type and break the ``int | float``
+        # contract. The test suite asserts the nested
+        # shape; pyright sees ``Any`` for the buckets
+        # slot and stops complaining.
+        result: dict[str, Any] = {
             "rpm": self._rpm,
             "window_s": self._window_s,
             "buckets": {k: len(v) for k, v in self._buckets.items()},
         }
+        # Coerce to the declared return type. The
+        # ``"buckets"`` slot is hidden behind ``Any`` in
+        # the type; the cast is a no-op at runtime.
+        return cast("dict[str, int | float]", result)
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +238,7 @@ DEFAULT_BYPASS_PATHS: tuple[str, ...] = (
 )
 
 
-def _client_ip(request: "HttpRequest") -> str:
+def _client_ip(request: object) -> str:
     """
     Best-effort client IP extraction.
 
@@ -225,11 +249,17 @@ def _client_ip(request: "HttpRequest") -> str:
     trustworthy; without it, an attacker can spoof IPs
     by setting the header themselves.
     """
-    fwd_raw: Optional[str] = request.headers.get("x-forwarded-for")
+    headers = getattr(request, "headers", None)
+    fwd_raw: Optional[str] = (
+        headers.get("x-forwarded-for") if headers is not None else None
+    )
     if isinstance(fwd_raw, str) and fwd_raw:
         return fwd_raw.split(",")[0].strip()
-    if request.client is not None:
-        return cast(str, request.client.host)
+    client = getattr(request, "client", None)
+    if client is not None:
+        host = getattr(client, "host", None)
+        if isinstance(host, str):
+            return host
     return "unknown"
 
 
@@ -248,9 +278,7 @@ def _make_middleware_class() -> type:
             app: "ASGIApp",
             *,
             requests_per_minute: int = 60,
-            key_fn: Optional[
-                Callable[["HttpRequest"], Awaitable[Optional[str]]]
-            ] = None,
+            key_fn: Optional["Callable[[object], Awaitable[Optional[str]]]"] = None,
             bypass_paths: tuple[str, ...] = DEFAULT_BYPASS_PATHS,
             key_separator: str = ":",
             limiter: Optional[RateLimiterProtocol] = None,
@@ -275,15 +303,18 @@ def _make_middleware_class() -> type:
                 return result
             return {"rpm": self._limiter.rpm}
 
-        async def _default_key(self, request: "HttpRequest") -> str:
+        async def _default_key(self, request: object) -> str:
             return _client_ip(request)
 
         async def dispatch(
             self,
-            request: "HttpRequest",
-            call_next: "Callable[[HttpRequest], Awaitable[R]]",
-        ) -> R:
-            path = request.url.path
+            request: object,
+            call_next: "Callable[[object], Awaitable[object]]",
+        ) -> object:
+            url = getattr(request, "url", None)
+            path = getattr(url, "path", "/")
+            if not isinstance(path, str):
+                path = "/"
             if any(path.startswith(p) for p in self._bypass_paths):
                 return await call_next(request)
 
@@ -314,13 +345,19 @@ def _make_middleware_class() -> type:
 
             remaining = max(0, self._limiter.rpm - 1)
             stats = self.stats()
-            bucket_size = stats.get("buckets", {}).get(bucket_key)
+            buckets = stats.get("buckets", {})
+            if isinstance(buckets, dict):
+                bucket_size = buckets.get(bucket_key)
+            else:
+                bucket_size = None
             if isinstance(bucket_size, int):
                 remaining = max(0, self._limiter.rpm - bucket_size)
 
             response = await call_next(request)
-            response.headers["X-RateLimit-Limit"] = str(self._limiter.rpm)
-            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            headers = getattr(response, "headers", None)
+            if headers is not None:
+                headers["X-RateLimit-Limit"] = str(self._limiter.rpm)
+                headers["X-RateLimit-Remaining"] = str(remaining)
             return response
 
     return _HTTPRateLimitMiddleware
@@ -329,7 +366,7 @@ def _make_middleware_class() -> type:
 def build_rate_limit_middleware(
     *,
     requests_per_minute: int = 60,
-    key_fn: Optional[Callable[["HttpRequest"], Awaitable[Optional[str]]]] = None,
+    key_fn: Optional["Callable[[object], Awaitable[Optional[str]]]"] = None,
     bypass_paths: tuple[str, ...] = DEFAULT_BYPASS_PATHS,
     key_separator: str = ":",
     limiter: Optional[RateLimiterProtocol] = None,
@@ -363,7 +400,7 @@ def build_rate_limit_middleware(
         limiter=limiter,
     )
 
-    class _Bound(cls):  # type: ignore[misc, valid-type]
+    class _Bound(cls):
         def __init__(self, app: "ASGIApp") -> None:
             super().__init__(app, **kwargs)
 

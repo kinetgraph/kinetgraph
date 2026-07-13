@@ -152,7 +152,9 @@ Do not include any prose outside the JSON.
         r = await self._invoke(system, user_prompt, key=key, **invoke_kwargs)
         if r.is_err():
             return Err(r.err_value_or_raise())
-        return self._parse_json(r.unwrap().text, ChatReply, "chat_parse_error")
+        return self._parse_json(  # type: ignore[return-value]
+            r.unwrap().text, ChatReply, "chat_parse_error"
+        )
 
     @staticmethod
     def _format_history(session: SessionState, new_message: str) -> str:

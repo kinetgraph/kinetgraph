@@ -185,10 +185,10 @@ class Principal:
         except (KeyError, ValueError) as e:
             raise ValueError(f"Principal.role missing or invalid: {e}") from e
         return cls(
-            agent_id=payload["agent_id"],
+            agent_id=_scalar(payload.get("agent_id")),
             role=role,
-            tenant_id=payload.get("tenant_id"),
-            key_id=payload["key_id"],
+            tenant_id=_optional_scalar(payload.get("tenant_id")),
+            key_id=_scalar(payload.get("key_id")),
         )
 
     @classmethod
@@ -230,6 +230,33 @@ class Principal:
             tenant_id=tenant_id,
             key_id=key_id,
         )
+
+
+def _scalar(value: JsonValue) -> str:
+    """Coerce a ``JsonValue`` slot to ``str``.
+
+    The ``Principal`` fields are all ``str`` in the
+    dataclass but the wire format (and the EventLog
+    payload) carries them as ``JsonValue`` to match the
+    storage contract. Returns ``""`` for None or
+    non-scalar shapes (defence-in-depth).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return ""
+
+
+def _optional_scalar(value: JsonValue) -> Optional[str]:
+    """Like :func:`_scalar` but propagates ``None`` as
+    ``None`` (the ``tenant_id`` field is optional).
+    """
+    if value is None:
+        return None
+    return _scalar(value)
 
 
 # ---------------------------------------------------------------------------

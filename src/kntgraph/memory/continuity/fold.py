@@ -125,7 +125,7 @@ class _ContinuityFoldState:
             last_tools=self.last_tools,
             last_entities=self.last_entities,
             last_categories=self.last_categories,
-            created_at=self.created_at,
+            created_at=self.created_at or 0.0,
             updated_at=self.updated_at,
             cleared_at=self.cleared_at,
         )

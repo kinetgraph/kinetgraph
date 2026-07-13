@@ -66,6 +66,7 @@ import asyncio
 import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import replace
 from typing import Any, Optional
 
 from kntgraph.core.result import (
@@ -820,12 +821,25 @@ class LiteLLMTransportAdapter(LLMTransport):
             "max_tokens": request.max_tokens,
         }
         if request.response_format is not None:
-            litellm_params = request.extra.get("litellm_params", {})
-            litellm_params["response_format"] = request.response_format
-            request.extra = {
-                **request.extra,
-                "litellm_params": litellm_params,
-            }
+            extra_dict = request.extra if isinstance(request.extra, dict) else {}
+            litellm_params_raw = extra_dict.get("litellm_params", {})
+            litellm_params: dict[str, object] = (
+                dict(litellm_params_raw) if isinstance(litellm_params_raw, dict) else {}
+            )
+            # ``response_format`` is typed as ``JsonValue``
+            # in the framework (covers dict-shaped JSON
+            # schemas as well as primitives); litellm
+            # expects a dict or Pydantic model, so the
+            # cast is a runtime no-op for callers that
+            # pass a JSON schema.
+            litellm_params["response_format"] = request.response_format  # type: ignore[assignment]
+            request = replace(
+                request,
+                extra={
+                    **extra_dict,
+                    "litellm_params": litellm_params,
+                },
+            )
         completion_kwargs.update(request.extra)
         # The runtime type is `ModelResponse | CustomStreamWrapper`.
         # Stream wrappers are iterable (not full responses),

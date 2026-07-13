@@ -28,8 +28,9 @@ import hashlib
 from dataclasses import dataclass
 from typing import NewType, Union
 
-from kntgraph.core._typing import KeyHandleT
 from kntgraph.security.keys._crypto import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
     _StubPrivateKey,
     _StubPublicKey,
     serialization,
@@ -55,7 +56,7 @@ class Ed25519PublicKeyWrapper:
     only with ``.bytes``, ``.algorithm``, ``.fingerprint()``.
     """
 
-    _key: KeyHandleT  # Ed25519PublicKey; opaque
+    _key: Ed25519PublicKey
     algorithm: str  # "ed25519-v1"
 
     @property
@@ -90,7 +91,7 @@ class Ed25519PrivateKeyWrapper:
     cross-process need.
     """
 
-    _key: KeyHandleT  # Ed25519PrivateKey; opaque
+    _key: Ed25519PrivateKey
     algorithm: str  # "ed25519-v1"
 
     @property

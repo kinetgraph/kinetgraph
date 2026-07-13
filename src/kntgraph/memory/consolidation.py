@@ -312,7 +312,7 @@ class Consolidator:
                 continue
             self._bus.publish(
                 CacheRefreshRequest(
-                    kind=mem.kind,
+                    kind=mem.kind,  # type: ignore[arg-type]
                     id1=mem.id1,
                     id2=mem.id2,
                 )

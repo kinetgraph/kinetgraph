@@ -35,7 +35,7 @@ concrete ``RedisSessionStorage`` via constructor injection.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Optional
 
@@ -127,7 +127,9 @@ class SessionManager(BaseShortTermMemory[SessionState]):
     agent_id_prefix = "session:"
 
     @classmethod
-    def cache_key(cls, session_id: str) -> str:
+    def cache_key(  # type: ignore[reportIncompatibleMethodOverride]
+        cls, session_id: str
+    ) -> str:
         """Redis key for a single session's cache entry."""
         return SESSION_KEY_PREFIX + session_id
 
@@ -147,7 +149,9 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         key = self.cache_key(session_id)
         await self._write_cache_for_key(key, state)
 
-    async def refresh_cache(self, session_id: str) -> None:
+    async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
+        self, session_id: str
+    ) -> None:
         """
         Rebuild the cache for one session by folding the
         EventLog. Idempotent: if no events exist, this is a
@@ -297,7 +301,9 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     # ------------------------------------------------------------------ read
 
-    async def read(self, session_id: str) -> Optional[SessionState]:
+    async def read(  # type: ignore[reportIncompatibleMethodOverride]
+        self, session_id: str
+    ) -> Optional[SessionState]:
         """
         Read the session state. Tries the cache first; on miss,
         folds the EventLog and refreshes the cache.
@@ -313,7 +319,10 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         out: list[SessionState] = []
         async for key in self._storage.iter_keys(SESSION_KEY_PREFIX):
             sid = key[len(SESSION_KEY_PREFIX) :]
-            state = await self._read_cache(self.cache_key(sid))
+            cache_result = await self._read_cache(self.cache_key(sid), sid)
+            if cache_result.is_err():
+                continue
+            state = cache_result.ok_value()
             if state and state.tenant_id == tenant_id and state.is_active():
                 out.append(state)
             if len(out) >= limit:
@@ -323,7 +332,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
-        self, key: str
+        self, key: str, *key_parts: str
     ) -> Result[Optional[SessionState], MemoryDecodeError]:
         """Decode the JSON cache entry at ``key``.
 
@@ -332,32 +341,34 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         malformed payload. The base class treats ``Err``
         as a cache miss (logs at WARNING) so a transient
         Redis blip does not block the read-through.
+
+        The wire payload from the ``ShortMemoryStorage``
+        Protocol is a ``Mapping[str, JsonValue]``. The
+        Session state stores messages and context as
+        ``dict[str, JsonValue]``, so we pass the mapping
+        through unchanged. Scalar fields are coerced to
+        ``str``/``float`` so the dataclass accepts them.
         """
         result = await self._storage.get_record(key)
         if result.is_err():
             err = result.err_value()
             if isinstance(err, MemoryMiss):
                 return Ok(None)
-            # Propagate the typed error — base will log.
             return Err(MemoryDecodeError(f"storage error: {err}", key=key))
         raw = result.ok_value()
         if raw is None:
             return Ok(None)
+        # The Session cache layout embeds the identity
+        # (``session_id``/``user_id``/``tenant_id``) in the
+        # JSON payload, so we read the session_id from
+        # the payload. The base also passes ``key_parts``
+        # but we only fall back to it on a missing field
+        # (defence-in-depth — the JSON layer is the truth).
+        session_id = _scalar_str(raw.get("session_id")) or (
+            key_parts[0] if key_parts else ""
+        )
         try:
-            d = dict(raw)
-            return Ok(
-                SessionState(
-                    session_id=d["session_id"],
-                    user_id=d["user_id"],
-                    tenant_id=d["tenant_id"],
-                    messages=tuple(d.get("messages", [])),
-                    context=dict(d.get("context", {})),
-                    started_at=float(d.get("started_at", 0.0)),
-                    ended_at=(
-                        float(d["ended_at"]) if d.get("ended_at") is not None else None
-                    ),
-                )
-            )
+            return Ok(_build_session_state(raw, session_id=session_id))
         except (KeyError, ValueError, TypeError) as e:
             return Err(MemoryDecodeError(f"invalid session payload: {e}", key=key))
 
@@ -373,7 +384,12 @@ class SessionManager(BaseShortTermMemory[SessionState]):
             "ended_at": state.ended_at,
         }
 
-    def _store_cache(self, key: str, payload, ttl) -> None:
+    def _store_cache(
+        self,
+        key: str,
+        payload: object,
+        ttl: Optional[int],
+    ) -> None:
         """Deprecated hook — the storage layer handles writes now."""
         # Kept as a no-op for back-compat with subclasses
         # that may still call it. Iteration 2 routes writes
@@ -382,7 +398,9 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     # ------------------------------------------------------------------ base hooks (fold)
 
-    async def _fold_from_log(self, session_id: str) -> Optional[SessionState]:
+    async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
+        self, session_id: str
+    ) -> Optional[SessionState]:
         """
         Folds the EventLog for the session and reconstructs a
         SessionState. Pure: reads events, no side effects.
@@ -414,15 +432,17 @@ def _fold_session_events(
 
     for e in events:
         if e.event_type == SessionEventType.STARTED:
-            user_id = e.data.get("user_id", "")
-            tenant_id = e.data.get("tenant_id", "")
+            user_id = _scalar_str(e.data.get("user_id"))
+            tenant_id = _scalar_str(e.data.get("tenant_id"))
             started_at = e.timestamp.timestamp()
-            context.update(e.data.get("metadata", {}))
+            meta = e.data.get("metadata")
+            if isinstance(meta, dict):
+                context.update(meta)
         elif e.event_type == SessionEventType.MESSAGE:
             messages.append(
                 {
-                    "role": e.data.get("role", "user"),
-                    "content": e.data.get("content", ""),
+                    "role": _scalar_str(e.data.get("role"), default="user"),
+                    "content": _scalar_str(e.data.get("content")),
                     "metadata": e.data.get("metadata", {}),
                     "at": e.timestamp.timestamp(),
                 }
@@ -432,15 +452,93 @@ def _fold_session_events(
                 # in cache; the EventLog retains everything.
                 messages[:-MAX_MESSAGES_IN_CACHE] = []
         elif e.event_type == SessionEventType.CONTEXT:
-            key = e.data.get("key")
-            if key is not None:
-                context[key] = e.data.get("value")
+            slot = e.data.get("key")
+            if slot is not None and isinstance(slot, str):
+                context[slot] = e.data.get("value")
         elif e.event_type == SessionEventType.ENDED:
             ended_at = e.timestamp.timestamp()
 
     if started_at is None:
         return None
 
+    return SessionState(
+        session_id=session_id,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        messages=tuple(messages),
+        context=context,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
+
+
+def _coerce_str(raw: Mapping[str, JsonValue], key: str) -> str:
+    """Coerce a ``JsonValue`` slot to ``str``. Raises
+    ``ValueError`` if the slot is missing or not a scalar.
+    """
+    value = raw.get(key)
+    return _scalar_str(value)
+
+
+def _scalar_str(value: JsonValue, *, default: str = "") -> str:
+    """Coerce a single ``JsonValue`` to ``str``. Returns
+    ``default`` for non-scalar shapes (dict, list, None).
+    """
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return default
+
+
+def _coerce_float(value: JsonValue, *, default: float = 0.0) -> float:
+    """Coerce a ``JsonValue`` to ``float``. Returns
+    ``default`` if the value is not a scalar.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _build_session_state(
+    raw: Mapping[str, JsonValue],
+    *,
+    session_id: str,
+) -> SessionState:
+    """Build a ``SessionState`` from a ``Mapping[str,
+    JsonValue]``. The ``raw`` payload originates from the
+    ``ShortMemoryStorage`` Protocol; scalars are coerced
+    to ``str``/``float``, the message and context dicts
+    are passed through (the state type already uses
+    ``JsonValue`` for those).
+    """
+    user_id = _coerce_str(raw, "user_id")
+    tenant_id = _coerce_str(raw, "tenant_id")
+    messages_raw = raw.get("messages") or []
+    if not isinstance(messages_raw, list):
+        raise ValueError("messages is not a list")
+    messages: list[dict[str, JsonValue]] = []
+    for entry in messages_raw:
+        if isinstance(entry, dict):
+            messages.append({str(k): v for k, v in entry.items()})
+    context_raw = raw.get("context") or {}
+    if not isinstance(context_raw, dict):
+        raise ValueError("context is not a dict")
+    context: dict[str, JsonValue] = {str(k): v for k, v in context_raw.items()}
+    started_at = _coerce_float(raw.get("started_at"), default=0.0)
+    ended_at_raw = raw.get("ended_at")
+    ended_at = _coerce_float(ended_at_raw) if ended_at_raw is not None else None
     return SessionState(
         session_id=session_id,
         user_id=user_id,

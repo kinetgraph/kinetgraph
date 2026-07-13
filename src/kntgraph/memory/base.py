@@ -79,10 +79,11 @@ from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
 
 import structlog
 
-
+from ..core.result import Result
 from ..stream.event_log import EventLog
 
 if TYPE_CHECKING:
+    from ..infra.redis._errors import MemoryDecodeError
     from ..infra.redis._memory import ShortMemoryStorage
 
 logger = structlog.get_logger()
@@ -191,17 +192,17 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         succeeds against the EventLog.
         """
         key = self.cache_key(*key_parts)
-        cache_result = await self._read_cache(key)
-        if cache_result.is_ok():
-            cached = cache_result.ok_value()
-            if cached is not None:
-                return cached
-        else:
+        cache_result = await self._read_cache(key, *key_parts)
+        if cache_result.is_err():
             logger.warning(
                 "short_term.cache.read_failed",
                 key=key,
                 error=str(cache_result.err_value()),
             )
+        else:
+            cached = cache_result.ok_value()
+            if cached is not None:
+                return cached
         folded = await self._fold_from_log(*key_parts)
         if folded is not None:
             await self._write_cache_for_key(key, folded)
@@ -226,13 +227,26 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
     # ------------------------------------------------------------------ protected
 
     @abstractmethod
-    async def _read_cache(self, key: str) -> Optional[StateT]:
+    async def _read_cache(
+        self, key: str, *key_parts: str
+    ) -> "Result[Optional[StateT], MemoryDecodeError]":
         """
         Decode the cache entry at ``key`` into a StateT.
-        Return None if the entry is missing or malformed.
+        Return ``Ok(None)`` if the entry is missing or
+        ``Err(MemoryDecodeError)`` on a malformed payload or
+        Redis-side failure.
 
         Subclasses implement this with the right storage
         primitive (GET for JSON, HGETALL for Hash, etc.).
+        Errors are surfaced (not swallowed) so the base
+        class can log and fall through to the EventLog fold.
+
+        ``key_parts`` is the same identity the base used to
+        compute ``key``; subclasses that encode the identity
+        in the Redis key (e.g. Profile's
+        ``knt:profile:{tenant_id}:{user_id}``) but NOT in
+        the Hash payload can use ``key_parts`` to reconstruct
+        the identity in the decoded state.
         """
         raise NotImplementedError
 

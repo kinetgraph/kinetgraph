@@ -9,21 +9,19 @@ Verify a single-event signature.
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from kntgraph.security.keys._types import KeyEpoch
 from kntgraph.security.signing._canonical import canonical_event_bytes
 from kntgraph.security.signing._crypto import (
     CRYPTOGRAPHY_AVAILABLE,
     Ed25519PublicKey,
-    InvalidSignature,
 )
-from kntgraph.security.signing._types import SUPPORTED_ALGORITHMS
+from kntgraph.security.signing._types import SUPPORTED_ALGORITHMS, Signature
 
 if TYPE_CHECKING:
     from kntgraph.core.event import Event
-
-    from . import Ed25519PublicKeyWrapper, KeyRegistry
+    from kntgraph.security import Ed25519PublicKeyWrapper, KeyRegistry
 
 
 def _epoch(value: int) -> "KeyEpoch":
@@ -85,7 +83,7 @@ def verify_event(
 def _is_revoked(
     event: "Event",
     *,
-    sig: object,
+    sig: "Signature",
     key_registry: "KeyRegistry",
 ) -> bool:
     """True iff ``(agent_id, key_epoch)`` is revoked. Any
@@ -100,7 +98,7 @@ def _is_revoked(
 
 def _crypto_verify(
     event: "Event",
-    sig: object,
+    sig: "Signature",
     public_key: "Ed25519PublicKeyWrapper",
 ) -> bool:
     """Verify the Ed25519 signature on the canonical
@@ -120,12 +118,15 @@ def _crypto_verify(
     except Exception:
         return False
 
-    raw_pub = getattr(public_key, "_key", public_key)
-    if not isinstance(raw_pub, Ed25519PublicKey):
+    raw_pub = cast(
+        Ed25519PublicKey,
+        getattr(public_key, "_key", public_key),
+    )
+    if not hasattr(raw_pub, "verify"):
         return False
 
     try:
         raw_pub.verify(sig_bytes, bytes_to_verify)
-    except (InvalidSignature, Exception):  # noqa: BLE001 - intentional
+    except Exception:  # noqa: BLE001 - intentional
         return False
     return True

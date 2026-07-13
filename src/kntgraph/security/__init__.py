@@ -111,7 +111,7 @@ class KeyRegistry(Protocol):
     def public_key(
         self,
         agent_id: str,
-        key_epoch: KeyEpoch = 0,
+        key_epoch: KeyEpoch = KeyEpoch(0),
     ) -> PublicKey:
         """Return the public key for ``agent_id`` at ``key_epoch``.
 
