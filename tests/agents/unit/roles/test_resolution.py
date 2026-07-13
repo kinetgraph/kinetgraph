@@ -5,10 +5,9 @@
 from __future__ import annotations
 
 from uuid import uuid4
-import pytest
 
 from kntgraph.agents.roles import IntentComponent, IntentResolutionSystem, RoleComponent
-from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.event import CorrelationContext
 from kntgraph.core.world import World
 from kntgraph.core.world.view import AgentView
 from kntgraph.core.storage import ArchetypeStorage
@@ -33,14 +32,18 @@ class TestIntentResolutionSystem:
         registry = ToolRegistry()
         system = IntentResolutionSystem(registry)
 
-        role = RoleComponent(persona="test", instructions="test", allowed_tools=["calculator"])
+        role = RoleComponent(
+            persona="test", instructions="test", allowed_tools=["calculator"]
+        )
         intent = IntentComponent(
             target_tool="calculator",
             parameters={"a": 1, "b": 2},
             status="completed",  # Not pending!
             correlation=_correlation(),
         )
-        principal = Principal(agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1")
+        principal = Principal(
+            agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1"
+        )
 
         views = {
             "agent-1": AgentView(
@@ -55,7 +58,9 @@ class TestIntentResolutionSystem:
             )
         }
         storage = ArchetypeStorage()
-        storage.add_entity("agent-1", {"role": role, "intent": intent, "principal": principal})
+        storage.add_entity(
+            "agent-1", {"role": role, "intent": intent, "principal": principal}
+        )
         world = World(tick=1, storage=storage, views=views)
 
         events = system(world)
@@ -65,7 +70,9 @@ class TestIntentResolutionSystem:
         registry = ToolRegistry()
         system = IntentResolutionSystem(registry)
 
-        role = RoleComponent(persona="test", instructions="test", allowed_tools=["calculator"])
+        role = RoleComponent(
+            persona="test", instructions="test", allowed_tools=["calculator"]
+        )
         corr = _correlation()
         intent = IntentComponent(
             target_tool="calculator",
@@ -73,7 +80,9 @@ class TestIntentResolutionSystem:
             status="pending",
             correlation=corr,
         )
-        principal = Principal(agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1")
+        principal = Principal(
+            agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1"
+        )
 
         views = {
             "agent-1": AgentView(
@@ -88,7 +97,9 @@ class TestIntentResolutionSystem:
             )
         }
         storage = ArchetypeStorage()
-        storage.add_entity("agent-1", {"role": role, "intent": intent, "principal": principal})
+        storage.add_entity(
+            "agent-1", {"role": role, "intent": intent, "principal": principal}
+        )
         world = World(tick=1, storage=storage, views=views)
 
         events = system(world)
@@ -107,7 +118,9 @@ class TestIntentResolutionSystem:
 
         system = IntentResolutionSystem(registry)
 
-        role = RoleComponent(persona="test", instructions="test", allowed_tools=["calculator"])
+        role = RoleComponent(
+            persona="test", instructions="test", allowed_tools=["calculator"]
+        )
         corr = _correlation()
         intent = IntentComponent(
             target_tool="calculator",
@@ -116,7 +129,9 @@ class TestIntentResolutionSystem:
             correlation=corr,
         )
         # Principal is only agent
-        principal = Principal(agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1")
+        principal = Principal(
+            agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1"
+        )
 
         views = {
             "agent-1": AgentView(
@@ -131,7 +146,9 @@ class TestIntentResolutionSystem:
             )
         }
         storage = ArchetypeStorage()
-        storage.add_entity("agent-1", {"role": role, "intent": intent, "principal": principal})
+        storage.add_entity(
+            "agent-1", {"role": role, "intent": intent, "principal": principal}
+        )
         world = World(tick=1, storage=storage, views=views)
 
         events = system(world)
@@ -157,7 +174,9 @@ class TestIntentResolutionSystem:
             status="pending",
             correlation=corr,
         )
-        principal = Principal(agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1")
+        principal = Principal(
+            agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1"
+        )
 
         views = {
             "agent-1": AgentView(
@@ -172,7 +191,9 @@ class TestIntentResolutionSystem:
             )
         }
         storage = ArchetypeStorage()
-        storage.add_entity("agent-1", {"role": role, "intent": intent, "principal": principal})
+        storage.add_entity(
+            "agent-1", {"role": role, "intent": intent, "principal": principal}
+        )
         world = World(tick=1, storage=storage, views=views)
 
         events = system(world)
@@ -189,7 +210,9 @@ class TestIntentResolutionSystem:
 
         system = IntentResolutionSystem(registry)
 
-        role = RoleComponent(persona="test", instructions="test", allowed_tools=["calculator"])
+        role = RoleComponent(
+            persona="test", instructions="test", allowed_tools=["calculator"]
+        )
         corr = _correlation()
         intent = IntentComponent(
             target_tool="calculator",
@@ -197,7 +220,9 @@ class TestIntentResolutionSystem:
             status="pending",
             correlation=corr,
         )
-        principal = Principal(agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1")
+        principal = Principal(
+            agent_id="agent-1", role=Role.agent, tenant_id="tenant-1", key_id="key-1"
+        )
 
         views = {
             "agent-1": AgentView(
@@ -212,7 +237,9 @@ class TestIntentResolutionSystem:
             )
         }
         storage = ArchetypeStorage()
-        storage.add_entity("agent-1", {"role": role, "intent": intent, "principal": principal})
+        storage.add_entity(
+            "agent-1", {"role": role, "intent": intent, "principal": principal}
+        )
         world = World(tick=1, storage=storage, views=views)
 
         events = system(world)

@@ -106,7 +106,9 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
     agent_id_prefix = "continuity:"
 
     @classmethod
-    def cache_key(cls, tenant_id: str, user_id: str) -> str:
+    def cache_key(  # type: ignore[reportIncompatibleMethodOverride]
+        cls, tenant_id: str, user_id: str
+    ) -> str:
         """Redis key for a single continuity's Hash cache entry."""
         return f"{CONTINUITY_KEY_PREFIX}{tenant_id}:{user_id}"
 
@@ -145,7 +147,9 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         key = self.cache_key(tenant_id, user_id)
         await self._write_cache_for_key(key, state)
 
-    async def refresh_cache(self, tenant_id: str, user_id: str) -> None:
+    async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> None:
         """
         Rebuild the cache for one continuity by folding the
         EventLog. Idempotent.
@@ -213,10 +217,17 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         """
         agent_id = self.agent_id_for(tenant_id, user_id)
         ctx = correlation_middleware.current()
+        if ctx is None:
+            return Err(PersistenceError("Missing CorrelationContext"))
         build_result = build(agent_id, ctx)
         if build_result.is_err():
-            return Err(build_result.err_value())  # type: ignore[arg-type]
-        event = build_result.ok_value()  # type: ignore[union-attr]
+            err = build_result.err_value()
+            if err is None:
+                return Err(PersistenceError("Builder returned Err(None)"))
+            return Err(err)
+        event = build_result.ok_value()
+        if event is None:
+            return Err(PersistenceError("Builder returned Ok(None)"))
         return await self._emit_and_refresh(event, tenant_id, user_id)
 
     async def create(
@@ -361,7 +372,9 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
 
     # ------------------------------------------------------------------ read
 
-    async def read(self, tenant_id: str, user_id: str) -> Optional[ContinuityState]:
+    async def read(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> Optional[ContinuityState]:
         """Read the continuity state. Cache first, fold on miss."""
         return await super().read(tenant_id, user_id)
 
@@ -376,7 +389,14 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         prefix = f"{CONTINUITY_KEY_PREFIX}{tenant_id}:"
         async for key in self._storage.iter_keys(prefix):
             user_id = key[len(prefix) :]
-            state = await self._read_cache(self.cache_key(tenant_id, user_id))
+            cache_result = await self._read_cache(
+                self.cache_key(tenant_id, user_id),
+                tenant_id,
+                user_id,
+            )
+            if cache_result.is_err():
+                continue
+            state = cache_result.ok_value()
             if state is not None:
                 out.append(state)
             if len(out) >= limit:
@@ -386,7 +406,7 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
-        self, key: str
+        self, key: str, *key_parts: str
     ) -> Result[Optional[ContinuityState], MemoryDecodeError]:
         """Decode the Hash cache entry at ``key``.
 
@@ -395,6 +415,11 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         on a real decode error. Hash present but missing
         ``created_at`` is a legacy malformed entry — fold
         fallback is the safe path.
+
+        ``key_parts`` carries the identity
+        ``(tenant_id, user_id)`` because the Redis Hash
+        layout does not embed them — the manager needs
+        them to populate the decoded ``ContinuityState``.
         """
         result = await self._storage.get_record(key)
         if result.is_err():
@@ -405,7 +430,9 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         raw = result.ok_value()
         if raw is None:
             return Ok(None)
-        decoded = read_cache(raw)
+        tenant_id = key_parts[0] if len(key_parts) >= 1 else ""
+        user_id = key_parts[1] if len(key_parts) >= 2 else ""
+        decoded = read_cache(raw, tenant_id=tenant_id, user_id=user_id)
         if decoded is None:
             # ``read_cache`` returns ``None`` when the hash
             # is present but missing ``created_at`` (a
@@ -420,13 +447,18 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         """Encode a ContinuityState to a Hash mapping for ``HSET``."""
         return serialize_for_cache(state)
 
-    def _store_cache(self, key: str, payload, ttl) -> None:
+    def _store_cache(
+        self,
+        key: str,
+        payload: object,
+        ttl: Optional[int],
+    ) -> None:
         """Deprecated hook — the storage layer handles writes now."""
         return None
 
     # ------------------------------------------------------------------ base hooks (fold)
 
-    async def _fold_from_log(
+    async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
     ) -> Optional[ContinuityState]:
         agent_id = self.agent_id_for(tenant_id, user_id)

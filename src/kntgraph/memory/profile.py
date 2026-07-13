@@ -41,12 +41,13 @@ por configuração explícita ou billing → `profile`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Optional
 
 import structlog
 
+from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
 from ..core.result import Err, Ok, PersistenceError, Result
 from ..infra.redis._errors import MemoryDecodeError, MemoryMiss
@@ -128,7 +129,9 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
     agent_id_prefix = "profile:"
 
     @classmethod
-    def cache_key(cls, tenant_id: str, user_id: str) -> str:
+    def cache_key(  # type: ignore[reportIncompatibleMethodOverride]
+        cls, tenant_id: str, user_id: str
+    ) -> str:
         """Redis key for a single profile's Hash cache entry."""
         return f"{PROFILE_KEY_PREFIX}{tenant_id}:{user_id}"
 
@@ -151,7 +154,9 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         key = self.cache_key(tenant_id, user_id)
         await self._write_cache_for_key(key, state)
 
-    async def refresh_cache(self, tenant_id: str, user_id: str) -> None:
+    async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> None:
         """
         Rebuild the cache for one profile by folding the
         EventLog. Idempotent.
@@ -266,7 +271,9 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
 
     # ------------------------------------------------------------------ read
 
-    async def read(self, tenant_id: str, user_id: str) -> Optional[ProfileState]:
+    async def read(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> Optional[ProfileState]:
         """Read the profile. Cache first, fold on miss."""
         return await super().read(tenant_id, user_id)
 
@@ -281,7 +288,14 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         prefix = f"{PROFILE_KEY_PREFIX}{tenant_id}:"
         async for key in self._storage.iter_keys(prefix):
             decoded_user_id = key[len(prefix) :]
-            state = await self._read_cache(self.cache_key(tenant_id, decoded_user_id))
+            cache_result = await self._read_cache(
+                self.cache_key(tenant_id, decoded_user_id),
+                tenant_id,
+                decoded_user_id,
+            )
+            if cache_result.is_err():
+                continue
+            state = cache_result.ok_value()
             if state is not None:
                 out.append(state)
             if len(out) >= limit:
@@ -291,7 +305,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
-        self, key: str
+        self, key: str, *key_parts: str
     ) -> Result[Optional[ProfileState], MemoryDecodeError]:
         """Decode the Hash cache entry at ``key``.
 
@@ -301,6 +315,13 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         storage errors are re-typed as ``MemoryDecodeError``
         for the caller — the base class treats them as a
         cache miss to keep the read-through path alive).
+
+        The wire payload from the ``ShortMemoryStorage``
+        Protocol is ``Mapping[str, JsonValue]``. We
+        coerce each slot to the expected scalar
+        (``str``/``float``) via the local
+        :func:`_coerce_profile_scalar` helper so the
+        state dataclass accepts the values.
         """
         result = await self._storage.get_record(key)
         if result.is_err():
@@ -311,21 +332,19 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         decoded = result.ok_value()
         if not decoded:
             return Ok(None)
-        # Hash layout: prefs are stored as "pref:<key>" entries
-        preferences: dict[str, str] = {}
-        for k, v in decoded.items():
-            if k.startswith("pref:"):
-                preferences[k[len("pref:") :]] = str(v)
         if "created_at" not in decoded:
             return Err(MemoryDecodeError("missing required field: created_at", key=key))
+        # ``tenant_id`` and ``user_id`` are encoded in the
+        # Redis key itself, not in the Hash payload. The
+        # base passes the original ``key_parts`` so we can
+        # reconstruct the identity.
+        tenant_id = key_parts[0] if len(key_parts) >= 1 else ""
+        user_id = key_parts[1] if len(key_parts) >= 2 else ""
         return Ok(
-            ProfileState(
-                tenant_id=decoded.get("tenant_id", ""),
-                user_id=decoded.get("user_id", ""),
-                preferences=preferences,
-                tier=decoded.get("tier", "standard"),
-                created_at=float(decoded.get("created_at", 0.0)),
-                updated_at=float(decoded.get("updated_at", 0.0)),
+            _build_profile_state(
+                decoded,
+                tenant_id=tenant_id,
+                user_id=user_id,
             )
         )
 
@@ -340,13 +359,18 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
             mapping[f"pref:{k}"] = str(v)
         return mapping
 
-    def _store_cache(self, key: str, payload, ttl) -> None:
+    def _store_cache(
+        self,
+        key: str,
+        payload: object,
+        ttl: Optional[int],
+    ) -> None:
         """Deprecated hook — the storage layer handles writes now."""
         return None
 
     # ------------------------------------------------------------------ base hooks (fold)
 
-    async def _fold_from_log(
+    async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
     ) -> Optional[ProfileState]:
         agent_id = self.agent_id_for(tenant_id, user_id)
@@ -376,22 +400,112 @@ def _fold_profile_events(
         if e.event_type == ProfileEventType.CREATED:
             created_at = e.timestamp.timestamp()
             updated_at = e.timestamp.timestamp()
-            for k, v in e.data.get("preferences", {}).items():
-                preferences[k] = str(v)
-            tier = e.data.get("tier", tier)
+            prefs = e.data.get("preferences")
+            if isinstance(prefs, dict):
+                for k, v in prefs.items():
+                    if isinstance(k, str):
+                        preferences[k] = (
+                            str(v) if not isinstance(v, (dict, list)) else ""
+                        )
+            tier_value = e.data.get("tier", tier)
+            if isinstance(tier_value, str):
+                tier = tier_value
+            else:
+                tier = (
+                    str(tier_value)
+                    if not isinstance(tier_value, (dict, list))
+                    else tier
+                )
         elif e.event_type == ProfileEventType.PREFERENCE_SET:
-            preferences[e.data["key"]] = str(e.data["value"])
+            k = e.data.get("key")
+            v = e.data.get("value")
+            if isinstance(k, str):
+                preferences[k] = str(v) if not isinstance(v, (dict, list)) else ""
             updated_at = e.timestamp.timestamp()
         elif e.event_type == ProfileEventType.PREFERENCE_UNSET:
-            preferences.pop(e.data["key"], None)
+            k = e.data.get("key")
+            if isinstance(k, str):
+                preferences.pop(k, None)
             updated_at = e.timestamp.timestamp()
         elif e.event_type == ProfileEventType.TIER_CHANGED:
-            tier = e.data["to_tier"]
+            to_tier = e.data.get("to_tier")
+            if isinstance(to_tier, str):
+                tier = to_tier
+            else:
+                tier = str(to_tier) if not isinstance(to_tier, (dict, list)) else tier
             updated_at = e.timestamp.timestamp()
 
     if created_at is None:
         return None
 
+    return ProfileState(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        preferences=preferences,
+        tier=tier,
+        created_at=created_at,
+        updated_at=updated_at,
+    )
+
+
+def _coerce_profile_scalar(
+    decoded: "Mapping[str, JsonValue]",
+    key: str,
+    default: str,
+) -> str:
+    """Coerce a string-valued slot to ``str``. Used by
+    :func:`_build_profile_state` so the decoder accepts
+    the ``JsonValue`` shape returned by
+    ``ShortMemoryStorage``.
+    """
+    value = decoded.get(key, default)
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return default
+
+
+def _coerce_profile_float(value: JsonValue) -> float:
+    """Coerce a ``JsonValue`` to ``float``; returns
+    ``0.0`` for non-numeric values.
+    """
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _build_profile_state(
+    decoded: "Mapping[str, JsonValue]",
+    *,
+    tenant_id: str = "",
+    user_id: str = "",
+) -> ProfileState:
+    """Build a ``ProfileState`` from a Hash payload
+    (``Mapping[str, JsonValue]``). The Hash layout uses
+    ``pref:<key>`` for preferences; scalar fields are
+    ``tier``, ``created_at``, ``updated_at``. The
+    identity (``tenant_id``/``user_id``) is encoded in
+    the Redis key; the manager passes it explicitly via
+    the ``tenant_id``/``user_id`` kwargs so the decoded
+    state knows who it belongs to.
+    """
+    preferences: dict[str, str] = {}
+    for k, v in decoded.items():
+        if isinstance(k, str) and k.startswith("pref:"):
+            preferences[k[len("pref:") :]] = (
+                str(v) if not isinstance(v, (dict, list)) else ""
+            )
+    tier = _coerce_profile_scalar(decoded, "tier", "standard")
+    created_at = _coerce_profile_float(decoded.get("created_at"))
+    updated_at = _coerce_profile_float(decoded.get("updated_at"))
     return ProfileState(
         tenant_id=tenant_id,
         user_id=user_id,

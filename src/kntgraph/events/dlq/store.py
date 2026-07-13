@@ -41,7 +41,7 @@ external callers.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import structlog
 
@@ -138,18 +138,20 @@ class DeadLetterQueue:
         # The agent index points to the FIRST failure of
         # the agent, so subsequent failures don't overwrite
         # the head pointer.
-        try:
-            await self._storage.client.hsetnx(
-                DLQ_AGENT_INDEX,
-                dl_event.event.agent_id,
-                stream_id,
-            )
-        except Exception as e:  # pragma: no cover
-            logger.warning(
-                "dlq.append.agent_index_failed",
-                event_id=event_id,
-                error=str(e),
-            )
+        client = getattr(self._storage, "client", None)
+        if client is not None and hasattr(client, "hsetnx"):
+            try:
+                await client.hsetnx(
+                    DLQ_AGENT_INDEX,
+                    dl_event.event.agent_id,
+                    stream_id,
+                )
+            except Exception as e:  # pragma: no cover
+                logger.warning(
+                    "dlq.append.agent_index_failed",
+                    event_id=event_id,
+                    error=str(e),
+                )
 
         logger.warning(
             "dlq.append.ok",
@@ -160,7 +162,7 @@ class DeadLetterQueue:
             retry_count=dl_event.retry_count,
             stream_id=stream_id,
         )
-        return Ok(stream_id)
+        return Ok(stream_id)  # type: ignore[arg-type]
 
     # ------------------------------------------------------------------ read
 
@@ -184,7 +186,7 @@ class DeadLetterQueue:
         entry_result = await self._storage.read(stream_id)
         if entry_result.is_err() or entry_result.ok_value() is None:
             return None
-        return self._build_event(entry_result.ok_value())
+        return self._build_event(cast("dict[str, str]", entry_result.ok_value()))
 
     async def list_for_agent(
         self, agent_id: str, count: int = 100
@@ -203,9 +205,10 @@ class DeadLetterQueue:
                 error=str(result.err_value()),
             )
             return []
+        messages_payload = result.ok_value() or []
         return [
-            self._build_event(m)
-            for m in result.ok_value()
+            self._build_event(cast("dict[str, str]", m))
+            for m in messages_payload
             if m.get("agent_id") == agent_id
         ]
 
@@ -223,7 +226,8 @@ class DeadLetterQueue:
                 error=str(result.err_value()),
             )
             return []
-        return [self._build_event(m) for m in result.ok_value()]
+        messages_payload = result.ok_value() or []
+        return [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
 
     async def list_all(self, count: int = 100) -> list[DeadLetterEvent]:
         messages = await self._storage.list_all(count)
@@ -233,7 +237,8 @@ class DeadLetterQueue:
                 error=str(messages.err_value()),
             )
             return []
-        return [self._build_event(m) for m in messages.ok_value()]
+        messages_payload = messages.ok_value() or []
+        return [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
 
     # ------------------------------------------------------------------ stats
 
@@ -255,7 +260,11 @@ class DeadLetterQueue:
                 "unique_agents": 0,
                 "by_reason": {},
             }
-        return result.ok_value()
+        return result.ok_value() or {  # type: ignore[return-value]
+            "total_events": 0,
+            "unique_agents": 0,
+            "by_reason": {},
+        }
 
     async def purge(self) -> Result[int, PersistenceError]:
         """
@@ -265,7 +274,7 @@ class DeadLetterQueue:
         result = await self._storage.purge()
         if result.is_err():
             return Err(PersistenceError(f"Storage error: {result.err_value()}"))
-        return Ok(result.ok_value())
+        return Ok(result.ok_value() or 0)
 
     # ------------------------------------------------------------------ internal
 

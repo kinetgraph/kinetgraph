@@ -69,7 +69,7 @@ class InMemoryKeyRegistry:
     def public_key(
         self,
         agent_id: str,
-        key_epoch: KeyEpoch = 0,
+        key_epoch: KeyEpoch = KeyEpoch(0),
     ) -> PublicKey:
         if (agent_id, key_epoch) not in self._keys:
             raise KeyError(

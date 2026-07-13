@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import base64
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+from kntgraph.security.keys._types import KeyEpoch
 from kntgraph.security.signing._canonical import canonical_event_bytes
 from kntgraph.security.signing._crypto import (
     Ed25519PrivateKey,
+    Ed25519PublicKey,
     require_crypto,
     serialization,
 )
@@ -23,8 +25,7 @@ from kntgraph.security.signing._types import Signature
 
 if TYPE_CHECKING:
     from kntgraph.core.event import Event
-
-    from . import Ed25519PrivateKeyWrapper
+    from kntgraph.security import Ed25519PrivateKeyWrapper
 
 
 def sign_event(event: "Event", private_key: "Ed25519PrivateKeyWrapper") -> "Event":
@@ -54,8 +55,11 @@ def sign_event(event: "Event", private_key: "Ed25519PrivateKeyWrapper") -> "Even
     require_crypto()
 
     # Extract the underlying cryptography object.
-    raw_priv = getattr(private_key, "_key", private_key)
-    if not isinstance(raw_priv, Ed25519PrivateKey):
+    raw_priv = cast(
+        Ed25519PrivateKey,
+        getattr(private_key, "_key", private_key),
+    )
+    if not hasattr(raw_priv, "sign"):
         raise SignatureError(
             f"sign_event requires an Ed25519PrivateKey, got {type(raw_priv).__name__}"
         )
@@ -64,7 +68,7 @@ def sign_event(event: "Event", private_key: "Ed25519PrivateKeyWrapper") -> "Even
     sig_bytes = raw_priv.sign(bytes_to_sign)
 
     # Derive the public key for the signature payload.
-    raw_pub = raw_priv.public_key()
+    raw_pub: Ed25519PublicKey = raw_priv.public_key()
     pk_bytes = raw_pub.public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
@@ -74,7 +78,7 @@ def sign_event(event: "Event", private_key: "Ed25519PrivateKeyWrapper") -> "Even
         alg="ed25519-v1",
         pk=base64.urlsafe_b64encode(pk_bytes).rstrip(b"=").decode("ascii"),
         sig=base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode("ascii"),
-        key_epoch=0,
+        key_epoch=KeyEpoch(0),
     )
 
     return replace(event, signature=sig)

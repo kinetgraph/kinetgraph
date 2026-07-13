@@ -18,9 +18,21 @@ the signing package can import the names unconditionally
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from kntgraph.security.signing._errors import CryptoUnavailableError
+
+if TYPE_CHECKING:
+    import canonicaljson as canonicaljson
+    from cryptography.exceptions import InvalidSignature as InvalidSignature
+    from cryptography.hazmat.primitives import serialization as serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey as Ed25519PrivateKey,
+    )
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PublicKey as Ed25519PublicKey,
+    )
+
 
 try:
     import canonicaljson
@@ -33,16 +45,25 @@ try:
 
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when dep missing
-    canonicaljson = None  # type: ignore[assignment]
-    InvalidSignature = Exception  # type: ignore[assignment,misc]
-    Ed25519PrivateKey = None  # type: ignore[assignment,misc]
-    Ed25519PublicKey = None  # type: ignore[assignment,misc]
-    serialization = None  # type: ignore[assignment]
+    canonicaljson = None
+    InvalidSignature = Exception
+    Ed25519PrivateKey = None
+    Ed25519PublicKey = None
+    serialization = None
     CRYPTOGRAPHY_AVAILABLE = False
 
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    pass
+def __getattr__(name: str) -> Any:
+    """PEP 562 fallback for the missing-crypto path."""
+    if name in (
+        "canonicaljson",
+        "InvalidSignature",
+        "Ed25519PrivateKey",
+        "Ed25519PublicKey",
+        "serialization",
+    ):
+        return globals().get(name)
+    raise AttributeError(f"module has no attribute {name!r}")
 
 
 def require_crypto() -> None:

@@ -28,8 +28,7 @@ from kntgraph.security.signing._errors import (
 
 if TYPE_CHECKING:
     from kntgraph.core.event import Event
-
-    from . import Ed25519PublicKeyWrapper
+    from kntgraph.security import Ed25519PublicKeyWrapper
 
 
 SUPPORTED_ALGORITHMS: frozenset[str] = frozenset({"ed25519-v1"})
@@ -121,10 +120,10 @@ class Signature:
     def from_dict(cls, d: dict[str, JsonValue]) -> "Signature":
         """Inverse of ``to_dict``. Tolerates missing key_epoch (=0)."""
         return cls(
-            alg=d["alg"],
-            pk=d["pk"],
-            sig=d["sig"],
-            key_epoch=int(d.get("key_epoch", 0)),
+            alg=_scalar(d.get("alg")),
+            pk=_scalar(d.get("pk")),
+            sig=_scalar(d.get("sig")),
+            key_epoch=int(d.get("key_epoch", 0) or 0),  # type: ignore[arg-type]
         )
 
 
@@ -186,3 +185,16 @@ class BatchEntry:
     public_key: "Ed25519PublicKeyWrapper"  # compatible with any
     # object that exposes ``verify(signature, message)``
     # (see ``kntgraph.security.keys``).
+
+
+def _scalar(value: JsonValue) -> str:
+    """Coerce a ``JsonValue`` slot to ``str``. Returns
+    ``""`` for None or non-scalar shapes.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return ""

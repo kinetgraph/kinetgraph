@@ -24,13 +24,20 @@ def generate(
     """
     priv_wrapper, pub_wrapper = generate_keypair()
 
-    private_pem = priv_wrapper._key.private_bytes(
+    # ``generate_keypair`` returns the Ed25519 wrappers
+    # (real keypair, not a stub — stubs are produced by
+    # ``generate_stub_keypair``). The wrapper exposes
+    # ``.bytes``/``.public_key()`` via duck typing;
+    # the PEM conversion reads the underlying
+    # ``cryptography`` object via ``.private_bytes`` /
+    # ``.public_bytes``.
+    private_pem = priv_wrapper._key.private_bytes(  # type: ignore[attr-defined]
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     )
 
-    public_pem = pub_wrapper._key.public_bytes(
+    public_pem = pub_wrapper._key.public_bytes(  # type: ignore[attr-defined]
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )

@@ -19,7 +19,17 @@ the keys package can import the names unconditionally
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives import serialization as serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PrivateKey as Ed25519PrivateKey,
+    )
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+        Ed25519PublicKey as Ed25519PublicKey,
+    )
+
 
 try:
     from cryptography.hazmat.primitives import serialization
@@ -30,14 +40,26 @@ try:
 
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only when dep missing
-    Ed25519PrivateKey = None  # type: ignore[assignment,misc]
-    Ed25519PublicKey = None  # type: ignore[assignment,misc]
-    serialization = None  # type: ignore[assignment]
+    Ed25519PrivateKey = None
+    Ed25519PublicKey = None
+    serialization = None
     CRYPTOGRAPHY_AVAILABLE = False
 
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    pass
+def __getattr__(name: str) -> Any:
+    """
+    PEP 562: when the optional ``cryptography`` dep is
+    missing, the names are ``None`` at runtime. Returning
+    the module attribute here keeps downstream imports
+    (and pyright) happy: callers should always
+    :func:`require_crypto` first, so the ``None`` branch
+    is a hard failure on the first crypto call.
+    """
+    if name in ("Ed25519PrivateKey", "Ed25519PublicKey", "serialization"):
+        return globals().get(name)
+    raise AttributeError(
+        f"module 'kntgraph.security.keys._crypto' has no attribute {name!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

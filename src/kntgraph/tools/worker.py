@@ -54,13 +54,19 @@ def tool_worker(
             )
 
         # Build dynamic Pydantic model to extract schema
-        # Skip 'self' and 'idempotency_key'
-        model_fields: dict[str, tuple[type, Any]] = {}
+        # Skip 'self' and 'idempotency_key'. ``model_fields``
+        # is typed as ``dict[str, Any]`` because Pydantic's
+        # ``create_model`` accepts a heterogeneous mix of
+        # ``(type, FieldInfo)`` and ``(type, default)`` tuples
+        # plus its own ``__config__``/``__base__``/etc.
+        # kwargs; the strict signature does not narrow that
+        # union, hence ``Any``.
+        model_fields: dict[str, Any] = {}
         for param_name, param in sig.parameters.items():
             if param_name in ("self", "idempotency_key"):
                 continue
 
-            param_type = (
+            param_type: Any = (
                 Any if param.annotation is inspect.Parameter.empty else param.annotation
             )
 
@@ -72,7 +78,7 @@ def tool_worker(
                 model_fields[param_name] = (param_type, param.default)
 
         # Create a dynamic Pydantic model
-        InputModel = create_model(
+        InputModel = create_model(  # type: ignore[call-overload]
             f"{cls.__name__}Input", __module__=cls.__module__, **model_fields
         )
 

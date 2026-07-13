@@ -9,13 +9,12 @@ Aggregate (batch) signature verification and construction.
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from kntgraph.security.signing._canonical import canonical_event_bytes
 from kntgraph.security.signing._crypto import (
     CRYPTOGRAPHY_AVAILABLE,
     Ed25519PublicKey,
-    InvalidSignature,
 )
 from kntgraph.security.signing._errors import SignatureError
 from kntgraph.security.signing._types import (
@@ -27,8 +26,7 @@ from kntgraph.security.signing._types import (
 
 if TYPE_CHECKING:
     from kntgraph.core.event import Event
-
-    from . import Ed25519PublicKeyWrapper, KeyRegistry
+    from kntgraph.security import Ed25519PublicKeyWrapper, KeyRegistry
 
 
 def verify_aggregate_concat(
@@ -94,12 +92,15 @@ def _verify_entry(
         sig_bytes = base64.urlsafe_b64decode(sig.sig + "=" * (-len(sig.sig) % 4))
     except Exception:
         return False
-    raw_pub = getattr(entry.public_key, "_key", entry.public_key)
-    if not isinstance(raw_pub, Ed25519PublicKey):
+    raw_pub = cast(
+        Ed25519PublicKey,
+        getattr(entry.public_key, "_key", entry.public_key),
+    )
+    if not hasattr(raw_pub, "verify"):
         return False
     try:
         raw_pub.verify(sig_bytes, bytes_to_verify)
-    except (InvalidSignature, Exception):  # noqa: BLE001 - intentional
+    except Exception:  # noqa: BLE001 - intentional
         return False
     return True
 

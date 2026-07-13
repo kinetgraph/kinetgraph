@@ -150,4 +150,6 @@ Do not include any prose outside the JSON.
         )
         if r.is_err():
             return Err(r.err_value_or_raise())
-        return self._parse_json(r.unwrap().text, Plan, "plan_parse_error")
+        return self._parse_json(  # type: ignore[return-value]
+            r.unwrap().text, Plan, "plan_parse_error"
+        )

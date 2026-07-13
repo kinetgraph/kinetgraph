@@ -68,6 +68,7 @@ from kntgraph.core.event import (
     Event,
 )
 from kntgraph.core.result import Err, Ok, Result, ToolError
+from kntgraph.core._typing import JsonValue
 from kntgraph.infra.hashing import short_hash
 from kntgraph.knowledge.extraction import (
     Classification,
@@ -324,7 +325,7 @@ class SemanticRoutingRole:
             # tool actually has a description; otherwise
             # stay on the bare-labels path.
             descriptions = self._descriptions if any(self._descriptions) else None
-            classification = await self._classifier.classify(
+            classification = await self._classifier.classify(  # type: ignore[call-arg]
                 text, self._labels, descriptions=descriptions
             )
         except Exception as e:  # noqa: BLE001 — role boundary
@@ -419,7 +420,7 @@ class SemanticRoutingRole:
         know "the model was torn between X and Y".
         """
         text_hash = hashlib.sha256(
-            (request.data.get("text") or "").encode("utf-8")
+            _scalar_text(request.data.get("text")).encode("utf-8")
         ).hexdigest()
         payload = {
             "text_hash": text_hash,
@@ -519,7 +520,7 @@ async def async_route_on_user_message(
     """
     if event.event_type != role.config.request_event_type:
         return []
-    result = await role.classify(event.data.get("text", ""))
+    result = await role.classify(_scalar_text(event.data.get("text", "")))
     if result.is_err():
         # Log via structlog; emit nothing. The dispatcher
         # is expected to have its own monitoring on Err
@@ -544,3 +545,20 @@ __all__ = [
     "route_on_user_message",
     "async_route_on_user_message",
 ]
+
+
+def _scalar_text(value: JsonValue) -> str:
+    """Coerce a ``JsonValue`` to ``str``.
+
+    Used in the deprecated role to feed the classifier
+    and the ``text_hash`` digest. Non-scalar shapes
+    (dict, list) are stringified for stability (the
+    legacy classifier accepted any string).
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return str(value)
