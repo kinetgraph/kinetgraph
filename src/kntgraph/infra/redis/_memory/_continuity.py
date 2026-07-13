@@ -80,7 +80,11 @@ class RedisContinuityStorage:
         the cache stays warm as long as the user is active.
         """
         try:
-            mapping = {str(k): str(v) for k, v in record.items()}
+            mapping: dict[str, str] = (
+                {str(k): str(v) for k, v in record.items()}
+                if isinstance(record, Mapping)
+                else {}
+            )
         except Exception as e:
             return Err(
                 MemorySerializationError(f"cannot serialize to hash: {e}", key=key)

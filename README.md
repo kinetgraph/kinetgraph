@@ -23,7 +23,7 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 | Format | `ruff format --check` | [![format](https://img.shields.io/badge/format-ruff-421%2F421-brightgreen?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 421/421 formatted |
 | Complexity | `radon cc` | [![cc](https://img.shields.io/badge/CC-A%20%282.53%29-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | avg 2.53 (A); 0 rank D+ |
 | Maintainability | `radon mi` | [![mi](https://img.shields.io/badge/MI-100%25_A%2FB-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | every file rank A or B |
-| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-111%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 111 errors / 1274 warnings; see [`DEBT.md`](DEBT.md) |
+| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-71%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 71 errors / 1261 warnings; see [`DEBT.md`](DEBT.md) |
 | Coverage | `pytest + coverage` | [![coverage](https://img.shields.io/badge/coverage-75%25-yellow?style=flat-square)](https://coverage.readthedocs.io/) | 6796/9102 stmts; unit tests only |
 | Tests | `pytest` | [![tests](https://img.shields.io/badge/tests-1751%20passed-brightgreen?style=flat-square&logo=pytest)](https://docs.pytest.org/) | 1457 unit + 294 agents; 0 failed |
 | Security | `bandit` | [![security](https://img.shields.io/badge/security-3%20LOW-yellow?style=flat-square)](https://bandit.readthedocs.io/) | 3× B110 (intentional) |

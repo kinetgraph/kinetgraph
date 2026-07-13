@@ -36,6 +36,37 @@ How to use this file
 4. Line numbers are pinned to the current tree; re-run
    pyright / ruff / coverage to refresh.
 
+Recent closures (since the last regen of this file)
+----------------------------------------------------
+
+The "Faixa 1" work merged via ``quality/pyright-low-hanging``
+(2026-07-13). The following items were closed and are
+kept here as a historical record.
+
+  - 2.3 / 2.4  Stale ``# type: ignore`` (11 lines) —
+    deleted; the underlying errors are no longer present.
+  - 2.5  ``PipelineLike`` Protocol missing 4 methods —
+    extended the Protocol in
+    ``infra/redis/_client.py`` (added ``delete``,
+    ``hset``, ``expire``). Fixed 10 errors across
+    ``infra/redis/_memory/{_continuity,_profile}.py``
+    and ``agents/tools/cache/_redis.py``.
+  - 2.9  ``_auth/_redis.py`` and ``_world_checkpoint/_redis.py``
+    passing ``bytes`` to ``client.set`` — widened the
+    ``RedisLike.set`` Protocol to accept ``str | bytes``.
+  - 1.3  ``api/intent_router/routes.py`` — 19 errors.
+    Tightened the ``Dependable`` / ``HeaderParam`` /
+    ``RouterApp`` Protocols in ``core/_typing.py`` to use
+    ``object`` instead of ``ValidatorInput`` (the framework's
+    opaque boundary type) so FastAPI kwargs don't
+    get narrowed. Converted ``Depends``/``Header``/
+    ``HTTPException``/``auth`` to keyword-only and
+    non-Optional on the installers. The
+    ``app_factory.py`` was updated to pass them by
+    keyword.
+
+Net pyright delta: 111 → 71 (-40 errors).
+
 Ownership
 ---------
 No owner is assigned. The current convention is that any
@@ -124,34 +155,48 @@ from __future__ import annotations
 #
 # ---------------------------------------------------------------------------
 
-# 2.2  api/intent_router/routes.py  (19 errors)
+# 2.2  api/intent_router/routes.py  (CLOSED)
 #
-#   Two distinct issues:
+#   CLOSED in Faixa 1 (2026-07-13). The 19 errors
+#   broke down as:
 #
-#   A. ``PrincipalDep | None`` is being called in 8 places
-#      because the type annotation is wrong: the dependency
-#      is non-optional at runtime (FastAPI raises 401 on
-#      missing auth header). The static checker sees the
-#      ``None`` branch because the stub helper returns
-#      ``None`` when no header is present.
+#   A. 8× ``reportOptionalCall`` on ``Depends(auth)``
+#      where ``auth: PrincipalDep | None = None``.
+#   B. 3× ``reportUnnecessaryTypeIgnoreComment`` on
+#      ``# type: ignore[valid-type]`` after the
+#      Protocol was widened.
+#   C. 3× ``type[X]`` not assignable to
+#      ``response_model: ValidatorInput`` (Pydantic
+#      models not in the union).
+#   D. 5× remaining from nested patterns (calls on
+#      ``Header(default=None)``/``HTTPException(...)``,
+#      ``ValidatorInput`` not assignable to ``str``,
+#      etc).
 #
-#   B. ``ValidatorInput`` is being passed where ``Principal``
-#      / ``type[HealthResponse]`` is expected. The routes
-#      use a re-export of the dependency that lost its
-#      concrete return type.
+#   The fix path was structural rather than local:
 #
-#   Action: split the auth dependency in two — one
-#           ``Optional[Principal]`` (for routes that
-#           tolerate anonymous) and one ``Principal``
-#           (for the strict routes). Update the
-#           ``response_model`` parameters to use the
-#           concrete ``type[X]`` aliases already exported
-#           from ``api/schemas.py``.
+#   1. ``core/_typing.py``: widened the ``Dependable``,
+#      ``HeaderParam``, and ``RouterApp`` Protocols
+#      from ``ValidatorInput`` to ``object`` (the
+#      framework's opaque boundary type). The
+#      ``HeaderParam.__call__`` return was changed
+#      to ``str | None`` so the routers can
+#      ``Header(default=None, alias=...)`` for an
+#      ``Optional[str]`` parameter.
+#   2. ``api/intent_router/routes.py``: converted
+#      ``Depends``/``Header``/``HTTPException``/``auth``
+#      to keyword-only and non-Optional on the
+#      installers; the call sites in
+#      ``app_factory.py`` were updated to pass them
+#      by keyword.
+#   3. Removed the now-stale ``# type: ignore`` comments.
 #
-#   Acceptable: add ``# type: ignore[call-arg, arg-type]``
-#               on the 19 lines. Cheap, but masks a real
-#               security issue (optional auth on routes that
-#               should be strict).
+#   Tests: ``tests/unit/api/test_intent_router.py`` (19
+#   tests) — all green. The 422-vs-401 status code
+#   distinction was preserved by keeping the default
+#   ``Depends(auth)`` form (vs the experimental
+#   ``Annotated[Principal, Depends(auth)]`` form,
+#   which FastAPI 0.100+ narrows differently).
 #
 # ---------------------------------------------------------------------------
 
@@ -184,21 +229,16 @@ from __future__ import annotations
 #
 # ---------------------------------------------------------------------------
 
-# 2.5  infra/redis/_memory/{_continuity,_profile}.py  (4+4 errors)
+# 2.5  infra/redis/_memory/{_continuity,_profile}.py  (CLOSED)
 #
-#   The ``PipelineLike`` Protocol is missing
-#   ``hset`` / ``expire`` / ``delete`` / ``items``.
-#   These are used at lines 83-94 (``_continuity``) and
-#   87-98 (``_profile``) when the cache write is batched
-#   into a pipeline. The Protocol in
-#   ``infra/redis/_client.py`` is too narrow.
-#
-#   Action: extend ``PipelineLike`` with the four methods
-#           (defer to the real ``redis.asyncio.client.Pipeline``
-#           interface), or use the concrete ``Pipeline`` type
-#           from the redis client.
-#
-#   Effort: 1 hour (typing only).
+#   CLOSED in Faixa 1 (2026-07-13). The
+#   ``PipelineLike`` Protocol was extended with
+#   ``delete``/``hset``/``expire`` in
+#   ``infra/redis/_client.py``; the
+#   ``record.items()`` issues in
+#   ``_continuity.py``/``_profile.py`` were fixed
+#   by guarding the call with ``isinstance(record,
+#   Mapping)``. Net delta: 8 → 0 errors.
 #
 # ---------------------------------------------------------------------------
 
@@ -255,17 +295,15 @@ from __future__ import annotations
 #
 # ---------------------------------------------------------------------------
 
-# 2.9  infra/redis/{_auth,_world_checkpoint}/_redis.py  (1+1 errors)
+# 2.9  infra/redis/{_auth,_world_checkpoint}/_redis.py  (CLOSED)
 #
-#   Both pass ``bytes`` to ``client.set`` which expects
-#   ``str``. The pattern is identical: HSET-style
-#   writes that use bytes but the type stub assumes
-#   ``decode_responses=True`` (str-only).
-#
-#   Action: cast the value to ``str`` (or bytes) explicitly
-#           at the call site, with a comment.
-#
-#   Effort: 10 minutes.
+#   CLOSED in Faixa 1 (2026-07-13). The ``RedisLike.set``
+#   Protocol was widened from ``value: str`` to
+#   ``value: str | bytes`` in ``infra/redis/_client.py``.
+#   The auth + checkpoint adapters store the API-key
+#   binding and the checkpoint blob as raw ``bytes``;
+#   the real Redis client accepts both. Net delta:
+#   2 → 0 errors.
 #
 # ---------------------------------------------------------------------------
 
@@ -468,10 +506,13 @@ from __future__ import annotations
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
 #
-# 4.1  Stale ``# type: ignore`` comments
+# 4.1  Stale ``# type: ignore`` comments  (CLOSED)
 #
-#   Pyright 1.1.411 reports 11 ``# type: ignore`` comments
-#   as unnecessary. Distribution:
+#   CLOSED in Faixa 1 (2026-07-13). All 11 stale
+#   comments identified in the initial DEBT sweep
+#   were deleted; pyright 1.1.411 confirms zero
+#   ``reportUnnecessaryTypeIgnoreComment`` errors
+#   remain. The breakdown was:
 #
 #     knowledge/extraction/__init__.py                6
 #     events/dlq/actions.py                           1
@@ -480,10 +521,11 @@ from __future__ import annotations
 #     agents/memory/solutions/_fingerprints.py         1
 #     tools/worker.py                                 1
 #
-#   Action: delete them. Verify pyright still passes
-#           after each deletion.
-#
-#   Effort: 15 minutes.
+#   If a future commit introduces new pyright errors
+#   and adds new ``# type: ignore`` lines, run
+#   ``pyright src/kntgraph`` and clean any
+#   ``Unnecessary "# type: ignore" comment`` warnings
+#   in the same PR.
 #
 # ---------------------------------------------------------------------------
 #
@@ -522,11 +564,11 @@ from __future__ import annotations
 # 6. APPENDIX: DATA POINTS
 # ---------------------------------------------------------------------------
 #
-#   6.1  File-level error counts (pyright strict, 2026-07-13):
+#   6.1  File-level error counts (pyright strict, 2026-07-13, post-Faixa-1):
 #
 #         20  knowledge/extraction/argument/_gliner_finder.py
-#         19  api/intent_router/routes.py
-#          6  knowledge/extraction/__init__.py
+#         11  events/dlq/store.py
+#          6  knowledge/extraction/__init__.py   (stale # type: ignore)
 #          4  core/storage.py
 #          4  infra/redis/_memory/_continuity.py
 #          4  infra/redis/_memory/_profile.py
@@ -546,17 +588,13 @@ from __future__ import annotations
 #          2  knowledge/falkordb/adapter.py
 #          2  stream/event_log/dispatch.py
 #          1  agents/memory/solution_extractor.py
-#          1  agents/memory/solutions/__init__.py
 #          1  agents/memory/solutions/_extractor.py
-#          1  agents/memory/solutions/_fingerprints.py
 #          1  agents/memory/solutions/_promoter.py
 #          1  agents/roles/semantic_router.py
 #          1  agents/tools/arg_validation.py
 #          1  agents/tools/pii/_tool.py
-#          1  infra/graph/_lite_pool.py
 #          1  infra/redis/_auth/_redis.py
 #          1  infra/redis/_dlq/_redis.py
-#          1  infra/redis/_world_checkpoint/_redis.py
 #          1  knowledge/embedding/_ollama.py
 #          1  knowledge/extraction/argument/_extractor.py
 #          1  memory/continuity/cache_codec.py
@@ -565,7 +603,6 @@ from __future__ import annotations
 #          1  tools/manager.py
 #          1  tools/schema.py
 #          1  tools/system.py
-#          1  tools/worker.py
 #
 #   6.2  Error counts by rule:
 #
@@ -590,14 +627,14 @@ from __future__ import annotations
 #                                          actions 86)
 #         overall                 75%
 #
-#   6.4  Gate snapshot:
+#   6.4  Gate snapshot (post-Faixa-1, 2026-07-13):
 #
 #         ruff lint               0 errors
-#         ruff format             421 / 421 formatted
+#         ruff format             425 / 425 formatted
 #         bandit                  3 LOW (intentional, B110)
 #         radon CC                avg 2.53 (A), 0 rank D+
 #         pytest tests/unit       1457 passed, 1 skipped
 #         pytest tests/agents     294 passed
-#         pyright                 111 errors / 1274 warnings
+#         pyright                 71 errors / 1261 warnings
 #
 # ---------------------------------------------------------------------------

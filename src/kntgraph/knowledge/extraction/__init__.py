@@ -98,7 +98,7 @@ try:
 
     _HAS_HEURISTIC = True
 except ImportError:  # pragma: no cover
-    HeuristicEntityExtractor = None  # type: ignore[assignment]
+    HeuristicEntityExtractor = None
     _HAS_HEURISTIC = False
 
 try:
@@ -106,7 +106,7 @@ try:
 
     _HAS_GLINER = True
 except ImportError:  # pragma: no cover
-    GlinerEntityAdapter = None  # type: ignore[assignment]
+    GlinerEntityAdapter = None
     _HAS_GLINER = False
 
 try:
@@ -114,7 +114,7 @@ try:
 
     _HAS_GLINER_INTENT = True
 except ImportError:  # pragma: no cover
-    GlinerIntentAdapter = None  # type: ignore[assignment]
+    GlinerIntentAdapter = None
     _HAS_GLINER_INTENT = False
 
 # Iter 27 + 28: ``GlinerArgumentAdapter`` is the framework-level
@@ -159,9 +159,9 @@ try:
 
     _HAS_SLM = True
 except ImportError:  # pragma: no cover
-    SLMArgumentExtractor = None  # type: ignore[assignment]
-    SLMEntityExtractor = None  # type: ignore[assignment]
-    SLMIntentClassifier = None  # type: ignore[assignment]
+    SLMArgumentExtractor = None
+    SLMEntityExtractor = None
+    SLMIntentClassifier = None
     _HAS_SLM = False
 
 

@@ -134,15 +134,20 @@ ValidatorInput = Union[
 
 
 class RouterApp(Protocol):
-    """The subset of FastAPI's ``app`` that the installers use."""
+    """The subset of FastAPI's ``app`` that the installers use.
 
-    def get(
-        self, path: str, **kwargs: ValidatorInput
-    ) -> Callable[..., ValidatorInput]: ...
+    The ``**kwargs`` signature is widened to ``object`` (the
+    framework's opaque boundary type) so the installers
+    can pass Pydantic models, dicts, lists, status codes,
+    and arbitrary HTTP responses without the type checker
+    narrowing each call to the ``ValidatorInput`` union.
+    The real validation happens at FastAPI's
+    registration time.
+    """
 
-    def post(
-        self, path: str, **kwargs: ValidatorInput
-    ) -> Callable[..., ValidatorInput]: ...
+    def get(self, path: str, **kwargs: "object") -> Callable[..., "object"]: ...
+
+    def post(self, path: str, **kwargs: "object") -> Callable[..., "object"]: ...
 
     def add_middleware(
         self, middleware_class: type, **kwargs: ValidatorInput
@@ -152,15 +157,41 @@ class RouterApp(Protocol):
 class Dependable(Protocol):
     """Subset of ``fastapi.Depends`` we need at the boundary."""
 
-    def __call__(self, dependency: Callable[..., ValidatorInput]) -> ValidatorInput: ...
+    def __call__(self, dependency: "object") -> object: ...
 
 
 class HeaderParam(Protocol):
-    """Subset of ``fastapi.Header`` we need at the boundary."""
+    """Subset of ``fastapi.Header`` we need at the boundary.
+
+    The return type is widened to ``str | None`` (the
+    shape the routers use) so the ``idempotency_key:
+    Optional[str] = Header(default=None, ...)`` calls
+    type-check without an explicit cast. The runtime
+    default is supplied by FastAPI; the type
+    annotation only exists to keep the static checker
+    honest.
+    """
 
     def __call__(
-        self, default: ValidatorInput = ..., *, alias: str | None = None
-    ) -> ValidatorInput: ...
+        self,
+        default: "object" = ...,
+        *,
+        alias: str | None = None,
+    ) -> "str | None": ...
+
+
+class RouteDecorator(Protocol):
+    """Subset of ``fastapi.routing.Route`` we need at the boundary.
+
+    The full ``@app.get("/path", response_model=X, status_code=Y,
+    responses={...})`` decorator accepts a wide range of
+    arguments; declaring a single Protocol with ``**kwargs``
+    (or a wide type) keeps the type checker from narrowing
+    each call to the union ``ValidatorInput`` (the type used
+    by the rest of the framework's "opaque" boundary).
+    """
+
+    def __call__(self, path: str, **kwargs: "object") -> "object": ...
 
 
 class HTTPExceptionLike(Exception):

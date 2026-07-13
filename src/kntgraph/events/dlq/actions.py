@@ -73,7 +73,7 @@ class DeadLetterActions:
         """
         if queue is not None:
             self._queue = queue
-            self._storage = queue._storage  # type: ignore[attr-defined]
+            self._storage = queue._storage
         elif storage is not None:
             self._storage = storage
             self._queue = None

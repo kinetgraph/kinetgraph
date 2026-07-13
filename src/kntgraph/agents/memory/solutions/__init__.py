@@ -136,4 +136,4 @@ __all__ = [
     "SolutionExtractor",
     "SolutionPromotionBus",
     "SolutionPromoter",
-]  # type: ignore[list-item]  # PromoteStats re-exported below
+]  # PromoteStats re-exported below

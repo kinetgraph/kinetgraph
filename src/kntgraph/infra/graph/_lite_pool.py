@@ -84,7 +84,7 @@ if TYPE_CHECKING:
 # decorator in tests targets ``_FalkorDB`` directly.
 # We expose it as a module-level name so ``patch`` can
 # reach it.
-_FalkorDB = None  # type: ignore[var-annotated]
+_FalkorDB = None
 
 
 class _FalkorDBQueryResult(Protocol):

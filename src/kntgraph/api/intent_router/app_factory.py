@@ -116,19 +116,33 @@ def _create_app(
 
         configure_middlewares(app)
         register_healthz(app, FastAPI)
-        register_list_tools(app, FastAPI, Depends, Principal, registry, auth)
+        register_list_tools(
+            app,
+            FastAPI,
+            Depends=Depends,
+            Principal=Principal,
+            registry=registry,
+            auth=auth,
+        )
         register_post_intent(
             app,
             FastAPI,
-            Depends,
-            Header,
-            HTTPException,
-            Principal,
-            log,
-            registry,
-            auth,
+            Depends=Depends,
+            Header=Header,
+            HTTPException=HTTPException,
+            Principal=Principal,
+            log=log,
+            registry=registry,
+            auth=auth,
         )
-        register_get_status(app, FastAPI, Depends, Principal, log, auth)
+        register_get_status(
+            app,
+            FastAPI,
+            Depends=Depends,
+            Principal=Principal,
+            log=log,
+            auth=auth,
+        )
 
         return app
 
