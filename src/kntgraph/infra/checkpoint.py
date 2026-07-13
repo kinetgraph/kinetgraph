@@ -160,7 +160,7 @@ class CheckpointStore:
         if data is None:
             return None
         try:
-            return ReactiveCheckpoint.from_dict(agent_id, data)
+            return ReactiveCheckpoint.from_dict(agent_id, dict(data))  # type: ignore[arg-type]
         except (KeyError, ValueError) as e:
             logger.warning(
                 "checkpoint.load.invalid_payload",
@@ -212,7 +212,10 @@ class CheckpointStore:
         out: dict[str, ReactiveCheckpoint] = {}
         for agent_id, data in result.ok_value().items():
             try:
-                out[agent_id] = ReactiveCheckpoint.from_dict(agent_id, data)
+                out[agent_id] = ReactiveCheckpoint.from_dict(
+                    agent_id,
+                    dict(data),  # type: ignore[arg-type]
+                )
             except (KeyError, ValueError) as e:
                 logger.warning(
                     "checkpoint.load_all.skipped_invalid",

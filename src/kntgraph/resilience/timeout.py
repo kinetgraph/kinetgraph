@@ -41,19 +41,20 @@ of remaining attempts.
 """
 
 import asyncio
+import inspect
 import random
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Optional, ParamSpec, Tuple, Type, TypeVar
+from typing import Any, Callable, Coroutine, Optional, ParamSpec, Tuple, Type, TypeVar
 
 import structlog
-
-if TYPE_CHECKING:
-    from .retry import BackoffPolicy
 
 logger = structlog.get_logger()
 
 
+# ``R`` is the result type of the wrapped zero-argument
+# callable. The fallback (when supplied) must return
+# the same ``R``. Generic so callers keep their concrete
 # ``R`` is the result type of the wrapped zero-argument
 # callable. The fallback (when supplied) must return
 # the same ``R``. Generic so callers keep their concrete
@@ -192,9 +193,9 @@ class TimeoutError(Exception):
 
 
 async def with_timeout(
-    fn: Callable[[], R],
+    fn: Callable[[], Coroutine[Any, Any, R] | R],
     timeout_seconds: float,
-    fallback: Callable[[], R] | None = None,
+    fallback: Callable[[], Coroutine[Any, Any, R] | R] | None = None,
     operation_name: str | None = None,
 ) -> R:
     """
@@ -221,14 +222,21 @@ async def with_timeout(
     """
     _validate_inputs(fn, timeout_seconds, fallback)
     try:
-        return await asyncio.wait_for(fn(), timeout=timeout_seconds)
+        result = fn()
+        if not inspect.isawaitable(result):
+            # Sync result: return immediately. The
+            # timeout is "best-effort" — we cannot cancel
+            # a sync function mid-flight. We document this
+            # in the docstring.
+            return result
+        return await asyncio.wait_for(result, timeout=timeout_seconds)
     except asyncio.TimeoutError:
         return await _on_timeout(timeout_seconds, fallback, operation_name)
 
 
 async def _on_timeout(
     timeout_seconds: float,
-    fallback: Callable[[], R] | None,
+    fallback: Callable[[], Coroutine[Any, Any, R] | R] | None,
     operation_name: str | None,
 ) -> R:
     """Apply the timeout policy: log + (fallback or raise).

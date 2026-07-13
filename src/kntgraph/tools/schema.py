@@ -164,10 +164,16 @@ def compute_schema_version(schema: Optional[Mapping[str, JsonValue]]) -> str:
     """
     if not schema or not isinstance(schema, dict):
         return short_hash(b"")
+    required_raw = schema.get("required") or []
+    if not isinstance(required_raw, list):
+        required_raw = []
+    properties_raw = schema.get("properties") or {}
+    if not isinstance(properties_raw, dict):
+        properties_raw = {}
     payload = {
-        "properties": schema.get("properties") or {},
-        "required": sorted(schema.get("required") or []),
+        "properties": properties_raw,
+        "required": sorted(required_raw),  # type: ignore[arg-type]
     }
-    raw = repr(sorted(payload["properties"].items()))
+    raw = repr(sorted(payload["properties"].items()))  # type: ignore[arg-type]
     raw += "|" + ",".join(payload["required"])
     return short_hash(raw)

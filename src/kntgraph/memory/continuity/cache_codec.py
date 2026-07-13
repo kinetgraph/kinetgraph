@@ -132,10 +132,11 @@ def _normalise_raw(
     (``ShortMemoryStorage``) inputs.
     """
     if any(isinstance(k, bytes) for k in raw):
-        bytes_raw: dict[bytes, bytes] = {
-            k: v.encode() if isinstance(v, str) else v for k, v in raw.items()
+        bytes_raw: dict[bytes, object] = {
+            k: v.encode() if isinstance(v, str) else v
+            for k, v in raw.items()  # type: ignore[union-attr]
         }
-        return decode_dict(bytes_raw)
+        return decode_dict(bytes_raw)  # type: ignore[arg-type]
     return {str(k): str(v) for k, v in raw.items()}
 
 
