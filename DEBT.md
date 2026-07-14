@@ -699,14 +699,28 @@ still a shim; example 05b is WIP).
     the base projection and before the tool
     overlay.
 
-  - **Tests for the projection.** The
+  - **Tests for the projection.** ~~The
     ``project_memory`` projection has no unit
     tests. It is currently exercised only by
     example 05b (WIP). Action: add tests in
     ``tests/unit/core/world/test_projection_memory.py``
     covering: ``session.*`` fold, ``profile.*``
     fold, ``continuity.*`` fold, multi-tick
-    preservation of base component.
+    preservation of base component.~~ Closed
+    in 2026-07-14: 16 unit tests in
+    ``tests/unit/core/test_projection_memory.py``
+    cover the ``session.*`` / ``profile.*`` /
+    ``continuity.*`` fold (single + multi-tick
+    preservation). The new tests uncovered two
+    latent bugs which were fixed in the same
+    change: ``project_memory`` now accepts
+    ``base_views=None`` (default: empty dict),
+    and ``_fold_profile`` / ``_fold_continuity``
+    now reuse the base component when the
+    incoming batch has no event of the
+    corresponding type (matching the
+    ``_fold_session`` behaviour; previously the
+    base component was discarded).
 
 
 ## 2.16 Tool-call overlay: multi-tick slot loss

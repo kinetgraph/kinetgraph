@@ -149,25 +149,51 @@ sub-module extras:
 uv add "kntgraph[llm,falkordb,ollama]"
 ```
 
-Then a simple LLM call:
+Then a simple LLM call. The canonical path is the
+**`@tool_worker`** pattern (ADR-036, ADR-043): the
+`LiteLLMToolWorker` runs in a `WorkerManager` process
+so the dispatcher's event loop is never blocked while
+the LLM responds.
 
 ```python
 import asyncio
-from kntgraph.agents.tools import LiteLLMTool
+from kntgraph.agents.tools.llm import LiteLLMToolWorker
+from kntgraph.tools.manager import WorkerManager
 
 
 async def main() -> None:
-    tool = LiteLLMTool(default_model="gpt-4o-mini")
-    result = await tool.invoke(
+    # The WorkerManager orchestrates the worker pool.
+    # In production, the WorkerManager is created by
+    # the framework's bootstrap (e.g. in a CLI command
+    # or a long-running service). For a one-shot call,
+    # instantiate it directly with a Redis client.
+    manager = WorkerManager(redis=...)
+    manager.register(LiteLLMToolWorker)
+    await manager.start()
+
+    # The worker exposes a synchronous ``invoke`` API
+    # (it runs in a ProcessPoolExecutor). The
+    # result is a JSON-serialisable dict.
+    result = await manager.invoke(
+        "chat_llm",
         idempotency_key="k1",
         system="You are a helpful assistant.",
         user="What is the capital of France?",
     )
-    print(result.unwrap().text)  # "Paris"
+    print(result["text"])  # "Paris"
+
+    await manager.stop()
 
 
 asyncio.run(main())
 ```
+
+> **Note:** the legacy `LiteLLMTool` (a direct
+> `await tool.invoke(...)` adapter) is deprecated as
+> of v0.8.0 and will be removed in v0.9.0 (see
+> ADR-043). New code should use `LiteLLMToolWorker`
+> via the `WorkerManager` (or the `ReactiveDispatcher`
+> in production).
 
 ## 5. Next steps
 

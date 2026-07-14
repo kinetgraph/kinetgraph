@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       `personalized.request` events, emits
       `personalized.reply.generated` with the raw text.
 
-  The systems REUSE the legacy role's `SYSTEM_PROMPT`
+    The systems REUSE the legacy role's `SYSTEM_PROMPT`
   and input-formatting helpers so the prompt engineering
   lives in one place; the migration is a thin port from
   the synchronous `await role.reply()` to the
@@ -93,6 +93,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   canonical migration of `ChatRole` end-to-end,
   including a `SessionRecorderRoleBridge` that persists
   the turn via the `session_recorder` tool).
+- **Tier 1 cleanup (post-ADR-045):**
+
+    - `tests/conftest.py` trimmed: removed
+      `MockRedis` / `MockPubSub` / `MockPipeline` and
+      the 7 derived fixtures (`fake_redis`,
+      `fake_redis_pipeline`, `redis_with_pubsub`,
+      etc.) that were left over from the pre-ADR-042
+      era. ~220 lines deleted. Verified: the kept
+      fixtures (`reset_correlation_context`,
+      `reset_settings_cache`) cover the only
+      autouse requirements of the suite.
+
+    - `src/kntgraph/agents/tools/llm_transport.py`
+      removed: the file was a back-compat shim that
+      re-exported from
+      `src/kntgraph/tools/llm_transport.py` (the
+      canonical location). No external callers in the
+      repository or in `examples/`. The package
+      `__init__.py` now imports from the canonical
+      module directly. Docstring in
+      `agents/tools/llm.py` updated to point to the
+      canonical path.
+
+    - 16 unit tests added in
+      `tests/unit/core/test_projection_memory.py`
+      covering the `project_memory` projection
+      (closes DEBT §2.15 item 3): single-tick and
+      multi-tick fold for `SessionComponent` /
+      `ProfileComponent` / `ContinuityComponent`,
+      multi-agent projection, and base-component
+      preservation across ticks. The new tests
+      uncovered two latent bugs which were fixed
+      in the same change: `project_memory` now
+      accepts `base_views=None` (default: empty
+      dict — was required), and `_fold_profile` /
+      `_fold_continuity` now reuse the base
+      component when the incoming batch has no
+      event of the corresponding type (matching the
+      `_fold_session` behaviour; previously the base
+      component was discarded on every tick).
+
+    - `docs/quickstart.md` §4 updated: the first
+      user-facing code example now uses
+      `LiteLLMToolWorker` + `WorkerManager.invoke(
+      "chat_llm", ...)` (the new canonical pattern
+      from ADR-043) instead of the deprecated
+      `LiteLLMTool` direct call. A note about the
+      deprecation and the migration target (v0.9.0)
+      is included.
+
+    - CHANGELOG `[0.8.0] ### Known issues` cleared:
+      the three stale items (Example 05b WIP,
+      synchronous Role LLM calls, TTL-based
+      eviction) have all been delivered (DEBT
+      §2.18, §2.20, §2.21) and now live in
+      `[Unreleased]`. The section is kept as a
+      pointer, not a TODO list.
 - **Tool-call request TTL (ADR-045):** the
   `ToolCallRequest` component has a new
   `expires_at: Optional[datetime]` field (computed at
@@ -224,28 +281,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrated by `WorkerManager`. Removal target: v1.0.0.
 
 ### Known issues
-- Example 05b (`examples/05b_session_chat_ecs.py`) is
-  WIP: the hydration shim
-  (`_install_projection_shim`) does not yet produce a
-  full multi-turn chat end-to-end (the chat system
-  never emits a `request_tool` event in the example).
-  The projection path (ADR-042 + ADR-044) is
-  production-ready; the example's shim is the only
-  blocker. See DEBT.md §2.18.
-- The `Role` classes (`ChatRole`, `PlannerRole`, etc.)
-  still call the LLM synchronously; the migration to
-  emit `tool.chat_llm.requested` is the work of ADR-044
-  follow-up (the example 05b's `SessionChatSystem` is
-  the reference implementation; the roles can be ported
-  to emit a `request_tool` event in place of the
-  synchronous `_invoke`).
-- TTL-based eviction (ADR-045, planned): the current
-  completion-driven eviction leaves orphaned requests
-  (e.g. after a worker crash) in the slot forever.
-  The follow-up ADR proposes a TTL bound on
-  `tool_requests` entries (default 5 minutes,
-  configurable per tool) so the slot cannot grow
-  unbounded.
+- None at release. The three items previously listed
+  here (Example 05b shim, synchronous Role LLM calls,
+  TTL-based eviction) have all been resolved in the
+  `[Unreleased]` section above: 05b shim
+  (DEBT §2.18 closed), Role → ECS migration
+  (DEBT §2.20 closed; `role_systems` module), and
+  TTL-based eviction (DEBT §2.21 closed;
+  `ToolCallTTLSweeperSystem`).
 
 ### Deprecated
 - **`kntgraph.agents.roles` package (ADR-041):**

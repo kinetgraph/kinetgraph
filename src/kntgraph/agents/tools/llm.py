@@ -11,7 +11,7 @@ Ollama local, etc). NÃO sabe o que está sendo perguntado —
 isso é papel dos `roles/`.
 
 `LLMTransport`, `LLMResponse`, `LLMChunk`, `LLMUsage` são
-contratos do framework (`kntgraph.agents.tools.llm_transport`)
+contratos do framework (`kntgraph.tools.llm_transport`)
 e são re-exportados daqui por conveniência. Esta Tool
 implementa `LiteLLMTransportAdapter` (a chamada real ao
 `litellm.acompletion`) e o `LiteLLMTool` (orquestração:

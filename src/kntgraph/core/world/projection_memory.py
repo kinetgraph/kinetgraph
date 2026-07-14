@@ -47,7 +47,7 @@ batch produces the same components.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -179,14 +179,35 @@ def _fold_session(
     )
 
 
-def _fold_profile(agent_id: str, events: Sequence[Event]) -> ProfileComponent | None:
-    """Pure fold of ``profile.*`` events → ProfileComponent."""
+def _fold_profile(
+    agent_id: str,
+    events: Sequence[Event],
+    base_profile: ProfileComponent | None = None,
+) -> ProfileComponent | None:
+    """Pure fold of ``profile.*`` events → ProfileComponent.
+
+    If ``base_profile`` is provided, the fold REUSES
+    the state of the base component for fields that
+    are NOT explicitly re-derived by the events in
+    this batch (preferences, tier, etc.).
+    """
     preferences: dict[str, str] = {}
     tier = "standard"
     created_at: float = 0.0
     updated_at: float = 0.0
     tenant_id = ""
     user_id = ""
+
+    if base_profile is not None:
+        # Reuse the base state. The fold will
+        # overwrite the fields below if the batch
+        # re-derives them.
+        preferences = dict(base_profile.preferences)
+        tier = base_profile.tier
+        created_at = base_profile.created_at
+        updated_at = base_profile.updated_at
+        tenant_id = base_profile.tenant_id
+        user_id = base_profile.user_id
 
     for e in events:
         if e.event_type == PROFILE_CREATED:
@@ -227,9 +248,18 @@ def _fold_profile(agent_id: str, events: Sequence[Event]) -> ProfileComponent | 
 
 
 def _fold_continuity(
-    agent_id: str, events: Sequence[Event]
+    agent_id: str,
+    events: Sequence[Event],
+    base_continuity: ContinuityComponent | None = None,
 ) -> ContinuityComponent | None:
-    """Pure fold of ``continuity.*`` events → ContinuityComponent."""
+    """Pure fold of ``continuity.*`` events → ContinuityComponent.
+
+    If ``base_continuity`` is provided, the fold
+    REUSES the state of the base component for
+    fields that are NOT explicitly re-derived by
+    the events in this batch (last_tools /
+    last_entities / last_categories / cleared_at).
+    """
     last_tools: dict[str, str] = {}
     last_entities: dict[str, str] = {}
     last_categories: dict[str, str] = {}
@@ -238,6 +268,16 @@ def _fold_continuity(
     cleared_at: float | None = None
     tenant_id = ""
     user_id = ""
+
+    if base_continuity is not None:
+        last_tools = dict(base_continuity.last_tools)
+        last_entities = dict(base_continuity.last_entities)
+        last_categories = dict(base_continuity.last_categories)
+        created_at = base_continuity.created_at
+        updated_at = base_continuity.updated_at
+        cleared_at = base_continuity.cleared_at
+        tenant_id = base_continuity.tenant_id
+        user_id = base_continuity.user_id
 
     for e in events:
         if e.event_type == CONTINUITY_CREATED:
@@ -283,7 +323,8 @@ def _fold_continuity(
 
 
 def project_memory(
-    events: Sequence[Event], base_views: dict[str, AgentView]
+    events: Sequence[Event],
+    base_views: "Mapping[str, AgentView] | None" = None,
 ) -> dict[str, AgentView]:
     """
     Pure fold: events → AgentView with memory
@@ -301,6 +342,7 @@ def project_memory(
     namespace are passed through unchanged (no
     allocation).
     """
+    base_views = base_views or {}
     # Group events by agent_id once. We can then
     # build a per-agent memory fold without
     # iterating the full batch per agent.
@@ -326,8 +368,10 @@ def project_memory(
         existing_continuity = base_view.components.get(ContinuityComponent)
 
         session = _fold_session(agent_id, agent_events, base_session=existing_session)
-        profile = _fold_profile(agent_id, agent_events)
-        continuity = _fold_continuity(agent_id, agent_events)
+        profile = _fold_profile(agent_id, agent_events, base_profile=existing_profile)
+        continuity = _fold_continuity(
+            agent_id, agent_events, base_continuity=existing_continuity
+        )
 
         # If the current batch did not re-derive
         # the component (i.e. the fold returned
