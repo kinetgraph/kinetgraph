@@ -869,58 +869,77 @@ the migration is opt-in for the next release.
 
 ## 2.18 Example 05b hydration shim: system never emits a request_tool event
 
-**Status:** Open (WIP).
+**Status:** Closed in 2026-07-14.
 
-**Severity:** Medium. Example
-``examples/05b_session_chat_ecs.py`` runs
-end-to-end through the hydration pipeline but
-**emits zero ``user_response`` events** in the
-current state. The ECS path is reached, the
-``SessionComponent`` is hydrated correctly, but
-the chat system's reaction phase is
-short-circuited by the projection composition
-in the local shim
-(``_install_projection_shim``).
+**Closed by:**
 
-**Discovery:** While validating ADR-044, the
-example 05b (which exercises the multi-tick
-accumulation path) was re-run with the
-overlay fix. The session still produces no
-``user_response`` events; the reactive
-``SessionChatSystem`` reads a ``tool_requests``
-slot that is **empty** when the system reacts
-(even though the ``LiteLLMToolWorker`` is
-running and emitting the request event).
+  - **Derived component preservation** in
+    ``core/world/projection.py::_apply_event``:
+    the default domain projection now PRESERVES
+    a closed set of derived component keys
+    (``tool_requests`` / ``tool_completions`` /
+    ``SessionComponent`` / ``ProfileComponent`` /
+    ``ContinuityComponent``) across a domain
+    fold. The previous rule replaced the entire
+    ``components`` dict on every domain event,
+    which clobbered the tool-call overlay slots
+    AND the memory components installed by the
+    hydration projection (ADR-042 §6.1) on the
+    next domain event. The new rule is opt-in
+    by key: a domain event's own payload still
+    replaces the component keyed by
+    ``event.event_type`` (the existing
+    last-event-wins contract, pinned by
+    ``test_domain_replaces_components``); the
+    derived components survive.
 
-**Impact:** Example 05b is WIP. The
-``ADR-042 §6.1`` reference implementation is
-not yet end-to-end-correct. The fix for §2.16
-unblocks the projection path; the chat system
-reaction is a separate problem.
+  - **SessionChatSystem rewrite** in
+    ``examples/05b_session_chat_ecs.py``: the
+    system now uses ``view.last_event_id`` as
+    the canonical "new event arrived" signal
+    (the ``user.intent`` component on the view
+    is replaced by the next domain event's
+    payload, so the system cannot rely on it
+    once a tool event lands in the same tick).
+    A ``_pending_user_messages`` map captures
+    the user message at request time so the
+    completion phase can recover it (the
+    ``user.intent`` component is also gone by
+    then). The shim's
+    ``_install_projection_shim`` was rewritten
+    to use the same composition order as
+    ``ReactiveDispatcher._fold_with_filter``
+    (default fold → memory hydration → tool
+    overlay).
 
-**Fix (sketch):** The
-``_install_projection_shim`` in example 05b
-composes the default projection with the
-``project_memory`` and the
-``overlay_tool_calls`` but the composition
-order drops the ``tool_requests`` slot before
-the chat system reads it. The fix is to make
-the shim return a single ``Projection`` that
-delegates to a combined fold and then runs
-the overlay at the end of the dispatch (the
-same way ``ReactiveDispatcher._fold_with_filter``
-does in production).
+  - **8 unit tests** in
+    ``tests/agents/unit/test_example_05b_shim.py``
+    cover the shim installation, the
+    hydration contract (``SessionComponent``
+    is installed on the view), the tool-call
+    overlay accumulation contract (request
+    persists across ticks), and the full chat
+    round-trip (request → completion → recorder).
 
-**Action:** Open an issue (or amend example
-05b) once the shim is fixed. Validate
-end-to-end: spawn the agent, send a
-``user_input``, assert that the system emits
-``tool.chat_llm.requested`` and that the
-completion in the next tick is correlated to
-it.
+**Acceptable:** N/A — closed.
 
-**Acceptable:** Until the shim is fixed,
-example 05b is a **read-only reference** of
-the pipeline. Production code paths (the
-``ReactiveDispatcher``) are unaffected by the
-shim.
+
+## 2.19 @tool_worker forward-reference resolution
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the ``@tool_worker`` decorator's
+Pydantic schema extraction now resolves
+forward-reference string annotations via
+``importlib.import_module(cls.__module__)``
+instead of the (non-existent)
+``cls.__globals__``. Without this, classes
+using ``from __future__ import annotations``
+with a Pydantic model parameter produced an
+empty schema (``{"title": "Payload"}``
+instead of ``{"$ref": "#/$defs/..."}``).
+Regression test:
+``test_tool_worker_with_pydantic_model`` in
+``tests/unit/tools/test_worker.py``.
+
+**Acceptable:** N/A — closed.

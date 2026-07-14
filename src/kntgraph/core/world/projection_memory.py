@@ -143,16 +143,22 @@ def _fold_session(
         return None
 
     # The ``intent_event_id`` is the event_id of
-    # the last DOMAIN event in the batch (the
-    # ``user.intent`` that triggered this turn).
-    # ``session.*`` events are NOT considered
-    # domain events for this purpose (they are
-    # bookkeeping for the session itself).
+    # the last ``user.intent`` (or similar
+    # INTENT-class) event in the batch. We
+    # EXCLUDE ``session.*`` / ``profile.*`` /
+    # ``continuity.*`` events (they are bookkeeping
+    # for the session itself) AND ``tool.*`` events
+    # (they are worker-pool round-trips, not
+    # user-driven intent signals; the LLM's
+    # ``tool.chat_llm.requested`` event lands in the
+    # same batch as the user.intent and would
+    # otherwise clobber the intent_event_id).
     for e in events:
-        if e.event_class == "domain" and not e.event_type.startswith(
-            ("session.", "profile.", "continuity.")
-        ):
-            intent_event_id = str(e.event_id)
+        if e.event_class != "domain":
+            continue
+        if e.event_type.startswith(("session.", "profile.", "continuity.", "tool.")):
+            continue
+        intent_event_id = str(e.event_id)
 
     # If the batch had no domain event, keep
     # the base ``intent_event_id`` (we are

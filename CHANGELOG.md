@@ -18,6 +18,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Messaging Ingestion Proposal (ADR-040):**
   - Proposed `--use-intent-messaging` CLI option for asynchronous message-based ingestion.
   - Documented three ingestion models (HTTP-only, Messaging-only, Hybrid) and detailed how a background consumer can ingest intents concurrently to the `EventLog`.
+- **Derived component preservation (ADR-044 + 05b shim):** the
+  default domain projection's `_apply_event` now preserves
+  a closed set of **derived component keys** (string keys
+  `tool_requests` / `tool_completions` and class keys
+  `SessionComponent` / `ProfileComponent` /
+  `ContinuityComponent`) across a domain fold. The previous
+  rule replaced the entire `components` dict on every
+  domain event, which clobbered the tool-call overlay slots
+  AND the memory components installed by the hydration
+  projection (ADR-042 §6.1) on the next domain event. The
+  fix is opt-in by key: a domain event's own payload still
+  replaces the component keyed by `event.event_type` (the
+  existing last-event-wins contract, pinned by
+  `test_domain_replaces_components` in
+  `tests/unit/test_world.py`); unrelated derived components
+  survive. This unblocks the example 05b hydration shim
+  end-to-end.
+- **Example 05b shim closed (DEBT §2.18):** the projection
+  shim in `examples/05b_session_chat_ecs.py` is now
+  end-to-end correct. The `SessionChatSystem` reads
+  `SessionComponent` from the hydrated view, emits a
+  `tool.chat_llm.requested` event on a new user intent,
+  and emits two `tool.session_recorder.requested` events
+  (append_user + append_assistant) when the chat_llm
+  completion lands. 8 unit tests in
+  `tests/agents/unit/test_example_05b_shim.py` cover the
+  shim installation, the hydration contract (SessionComponent
+  is installed on the view), the tool-call overlay accumulation
+  contract (request persists across ticks), and the full
+  chat round-trip (request → completion → recorder).
+- **`@tool_worker` forward-reference resolution (ADR-043 follow-up):**
+  the `@tool_worker` decorator's Pydantic schema extraction
+  now resolves forward-reference string annotations via
+  `importlib.import_module(cls.__module__)` instead of the
+  (non-existent) `cls.__globals__`. Without this, classes
+  using `from __future__ import annotations` with a
+  Pydantic model parameter produced an empty schema
+  (`{"title": "Payload"}` instead of `{"$ref": "#/$defs/..."}`).
+  Regression test: `test_tool_worker_with_pydantic_model`
+  in `tests/unit/tools/test_worker.py`.
 
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**

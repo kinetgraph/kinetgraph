@@ -126,37 +126,41 @@ from _lib.redis_or_fake import make_redis_client
 
 def _install_projection_shim() -> None:
     """
-    Monkey-patch ``ReactiveDispatcher`` so that
-    ``_fold_with_filter`` runs the full
-    default + memory + tool overlay pipeline.
+    Compose the framework projections into the
+    dispatcher's fold pass.
 
-    The shim is **idempotent**: it only patches if
-    not already patched. The order is:
+    The framework's default fold is the
+    "last-event-wins" projection. The
+    :func:`_apply_event` helper now **preserves
+    derived components** (tool-call slots, memory
+    components) across the default domain fold
+    (ADR-042 + ADR-044). What this shim adds is:
 
-      1. default projection (last-event-wins)
-      2. project_memory (hydration)  — installs the
-         ``*Component`` on each view.
-      3. overlay_tool_calls — installs the
+      1. The **memory hydration** projection
+         (``project_memory``) runs AFTER the
+         default fold. It walks the events in
+         the batch and materialises the
+         ``SessionComponent`` / ``ProfileComponent``
+         / ``ContinuityComponent`` on the
+         ``AgentView`` (purely from the events;
+         no Redis I/O). The components are
+         preserved across the next default fold
+         thanks to :data:`_DERIVED_COMPONENT_KEYS`.
+
+      2. The **tool-call overlay** runs LAST
+         (it would otherwise race with the
+         memory projection). It installs the
          ``tool_requests`` / ``tool_completions``
-         slots.
+         slots and accumulates across ticks
+         (ADR-044 Option B).
 
-    Steps 2 and 3 read events from the
-    ``new_events`` batch (the delta since the
-    last cursor). The base views already carry
-    state from previous ticks, so the memory
-    projection rebuilds the components from
-    scratch each tick (re-deriving from the
-    full per-agent event list would be O(N²);
-    the framework's hot path is to recompute
-    the *current state* per tick from the
-    batch and trust the event log for the
-    history).
+    The composition order is the same as the
+    production :func:`ReactiveDispatcher._fold_with_filter`
+    but inlined here so the example is runnable
+    without a new framework release.
 
-    **Caveat (architectural debt).** This is a
-    shim; the production version will live in
-    ``runner.reactive_extensions`` and will be
-    reviewed as part of the ADR-042 §6.1
-    hydration-pipeline work.
+    The shim is **idempotent**: it only patches
+    if not already patched.
     """
     from kntgraph.runner import reactive as _reactive_mod
     from kntgraph.runner import reactive_tool_projection as _rtp_mod
@@ -165,25 +169,10 @@ def _install_projection_shim() -> None:
         return
 
     def _fold_with_filter_shim(self, world, new_events):
-        # ``world`` is the accumulated world
-        # (``ckpt.world`` from the dispatcher).
-        # We hold a reference to its views so the
-        # memory projection can read the
-        # previously-derived ``SessionComponent``
-        # / ``ProfileComponent`` /
-        # ``ContinuityComponent`` from the
-        # base view (the ``with_event`` loop
-        # below does not preserve them because
-        # the default projection only stores
-        # event payloads, not components).
-        accumulated_views = dict(world.views)
-
-        # Step 1: default projection (last-event-wins).
-        # The original ``_fold_with_filter`` already
-        # does this via ``world.with_event``; we
-        # delegate to it but **without** the
-        # tool-overlay step so we can interleave
-        # the memory projection.
+        # Step 1: default fold. The default
+        # ``with_event`` is used so the
+        # ``_apply_event`` preservation rule
+        # applies (derived components are kept).
         new_event_count = 0
         for event in new_events:
             world = world.with_event(event)
@@ -191,37 +180,46 @@ def _install_projection_shim() -> None:
                 continue
             new_event_count += 1
 
-        # Step 2: memory hydration. We pass the
-        # ACCUMULATED views (pre-``with_event``)
-        # to ``project_memory``. The projection
-        # re-derives the memory components from
-        # the events in the current batch and
-        # **preserves** the previously-derived
-        # component from the base view if the
-        # current batch did not include any
-        # memory event (so a tick that only has
-        # a ``user.intent`` keeps the
-        # SessionComponent that was set on a
+        # Step 2: memory hydration. The
+        # projection is a pure fold of the
+        # events in the current batch; the
+        # ``base_views`` argument carries the
+        # components from previous ticks (so
+        # a tick that has no memory event
+        # keeps the SessionComponent from a
         # previous tick).
-        hydrated_views = project_memory(new_events, accumulated_views)
-        # Reconstruct a World with the hydrated views.
-        if any(
-            hydrated_views.get(aid) is not world.views.get(aid)
-            for aid in set(hydrated_views) | set(world.views)
-        ):
+        #
+        # The output of ``project_memory`` is
+        # a new ``dict[str, AgentView]`` (one
+        # entry per agent touched by a memory
+        # event in the batch). Agents not in
+        # the output keep their current view
+        # (the projection's contract: agents
+        # not touched by memory events come
+        # back as the same view object).
+        new_views: dict[str, Any] = dict(world.views)
+        any_changed = False
+        for agent_id, hydrated_view in project_memory(new_events, world.views).items():
+            if world.views.get(agent_id) is not hydrated_view:
+                new_views[agent_id] = hydrated_view
+                any_changed = True
+        if any_changed:
             new_storage = world.storage
-            for aid, view in hydrated_views.items():
-                if world.views.get(aid) is not view:
+            for agent_id, view in new_views.items():
+                if world.views.get(agent_id) is not view:
                     new_storage = new_storage.clone_with_entity(
-                        aid, dict(view.components)
+                        agent_id, dict(view.components)
                     )
-            world = World(tick=world.tick, storage=new_storage, views=hydrated_views)
+            world = World(tick=world.tick, storage=new_storage, views=new_views)
 
-        # Step 3: tool-call overlay (preserves the
-        # existing behavior of the framework; the
-        # bug we found in the multi-tick case
-        # applies here too but is documented as
-        # known debt in DEBT.md).
+        # Step 3: tool-call overlay. Installs
+        # the ``tool_requests`` /
+        # ``tool_completions`` slots on the
+        # affected views. ADR-044: the
+        # overlay accumulates across ticks
+        # (a pending request from a previous
+        # tick is preserved until the matching
+        # completion lands).
         if new_event_count > 0 and _rtp_mod._has_tool_events(new_events):
             world = _rtp_mod._overlay_tool_projection(world, new_events)
         return world, new_event_count
@@ -428,16 +426,36 @@ class SessionChatSystem(ToolAwareSystem):
         # twice (once per tick) until the
         # ``tool_completions`` slot is removed.
         self._recorded_turns: set[str] = set()
-        # Track which user.intent event_ids we
-        # have already requested a tool for.
-        # The system runs every tick; the
-        # ``SessionComponent`` (and the
-        # ``user.intent`` component) is the same
-        # across ticks until a new event lands,
-        # so we use this set to avoid emitting a
-        # duplicate request on the second tick
-        # of the same turn.
-        self._processed_intents: set[str] = set()
+        # The ``last_event_id`` we saw in the
+        # previous tick. The default fold
+        # advances ``view.last_event_id`` on
+        # every event; when the new tick's
+        # ``last_event_id`` differs from the
+        # one we last saw, a new event landed
+        # in the agent's stream. This is the
+        # canonical "new intent arrived" signal
+        # (the default domain projection does
+        # not preserve the ``user.intent``
+        # component when a tool event lands in
+        # the same batch).
+        self._last_seen_event_id: str | None = None
+        # Map: ``chat_llm request_event_id`` →
+        # the user message that triggered the
+        # request. The default domain
+        # projection is last-event-wins; the
+        # ``user.intent`` component on the
+        # view is replaced by any subsequent
+        # tool event's payload (e.g. the
+        # ``tool.chat_llm.completed`` event
+        # in the next tick). The system
+        # therefore cannot rely on
+        # ``view.components["user.intent"]``
+        # to recover the new user message in
+        # the tick where the completion
+        # arrives. We capture the message at
+        # request time and look it up by the
+        # chat request's eid.
+        self._pending_user_messages: dict[str, str] = {}
 
     @staticmethod
     def _build_system_prompt(session: SessionComponent) -> str:
@@ -485,114 +503,168 @@ class SessionChatSystem(ToolAwareSystem):
         if session is None:
             return events
 
-        # 2. Detect a new user intent. The
-        # ``SessionComponent.intent_event_id`` is
-        # the event_id of the last domain event
-        # in the agent's stream (the user.intent
-        # that triggered the system).
-        intent_eid = session.intent_event_id
-        if not intent_eid:
-            return events
+        # 2. Detect a new event in the agent's
+        # stream. The ``view.last_event_id``
+        # advances on every folded event; when
+        # it changes from the previous tick, a
+        # new event has landed. The default
+        # domain projection does not preserve
+        # the ``user.intent`` component when a
+        # tool event is folded in the same
+        # batch (last-event-wins), so we cannot
+        # rely on ``view.components["user.intent"]``
+        # to detect the new user intent. The
+        # ``last_event_id`` is the canonical
+        # "did something happen in this tick?"
+        # signal.
+        last_eid = view.last_event_id
+        is_new_event = (
+            self._last_seen_event_id is None or self._last_seen_event_id != last_eid
+        )
+        if is_new_event and last_eid:
+            self._last_seen_event_id = last_eid
 
-        # The ``new_user_message`` comes from the
-        # ``user.intent`` component on the view
-        # (the default projection installs it
-        # there for every domain event). The
-        # ``SessionComponent.messages`` is
-        # populated by the ``session_recorder``
-        # tool *after* the chat_llm tool
-        # completes; in the first tick of a
-        # turn, the recorder has not yet run, so
-        # the messages tuple is still empty and
-        # the new message only lives in the
-        # ``user.intent`` component.
-        user_intent_data = view.components.get("user.intent", {})
-        new_user_message = user_intent_data.get("message", "")
+        if not is_new_event:
+            # No new event in this tick. The
+            # system still reacts to completions
+            # (see Phase 3 below) but skips
+            # the "is this a new user intent?"
+            # check.
+            pass
+
+        # 3. The ``new_user_message`` comes from
+        # the ``SessionComponent.messages`` tuple
+        # (the recorder persists it after each
+        # turn). In the first tick of a turn the
+        # recorder has not run yet, so the tuple
+        # is empty; the system falls back to
+        # the ``user.intent`` component on the
+        # view (only present when the user.intent
+        # was the last domain event in the batch).
+        # In the completion tick the
+        # ``user.intent`` component has been
+        # replaced by the completion's payload,
+        # so ``new_user_message`` is empty
+        # here; the system uses the
+        # ``_pending_user_messages`` map (set in
+        # Phase 1) to recover the user message.
+        new_user_message = ""
         if session.messages:
-            # Walk backwards: the most recent
-            # "user" message in the session is the
-            # current turn (the recorder has
-            # appended it on a previous tick).
             for m in reversed(session.messages):
                 if m.get("role") == "user":
                     new_user_message = m.get("content", "")
                     break
-
         if not new_user_message:
-            return events
-
-        is_new_intent = intent_eid not in self._processed_intents
-        if is_new_intent:
-            self._processed_intents.add(intent_eid)
-
-        # 3. Find the in-flight request for this
-        # user.intent. The SessionComponent
-        # carries ``intent_event_id``; the
-        # ``tool_requests`` slot is keyed by
-        # ``request_event_id`` (the eid of the
-        # ``tool.<name>.requested`` event). The
-        # join is via the ``request.correlation_id``
-        # (= the user.intent's event_id). Walk
-        # the slot and pick the one whose
-        # ``causation_id`` matches.
-        tool_requests = view.components.get("tool_requests", {})
-        tool_completions = view.components.get("tool_completions", {})
-        request_event_id: str | None = None
-        completion_obj = None
-        for rid, req in tool_requests.items():
-            if str(req.correlation_id) == intent_eid:
-                request_event_id = rid
-                completion_obj = tool_completions.get(rid)
-                break
+            user_intent_data = view.components.get("user.intent", {})
+            new_user_message = user_intent_data.get("message", "")
 
         # 4. Build the correlation. The
         # dispatcher's task has no middleware
         # context, so we build the correlation
         # from the SessionComponent's
         # intent_event_id.
+        intent_eid = session.intent_event_id
+        if not intent_eid:
+            return events
         correlation = CorrelationContext(correlation_id=UUID(intent_eid))
 
-        # 5. Phase 1: no request for this intent
-        # yet → emit the chat_llm request. The
+        # 4. Phase 1: a new event landed in this
+        # tick AND no in-flight chat_llm request
+        # → emit the chat_llm request. The
         # ``LiteLLMToolWorker`` (ADR-043) takes
-        # ``system`` and ``user`` strings; we build
-        # the system prompt from the session
-        # context (transcript + persona) and pass the
-        # new user message verbatim.
-        if request_event_id is None and is_new_intent:
+        # ``system`` and ``user`` strings; we
+        # build the system prompt from the
+        # session context (transcript + persona)
+        # and pass the new user message
+        # verbatim.
+        #
+        # **Note (last-event-wins caveat):**
+        # the default domain projection
+        # REPLACES ``view.components`` on every
+        # domain event; the ``user.intent``
+        # component is only present if the
+        # last event in the batch is the
+        # ``user.intent`` itself (no tool
+        # event folded after it). In the
+        # production flow, the user.intent and
+        # the chat_llm response land in
+        # different ticks (the chat_llm worker
+        # takes 0.3-0.5s to respond), so the
+        # first tick of a turn has the
+        # ``user.intent`` as the only domain
+        # event. The unit tests for the shim
+        # fold the events together (request
+        # + intent in the same batch) to
+        # exercise the multi-tick logic in
+        # isolation; the system handles BOTH
+        # shapes.
+        tool_requests = view.components.get("tool_requests", {})
+        tool_completions = view.components.get("tool_completions", {})
+        has_in_flight_request = any(
+            r.tool_name == "chat_llm" for r in tool_requests.values()
+        )
+        if is_new_event and not has_in_flight_request and new_user_message:
             system_prompt = self._build_system_prompt(session)
             user_prompt = new_user_message
-            events.append(
-                self.request_tool(
-                    agent_id=SESSION_AGENT_ID,
-                    tool_name="chat_llm",
-                    params={
-                        "system": system_prompt,
-                        "user": user_prompt,
-                    },
-                    causation_id=intent_eid,
-                    correlation=correlation,
-                )
+            # Capture the user message for the
+            # completion phase (the
+            # ``user.intent`` component on the
+            # view will be replaced by the
+            # ``tool.chat_llm.completed`` event
+            # in the next tick).
+            e = self.request_tool(
+                agent_id=SESSION_AGENT_ID,
+                tool_name="chat_llm",
+                params={
+                    "system": system_prompt,
+                    "user": user_prompt,
+                },
+                causation_id=intent_eid,
+                correlation=correlation,
             )
+            self._pending_user_messages[str(e.event_id)] = new_user_message
+            events.append(e)
             return events
 
-        # 6. Phase 2: the LLM is still running.
-        if completion_obj is None:
+        # 5. Phase 2: the LLM is still running.
+        # Look for a chat_llm completion that
+        # has not been recorded yet.
+        chat_completion = None
+        for rid, comp in tool_completions.items():
+            if comp.status != "completed":
+                continue
+            if rid in self._recorded_turns:
+                continue
+            chat_completion = comp
+            chat_request_id = rid
+            break
+        if chat_completion is None:
             return events
 
-        # 7. Phase 3: the LLM completed. Persist
+        # 6. Phase 3: the LLM completed. Persist
         # the turn.
-        if completion_obj.status != "completed":
-            return events
-        if request_event_id in self._recorded_turns:
-            return events
-        self._recorded_turns.add(request_event_id)
+        self._recorded_turns.add(chat_request_id)
+        # Recover the user message from the
+        # capture map (the ``user.intent``
+        # component on the view was replaced by
+        # the completion event's payload).
+        pending_user_message = self._pending_user_messages.pop(
+            chat_request_id, new_user_message
+        )
+        if not pending_user_message:
+            # Fall back to the SessionComponent
+            # messages (after the first turn the
+            # recorder persists them, so the
+            # latest user message is on the
+            # component).
+            for m in reversed(session.messages):
+                if m.get("role") == "user":
+                    pending_user_message = m.get("content", "")
+                    break
 
         # ``LiteLLMToolWorker`` returns the reply
-        # in the ``text`` field (ADR-043). The
-        # legacy ``LiteLLMTool`` used ``reply``; the
-        # migration is a single rename here.
-        reply = (completion_obj.result or {}).get("text", "")
+        # in the ``text`` field (ADR-043).
+        reply = (chat_completion.result or {}).get("text", "")
         events.append(
             self.request_tool(
                 agent_id=SESSION_AGENT_ID,
@@ -600,7 +672,7 @@ class SessionChatSystem(ToolAwareSystem):
                 params={
                     "command": "append_user",
                     "session_id": session.session_id,
-                    "data": {"content": new_user_message},
+                    "data": {"content": pending_user_message},
                 },
                 causation_id=intent_eid,
                 correlation=correlation,

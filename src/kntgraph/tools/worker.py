@@ -69,6 +69,25 @@ def tool_worker(
             param_type: Any = (
                 Any if param.annotation is inspect.Parameter.empty else param.annotation
             )
+            # Resolve forward references (Python 3.12+ stores
+            # annotations as strings when ``from __future__
+            # import annotations`` is in effect; Pydantic
+            # cannot resolve ``Any`` from the local string
+            # namespace). We use the global namespace of
+            # the module the class lives in (classes do
+            # not have a ``__globals__`` attribute) so
+            # ``Any`` (and other typing primitives imported
+            # in the user module) resolve correctly.
+            if isinstance(param_type, str):
+                try:
+                    import importlib as _importlib
+                    import typing as _typing
+
+                    mod = _importlib.import_module(cls.__module__)
+                    ns = {**vars(_typing), **vars(mod)}
+                    param_type = eval(param_type, ns)  # noqa: S307 — controlled input
+                except Exception:
+                    param_type = Any
 
             if param.default is inspect.Parameter.empty:
                 # Required parameter
