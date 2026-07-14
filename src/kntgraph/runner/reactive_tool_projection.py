@@ -35,8 +35,11 @@ the §3.1 500-L guideline. The helpers depend on
 
 from __future__ import annotations
 
+from typing import Optional
+
 from kntgraph.core.event import Event
 from kntgraph.core.world import World
+from kntgraph.core.world.components import ToolCallTTL
 from kntgraph.core.world.projection_tool_calls import (
     overlay_tool_calls,
 )
@@ -49,19 +52,29 @@ def _has_tool_events(events: list[Event]) -> bool:
     Used to skip the second fold pass when no tool
     event is present, so non-tool batches pay zero
     cost for the projection.
+
+    Accepts both the canonical ``tool.<name>.<suffix>``
+    form (ADR-036) and the legacy bare
+    ``tool.requested`` / ``tool.completed`` /
+    ``tool.failed`` form (kept for back-compat with
+    old EventLogs).
     """
     for e in events:
-        if e.event_type == "tool.requested" or (
-            e.event_type.startswith("tool.")
-            and (
-                e.event_type.endswith(".completed") or e.event_type.endswith(".failed")
-            )
-        ):
+        if e.event_type == "tool.requested":
             return True
+        if e.event_type.startswith("tool."):
+            suffix = e.event_type.rsplit(".", 1)[-1]
+            if suffix in ("completed", "failed", "requested"):
+                return True
     return False
 
 
-def _overlay_tool_projection(world: "World", new_events: list[Event]) -> "World":
+def _overlay_tool_projection(
+    world: "World",
+    new_events: list[Event],
+    *,
+    tool_ttls: Optional[ToolCallTTL] = None,
+) -> "World":
     """Run ``overlay_tool_calls`` on the batch and absorb
     the result into the post-fold World.
 
@@ -71,6 +84,15 @@ def _overlay_tool_projection(world: "World", new_events: list[Event]) -> "World"
     slots only on agents touched by tool events in
     the batch. Agents without tool events come back
     as the same object (no allocation).
+
+    ``tool_ttls`` (ADR-045): the per-tool TTL config
+    that sets ``expires_at`` on each new request. The
+    TTL is **set** by the projection but **enforced**
+    by the :class:`ToolCallTTLSweeperSystem` (a
+    separate ``WorldSystem`` registered with the
+    dispatcher); the sweeper emits
+    ``tool.<name>.failed`` events for stale requests.
+    Default: ``ToolCallTTL()`` (5-minute global TTL).
 
     All that remains for the dispatcher is to:
 
@@ -88,7 +110,11 @@ def _overlay_tool_projection(world: "World", new_events: list[Event]) -> "World"
     input -- the tool projection is an overlay, not a
     fold step, and must not advance the tick clock.
     """
-    tool_views = overlay_tool_calls(new_events, world.views)
+    tool_views = overlay_tool_calls(
+        new_events,
+        world.views,
+        ttl=tool_ttls or ToolCallTTL(),
+    )
     if not tool_views:
         return world
     new_storage = world.storage

@@ -21,7 +21,8 @@ class ToolAwareSystem:
     """
     Mixin/Helper for Systems that need to interact with external tools.
     Provides methods to check tool call state in an AgentView and emit
-    tool.requested events.
+    ``tool.<name>.requested`` events (the canonical ADR-036 form;
+    see ``request_tool``).
     """
 
     def request_tool(
@@ -33,8 +34,10 @@ class ToolAwareSystem:
         correlation: Optional[CorrelationContext] = None,
     ) -> Event:
         """
-        Builds a tool.requested event. The system should
-        return this event in its output list.
+        Builds a ``tool.<name>.requested`` event (the canonical
+        ADR-036 form; the older bare ``tool.requested`` form is
+        accepted by the projection for back-compat only). The
+        system should return this event in its output list.
 
         ``correlation`` is required (ADR-037). The
         caller (the system itself) MUST pass a

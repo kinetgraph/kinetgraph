@@ -44,7 +44,7 @@ entry = Event.create(
 # entry.correlation.correlation_id = X (flow id)
 
 req = Event.create(
-    event_type="tool.requested", agent_id="a-1", event_class="domain",
+    event_type="tool.weather.requested", agent_id="a-1", event_class="domain",
     data={"tool": "weather"},
     causation_id=entry.event_id,  # aponta para entry
 )
@@ -78,7 +78,7 @@ entry = Event.create(
 
 # Evento derivado: o caller propaga do event pai.
 req = Event.create(
-    event_type="tool.requested", agent_id="a-1", event_class="domain",
+    event_type="tool.weather.requested", agent_id="a-1", event_class="domain",
     data={"tool": "weather"},
     causation_id=entry.event_id,
     correlation=correlation_middleware.continue_from(entry),

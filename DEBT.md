@@ -638,3 +638,421 @@ from __future__ import annotations
 #         pyright                 71 errors / 1261 warnings
 #
 # ---------------------------------------------------------------------------
+
+## 2.15 ADR-042 hydration pipeline (memory components)
+
+**Status:** Partially delivered (components + projection
+exist; full hydration pipeline in the dispatcher is
+still a shim; example 05b is WIP).
+
+**Delivered in this iteration (2026-07-14):**
+
+  - **Memory components** (3 new files in
+    ``core/components/memory.py``):
+    - ``SessionComponent`` (Redis tier 1)
+    - ``ProfileComponent`` (Redis tier 2)
+    - ``ContinuityComponent`` (Redis tier 3)
+
+  - **Hydration projection**
+    (``core/world/projection_memory.py::project_memory``):
+    a pure projection that walks the agent's
+    ``session.*`` / ``profile.*`` / ``continuity.*``
+    events and materialises the three components on the
+    ``AgentView``. Preserves the base component when
+    the current batch has no memory events
+    (multi-tick safe).
+
+  - **Reactive shim**
+    (``examples/05b_session_chat_ecs.py::_install_projection_shim``):
+    monkey-patches ``ReactiveDispatcher._fold_with_filter``
+    to compose: ``default projection`` →
+    ``project_memory`` → ``overlay_tool_calls``.
+
+  - **Example 05b** (``examples/05b_session_chat_ecs.py``):
+    the canonical reference implementation of the
+    ADR-042 §6.1 pipeline. **WIP** — the example
+    shows the architecture (no Redis I/O in the
+    system, ECS components on the view, pure
+    hydration via projection) but does not yet
+    persist a full multi-turn chat end-to-end. The
+    bug is the multi-tick overlay loss (see
+    item 2.16 below).
+
+**Open work (ADR-042 §6.1 follow-up):**
+
+  - **Compose API.** The shim is a monkey-patch; the
+    framework needs a proper
+    ``ReactiveDispatcher(projections=[...])`` API
+    that composes projections in order. The shim
+    should be deleted once the API ships.
+    Action: ADR follow-up PR.
+
+  - **Run the projection in the framework.**
+    ``project_memory`` lives in
+    ``core/world/projection_memory.py``; the
+    framework's default ``World.fold`` does not
+    call it. The shim is the only way to wire
+    it in today. Action: expose a
+    ``MemoryHydrationProjection`` class in
+    ``runner/reactive_extensions.py`` and call it
+    from the default ``_fold_with_filter`` after
+    the base projection and before the tool
+    overlay.
+
+  - **Tests for the projection.** ~~The
+    ``project_memory`` projection has no unit
+    tests. It is currently exercised only by
+    example 05b (WIP). Action: add tests in
+    ``tests/unit/core/world/test_projection_memory.py``
+    covering: ``session.*`` fold, ``profile.*``
+    fold, ``continuity.*`` fold, multi-tick
+    preservation of base component.~~ Closed
+    in 2026-07-14: 16 unit tests in
+    ``tests/unit/core/test_projection_memory.py``
+    cover the ``session.*`` / ``profile.*`` /
+    ``continuity.*`` fold (single + multi-tick
+    preservation). The new tests uncovered two
+    latent bugs which were fixed in the same
+    change: ``project_memory`` now accepts
+    ``base_views=None`` (default: empty dict),
+    and ``_fold_profile`` / ``_fold_continuity``
+    now reuse the base component when the
+    incoming batch has no event of the
+    corresponding type (matching the
+    ``_fold_session`` behaviour; previously the
+    base component was discarded).
+
+
+## 2.16 Tool-call overlay: multi-tick slot loss
+
+**Status:** Closed in 2026-07-14 via ADR-044
+(``ADRs/ADR-044-Tool-call-Overlay-Accumulation.md``).
+
+**Closed by:**
+
+  - **``overlay_tool_calls``** now MERGES the new
+    requests/completions with the existing slots
+    on the base view, keyed by
+    ``request_event_id``. A request emitted in
+    tick N remains visible in the slot in tick
+    N+K (accumulation).
+  - **Eviction policy (Option B, completion-driven):**
+    a ``tool_requests`` entry is **evicted** when
+    a matching ``tool_completions`` entry lands
+    AND the request was carried in from
+    ``base_views`` (a previous tick). Requests
+    created by the current batch are kept (the
+    system may not have reacted to them yet).
+  - **``_apply_event`` preservation:** the default
+    domain projection now preserves the
+    ``tool_requests`` and ``tool_completions``
+    slots when the incoming event is a tool
+    event (``tool.<name>.<suffix>`` or legacy
+    bare form). Without this, the
+    ``World.with_event`` chain between ticks
+    would drop the slot before the overlay ran.
+  - **``SolutionExtractorSystem`` updated** to
+    iterate ``completions`` (source of truth for
+    "finished") and look up the request from the
+    (possibly evicted) ``tool_requests`` slot;
+    entries with no request are skipped (orphan
+    completions).
+
+**Tests** (``tests/unit/runner/test_reactive_tool_projection.py``):
+
+  - ``test_request_remains_visible_until_completion_arrives_in_next_batch``:
+    request in tick N, completion in tick N+1.
+    The completion matches the request (via
+    ``causation_id``); the request is evicted
+    from the slot (it was carried from
+    ``base_views``). The completion is recorded.
+  - ``test_unrelated_request_persists_across_batches``:
+    request in tick N, an unrelated tool
+    completion in tick N+1. The request remains
+    in flight (the unrelated completion doesn't
+    evict it).
+
+  - **Canonical-form acceptance** (ADR-036
+    regression): three tests
+    (``test_canonical_form_requested_accepted``,
+    ``test_canonical_form_completed_accepted``,
+    ``test_canonical_form_failed_accepted``) cover
+    the ``tool.<name>.<suffix>`` form which is the
+    shape emitted by ``ToolAwareSystem.request_tool``
+    and ``LiteLLMToolWorker``. Both forms are
+    accepted by ``_requested_tool_name``,
+    ``_completion_status``, and
+    ``_has_tool_events``.
+
+**Open follow-ups (out of scope of §2.16):**
+
+  - **§2.18** — example 05b hydration shim still
+    has a separate bug (the system never emits a
+    request_tool event end-to-end; the ECS path
+    reaches the hydration step but the request
+    phase is short-circuited by the projection
+    shim). Tracked separately.
+  - **TTL-based eviction (ADR-045, planned):**
+    the current eviction is completion-driven;
+    orphaned requests (e.g. worker crash) linger
+    in the slot forever. The follow-up ADR
+    proposes a TTL bound on ``tool_requests``
+    entries (default 5 minutes; configurable per
+    tool) so the slot can't grow unbounded.
+
+**Acceptable:** N/A — closed.
+
+
+## 2.17 LiteLLM worker migration (ADR-043)
+
+**Status:** Delivered (v0.8.0).
+
+**Delivered in this iteration (2026-07-14):**
+
+  - **``LiteLLMToolWorker``** (new class in
+    ``src/kntgraph/agents/tools/llm.py``): a
+    ``@tool_worker(name="chat_llm")`` implementation
+    of the LLM bridge. Runs in the
+    ``WorkerManager``'s ``ProcessPoolExecutor``; the
+    dispatcher event loop is not blocked while the
+    LLM responds. Returns a JSON-serialisable dict
+    (``text`` / ``model`` / ``usage`` / ``finish_reason``
+    / ``cost_usd`` / ``latency_ms``) so the system
+    can introspect usage and cost from the
+    ``tool_completion.data``.
+
+  - **Deprecation warnings on the legacy paths:**
+    - ``LiteLLMTool`` (legacy ``Tool`` Protocol) emits
+      a one-shot ``DeprecationWarning`` on import.
+      Class-level ``__deprecated__ = True`` marker.
+      Removal target: v0.9.0.
+    - ``ToolInvoker`` (legacy orchestrator) emits a
+      ``DeprecationWarning`` on import. Class-level
+      ``__deprecated__ = True`` marker. Removal
+      target: v1.0.0 (two releases to migrate the
+      remaining tools — e.g. ``PiiRedactionTool``).
+
+  - **Example 05b updated** to use the
+    ``LiteLLMToolWorker`` (replaces the
+    ``MockChatLlmTool``; the mock is kept as a
+    commented drop-in for CI environments without an
+    LLM).
+
+  - **Tests** (``tests/agents/unit/tools/test_litellm_worker.py``):
+    7 tests covering the worker metadata, the
+    ``invoke`` envelope (text / model / usage /
+    finish_reason / latency_ms), the timeout path
+    (``Err(TimeoutError)``), the generic-error path
+    (``Err(Exception)``), and the default-model
+    fallback.
+
+**Open work (ADR-043 follow-ups):**
+
+  - **Role migration (ADR-044).** The
+    ``ChatRole.reply`` / ``PlannerRole.plan`` /
+    ``SummarizerRole.summarize`` /
+    ``PersonalizedRole.respond`` methods still call
+    ``await self._llm.invoke(...)`` directly. The
+    canonical path (ADR-039) is for the role to
+    emit a ``tool.chat_llm.requested`` event and let
+    the ``WorkerManager`` orchestrate. Migration is
+    a 50-line change across 4 role files. The
+    example 05b's ``SessionChatSystem`` is the
+    reference implementation of the new pattern;
+    the roles can be ported to emit a
+    ``request_tool`` event in place of the
+    synchronous ``_invoke``.
+
+  - **Example migration (01-07).** Examples
+    01-07 still use the legacy ``LiteLLMTool`` (with
+    a deprecation warning on import). They should be
+    migrated to use the ``LiteLLMToolWorker`` via
+    the ``WorkerManager`` in the v0.9.0 cycle.
+
+  - **Suppress deprecation noise in CI.** Add a
+    ``warnings.filterwarnings`` rule to
+    ``pyproject.toml::[tool.pytest.ini_options]`` to
+    suppress the ``DeprecationWarning`` from
+    ``LiteLLMTool`` and ``ToolInvoker`` until the
+    examples are migrated.
+
+**Acceptable:** Continue with the legacy paths for
+now. The deprecation warnings are intentional;
+the migration is opt-in for the next release.
+
+
+## 2.18 Example 05b hydration shim: system never emits a request_tool event
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:**
+
+  - **Derived component preservation** in
+    ``core/world/projection.py::_apply_event``:
+    the default domain projection now PRESERVES
+    a closed set of derived component keys
+    (``tool_requests`` / ``tool_completions`` /
+    ``SessionComponent`` / ``ProfileComponent`` /
+    ``ContinuityComponent``) across a domain
+    fold. The previous rule replaced the entire
+    ``components`` dict on every domain event,
+    which clobbered the tool-call overlay slots
+    AND the memory components installed by the
+    hydration projection (ADR-042 §6.1) on the
+    next domain event. The new rule is opt-in
+    by key: a domain event's own payload still
+    replaces the component keyed by
+    ``event.event_type`` (the existing
+    last-event-wins contract, pinned by
+    ``test_domain_replaces_components``); the
+    derived components survive.
+
+  - **SessionChatSystem rewrite** in
+    ``examples/05b_session_chat_ecs.py``: the
+    system now uses ``view.last_event_id`` as
+    the canonical "new event arrived" signal
+    (the ``user.intent`` component on the view
+    is replaced by the next domain event's
+    payload, so the system cannot rely on it
+    once a tool event lands in the same tick).
+    A ``_pending_user_messages`` map captures
+    the user message at request time so the
+    completion phase can recover it (the
+    ``user.intent`` component is also gone by
+    then). The shim's
+    ``_install_projection_shim`` was rewritten
+    to use the same composition order as
+    ``ReactiveDispatcher._fold_with_filter``
+    (default fold → memory hydration → tool
+    overlay).
+
+  - **8 unit tests** in
+    ``tests/agents/unit/test_example_05b_shim.py``
+    cover the shim installation, the
+    hydration contract (``SessionComponent``
+    is installed on the view), the tool-call
+    overlay accumulation contract (request
+    persists across ticks), and the full chat
+    round-trip (request → completion → recorder).
+
+**Acceptable:** N/A — closed.
+
+
+## 2.19 @tool_worker forward-reference resolution
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the ``@tool_worker`` decorator's
+Pydantic schema extraction now resolves
+forward-reference string annotations via
+``importlib.import_module(cls.__module__)``
+instead of the (non-existent)
+``cls.__globals__``. Without this, classes
+using ``from __future__ import annotations``
+with a Pydantic model parameter produced an
+empty schema (``{"title": "Payload"}``
+instead of ``{"$ref": "#/$defs/..."}``).
+Regression test:
+``test_tool_worker_with_pydantic_model`` in
+``tests/unit/tools/test_worker.py``.
+
+**Acceptable:** N/A — closed.
+
+
+## 2.20 Role → ECS migration (ADR-039 + ADR-043 + ADR-044 follow-up)
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the new module
+``src/kntgraph/agents/role_systems/`` provides the
+event-driven ``WorldSystem`` counterparts to the
+legacy ``ChatRole`` / ``PlannerRole`` /
+``SummarizerRole`` / ``PersonalizedRole``:
+
+  - ``ChatRoleSystem`` reacts to ``user.intent`` events
+    and emits ``chat.reply.generated`` with a typed
+    ``ChatReply`` payload.
+  - ``PlannerRoleSystem`` reacts to ``plan.request``
+    events and emits ``plan.generated`` with a typed
+    ``Plan``.
+  - ``SummarizerRoleSystem`` reacts to
+    ``summary.request`` events and emits
+    ``summary.generated`` with a typed ``Summary``.
+  - ``PersonalizedRoleSystem`` reacts to
+    ``personalized.request`` events and emits
+    ``personalized.reply.generated`` with the raw text.
+
+The systems REUSE the legacy role's ``SYSTEM_PROMPT``
+and input-formatting helpers so the prompt engineering
+lives in one place. The migration is a thin port from
+the synchronous ``await role.reply()`` to the
+event-driven ``system(world)`` cycle. The dispatcher's
+event loop is NOT blocked while the LLM runs.
+
+**Open follow-ups:**
+
+  - **Examples 01-07 migration**: examples 01-07 still
+    use the legacy ``ChatRole`` / ``PlannerRole`` (with
+    a deprecation warning on import). They should be
+    migrated to use ``ChatRoleSystem`` /
+    ``PlannerRoleSystem`` via the ``WorkerManager`` in
+    the v0.9.0 cycle. ``examples/05c_session_chat_ecs_roles.py``
+    is the reference.
+  - **SemanticRouterRole migration**: the
+    ``SemanticRoutingRole`` is not yet ported (its
+    contract is different: it routes a user message
+    to a category, not a free-form LLM reply).
+  - **Removal of legacy roles** (target v1.0.0): the
+    ``kntgraph.agents.roles`` package is kept alive
+    through v0.9 for back-compat.
+
+**Acceptable:** N/A — closed; migration is now
+production-ready. The legacy roles are kept on a
+deprecation path.
+
+
+## 2.21 Tool-call Request TTL (ADR-045)
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the
+:class:`ToolCallTTLSweeperSystem` (in
+`src/kntgraph/runner/tool_call_ttl_sweeper.py`)
+emits ``tool.<name>.failed`` events for stale
+requests in the ``tool_requests`` slot. The
+dispatcher auto-registers the sweeper when the
+operator passes a ``tool_ttls=ToolCallTTL()``
+config (opt-in; the default is no TTL enforcement,
+for back-compat with the legacy behaviour).
+
+The original ADR draft (inline TTL eviction in
+``overlay_tool_calls``) was rejected: the overlay
+is a **pure** function (ADR-034), and mixing in a
+wall clock broke the purity and forced the
+overlay to walk every agent in ``base_views`` on
+every tick (which broke the "no allocation for
+non-tool batches" optimisation of ADR-044). The
+sweeper system separates concerns (the overlay
+stays pure; the sweeper handles the I/O) and the
+failure event is observable by downstream
+systems.
+
+**Tests:** 9 unit tests in
+`tests/unit/runner/test_tool_call_ttl_sweeper.py`
+cover the request/completion cycle, dedup,
+multi-agent, empty world, and the legacy bare
+`tool.requested` form.
+
+**Open follow-ups:**
+
+  - **Slot GC**: the sweeper does NOT evict the
+    stale request from the slot. The eviction is
+    left to the completion-driven rule (ADR-044).
+    If the completion never arrives, the request
+    stays in the slot forever (memory leak).
+    A follow-up GC_TICK event (or a periodic
+    compaction pass) is the mitigation; out of
+    scope for ADR-045.
+
+**Acceptable:** N/A — closed; migration is
+production-ready.

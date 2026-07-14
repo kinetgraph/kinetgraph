@@ -83,7 +83,7 @@ from kntgraph.agents.tools.invoker import (
     tool_name_from_request,
 )
 from kntgraph.agents.tools.llm import LiteLLMTool, configure_litellm_env
-from kntgraph.agents.tools.llm_transport import (
+from kntgraph.tools.llm_transport import (
     LLMChunk,
     LLMResponse,
     LLMTransport,

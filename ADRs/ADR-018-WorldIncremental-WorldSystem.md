@@ -279,7 +279,7 @@ Exemplo de migração:
 ```python
 # Antes
 async def retry_on_failure(world, event):
-    if event.event_type == "tool.failed":
+    if event.event_type == "tool.<name>.failed":
         yield RetryScheduledEvent(...)
 
 # Depois

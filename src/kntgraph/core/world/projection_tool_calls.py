@@ -7,16 +7,25 @@ core.world.projection_tool_calls -- tool-call projection.
 
 Iter 28 FU 8 (ADR-034): this projection materialises
 ``ToolCallRequest`` and ``ToolCallCompletion`` components
-from ``tool.requested`` events. It is a PURE function:
-deterministic, replayable, no side effects.
+from tool events. It is a PURE function: deterministic,
+replayable, no side effects.
 
-ADR-036 (Tool Worker Pattern) extends the completion
-matcher: events shaped ``tool.<name>.completed`` and
-``tool.<name>.failed`` (emitted by the ``WorkerManager``)
-are accepted in addition to the bare ``tool.completed``
-/ ``tool.failed`` events. The tool name is captured from
-the event type's middle segment; the rest of the payload
-is unchanged.
+ADR-036 (Tool Worker Pattern) makes the
+``tool.<name>.<suffix>`` form canonical. Both the request
+matcher (:func:`_requested_tool_name`) and the completion
+matcher (:func:`_completion_status`) accept the
+WorkerManager form ``tool.<name>.completed`` /
+``tool.<name>.failed`` / ``tool.<name>.requested`` in
+addition to the legacy bare forms ``tool.requested`` /
+``tool.completed`` / ``tool.failed``. The tool name is
+captured from the event type's middle segment; the rest
+of the payload is unchanged.
+
+The legacy bare form is kept for **back-compat with old
+EventLogs** (events written before the WorkerManager
+migration). New emitters MUST use the ``tool.<name>.*``
+form (see ``ToolAwareSystem.request_tool`` and the
+``WorkerManager``).
 
 The base projection (default: last-event-wins) is
 applied first; this projection then OVERLAYS the
@@ -46,12 +55,13 @@ from __future__ import annotations
 import collections
 import dataclasses
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Mapping, Optional
 
 from .._typing import JsonValue
 
 from ..event.event import Event
-from .components import ToolCallCompletion, ToolCallRequest
+from .components import ToolCallCompletion, ToolCallRequest, ToolCallTTL
 from .projection import Projection, project_default
 from .view import AgentView
 
@@ -60,6 +70,7 @@ def project_tool_calls(
     events: Sequence[Event],
     *,
     base_projection: Projection = project_default,
+    ttl: ToolCallTTL = ToolCallTTL(),
 ) -> dict[str, AgentView]:
     """
     Custom projection: materialise ToolCallRequest and
@@ -68,20 +79,43 @@ def project_tool_calls(
     Runs ``base_projection`` first, then overlays the
     tool slots on top. Equivalent to::
 
-        overlay_tool_calls(events, base_projection(events))
+        overlay_tool_calls(events, base_projection(events),
+                           ttl=ttl)
 
     but kept as a separate entry point because most
     callers (e.g. ``World.fold``) want a ``Projection``
     -- a function from events to views, not from
     ``(events, base_views)`` to views.
+
+    The ``ttl`` argument (ADR-045) defaults to
+    ``ToolCallTTL()`` (5-minute global TTL). The TTL
+    is **set** on each new request (``expires_at =
+    requested_at + ttl_seconds``) but is **not
+    enforced** by the projection; the
+    :class:`ToolCallTTLSweeperSystem` (a separate
+    ``WorldSystem`` registered with the dispatcher)
+    emits ``tool.<name>.failed`` events for stale
+    requests. The separation keeps the projection
+    pure (no clock injection, no I/O).
+
+    **Back-compat note**: callers that pre-date
+    ADR-045 (and use the default ``ToolCallTTL()``)
+    get the new ``expires_at`` field set on each
+    request automatically. The TTL itself is
+    enforced by the sweeper system. The
+    ``overlay_tool_calls`` function used by the
+    dispatcher accepts the same args; see
+    ``ReactiveDispatcher(tool_ttls=...)``.
     """
     base_views = base_projection(events)
-    return overlay_tool_calls(events, base_views)
+    return overlay_tool_calls(events, base_views, ttl=ttl)
 
 
 def overlay_tool_calls(
     events: Sequence[Event],
     base_views: Mapping[str, AgentView],
+    *,
+    ttl: ToolCallTTL = ToolCallTTL(),
 ) -> dict[str, AgentView]:
     """
     Overlay-only variant of ``project_tool_calls``.
@@ -117,25 +151,79 @@ def overlay_tool_calls(
     Used by ``ReactiveDispatcher._fold_with_filter``
     to enrich the post-fold World without paying for
     a second fold pass (ADR-036 §2.3).
+
+    ``ttl`` (ADR-045): the overlay SETS the
+    ``expires_at`` field on each new request (via
+    ``_build_request``), but does NOT enforce the
+    TTL itself. The TTL is enforced by the
+    :class:`ToolCallTTLSweeperSystem` (a separate
+    ``WorldSystem`` registered with the
+    dispatcher); the sweeper emits
+    ``tool.<name>.failed`` events for stale
+    requests. The separation keeps the overlay
+    pure (no clock injection) and the TTL
+    enforcement explicit (a system that downstream
+    consumers can observe).
     """
     # Phase 1: walk events to materialise the components.
+    # ADR-044: we accumulate the new requests/completions
+    # from this batch and merge with the existing slots
+    # from ``base_views`` (which carry the state from
+    # previous ticks). This way the overlay is incremental:
+    # a request emitted in tick N remains visible in the
+    # slot in tick N+1 even if the current batch has only
+    # a completion event.
+    #
+    # ADR-045: the per-tool TTL is set on each new
+    # request (``expires_at = requested_at +
+    # ttl_seconds``). The TTL itself is NOT enforced
+    # here; the
+    # :class:`ToolCallTTLSweeperSystem` emits a
+    # ``tool.<name>.failed`` event when ``now >=
+    # expires_at``. Keeping the overlay pure (no
+    # clock injection, no I/O) preserves the
+    # framework's projection-as-data invariant.
     tool_requests: dict[str, dict[str, ToolCallRequest]] = collections.defaultdict(dict)
     tool_completions: dict[str, dict[str, ToolCallCompletion]] = (
         collections.defaultdict(dict)
     )
+    agents_to_merge: set[str] = set()
     for e in events:
-        if e.event_type == "tool.requested":
-            req = _build_request(e)
+        request_tool_name = _requested_tool_name(e.event_type)
+        if request_tool_name is not None:
+            ttl_seconds = ttl.ttl_for(request_tool_name)
+            req = _build_request(
+                e,
+                tool_name=request_tool_name,
+                ttl_seconds=ttl_seconds,
+            )
             tool_requests[e.agent_id][req.request_event_id] = req
+            agents_to_merge.add(e.agent_id)
         else:
             completion_status = _completion_status(e.event_type)
             if completion_status is not None:
+                # The completion's join key is the
+                # ``causation_id`` (the request's
+                # ``event_id``). The request may live
+                # in EITHER the local batch (this
+                # call's ``tool_requests``) OR the
+                # base view (a previous tick's
+                # request). Look in both.
+                existing_requests_for_agent: dict[str, ToolCallRequest] = (
+                    base_views.get(
+                        e.agent_id, AgentView(agent_id=e.agent_id)
+                    ).components.get("tool_requests", {})
+                )
                 _maybe_attach_completion(
                     e,
-                    tool_requests[e.agent_id],
-                    tool_completions[e.agent_id],
+                    requests_for_agent={
+                        **existing_requests_for_agent,
+                        **tool_requests[e.agent_id],
+                    },
+                    completions_for_agent=tool_completions[e.agent_id],
                     status=completion_status,
                 )
+                agents_to_merge.add(e.agent_id)
 
     # Phase 2: build the overlay. Every agent in
     # ``base_views`` is in the output; agents without
@@ -144,30 +232,125 @@ def overlay_tool_calls(
     # installed via ``_overlay``. Agents not in
     # ``base_views`` but touched by tool events get
     # a fresh ``AgentView`` with only the slots.
+    #
+    # Accumulation (ADR-044): the new
+    # ``tool_requests`` / ``tool_completions`` dicts
+    # are MERGED with the existing slots on the base
+    # view (if any), keyed by ``request_event_id``.
+    # A request emitted in tick N remains visible in
+    # tick N+K; a completion overwrites the matching
+    # entry (the framework's at-least-once delivery
+    # contract).
     out: dict[str, AgentView] = dict(base_views)
-    for agent_id in set(tool_requests) | set(tool_completions):
+    for agent_id in agents_to_merge:
         if agent_id in base_views:
             base_view = base_views[agent_id]
         else:
             base_view = AgentView(agent_id=agent_id)
+        # Merge with the existing slots (accumulation
+        # across ticks). The merge is keyed by
+        # ``request_event_id``; the new batch wins
+        # (it is the most recent observation).
+        existing_requests: dict[str, ToolCallRequest] = base_view.components.get(
+            "tool_requests", {}
+        )
+        existing_completions: dict[str, ToolCallCompletion] = base_view.components.get(
+            "tool_completions", {}
+        )
+        merged_requests: dict[str, ToolCallRequest] = {
+            **existing_requests,
+            **tool_requests.get(agent_id, {}),
+        }
+        merged_completions: dict[str, ToolCallCompletion] = {
+            **existing_completions,
+            **tool_completions.get(agent_id, {}),
+        }
+        # Eviction (ADR-044 §2.3 option 1): a
+        # ``tool_requests`` entry that has been
+        # answered (a matching
+        # ``tool_completions`` entry exists) is
+        # removed from the slot, but ONLY when the
+        # request was carried in from a previous
+        # tick (``existing_requests``). Requests
+        # created by the current batch are kept
+        # (the system may not have reacted to them
+        # yet). This is the distinction that makes
+        # the overlay behave correctly in BOTH paths:
+        #
+        #   - Incremental (dispatcher, tick N+1 has
+        #     only the completion): the request came
+        #     from base_views, is evicted, the slot
+        #     is clean. Correct.
+        #
+        #   - Full projection (replay, the batch has
+        #     both): the request was just created in
+        #     this batch, is NOT evicted; the system
+        #     that reads the slot finds both. Correct.
+        for request_id in list(merged_requests.keys()):
+            if request_id in merged_completions:
+                if request_id in existing_requests:
+                    merged_requests.pop(request_id)
         out[agent_id] = _overlay(
             base_view,
-            requests=tool_requests.get(agent_id, {}),
-            completions=tool_completions.get(agent_id, {}),
+            requests=merged_requests,
+            completions=merged_completions,
         )
     return out
 
 
-def _build_request(event: Event) -> ToolCallRequest:
-    """Build a ToolCallRequest from a `tool.requested` event."""
+def _build_request(
+    event: Event, *, tool_name: str, ttl_seconds: float
+) -> ToolCallRequest:
+    """Build a ToolCallRequest from a ``tool.<name>.requested`` event.
+
+    ``tool_name`` is the middle segment of the event type
+    (``"weather_api"`` in ``"tool.weather_api.requested"``);
+    the caller resolves it via :func:`_requested_tool_name`.
+    The legacy bare form (``"tool.requested"``) carries the
+    name in ``event.data["tool"]`` instead — handled by
+    :func:`_requested_tool_name` returning an empty string
+    in that case, which the request then reads from
+    ``event.data`` (kept for back-compat with old EventLogs).
+
+    ``ttl_seconds`` (ADR-045): the TTL for the request,
+    in seconds. The ``expires_at`` field is computed as
+    ``requested_at + timedelta(seconds=ttl_seconds)``;
+    a TTL of ``0`` (or negative) means **TTL disabled**
+    (``expires_at = None``). The
+    :class:`ToolCallTTLSweeperSystem` emits a
+    ``tool.<name>.failed`` event when
+    ``now >= expires_at``.
+    """
+    requested_at = event.timestamp
+    if ttl_seconds > 0:
+        expires_at = requested_at + timedelta(seconds=ttl_seconds)
+    else:
+        expires_at = None
     return ToolCallRequest(
         request_event_id=str(event.event_id),
-        tool_name=str(event.data.get("tool", "")),
+        tool_name=tool_name or str(event.data.get("tool", "")),
         agent_id=event.agent_id,
         params=dict(event.data),
-        requested_at=event.timestamp,
+        requested_at=requested_at,
         correlation_id=event.correlation.correlation_id,
+        expires_at=expires_at,
     )
+
+
+def _requested_tool_name(event_type: str) -> Optional[str]:
+    """
+    Resolve the tool name from a request event type.
+
+    Accepts both the bare form (``tool.requested``) and the
+    WorkerManager form (``tool.<name>.requested``) emitted
+    by ``ToolAwareSystem.request_tool`` (ADR-036 §2.4).
+    Returns ``None`` for events that are not a request.
+    """
+    if event_type == "tool.requested":
+        return ""
+    if event_type.startswith("tool.") and event_type.endswith(".requested"):
+        return event_type[len("tool.") : -len(".requested")]
+    return None
 
 
 def _completion_status(event_type: str) -> Optional[str]:

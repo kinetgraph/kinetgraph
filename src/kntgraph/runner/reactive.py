@@ -71,6 +71,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+
 from typing import TYPE_CHECKING, Optional
 
 import structlog
@@ -78,6 +79,7 @@ import structlog
 from ..core.event import Event
 from ..core.system import WorldSystem
 from ..core.world import World
+from ..core.world.components import ToolCallTTL
 from ..infra.world_checkpoint import (
     IncrementalWorldStore,
     WorldCheckpoint,
@@ -87,6 +89,7 @@ from .reactive_tool_projection import (
     _has_tool_events,
     _overlay_tool_projection,
 )
+from .tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -121,6 +124,7 @@ class ReactiveDispatcher:
         world_store: Optional[IncrementalWorldStore] = None,
         redis: Optional["Redis"] = None,
         tool_router: Optional["ToolRouter"] = None,
+        tool_ttls: Optional[ToolCallTTL] = None,
     ) -> None:
         """
         Args:
@@ -147,12 +151,38 @@ class ReactiveDispatcher:
                 right after being appended to the EventLog.
                 Without a router, the dispatcher behaves as
                 before -- no fan-out is attempted.
+            tool_ttls: optional ``ToolCallTTL`` (ADR-045).
+                Per-tool TTL for ``ToolCallRequest`` entries;
+                a request whose ``expires_at`` is in the past
+                at fold time is evicted from the slot. The
+                default is ``ToolCallTTL()`` (5-minute global
+                TTL). Set ``per_tool_ttls`` to tune individual
+                tools (e.g. tight TTL for synchronous helpers,
+                loose TTL for long-running batch tools).
         """
         self._log = log
         self._systems: list[WorldSystem] = list(systems or [])
         self._interval = poll_interval
         self._filter = filter_fn
         self._tool_router = tool_router
+        # ADR-045: the dispatcher's tool TTL config. The
+        # overlay SETS ``expires_at`` on each new request
+        # (using this config); the
+        # :class:`ToolCallTTLSweeperSystem` (auto-
+        # registered below when ``tool_ttls`` is not
+        # ``None``) ENFORCES the TTL by emitting
+        # ``tool.<name>.failed`` events for stale requests.
+        self._tool_ttls = tool_ttls
+        # Auto-register the TTL sweeper when the operator
+        # has opted in to TTL enforcement (i.e. has
+        # passed an explicit ``tool_ttls`` config). The
+        # default (``tool_ttls=None``) keeps the legacy
+        # behaviour (no TTL enforcement; see ADR-045 for
+        # the migration path).
+        if tool_ttls is not None and not any(
+            isinstance(s, ToolCallTTLSweeperSystem) for s in self._systems
+        ):
+            self._systems.append(ToolCallTTLSweeperSystem())
         if world_store is None:
             if redis is None:
                 raise ValueError(
@@ -262,6 +292,15 @@ class ReactiveDispatcher:
         the views the incremental ``with_event`` loop
         already produced, so the cost is one extra pass
         over the batch (no second fold).
+
+        The overlay is configured with the dispatcher's
+        ``tool_ttls`` (ADR-045); the overlay sets
+        ``expires_at`` on each new request. The TTL
+        itself is **enforced** by the
+        :class:`ToolCallTTLSweeperSystem` (registered
+        with the dispatcher; emits
+        ``tool.<name>.failed`` events for stale
+        requests).
         """
         new_event_count = 0
         for event in new_events:
@@ -270,7 +309,11 @@ class ReactiveDispatcher:
                 continue
             new_event_count += 1
         if new_event_count > 0 and _has_tool_events(new_events):
-            world = _overlay_tool_projection(world, new_events)
+            world = _overlay_tool_projection(
+                world,
+                new_events,
+                tool_ttls=self._tool_ttls,
+            )
         return world, new_event_count
 
     async def _run_systems_and_persist(
