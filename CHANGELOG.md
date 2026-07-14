@@ -58,6 +58,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`{"title": "Payload"}` instead of `{"$ref": "#/$defs/..."}`).
   Regression test: `test_tool_worker_with_pydantic_model`
   in `tests/unit/tools/test_worker.py`.
+- **Role → ECS migration (ADR-039 + ADR-043 + ADR-044 follow-up):**
+  new module `src/kntgraph/agents/role_systems/` provides
+  the event-driven `WorldSystem` counterparts to the
+  legacy `ChatRole` / `PlannerRole` / `SummarizerRole` /
+  `PersonalizedRole`:
+
+    - `ChatRoleSystem` — reads `SessionComponent` from
+      the `AgentView`, emits `tool.chat_llm.requested`
+      with the role's `SYSTEM_PROMPT` and the formatted
+      transcript, parses the LLM's response into a
+      `ChatReply` and emits `chat.reply.generated`.
+    - `PlannerRoleSystem` — reacts to `plan.request`
+      events, emits `plan.generated` with a typed
+      `Plan` payload.
+    - `SummarizerRoleSystem` — reacts to
+      `summary.request` events, emits
+      `summary.generated` with a typed `Summary`.
+    - `PersonalizedRoleSystem` — reacts to
+      `personalized.request` events, emits
+      `personalized.reply.generated` with the raw text.
+
+  The systems REUSE the legacy role's `SYSTEM_PROMPT`
+  and input-formatting helpers so the prompt engineering
+  lives in one place; the migration is a thin port from
+  the synchronous `await role.reply()` to the
+  event-driven `system(world)` cycle. The dispatcher's
+  event loop is NOT blocked while the LLM runs. 9 unit
+  tests in
+  `tests/agents/unit/roles/test_role_systems.py` cover
+  the request/completion cycle for all four roles.
+  Reference example:
+  `examples/05c_session_chat_ecs_roles.py` (the
+  canonical migration of `ChatRole` end-to-end,
+  including a `SessionRecorderRoleBridge` that persists
+  the turn via the `session_recorder` tool).
 
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**

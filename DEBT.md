@@ -943,3 +943,55 @@ Regression test:
 ``tests/unit/tools/test_worker.py``.
 
 **Acceptable:** N/A — closed.
+
+
+## 2.20 Role → ECS migration (ADR-039 + ADR-043 + ADR-044 follow-up)
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the new module
+``src/kntgraph/agents/role_systems/`` provides the
+event-driven ``WorldSystem`` counterparts to the
+legacy ``ChatRole`` / ``PlannerRole`` /
+``SummarizerRole`` / ``PersonalizedRole``:
+
+  - ``ChatRoleSystem`` reacts to ``user.intent`` events
+    and emits ``chat.reply.generated`` with a typed
+    ``ChatReply`` payload.
+  - ``PlannerRoleSystem`` reacts to ``plan.request``
+    events and emits ``plan.generated`` with a typed
+    ``Plan``.
+  - ``SummarizerRoleSystem`` reacts to
+    ``summary.request`` events and emits
+    ``summary.generated`` with a typed ``Summary``.
+  - ``PersonalizedRoleSystem`` reacts to
+    ``personalized.request`` events and emits
+    ``personalized.reply.generated`` with the raw text.
+
+The systems REUSE the legacy role's ``SYSTEM_PROMPT``
+and input-formatting helpers so the prompt engineering
+lives in one place. The migration is a thin port from
+the synchronous ``await role.reply()`` to the
+event-driven ``system(world)`` cycle. The dispatcher's
+event loop is NOT blocked while the LLM runs.
+
+**Open follow-ups:**
+
+  - **Examples 01-07 migration**: examples 01-07 still
+    use the legacy ``ChatRole`` / ``PlannerRole`` (with
+    a deprecation warning on import). They should be
+    migrated to use ``ChatRoleSystem`` /
+    ``PlannerRoleSystem`` via the ``WorkerManager`` in
+    the v0.9.0 cycle. ``examples/05c_session_chat_ecs_roles.py``
+    is the reference.
+  - **SemanticRouterRole migration**: the
+    ``SemanticRoutingRole`` is not yet ported (its
+    contract is different: it routes a user message
+    to a category, not a free-form LLM reply).
+  - **Removal of legacy roles** (target v1.0.0): the
+    ``kntgraph.agents.roles`` package is kept alive
+    through v0.9 for back-compat.
+
+**Acceptable:** N/A — closed; migration is now
+production-ready. The legacy roles are kept on a
+deprecation path.
