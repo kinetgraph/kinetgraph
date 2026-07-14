@@ -65,6 +65,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import replace
 from typing import Any, Optional
@@ -83,6 +84,7 @@ from kntgraph.tools.llm_transport import (
     LLMTransport,
     LLMUsage,
 )
+from kntgraph.tools.worker import tool_worker
 from kntgraph.resilience import (
     BackoffPolicy,
     CircuitBreaker as ResilienceCircuitBreaker,
@@ -187,7 +189,26 @@ class LiteLLMTool:
     do domínio. Esses são responsabilidade dos `roles/`.
 
     Veja ADR-007 para a decisão de usar LiteLLM e os trade-offs.
+
+    .. deprecated::
+        ``LiteLLMTool`` is on the legacy ``Tool`` (Protocol)
+        path. It runs in the same process as the dispatcher
+        (in the dispatcher's event loop) and blocks the loop
+        while the LLM responds. This violates ADR-036 (the
+        dispatcher should be CPU-bound) and ADR-039 (the
+        ``Role`` classes should be pure data components).
+
+        New code should use ``LiteLLMToolWorker``
+        (``@tool_worker(name="chat_llm")``) which runs in
+        the ``WorkerManager``'s ``ProcessPoolExecutor`` and
+        supports cross-tick correlation via ``causation_id``.
+
+        Removal target: v0.9.0. The class is kept for the
+        v0.8.x release line to give consumers one release
+        to migrate.
     """
+
+    __deprecated__ = True
 
     name = "llm.complete"
     description = (
@@ -1129,3 +1150,241 @@ def configure_litellm_env() -> None:
 
     litellm.drop_params = True
     os.environ.setdefault("LITELLM_TELEMETRY", "False")
+
+
+# -----------------------------------------------------------------------------
+# LiteLLMToolWorker (ADR-043)
+# -----------------------------------------------------------------------------
+
+
+@tool_worker(
+    name="chat_llm",
+    description="Generic LLM completion via LiteLLM (Ollama, OpenAI, Anthropic, Google, etc.).",
+    max_concurrency=10,
+    retries=3,
+)
+class LiteLLMToolWorker:
+    """
+    Migrated LLM bridge: ADR-036 worker pattern (ADR-043).
+
+    The legacy ``LiteLLMTool`` is on the ``Tool`` (Protocol)
+    path. It runs in the dispatcher process and blocks the
+    dispatcher's event loop while the LLM responds. This
+    class is the **canonical** path going forward: it
+    runs in the ``WorkerManager``'s
+    ``ProcessPoolExecutor`` and supports cross-tick
+    correlation via ``causation_id`` (= the
+    ``request_event_id`` of the
+    ``tool.chat_llm.requested`` event).
+
+    Wire contract
+    -------------
+
+    The worker is invoked by the ``WorkerManager`` with
+    these keyword arguments (extracted from the
+    ``tool.chat_llm.requested`` event's data via the
+    ``request_tool`` helper):
+
+      - ``system`` (str, required): the system prompt.
+      - ``user`` (str, required): the user message.
+      - ``model`` (str, optional): LiteLLM model name
+        (e.g. ``"ollama/qwen3.5:4b"``,
+        ``"openai/gpt-4o-mini"``). Default read from
+        env (``LLM_DEFAULT_MODEL``).
+      - ``temperature`` (float, optional).
+      - ``max_tokens`` (int, optional).
+      - ``response_format`` (dict, optional): JSON
+        schema for structured output.
+      - ``think`` (bool, optional): for thinking
+        models (Ollama qwen3.5).
+      - ``idempotency_key`` (str, required): the
+        ``request_event_id`` (injected by the
+        ``WorkerManager``).
+
+    Return envelope
+    ---------------
+
+    The worker returns a JSON-serialisable dict
+    (the result crosses the process boundary via
+    the ``WorkerManager``'s ``_invoke_tool_sync``):
+
+      - ``text`` (str): the assistant reply.
+      - ``model`` (str): the model that actually
+        responded (LiteLLM may substitute on
+        fallback).
+      - ``usage`` (dict): ``{"prompt_tokens": int,
+        "completion_tokens": int, "total_tokens":
+        int}``.
+      - ``finish_reason`` (str | None): ``"stop"``,
+        ``"length"``, ``"tool_calls"``, etc.
+      - ``cost_usd`` (float | None): the cost of
+        the call (if calculable).
+      - ``latency_ms`` (float): the wall-clock
+        latency of the LLM call.
+
+    Idempotency
+    -----------
+
+    The worker does NOT dedupe by itself. The
+    ``WorkerManager`` does (via the
+    ``xpending`` / ``xautoclaim`` path), so a
+    retry (e.g. consumer-group rebalance) does
+    not produce duplicate LLM calls. The
+    ``idempotency_key`` is passed for downstream
+    consumers (e.g. the example 05b) that may
+    want to memoize the response.
+    """
+
+    def __init__(self) -> None:
+        """
+        Build a default-configured LLM worker.
+
+        The configuration is read from the environment
+        (see ``LLMConfig.from_env``). The
+        ``ProcessPoolExecutor`` worker runs this
+        ``__init__`` once per process (the same
+        process is reused across many
+        ``invoke`` calls via the pool).
+        """
+        from kntgraph.agents.config import LLMConfig
+
+        cfg = LLMConfig.from_env()
+        self._default_model = cfg.default_model
+        # ``LLMConfig`` does not own
+        # ``temperature`` / ``max_tokens``; those
+        # are caller decisions (and per-call kwargs
+        # in this worker). We hold ``timeout_s``
+        # from the config (a worker-level
+        # invariant) and read the others from
+        # ``LLMSettings`` directly.
+        self._timeout_s = cfg.timeout_s
+        # Lazily-initialised transport (avoids the
+        # ``litellm`` import cost in the parent
+        # process; the worker process is a fresh
+        # interpreter anyway).
+        self._transport: "LLMTransport | None" = None
+
+    def _get_transport(self) -> "LLMTransport":
+        if self._transport is None:
+            self._transport = LiteLLMTransportAdapter()
+        return self._transport
+
+    async def invoke(
+        self,
+        system: str,
+        user: str,
+        *,
+        idempotency_key: str,
+        model: "str | None" = None,
+        temperature: "float | None" = None,
+        max_tokens: "int | None" = None,
+        think: bool = False,
+        response_format: "dict | None" = None,
+        stream: bool = False,
+    ) -> "Result[dict[str, Any], Exception]":
+        """
+        Run a single LLM completion via the
+        ``LiteLLMTransportAdapter`` and return the
+        result as a JSON-serialisable dict.
+
+        The result envelope is documented in the
+        class docstring. On any transport error
+        (rate limit, auth, timeout, etc.) the
+        worker returns ``Err(Exception(...))``; the
+        ``WorkerManager`` translates that into a
+        ``tool.chat_llm.failed`` event.
+        """
+        effective_model = model or self._default_model
+        # ``temperature`` and ``max_tokens`` are
+        # caller decisions (per-call kwargs). The
+        # worker does not impose defaults — LiteLLM's
+        # own per-model defaults apply when the kwarg
+        # is ``None``.
+        effective_temperature = temperature
+        effective_max_tokens = max_tokens
+
+        transport = self._get_transport()
+        request = LLMRequest(
+            model=effective_model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=effective_temperature,
+            max_tokens=effective_max_tokens,
+            response_format=response_format,
+            drop_unsupported_params=True,
+            idempotency_key=idempotency_key,
+            extra={"think": think, "stream": stream},
+        )
+        try:
+            started = time.perf_counter()
+            completion = await asyncio.wait_for(
+                transport(request),
+                timeout=self._timeout_s,
+            )
+            latency_ms = (time.perf_counter() - started) * 1000.0
+        except asyncio.TimeoutError:
+            return Err(TimeoutError(f"llm_timeout after {self._timeout_s}s"))
+        except Exception as e:
+            return Err(e)
+
+        # Translate the transport's dict into the
+        # worker's public envelope.
+        text, finish_reason = _parse_message(completion)
+        usage_raw = completion.get("usage") or {}
+        return Ok(
+            {
+                "text": text,
+                "model": completion.get("model") or effective_model,
+                "usage": {
+                    "prompt_tokens": int(usage_raw.get("prompt_tokens") or 0),
+                    "completion_tokens": int(usage_raw.get("completion_tokens") or 0),
+                    "total_tokens": int(usage_raw.get("total_tokens") or 0),
+                },
+                "finish_reason": finish_reason,
+                "cost_usd": _compute_cost_usd(completion),
+                "latency_ms": latency_ms,
+            }
+        )
+
+
+# -----------------------------------------------------------------------------
+# Module-level deprecation noise
+# -----------------------------------------------------------------------------
+
+
+_warned_litellm = False
+
+
+def _warn_litellm_tool_legacy() -> None:
+    """
+    Emit a one-shot ``DeprecationWarning`` for the
+    legacy ``LiteLLMTool`` class.
+
+    Called by ``LiteLLMTool.__init__`` (or by
+    the class itself on first import). The
+    one-shot gate prevents the warning from
+    flooding the logs in long-running processes
+    that instantiate ``LiteLLMTool`` many times
+    (e.g. unit tests that re-create the tool
+    per-test).
+    """
+    global _warned_litellm
+    if _warned_litellm:
+        return
+    _warned_litellm = True
+    warnings.warn(
+        "kntgraph.agents.tools.LiteLLMTool is deprecated; "
+        "use kntgraph.agents.tools.LiteLLMToolWorker "
+        "(@tool_worker(name='chat_llm')) instead. "
+        "See ADR-043. Removal target: v0.9.0.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+# Trigger the warning on import (so the noise is
+# visible even in code that never instantiates
+# the legacy class).
+_warn_litellm_tool_legacy()

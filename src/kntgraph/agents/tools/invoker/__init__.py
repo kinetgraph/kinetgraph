@@ -46,8 +46,29 @@ Package layout
 
 from __future__ import annotations
 
+import warnings
+
 from kntgraph.agents.tools.invoker._invoker import ToolInvoker
 from kntgraph.agents.tools.invoker._emit import tool_name_from_request
 from kntgraph.agents.tools.invoker._types import ArgsInvalid
 
 __all__ = ["ToolInvoker", "ArgsInvalid", "tool_name_from_request"]
+
+
+# ADR-043: ToolInvoker is on the legacy tool path. The
+# canonical path for new code is the @tool_worker
+# pattern (see ``kntgraph.tools.worker.tool_worker``)
+# orchestrated by ``WorkerManager`` (in
+# ``kntgraph.tools.manager``). The ``ToolInvoker`` is
+# kept for tools that have not been migrated to
+# @tool_worker yet (e.g. ``PiiRedactionTool``). Removal
+# target: v1.0.0. Two releases to give consumers
+# time to migrate.
+warnings.warn(
+    "kntgraph.agents.tools.invoker.ToolInvoker is on the "
+    "legacy tool path. New code should use "
+    "@tool_worker (ADR-036) orchestrated by "
+    "WorkerManager. See ADR-043. Removal target: v1.0.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)

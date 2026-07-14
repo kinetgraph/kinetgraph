@@ -220,9 +220,7 @@ class TestOverlayToolProjection:
         dropped, breaking the ``is_pending`` /
         ``has_requested`` checks in real runs."""
         world = _empty_world()
-        req = _event(
-            event_type="tool.weather_api.requested", agent_id="a-1"
-        )
+        req = _event(event_type="tool.weather_api.requested", agent_id="a-1")
         world = world.with_event(req)
         result = _overlay_tool_projection(world, [req])
         view = result.views["a-1"]
@@ -244,9 +242,7 @@ class TestOverlayToolProjection:
         WorkerManager round-trip and the scenario that
         was broken before the fix."""
         world = _empty_world()
-        req = _event(
-            event_type="tool.weather_api.requested", agent_id="a-1"
-        )
+        req = _event(event_type="tool.weather_api.requested", agent_id="a-1")
         completion = _event(
             event_type="tool.weather_api.completed",
             agent_id="a-1",
@@ -255,12 +251,113 @@ class TestOverlayToolProjection:
         world = world.with_event(req).with_event(completion)
         result = _overlay_tool_projection(world, [req, completion])
         view = result.views["a-1"]
+        # ADR-044: the request is NOT evicted when
+        # the request and completion are in the
+        # same batch (the request was created in
+        # this batch; it never came from
+        # ``base_views``). The completion is added.
         assert view.components["tool_requests"][str(req.event_id)].tool_name == (
             "weather_api"
         )
         assert str(req.event_id) in view.components["tool_completions"]
-        completion_obj = view.components["tool_completions"][
-            str(req.event_id)
-        ]
+        completion_obj = view.components["tool_completions"][str(req.event_id)]
         assert completion_obj.status == "completed"
         assert completion_obj.request_event_id == str(req.event_id)
+
+    def test_request_remains_visible_until_completion_arrives_in_next_batch(self):
+        """ADR-044: a request emitted in tick N remains
+        visible in the ``tool_requests`` slot in tick
+        N+1 (when the completion arrives). This is the
+        multi-tick correlation that the chat round-trip
+        (example 05b) depends on.
+
+        Before the accumulation fix, the
+        ``_overlay_tool_projection`` rebuilt the slot
+        from the current batch only, losing pending
+        requests from previous ticks. The system in
+        tick N+1 had no way to match the completion
+        to the request.
+
+        The fix: ``overlay_tool_calls`` MERGES the
+        new requests/completions with the existing
+        slots on the base view (which carry the
+        state from previous ticks), keyed by
+        ``request_event_id``. The request is
+        **evicted** only when a matching completion
+        arrives in a *subsequent* batch (i.e. the
+        request was carried in from
+        ``base_views``).
+        """
+        # Tick N: a request lands.
+        world_n = _empty_world()
+        req = _event(event_type="tool.weather_api.requested", agent_id="a-1")
+        world_n = world_n.with_event(req)
+        world_n_with_overlay = _overlay_tool_projection(world_n, [req])
+        assert (
+            str(req.event_id)
+            in (world_n_with_overlay.views["a-1"].components["tool_requests"])
+        )
+
+        # Tick N+1: a completion lands. The
+        # dispatcher passes the WORLD from tick N
+        # (with the request slot installed) as the
+        # base; the overlay should preserve the
+        # request slot AND add the completion. The
+        # request is **evicted** (it was carried
+        # from base_views; the system has reacted
+        # or will react in this tick).
+        completion = _event(
+            event_type="tool.weather_api.completed",
+            agent_id="a-1",
+            causation_id=req.event_id,
+        )
+        world_n_plus_1 = world_n_with_overlay.with_event(completion)
+        world_n_plus_1_with_overlay = _overlay_tool_projection(
+            world_n_plus_1, [completion]
+        )
+        view = world_n_plus_1_with_overlay.views["a-1"]
+        # The request is evicted (it was in
+        # base_views; the matching completion has
+        # now arrived).
+        assert str(req.event_id) not in view.components["tool_requests"]
+        # The completion is in the slot.
+        assert str(req.event_id) in view.components["tool_completions"]
+        assert (
+            view.components["tool_completions"][str(req.event_id)].status == "completed"
+        )
+
+    def test_unrelated_request_persists_across_batches(self):
+        """ADR-044: when batch 1 emits a request and
+        batch 2 has an unrelated event (no completion
+        for the request), the request is preserved.
+        The system has not yet reacted; the request
+        is still in flight.
+        """
+        # Tick N: a request lands.
+        world_n = _empty_world()
+        req = _event(event_type="tool.weather_api.requested", agent_id="a-1")
+        world_n = world_n.with_event(req)
+        world_n_with_overlay = _overlay_tool_projection(world_n, [req])
+
+        # Tick N+1: an unrelated tool completion (a
+        # different tool — no match for ``req``).
+        # The dispatcher's overlay should be a no-op
+        # for the request slot; the original request
+        # is still in flight.
+        unrelated_completion = _event(
+            event_type="tool.calendar_api.completed", agent_id="a-1"
+        )
+        world_n_plus_1 = world_n_with_overlay.with_event(unrelated_completion)
+        world_n_plus_1_with_overlay = _overlay_tool_projection(
+            world_n_plus_1, [unrelated_completion]
+        )
+        view = world_n_plus_1_with_overlay.views["a-1"]
+        # The request is still there (the unrelated
+        # completion doesn't evict it).
+        assert str(req.event_id) in view.components["tool_requests"]
+        # The unrelated completion is an orphan (no
+        # matching request); the framework drops it
+        # from the completions slot. The request
+        # remains in flight, exactly as the
+        # dispatcher would see it.
+        assert view.components["tool_completions"] == {}

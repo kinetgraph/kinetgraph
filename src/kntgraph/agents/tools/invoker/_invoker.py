@@ -74,6 +74,14 @@ class ToolInvoker:
     Production: wrap each call in circuit breaker + retry.
     Tests: call `await invoker.run_once(agent_id)` directly.
 
+    .. deprecated::
+        ``ToolInvoker`` is on the legacy tool path. New
+        code should use ``@tool_worker`` (ADR-036)
+        orchestrated by ``WorkerManager``. The
+        ``ToolInvoker`` is kept for tools that have
+        not been migrated yet (e.g. ``PiiRedactionTool``).
+        Removal target: v1.0.0. See ADR-043.
+
     ADR-013 M2 hook
     ---------------
 

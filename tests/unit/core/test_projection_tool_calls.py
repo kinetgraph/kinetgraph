@@ -133,6 +133,15 @@ class TestProjectToolCallsCompletion:
         requests = view.components["tool_requests"]
         completions = view.components["tool_completions"]
 
+        # ADR-044: the request is **evicted** from
+        # the slot ONLY when it was carried in from
+        # a previous tick (i.e. it came from
+        # ``base_views``). When the request and
+        # completion are in the same batch (the
+        # full-projection / replay path, used here),
+        # the request is created in this batch and
+        # is NOT evicted. The completion is added
+        # to the slot.
         assert len(requests) == 1
         assert len(completions) == 1
         comp = completions[str(request.event_id)]

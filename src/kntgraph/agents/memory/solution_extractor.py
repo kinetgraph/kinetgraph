@@ -41,8 +41,13 @@ class SolutionExtractorSystem:
     events for completed tool calls.
 
     Reads from `world.components`:
-      - "tool_requests": dict[request_id, ToolCallRequest]
       - "tool_completions": dict[request_id, ToolCallCompletion]
+        (the source of truth for "this tool call has
+        finished"; the system iterates this slot).
+      - "tool_requests": dict[request_id, ToolCallRequest]
+        (used to match the tool_name and params;
+        may have been evicted by ADR-044 §2.3
+        completion-driven eviction).
 
     Emits:
       - `solution.candidate_extracted` (event_class="domain")
@@ -77,23 +82,46 @@ class SolutionExtractorSystem:
     def __call__(self, world: World) -> list[Event]:
         out: list[Event] = []
         for agent_id, view in world.agents.items():
-            requests: dict[str, ToolCallRequest] = (
-                view.components.get("tool_requests", {}) or {}
-            )
             completions: dict[str, ToolCallCompletion] = (
                 view.components.get("tool_completions", {}) or {}
             )
-            for req_id, req in requests.items():
-                if self._tool_allowlist is not None:
-                    if req.tool_name not in self._tool_allowlist:
-                        continue
-                comp = completions.get(req_id)
-                if comp is None:
-                    # In flight.
-                    continue
+            # Iterate over completions (the source of
+            # truth for "this tool call has finished").
+            # The corresponding request (with the
+            # tool_name and params) is in the
+            # ``tool_completion.request_event_id``
+            # field, but the request itself may have
+            # been evicted from the ``tool_requests``
+            # slot (ADR-044 §2.3 option 1: completion-
+            # driven eviction). We read the tool_name
+            # and params from the request if it is
+            # still there, else from the completion's
+            # own ``request_event_id`` field (which is
+            # the lookup key into the params of the
+            # original request, when the request is
+            # still in the slot).
+            requests: dict[str, ToolCallRequest] = (
+                view.components.get("tool_requests", {}) or {}
+            )
+            for req_id, comp in completions.items():
                 if comp.status != "completed":
                     # Failed or unknown status: skip.
                     continue
+                req = requests.get(req_id)
+                if req is None:
+                    # The request was evicted. We
+                    # cannot match by tool_name /
+                    # params. The cross-agent threshold
+                    # is approximated by tool_name
+                    # (best-effort); for v0.8.0 we
+                    # conservatively skip these
+                    # entries. A future ADR-045 (TTL
+                    # eviction, ADR-044 §2.3) will
+                    # change the policy.
+                    continue
+                if self._tool_allowlist is not None:
+                    if req.tool_name not in self._tool_allowlist:
+                        continue
                 # Cross-agent threshold: count distinct
                 # agents that have a completion with the
                 # same tool_name AND same params

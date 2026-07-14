@@ -1,5 +1,5 @@
 from kntgraph.core.world import World
-from kntgraph.core.event import Event, CorrelationContext, correlation_middleware
+from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.tools.system import ToolAwareSystem
 from ..events.weather_resolved import weather_resolved
 
@@ -7,9 +7,9 @@ from ..events.weather_resolved import weather_resolved
 def weather_router_system(world: World) -> list[Event]:
     """
     WorldSystem checking agent views for weather requests and completions.
-    
+
     This system illustrates the two architectural paths supported by Kinetgraph:
-    
+
     ===========================================================================
     PATH A: Direct Tool Invocation (Client-Driven / CLI / API)
     ===========================================================================
@@ -17,9 +17,9 @@ def weather_router_system(world: World) -> list[Event]:
     (e.g., POST /agents/{agent_id}/intents with type="tool.invoke" and tool="open_meteo_api"),
     the gateway publishes `tool.open_meteo_api.requested` directly to the EventLog.
     The WorkerManager executes it, and emits the completion.
-    
+
     -> Under Path A, this system is bypassed entirely for the request phase.
-    
+
     ===========================================================================
     PATH B: System-Mediated Flow (Agent-Driven / Reactive ECS)
     ===========================================================================
@@ -27,7 +27,7 @@ def weather_router_system(world: World) -> list[Event]:
     carrying the city, latitude, and longitude), this system is triggered:
       1. It detects the `weather.get_weather` domain phase.
       2. It requests the tool `open_meteo_api` idempotently via `ToolAwareSystem`.
-      3. On a subsequent tick, once the tool execution finishes, it detects the 
+      3. On a subsequent tick, once the tool execution finishes, it detects the
          `tool.open_meteo_api.completed` phase.
       4. It extracts the raw result and emits a clean domain event: `weather.weather_resolved`.
     """
@@ -83,17 +83,23 @@ def weather_router_system(world: World) -> list[Event]:
             tool_completions = view.components.get("tool_completions", {})
             for req_id, completion in tool_completions.items():
                 req = helper.get_request(view, req_id)
-                if req and req.tool_name == "open_meteo_api" and completion.status == "completed":
+                if (
+                    req
+                    and req.tool_name == "open_meteo_api"
+                    and completion.status == "completed"
+                ):
                     # Retrieve the parameters (like city name) from the request
                     city = req.params.get("params", {}).get("city") or "Unknown"
-                    
+
                     # Extract the raw weather data returned by the tool
                     weather_data = completion.result or {}
                     temp = weather_data.get("temperature", 0.0)
                     wind = weather_data.get("windspeed", 0.0)
 
                     # Propagate the correlation context of the tool completion
-                    correlation_middleware.start(correlation_id=completion.correlation_id)
+                    correlation_middleware.start(
+                        correlation_id=completion.correlation_id
+                    )
 
                     # Emit the clean domain event representing the resolved weather.
                     # This updates `domain_phase` to `weather.weather_resolved`, stopping the loop.
@@ -110,5 +116,3 @@ def weather_router_system(world: World) -> list[Event]:
                     break
 
     return events
-
-

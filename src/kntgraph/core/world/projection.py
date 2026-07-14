@@ -59,6 +59,14 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
     Either way, ``last_event_id`` and ``last_event_at``
     advance to the new event.
 
+    Tool events are an exception: when the incoming
+    event is a ``tool.<name>.<requested|completed|failed>``
+    event, the ``tool_requests`` and ``tool_completions``
+    slots are PRESERVED from ``prev`` (so a pending
+    request from a previous tick is not lost when a
+    new tool event folds in). See ADR-044 for the
+    accumulation contract.
+
     This is the single source of truth for the
     "lifecycle vs. domain" projection. Both
     :func:`project_default` (batch fold) and
@@ -78,9 +86,21 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
             last_event_at=event.timestamp,
         )
     # "domain"
+    new_components = _extract_components_from_event(event)
+    if _is_tool_event(event.event_type):
+        # Preserve the tool-call overlay slots (ADR-044):
+        # the default domain projection REPLACES the
+        # components dict, but the tool-call slots are
+        # accumulated across ticks, not overwritten.
+        if "tool_requests" in prev.components:
+            new_components = dict(new_components)
+            new_components["tool_requests"] = prev.components["tool_requests"]
+        if "tool_completions" in prev.components:
+            new_components = dict(new_components)
+            new_components["tool_completions"] = prev.components["tool_completions"]
     return AgentView(
         agent_id=event.agent_id,
-        components=_extract_components_from_event(event),
+        components=new_components,
         operational_phase=prev.operational_phase,
         operational_at=prev.operational_at,
         domain_phase=event.event_type,
@@ -88,6 +108,27 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         last_event_id=str(event.event_id),
         last_event_at=event.timestamp,
     )
+
+
+def _is_tool_event(event_type: str) -> bool:
+    """True if the event type is a tool event.
+
+    Matches the canonical ``tool.<name>.<suffix>`` form
+    (ADR-036) and the legacy bare form. Used by
+    :func:`_apply_event` to decide whether to preserve
+    the tool-call overlay slots.
+    """
+    if event_type == "tool.requested":
+        return True
+    if event_type == "tool.completed":
+        return True
+    if event_type == "tool.failed":
+        return True
+    if event_type.startswith("tool."):
+        suffix = event_type.rsplit(".", 1)[-1]
+        if suffix in ("requested", "completed", "failed"):
+            return True
+    return False
 
 
 def project_default(events: Sequence[Event]) -> dict[str, AgentView]:
