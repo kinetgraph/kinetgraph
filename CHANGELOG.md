@@ -93,6 +93,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   canonical migration of `ChatRole` end-to-end,
   including a `SessionRecorderRoleBridge` that persists
   the turn via the `session_recorder` tool).
+- **Tool-call request TTL (ADR-045):** the
+  `ToolCallRequest` component has a new
+  `expires_at: Optional[datetime]` field (computed at
+  materialisation time as
+  `requested_at + ttl_seconds`). A new
+  `ToolCallTTL` dataclass in
+  `core/world/components.py` carries the per-tool
+  TTL config (default 5 minutes; per-tool override
+  via `per_tool_ttls`). The
+  `overlay_tool_calls` projection now threads the
+  `ToolCallTTL` and SETS `expires_at` on each new
+  request (the overlay remains pure — it does NOT
+  enforce the TTL). A new
+  `ToolCallTTLSweeperSystem` (in
+  `runner/tool_call_ttl_sweeper.py`) is a
+  `WorldSystem` that walks the `tool_requests` slot
+  once per tick and EMITS `tool.<name>.failed` for
+  every stale request (the dedup is in-memory via
+  `_emitted_failures`). The
+  `ReactiveDispatcher` auto-registers the sweeper
+  when the operator passes a `tool_ttls=ToolCallTTL()`
+  config (opt-in; default is no TTL enforcement, for
+  back-compat with the legacy behaviour). 9 unit
+  tests in
+  `tests/unit/runner/test_tool_call_ttl_sweeper.py`
+  cover the request/completion cycle, dedup,
+  multi-agent, empty world, and the legacy bare
+  `tool.requested` form. ADR-045 was revised after
+  the original draft (inline TTL eviction in the
+  overlay) was rejected: the sweeper system
+  separates concerns (the overlay stays pure; the
+  sweeper handles the I/O) and the failure event is
+  observable by downstream systems.
 
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**

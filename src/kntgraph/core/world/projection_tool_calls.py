@@ -55,12 +55,13 @@ from __future__ import annotations
 import collections
 import dataclasses
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import Mapping, Optional
 
 from .._typing import JsonValue
 
 from ..event.event import Event
-from .components import ToolCallCompletion, ToolCallRequest
+from .components import ToolCallCompletion, ToolCallRequest, ToolCallTTL
 from .projection import Projection, project_default
 from .view import AgentView
 
@@ -69,6 +70,7 @@ def project_tool_calls(
     events: Sequence[Event],
     *,
     base_projection: Projection = project_default,
+    ttl: ToolCallTTL = ToolCallTTL(),
 ) -> dict[str, AgentView]:
     """
     Custom projection: materialise ToolCallRequest and
@@ -77,20 +79,43 @@ def project_tool_calls(
     Runs ``base_projection`` first, then overlays the
     tool slots on top. Equivalent to::
 
-        overlay_tool_calls(events, base_projection(events))
+        overlay_tool_calls(events, base_projection(events),
+                           ttl=ttl)
 
     but kept as a separate entry point because most
     callers (e.g. ``World.fold``) want a ``Projection``
     -- a function from events to views, not from
     ``(events, base_views)`` to views.
+
+    The ``ttl`` argument (ADR-045) defaults to
+    ``ToolCallTTL()`` (5-minute global TTL). The TTL
+    is **set** on each new request (``expires_at =
+    requested_at + ttl_seconds``) but is **not
+    enforced** by the projection; the
+    :class:`ToolCallTTLSweeperSystem` (a separate
+    ``WorldSystem`` registered with the dispatcher)
+    emits ``tool.<name>.failed`` events for stale
+    requests. The separation keeps the projection
+    pure (no clock injection, no I/O).
+
+    **Back-compat note**: callers that pre-date
+    ADR-045 (and use the default ``ToolCallTTL()``)
+    get the new ``expires_at`` field set on each
+    request automatically. The TTL itself is
+    enforced by the sweeper system. The
+    ``overlay_tool_calls`` function used by the
+    dispatcher accepts the same args; see
+    ``ReactiveDispatcher(tool_ttls=...)``.
     """
     base_views = base_projection(events)
-    return overlay_tool_calls(events, base_views)
+    return overlay_tool_calls(events, base_views, ttl=ttl)
 
 
 def overlay_tool_calls(
     events: Sequence[Event],
     base_views: Mapping[str, AgentView],
+    *,
+    ttl: ToolCallTTL = ToolCallTTL(),
 ) -> dict[str, AgentView]:
     """
     Overlay-only variant of ``project_tool_calls``.
@@ -126,6 +151,19 @@ def overlay_tool_calls(
     Used by ``ReactiveDispatcher._fold_with_filter``
     to enrich the post-fold World without paying for
     a second fold pass (ADR-036 §2.3).
+
+    ``ttl`` (ADR-045): the overlay SETS the
+    ``expires_at`` field on each new request (via
+    ``_build_request``), but does NOT enforce the
+    TTL itself. The TTL is enforced by the
+    :class:`ToolCallTTLSweeperSystem` (a separate
+    ``WorldSystem`` registered with the
+    dispatcher); the sweeper emits
+    ``tool.<name>.failed`` events for stale
+    requests. The separation keeps the overlay
+    pure (no clock injection) and the TTL
+    enforcement explicit (a system that downstream
+    consumers can observe).
     """
     # Phase 1: walk events to materialise the components.
     # ADR-044: we accumulate the new requests/completions
@@ -135,6 +173,16 @@ def overlay_tool_calls(
     # a request emitted in tick N remains visible in the
     # slot in tick N+1 even if the current batch has only
     # a completion event.
+    #
+    # ADR-045: the per-tool TTL is set on each new
+    # request (``expires_at = requested_at +
+    # ttl_seconds``). The TTL itself is NOT enforced
+    # here; the
+    # :class:`ToolCallTTLSweeperSystem` emits a
+    # ``tool.<name>.failed`` event when ``now >=
+    # expires_at``. Keeping the overlay pure (no
+    # clock injection, no I/O) preserves the
+    # framework's projection-as-data invariant.
     tool_requests: dict[str, dict[str, ToolCallRequest]] = collections.defaultdict(dict)
     tool_completions: dict[str, dict[str, ToolCallCompletion]] = (
         collections.defaultdict(dict)
@@ -143,7 +191,12 @@ def overlay_tool_calls(
     for e in events:
         request_tool_name = _requested_tool_name(e.event_type)
         if request_tool_name is not None:
-            req = _build_request(e, tool_name=request_tool_name)
+            ttl_seconds = ttl.ttl_for(request_tool_name)
+            req = _build_request(
+                e,
+                tool_name=request_tool_name,
+                ttl_seconds=ttl_seconds,
+            )
             tool_requests[e.agent_id][req.request_event_id] = req
             agents_to_merge.add(e.agent_id)
         else:
@@ -245,7 +298,9 @@ def overlay_tool_calls(
     return out
 
 
-def _build_request(event: Event, *, tool_name: str) -> ToolCallRequest:
+def _build_request(
+    event: Event, *, tool_name: str, ttl_seconds: float
+) -> ToolCallRequest:
     """Build a ToolCallRequest from a ``tool.<name>.requested`` event.
 
     ``tool_name`` is the middle segment of the event type
@@ -256,14 +311,29 @@ def _build_request(event: Event, *, tool_name: str) -> ToolCallRequest:
     :func:`_requested_tool_name` returning an empty string
     in that case, which the request then reads from
     ``event.data`` (kept for back-compat with old EventLogs).
+
+    ``ttl_seconds`` (ADR-045): the TTL for the request,
+    in seconds. The ``expires_at`` field is computed as
+    ``requested_at + timedelta(seconds=ttl_seconds)``;
+    a TTL of ``0`` (or negative) means **TTL disabled**
+    (``expires_at = None``). The
+    :class:`ToolCallTTLSweeperSystem` emits a
+    ``tool.<name>.failed`` event when
+    ``now >= expires_at``.
     """
+    requested_at = event.timestamp
+    if ttl_seconds > 0:
+        expires_at = requested_at + timedelta(seconds=ttl_seconds)
+    else:
+        expires_at = None
     return ToolCallRequest(
         request_event_id=str(event.event_id),
         tool_name=tool_name or str(event.data.get("tool", "")),
         agent_id=event.agent_id,
         params=dict(event.data),
-        requested_at=event.timestamp,
+        requested_at=requested_at,
         correlation_id=event.correlation.correlation_id,
+        expires_at=expires_at,
     )
 
 

@@ -64,11 +64,22 @@ def _event(
 
 
 def _world(events: list[Event]) -> World:
-    """Build a World with the tool_calls projection."""
+    """Build a World with the tool_calls projection.
+
+    ADR-045: the projection defaults to a 5-minute
+    TTL; the test events have timestamps in
+    ``2026-06-30`` and a real wall clock would evict
+    the requests. Disable the TTL for the
+    tests that don't exercise the eviction logic.
+    """
+    from kntgraph.core.world.components import ToolCallTTL
+
     return World.fold(
         events,
         tick=events[-1].timestamp if events else 0,
-        projection=project_tool_calls,
+        projection=lambda evs: project_tool_calls(
+            evs, ttl=ToolCallTTL(default_ttl_seconds=0)
+        ),
     )
 
 

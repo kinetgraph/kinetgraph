@@ -40,11 +40,33 @@ from kntgraph.core.event.event import Event
 from kntgraph.core.world.components import (
     ToolCallCompletion,
     ToolCallRequest,
+    ToolCallTTL,
 )
 from kntgraph.core.world.projection_tool_calls import (
-    overlay_tool_calls,
-    project_tool_calls,
+    overlay_tool_calls as _overlay_tool_calls,
+    project_tool_calls as _project_tool_calls,
 )
+
+
+# The projection defaults to a 5-minute TTL (ADR-045).
+# The test events have timestamps in ``2026-06-30``;
+# a real wall clock (or even ``now=2030``) would
+# evict the requests. Disable the TTL for the
+# tests that don't exercise the eviction logic;
+# tests that DO exercise the TTL (in
+# ``test_ttl_*``) pass an explicit ``ttl=`` and
+# ``now=`` to the call.
+_TTL_DISABLED = ToolCallTTL(default_ttl_seconds=0)
+
+
+def project_tool_calls(events, **kwargs):
+    kwargs.setdefault("ttl", _TTL_DISABLED)
+    return _project_tool_calls(events, **kwargs)
+
+
+def overlay_tool_calls(events, base_views, **kwargs):
+    kwargs.setdefault("ttl", _TTL_DISABLED)
+    return _overlay_tool_calls(events, base_views, **kwargs)
 
 
 def _ts(offset_s: int = 0) -> datetime:
@@ -549,3 +571,7 @@ class TestOverlayToolCalls:
         assert "agent-A" in out
         assert out["agent-A"].components["tool_requests"] == {}
         assert out["agent-A"].components["tool_completions"] == {}
+
+
+# ---------------------------------------------------------------------------
+# ADR-045: TTL-based eviction

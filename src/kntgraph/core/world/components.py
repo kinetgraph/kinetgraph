@@ -36,12 +36,63 @@ Design contract (Iter 28 FU 8, ADR-034):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Mapping, Optional
 from uuid import UUID
 
 from .._typing import JsonValue
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallTTL:
+    """
+    Per-tool TTL configuration for ``ToolCallRequest``
+    entries (ADR-045).
+
+    A request whose ``expires_at`` is in the past at
+    overlay time is removed from the slot. The TTL
+    bounds the memory used by the slot and the
+    staleness of orphaned requests (e.g. after a
+    worker crash, a DLQ escalation, or a worker
+    process restart).
+
+    The default TTL is **5 minutes** (covers the
+    99th percentile of legitimate tool latencies —
+    LLM calls, network I/O, batch tools — plus a
+    generous safety margin). Per-tool overrides
+    accommodate tools with very different latency
+    profiles:
+
+      - **Synchronous helpers** (in-process DB
+        queries, ``pii_redaction``): tight TTL
+        (e.g. 60s) is a backstop; the completion
+        typically lands in the same tick.
+      - **Long-running batch tools** (video
+        transcoders, large document parsers):
+        loose TTL (e.g. 1h) accommodates the
+        worker latency.
+
+    A TTL of ``0`` (or negative) **disables** the
+    TTL enforcement (``expires_at`` is set to
+    ``None`` on the request). This is useful for
+    tests and for tools that the operator wants
+    to opt out of the safety net (NOT recommended
+    in production).
+    """
+
+    default_ttl_seconds: float = 300.0
+    per_tool_ttls: Mapping[str, float] = field(default_factory=dict)
+
+    def ttl_for(self, tool_name: str) -> float:
+        """Return the TTL (in seconds) for ``tool_name``.
+
+        The lookup is exact (``per_tool_ttls`` is
+        keyed by the tool name). Falls back to
+        ``default_ttl_seconds`` if no override is
+        configured.
+        """
+        return self.per_tool_ttls.get(tool_name, self.default_ttl_seconds)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +131,19 @@ class ToolCallRequest:
     # the same flow read this to pin their own
     # ``correlation``.
     correlation_id: Optional[UUID] = None
+    # ADR-045: the wall-clock time at which the
+    # request expires (UTC, timezone-aware).
+    # Computed at materialisation time as
+    # ``requested_at + ttl(tool_name)`` where
+    # ``ttl`` is configured per-tool on the
+    # dispatcher. ``None`` means "no TTL" (the
+    # request lives until completion-driven
+    # eviction, per ADR-044). A request whose
+    # ``expires_at`` is in the past at overlay
+    # time is evicted by the framework
+    # (``overlay_tool_calls``); the eviction
+    # is silent (no event is emitted).
+    expires_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,4 +197,5 @@ class ToolCallCompletion:
 __all__ = [
     "ToolCallCompletion",
     "ToolCallRequest",
+    "ToolCallTTL",
 ]

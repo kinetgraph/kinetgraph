@@ -995,3 +995,50 @@ event loop is NOT blocked while the LLM runs.
 **Acceptable:** N/A — closed; migration is now
 production-ready. The legacy roles are kept on a
 deprecation path.
+
+
+## 2.21 Tool-call Request TTL (ADR-045)
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the
+:class:`ToolCallTTLSweeperSystem` (in
+`src/kntgraph/runner/tool_call_ttl_sweeper.py`)
+emits ``tool.<name>.failed`` events for stale
+requests in the ``tool_requests`` slot. The
+dispatcher auto-registers the sweeper when the
+operator passes a ``tool_ttls=ToolCallTTL()``
+config (opt-in; the default is no TTL enforcement,
+for back-compat with the legacy behaviour).
+
+The original ADR draft (inline TTL eviction in
+``overlay_tool_calls``) was rejected: the overlay
+is a **pure** function (ADR-034), and mixing in a
+wall clock broke the purity and forced the
+overlay to walk every agent in ``base_views`` on
+every tick (which broke the "no allocation for
+non-tool batches" optimisation of ADR-044). The
+sweeper system separates concerns (the overlay
+stays pure; the sweeper handles the I/O) and the
+failure event is observable by downstream
+systems.
+
+**Tests:** 9 unit tests in
+`tests/unit/runner/test_tool_call_ttl_sweeper.py`
+cover the request/completion cycle, dedup,
+multi-agent, empty world, and the legacy bare
+`tool.requested` form.
+
+**Open follow-ups:**
+
+  - **Slot GC**: the sweeper does NOT evict the
+    stale request from the slot. The eviction is
+    left to the completion-driven rule (ADR-044).
+    If the completion never arrives, the request
+    stays in the slot forever (memory leak).
+    A follow-up GC_TICK event (or a periodic
+    compaction pass) is the mitigation; out of
+    scope for ADR-045.
+
+**Acceptable:** N/A — closed; migration is
+production-ready.
