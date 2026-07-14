@@ -362,7 +362,7 @@ e o `KnowledgeConsolidator` em sua própria coroutine com
 ### Negativas
 
 - ⚠️ **Mais uma dependência opcional**: `gliner2` no caminho de PII nível 2/3. Mitigação: extra opcional, default nível 1 sem GLiNER2.
-- ⚠️ **Custo de embedding por tool event**: cada `tool.completed` vira embedding em `(:Problem)`. Mitigação: allow-list de tools (env `KNT_SOLUTIONS_TOOL_ALLOWLIST`).
+- ⚠️ **Custo de embedding por tool event**: cada `tool.<name>.completed` vira embedding em `(:Problem)`. Mitigação: allow-list de tools (env `KNT_SOLUTIONS_TOOL_ALLOWLIST`).
 - ⚠️ **Review queue acumula sem operador**: TTL de 7 dias esvazia por DLQ; sem SLA. Mitigação: doc recomenda integração com API HTTP de operação (fora do framework).
 - ⚠️ **Confidence bump cross-agent exige fold caro**: o `SolutionExtractor` precisa ler o histórico. Mitigação: cursor `last_event_id` por agente; reuso cross-agent é O(history) por tick, mas amortizado pelo interval de 10s.
 

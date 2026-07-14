@@ -104,6 +104,17 @@ class TestHasToolEvents:
         events = [_event(event_type="tool.x.args_invalid")]
         assert _has_tool_events(events) is False
 
+    def test_named_tool_requested_event_detected(self):
+        """Regression: a canonical ``tool.<name>.requested``
+        event (the form emitted by
+        ``ToolAwareSystem.request_tool``) is detected.
+        Before the fix, only the legacy bare
+        ``tool.requested`` form was recognised, so the
+        dispatcher skipped the projection pass and
+        ``ToolCallRequest`` was never installed."""
+        events = [_event(event_type="tool.weather_api.requested")]
+        assert _has_tool_events(events) is True
+
     def test_mixed_batch_with_one_tool_event_detected(self):
         events = [
             _event(event_type="user.intent"),
@@ -197,3 +208,59 @@ class TestOverlayToolProjection:
         events = [_event(event_type="tool.requested", agent_id="a-1")]
         result = _overlay_tool_projection(world, events)
         assert result.tick == 42
+
+    def test_named_tool_requested_installs_slot_with_name(self):
+        """Regression: a ``tool.<name>.requested`` event
+        (the canonical form emitted by
+        ``ToolAwareSystem.request_tool``) installs the
+        ``tool_requests`` slot AND captures the tool name
+        from the event type's middle segment. Before
+        this fix, only the legacy bare ``tool.requested``
+        form was recognised and the request was silently
+        dropped, breaking the ``is_pending`` /
+        ``has_requested`` checks in real runs."""
+        world = _empty_world()
+        req = _event(
+            event_type="tool.weather_api.requested", agent_id="a-1"
+        )
+        world = world.with_event(req)
+        result = _overlay_tool_projection(world, [req])
+        view = result.views["a-1"]
+        assert "tool_requests" in view.components
+        tool_requests = view.components["tool_requests"]
+        assert str(req.event_id) in tool_requests
+        # The tool_name is captured from the event type,
+        # NOT from event.data["tool"] (which is empty
+        # for the canonical form).
+        assert tool_requests[str(req.event_id)].tool_name == "weather_api"
+
+    def test_named_tool_requested_completion_joins_via_causation(self):
+        """End-to-end: a ``tool.<name>.requested`` event
+        followed by a ``tool.<name>.completed`` event
+        joined by ``causation_id`` produces both a
+        ``ToolCallRequest`` (with the right tool name)
+        and a ``ToolCallCompletion`` referencing the
+        same request_event_id. This is the canonical
+        WorkerManager round-trip and the scenario that
+        was broken before the fix."""
+        world = _empty_world()
+        req = _event(
+            event_type="tool.weather_api.requested", agent_id="a-1"
+        )
+        completion = _event(
+            event_type="tool.weather_api.completed",
+            agent_id="a-1",
+            causation_id=req.event_id,
+        )
+        world = world.with_event(req).with_event(completion)
+        result = _overlay_tool_projection(world, [req, completion])
+        view = result.views["a-1"]
+        assert view.components["tool_requests"][str(req.event_id)].tool_name == (
+            "weather_api"
+        )
+        assert str(req.event_id) in view.components["tool_completions"]
+        completion_obj = view.components["tool_completions"][
+            str(req.event_id)
+        ]
+        assert completion_obj.status == "completed"
+        assert completion_obj.request_event_id == str(req.event_id)

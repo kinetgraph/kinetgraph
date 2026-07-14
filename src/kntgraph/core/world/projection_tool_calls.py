@@ -7,16 +7,25 @@ core.world.projection_tool_calls -- tool-call projection.
 
 Iter 28 FU 8 (ADR-034): this projection materialises
 ``ToolCallRequest`` and ``ToolCallCompletion`` components
-from ``tool.requested`` events. It is a PURE function:
-deterministic, replayable, no side effects.
+from tool events. It is a PURE function: deterministic,
+replayable, no side effects.
 
-ADR-036 (Tool Worker Pattern) extends the completion
-matcher: events shaped ``tool.<name>.completed`` and
-``tool.<name>.failed`` (emitted by the ``WorkerManager``)
-are accepted in addition to the bare ``tool.completed``
-/ ``tool.failed`` events. The tool name is captured from
-the event type's middle segment; the rest of the payload
-is unchanged.
+ADR-036 (Tool Worker Pattern) makes the
+``tool.<name>.<suffix>`` form canonical. Both the request
+matcher (:func:`_requested_tool_name`) and the completion
+matcher (:func:`_completion_status`) accept the
+WorkerManager form ``tool.<name>.completed`` /
+``tool.<name>.failed`` / ``tool.<name>.requested`` in
+addition to the legacy bare forms ``tool.requested`` /
+``tool.completed`` / ``tool.failed``. The tool name is
+captured from the event type's middle segment; the rest
+of the payload is unchanged.
+
+The legacy bare form is kept for **back-compat with old
+EventLogs** (events written before the WorkerManager
+migration). New emitters MUST use the ``tool.<name>.*``
+form (see ``ToolAwareSystem.request_tool`` and the
+``WorkerManager``).
 
 The base projection (default: last-event-wins) is
 applied first; this projection then OVERLAYS the
@@ -124,8 +133,9 @@ def overlay_tool_calls(
         collections.defaultdict(dict)
     )
     for e in events:
-        if e.event_type == "tool.requested":
-            req = _build_request(e)
+        request_tool_name = _requested_tool_name(e.event_type)
+        if request_tool_name is not None:
+            req = _build_request(e, tool_name=request_tool_name)
             tool_requests[e.agent_id][req.request_event_id] = req
         else:
             completion_status = _completion_status(e.event_type)
@@ -158,16 +168,42 @@ def overlay_tool_calls(
     return out
 
 
-def _build_request(event: Event) -> ToolCallRequest:
-    """Build a ToolCallRequest from a `tool.requested` event."""
+def _build_request(event: Event, *, tool_name: str) -> ToolCallRequest:
+    """Build a ToolCallRequest from a ``tool.<name>.requested`` event.
+
+    ``tool_name`` is the middle segment of the event type
+    (``"weather_api"`` in ``"tool.weather_api.requested"``);
+    the caller resolves it via :func:`_requested_tool_name`.
+    The legacy bare form (``"tool.requested"``) carries the
+    name in ``event.data["tool"]`` instead — handled by
+    :func:`_requested_tool_name` returning an empty string
+    in that case, which the request then reads from
+    ``event.data`` (kept for back-compat with old EventLogs).
+    """
     return ToolCallRequest(
         request_event_id=str(event.event_id),
-        tool_name=str(event.data.get("tool", "")),
+        tool_name=tool_name or str(event.data.get("tool", "")),
         agent_id=event.agent_id,
         params=dict(event.data),
         requested_at=event.timestamp,
         correlation_id=event.correlation.correlation_id,
     )
+
+
+def _requested_tool_name(event_type: str) -> Optional[str]:
+    """
+    Resolve the tool name from a request event type.
+
+    Accepts both the bare form (``tool.requested``) and the
+    WorkerManager form (``tool.<name>.requested``) emitted
+    by ``ToolAwareSystem.request_tool`` (ADR-036 §2.4).
+    Returns ``None`` for events that are not a request.
+    """
+    if event_type == "tool.requested":
+        return ""
+    if event_type.startswith("tool.") and event_type.endswith(".requested"):
+        return event_type[len("tool.") : -len(".requested")]
+    return None
 
 
 def _completion_status(event_type: str) -> Optional[str]:

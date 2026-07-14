@@ -49,15 +49,20 @@ def _has_tool_events(events: list[Event]) -> bool:
     Used to skip the second fold pass when no tool
     event is present, so non-tool batches pay zero
     cost for the projection.
+
+    Accepts both the canonical ``tool.<name>.<suffix>``
+    form (ADR-036) and the legacy bare
+    ``tool.requested`` / ``tool.completed`` /
+    ``tool.failed`` form (kept for back-compat with
+    old EventLogs).
     """
     for e in events:
-        if e.event_type == "tool.requested" or (
-            e.event_type.startswith("tool.")
-            and (
-                e.event_type.endswith(".completed") or e.event_type.endswith(".failed")
-            )
-        ):
+        if e.event_type == "tool.requested":
             return True
+        if e.event_type.startswith("tool."):
+            suffix = e.event_type.rsplit(".", 1)[-1]
+            if suffix in ("completed", "failed", "requested"):
+                return True
     return False
 
 

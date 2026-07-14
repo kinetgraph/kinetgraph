@@ -11,7 +11,19 @@ SPDX-License-Identifier: Apache-2.0
 **Relacionado:** [ADR-019](./ADR-019-Epilogo-Typed-Adapters.md),
 [ADR-025](./ADR-025-Tool-Protocol-Split-Cycle-Resolution.md),
 [ADR-033](./ADR-033-GraphPool-Reorg.md),
+[ADR-036](./ADR-036-Tool-Worker-Pattern.md) (forma canônica do event type),
 [AGENTS.md §1](../../AGENTS.md), §2, §3, §4
+
+> **Event type form.** This ADR originally specified the
+> bare form `tool.requested` / `tool.completed` /
+> `tool.failed`. ADR-036 made the canonical form
+> `tool.<name>.requested` / `tool.<name>.completed` /
+> `tool.<name>.failed` (one segment per tool name, so
+> the WorkerManager can route by event type without
+> parsing the payload). The projection accepts both
+> forms — the canonical form is the active one (the
+> bare form is recognised only for back-compat with
+> EventLogs written before the ADR-036 migration).
 
 ## 1. Contexto
 
@@ -62,9 +74,12 @@ de campos). Exemplo: `Health=0` → remove `Health`,
 adiciona `Corpse`. O archetype do entity migra.
 
 Aplicando ao Solution tier: o pareamento
-`tool.requested` ↔ `tool.completed`/`tool.failed`
-é uma **state transition** que materializa
-components tipados. Archetype evolution:
+`tool.<name>.requested` ↔ `tool.<name>.completed` /
+`tool.<name>.failed` (forma canônica introduzida pelo
+ADR-036; o bare `tool.requested` / `tool.completed` /
+`tool.failed` é aceito apenas para back-compat com
+EventLogs antigos) é uma **state transition** que
+materializa components tipados. Archetype evolution:
 
 | State | Archetype |
 |-------|-----------|
@@ -85,12 +100,16 @@ class ToolCallRequest:
     ECS component: a tool was requested and is in flight
     or has resolved.
 
-    Materialized from `tool.requested` events. Immutable
-    (frozen + slots). The state of the request (pending,
-    completed, failed) is NOT a field on this component;
-    it is determined by the presence (or absence) of a
-    sibling `ToolCallCompletion` component in the same
-    archetype.
+    Materialized from `tool.<name>.requested` events
+    (canonical ADR-036 form; the legacy bare
+    `tool.requested` form is also accepted for
+    back-compat with old EventLogs). The tool name is
+    captured from the event type's middle segment.
+    Immutable (frozen + slots). The state of the
+    request (pending, completed, failed) is NOT a field
+    on this component; it is determined by the presence
+    (or absence) of a sibling `ToolCallCompletion`
+    component in the same archetype.
 
     The `correlation_id` is the same on request and
     completion (it's the flow id). The `causation_id`
@@ -109,11 +128,14 @@ class ToolCallCompletion:
     """
     ECS component: a tool request has resolved.
 
-    Materialized from `tool.completed` or `tool.failed`
-    events. Immutable (frozen + slots). The `status`
-    field discriminates success/failure; the
-    `result`/`error` fields are populated according
-    to the status.
+    Materialized from `tool.<name>.completed` or
+    `tool.<name>.failed` events (ADR-036 form; the
+    legacy bare `tool.completed` / `tool.failed` is
+    also accepted for back-compat). The tool name is
+    captured from the event type's middle segment.
+    Immutable (frozen + slots). The `status` field
+    discriminates success/failure; the `result`/`error`
+    fields are populated according to the status.
 
     Archetype evolution: this component is added to
     the entity that already has `ToolCallRequest`.
@@ -169,18 +191,37 @@ def project_tool_calls(
         collections.defaultdict(dict)
     )
     for e in events:
-        if e.event_type == "tool.requested":
+        # Canonical form (ADR-036): "tool.<name>.requested".
+        # Legacy bare form "tool.requested" is also accepted
+        # for back-compat with old EventLogs.
+        if e.event_type == "tool.requested" or (
+            e.event_type.startswith("tool.")
+            and e.event_type.endswith(".requested")
+        ):
+            tool_name = (
+                e.data["tool"]
+                if e.event_type == "tool.requested"
+                # "tool.weather_api.requested" -> "weather_api"
+                else e.event_type[len("tool.") : -len(".requested")]
+            )
             req = ToolCallRequest(
                 request_event_id=str(e.event_id),
-                tool_name=e.data["tool"],
+                tool_name=tool_name,
                 agent_id=e.agent_id,
                 params=MappingProxyType(dict(e.data)),
                 requested_at=e.timestamp,
             )
             tool_requests[e.agent_id][req.request_event_id] = req
-        elif e.event_type in ("tool.completed", "tool.failed"):
-            # The completion event's causation_id points
-            # to the request's event_id.
+        elif (
+            e.event_type in ("tool.completed", "tool.failed")
+            or (
+                e.event_type.startswith("tool.")
+                and e.event_type.endswith((".completed", ".failed"))
+            )
+        ):
+            # Canonical (ADR-036) and legacy (ADR-034) forms
+            # are both accepted. The completion event's
+            # causation_id points to the request's event_id.
             target_causation = (
                 str(e.causation_id) if e.causation_id else None
             )
@@ -522,9 +563,13 @@ Pipeline:
 1. `base_projection(events)` (default: `project_default`,
    last-event-wins).
 2. Walk `events`; cria `ToolCallRequest` por
-   `tool.requested`; cria `ToolCallCompletion` por
-   `tool.completed`/`tool.failed` (join por
-   `causation_id`).
+   `tool.<name>.requested` (ou `tool.requested` legacy);
+   cria `ToolCallCompletion` por
+   `tool.<name>.completed` / `tool.<name>.failed` (ou
+   `tool.completed` / `tool.failed` legacy), join por
+   `causation_id`. O nome da tool é extraído do
+   segmento do meio do event type; no formato legacy
+   bare, é lido de `event.data["tool"]`.
 3. Overlay nos slots `"tool_requests"` e
    `"tool_completions"` do `view.components`.
 
