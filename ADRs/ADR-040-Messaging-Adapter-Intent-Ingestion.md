@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-040: Messaging Adapter for Intent Ingestion (CLI Scaffolding vs. Generic Framework Gateway)
 
 **Status:** Proposed

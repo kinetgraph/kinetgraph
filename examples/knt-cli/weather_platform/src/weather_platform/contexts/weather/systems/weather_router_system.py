@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 from kntgraph.core.world import World
 from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.tools.system import ToolAwareSystem

@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Changelog
 
 All notable changes to Kinetgraph will be documented in this file.
@@ -439,6 +445,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       (English), branch policy (AI agents do
       not push or create branches), and the
       env vars + local-services reference.
+
+- **REUSE 3.3 license compliance cleanup (DEBT
+  §2.23).**
+
+    - **`reuse` gate added to `scripts/ci.py`.**
+      `step_reuse()` was defined in
+      `scripts/ci.py` but missing from the
+      `ALL_STEPS` dict; the gate was
+      effectively a no-op before this
+      cleanup. The dict now registers
+      `"reuse": step_reuse()` between
+      `complexity` and `pyright`; the
+      `--only reuse` flag now works in
+      isolation for local iteration. The
+      `AGENTS.md` and `CONTRIBUTING.md`
+      documentation was updated to reflect
+      the 9-step gate (the `CONTRIBUTING.md`
+      table was out of date — it listed 8
+      steps; the new table has 9 with
+      `reuse` between `complexity` and
+      `pyright`).
+    - **Invalid SPDX expression** in
+      `scripts/quality_report.py` fixed: the
+      `render_markdown` function embedded a
+      markdown template string that REUSE
+      parsed as an invalid license
+      expression (the literal "SPDX-License-
+      Identifier: Apache-2.0" with the
+      trailing Python comma). Fixed by
+      wrapping the template's SPDX header in
+      `REUSE-IgnoreStart` / `REUSE-IgnoreEnd`
+      comments.
+    - **Missing SPDX headers** added to 55
+      files: `CHANGELOG.md`, 8 ADRs
+      (ADR-038 through ADR-045), 3 docs,
+      3 `dev-servers/` files (2
+      docker-compose YAML + 1 redis.conf),
+      9 `examples/` files (the 2 missing
+      examples 18/20 plus 7
+      `knt-cli/weather_platform` files
+      including a `pyproject.toml`,
+      `.env.example`, and `uv.lock`), 6
+      `src/kntgraph/cli/` files, 9
+      `cli/templates/` Jinja files (using
+      `{# ... #}` Jinja comments), 1
+      `scripts/export_kntgraph.py`, 1
+      `tests/agents/unit/conftest.py`, 7
+      `tests/unit/cli/test_*.py`,
+      `.gitignore`, the top-level `uv.lock`,
+      and the 2 `scratch_*.py` debug
+      helpers.
+    - **Verification**: 521 / 522 files
+      compliant (was 466 / 522); the
+      `scripts/ci.py --only reuse` gate
+      now passes; the full suite (1566
+      tests) is unchanged; `ruff check`
+      and `ruff format --check` are clean.
 
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**

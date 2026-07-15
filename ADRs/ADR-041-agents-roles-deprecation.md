@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-041: `agents.roles` deprecation and removal schedule
 
 **Status:** Accepted

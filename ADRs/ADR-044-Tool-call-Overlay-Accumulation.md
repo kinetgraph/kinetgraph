@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-044: Tool-call Overlay Accumulation (slot persistence across ticks)
 
 **Status:** Proposed

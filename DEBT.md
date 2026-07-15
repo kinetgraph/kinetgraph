@@ -1290,3 +1290,65 @@ production-ready.
     reference (§13).
 
 **Acceptable:** N/A — closed.
+
+
+## 2.23 REUSE 3.3 license compliance cleanup
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the ``reuse`` gate is now part of
+the ``scripts/ci.py`` pipeline (the 9th step)
+and passes cleanly. The cleanup touched 56
+files:
+
+  - **Invalid SPDX expression** in
+    ``scripts/quality_report.py``: the
+    ``render_markdown`` function embedded a
+    markdown template string that REUSE
+    parsed as an invalid license expression
+    The invalid expression was the literal
+    SPDX header identifier (in the markdown
+    template) followed by a trailing Python
+    comma. Fixed by wrapping the template's
+    SPDX header in
+    ``REUSE-IgnoreStart`` / ``REUSE-IgnoreEnd``
+    comments (REUSE ignores the block).
+
+  - **Missing SPDX headers** added to 55 files:
+    ``CHANGELOG.md``, 8 ADRs (ADR-038 through
+    ADR-045), 3 docs (``docs/adr-042-sequence.md``,
+    ``docs/cli_guide.md``, ``docs/memory_model.md``),
+    3 ``dev-servers/`` files (2 docker-compose
+    YAML + 1 redis.conf), 9 ``examples/``
+    files (the 2 missing examples 18/20 plus
+    7 ``knt-cli/weather_platform`` files
+    including a ``pyproject.toml``,
+    ``.env.example``, and ``uv.lock``), 6
+    ``src/kntgraph/cli/`` files (the
+    ``__init__.py``, ``main.py``, and 4
+    ``commands/``), 9 ``cli/templates/``
+    Jinja files (using ``{# ... #}`` Jinja
+    comments), 1 ``scripts/export_kntgraph.py``,
+    1 ``tests/agents/unit/conftest.py``, 7
+    ``tests/unit/cli/test_*.py``, ``.gitignore``,
+    the top-level ``uv.lock``, and the 2
+    ``scratch_*.py`` debug helpers.
+
+  - **CI integration**: ``step_reuse()`` was
+    defined in ``scripts/ci.py`` but missing
+    from the ``ALL_STEPS`` dict; the gate
+    was effectively a no-op before this
+    cleanup. The dict now registers
+    ``"reuse": step_reuse()`` between
+    ``complexity`` and ``pyright``; the
+    ``--only reuse`` flag now works in
+    isolation for local iteration. The
+    ``AGENTS.md`` and ``CONTRIBUTING.md``
+    documentation was updated to reflect
+    the 9-step gate (the ``CONTRIBUTING.md``
+    table was out of date — it listed 8
+    steps; the new table has 9 with
+    ``reuse`` between ``complexity`` and
+    ``pyright``).
+
+**Acceptable:** N/A — closed.

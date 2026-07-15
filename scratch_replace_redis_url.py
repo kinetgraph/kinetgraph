@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 import glob
 
 for filepath in glob.glob("examples/*.py") + glob.glob("examples/_lib/*.py"):

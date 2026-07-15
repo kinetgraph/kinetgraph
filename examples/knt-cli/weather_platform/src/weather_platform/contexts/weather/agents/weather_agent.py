@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 from kntgraph.security.principal import AlwaysAllowPolicy, Policy
 
 from ..systems.weather_router_system import weather_router_system

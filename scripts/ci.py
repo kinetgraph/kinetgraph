@@ -397,6 +397,7 @@ ALL_STEPS: dict[str, Step] = {
     "complexity": Step(
         "complexity (radon cc/mi)", ("_inline_gate_complexity_",)
     ),  # placeholder
+    "reuse": step_reuse(),
     "pyright": Step("type-check (pyright)", ("_inline_gate_pyright_",)),  # placeholder
     "tests": step_tests(),
     "bandit": step_bandit(),

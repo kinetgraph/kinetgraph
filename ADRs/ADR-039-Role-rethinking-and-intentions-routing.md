@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-039: Redefining Role as a Pure ECS Component and Intent Resolution
 
 **Status:** Accepted / Implemented

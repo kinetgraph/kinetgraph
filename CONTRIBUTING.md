@@ -30,7 +30,7 @@ uv sync --all-extras
 uv run scripts/ci.py
 ```
 
-The gate runs 8 steps in order:
+The gate runs 9 steps in order:
 
 | Step        | Tool             | Description                              |
 | ----------- | ---------------- | ---------------------------------------- |
@@ -38,12 +38,13 @@ The gate runs 8 steps in order:
 | `lint`      | `ruff check`     | Lints with the rules `E, F, W, I, UP, B, A, C4, SIM` |
 | `format`    | `ruff format --check` | Verifies the canonical format (zero diffs) |
 | `complexity` | `radon cc/mi`  | CC ≤ 10 per block, MI ≥ 20 per file, no regression |
+| `reuse`     | `REUSE 3.3`      | License compliance (SPDX headers + `LICENSES/`) |
 | `pyright`   | `pyright`        | Static type check (against the existing baseline) |
 | `tests`     | `pytest`         | Unit tests; integration tests when Redis is available |
 | `bandit`    | `bandit`         | Security scan (`B110` filtered at severity medium) |
 | `audit`     | `pip-audit`      | Vulnerability scan of the resolved dep tree |
 
-All 8 steps are mandatory. There is no
+All 9 steps are mandatory. There is no
 best-effort mode in the canonical run; the only
 way to skip a step is `uv run scripts/ci.py
 --only <step>`, which selects that step and
