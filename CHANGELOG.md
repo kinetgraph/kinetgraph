@@ -236,6 +236,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separates concerns (the overlay stays pure; the
   sweeper handles the I/O) and the failure event is
   observable by downstream systems.
+- **Examples 01-07 cleanup (ADR-043 + ADR-039
+  follow-up; DEBT §2.17 + §2.20):**
+
+    - `examples/01_llm_basic.py` migrated to
+      `LiteLLMToolWorker`: one worker instance +
+      `await worker.invoke(system=..., user=...,
+      idempotency_key=...)` (the new canonical
+      pattern). The call signature is the same; the
+      return envelope is now a JSON-serialisable
+      `dict` (the same shape the `WorkerManager`
+      consumes in the production path; the example
+      calls the worker directly without the
+      `WorkerManager` infrastructure because the
+      example is a one-shot script).
+    - `examples/02_llm_with_rate_limit.py` removed:
+      the `LiteLLMToolWorker` does not own a
+      `rate_limiter` / `cost_budget` (those were
+      `LiteLLMTool` Tool-class concerns; the worker
+      is a stateless callable that runs in a
+      process pool).
+    - `examples/03_role_usage.py` removed: the
+      concept of a `Role` as a synchronous wrapper
+      around `LiteLLMTool` was superseded by the
+      ECS path (ADR-039 + ADR-044):
+      `ChatRoleSystem` / `PlannerRoleSystem` /
+      `SummarizerRoleSystem` /
+      `PersonalizedRoleSystem` in
+      `src/kntgraph/agents/role_systems/`.
+    - `examples/04_reactive_system_with_llm.py`
+      removed: the canonical reactive + LLM
+      example is `examples/05b_session_chat_ecs.py`
+      and `examples/05c_session_chat_ecs_roles.py`.
+    - `examples/05_session_chat.py` removed: the
+      legacy session chat pattern was the basis
+      of the 05b shim (DEBT §2.18 closed). The
+      canonical session chat example is 05b/05c.
+    - `examples/06_profile_preferences.py` removed:
+      the legacy `PersonalizedRole` was ported to
+      `PersonalizedRoleSystem` (DEBT §2.20); the
+      canonical example is 05c.
+    - `examples/07_caching_transport.py` removed:
+      the `CachingLLMTransport` decorator is still
+      supported (unchanged in
+      `agents/tools/cache.py`) but the example
+      is no longer a `LiteLLMTool` example; a
+      custom-transport snippet in the docs is
+      a better place for that pattern.
+
+  2 new unit tests in
+  `tests/unit/examples/test_example_01_migration.py`
+  cover the source-level migration (no
+  `LiteLLMTool` import) and the runtime contract
+  (transport called once; `idempotency_key`
+  matches the example's stable prefix). 1813 tests
+  pass (+2 vs the 1811 baseline).
 
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**

@@ -863,11 +863,77 @@ still a shim; example 05b is WIP).
     ``request_tool`` event in place of the
     synchronous ``_invoke``.
 
-  - **Example migration (01-07).** Examples
+  - ~~**Example migration (01-07).** Examples
     01-07 still use the legacy ``LiteLLMTool`` (with
     a deprecation warning on import). They should be
     migrated to use the ``LiteLLMToolWorker`` via
-    the ``WorkerManager`` in the v0.9.0 cycle.
+    the ``WorkerManager`` in the v0.9.0 cycle.~~
+    **Closed in 2026-07-14:** the
+    ``LiteLLMTool``-based examples were split into
+    two groups and processed differently:
+
+      - **Examples 03, 04, 05, 06 (legacy Role
+        pattern)** were REMOVED. The concept of a
+        ``Role`` as a synchronous wrapper around
+        ``LiteLLMTool`` was superseded by the
+        ECS path (ADR-039 + ADR-044):
+        ``ChatRoleSystem`` / ``PlannerRoleSystem``
+        / ``SummarizerRoleSystem`` /
+        ``PersonalizedRoleSystem`` in
+        ``src/kntgraph/agents/role_systems/``.
+        The end-to-end canonical example is
+        ``examples/05c_session_chat_ecs_roles.py``;
+        the hydration shim for legacy session chat
+        is in ``examples/05b_session_chat_ecs.py``.
+        Keeping 03-06 alongside 05b/05c would
+        document two contradictory patterns
+        (sync Role vs event-driven RoleSystem);
+        removing the sync pattern removes the
+        confusion.
+      - **Example 01 (``LiteLLMTool`` direct)**
+        was MIGRATED to ``LiteLLMToolWorker``:
+        one ``LiteLLMToolWorker()`` instance +
+        four ``await worker.invoke(...)`` calls.
+        The worker returns a JSON-serialisable
+        ``dict`` envelope (the same shape the
+        ``WorkerManager`` consumes in the
+        production path; the example calls the
+        worker directly without the
+        ``WorkerManager`` infrastructure because
+        the example is a one-shot script). The
+        migration is drop-in: the call signature
+        (``system`` / ``user`` / ``idempotency_key``
+        / ``temperature`` / ``max_tokens`` /
+        ``think``) is the same; the return
+        envelope is a ``dict`` instead of a
+        ``LLMResponse`` dataclass.
+      - **Examples 02 and 07 (rate-limit demo +
+        caching transport)** were REMOVED. The
+        ``LiteLLMToolWorker`` does not own a
+        ``rate_limiter`` / ``cost_budget`` (those
+        were Tool-class concerns; the worker is
+        a stateless callable that runs in a
+        process pool, and the rate-limit /
+        cost-budget primitives are not part of
+        the worker contract). The caching
+        transport is still supported via a
+        custom ``LiteLLMTransportAdapter`` (the
+        ``CachingLLMTransport`` decorator in
+        ``agents.tools.cache`` is unchanged) but
+        the example is better written as a
+        custom-transport snippet in the docs
+        rather than a standalone ``LiteLLMTool``
+        example.
+
+    2 unit tests in
+    ``tests/unit/examples/test_example_01_migration.py``
+    cover the source-level migration (no
+    ``LiteLLMTool`` import; ``LiteLLMToolWorker``
+    used) and the runtime contract (the worker's
+    transport is called once; the
+    ``idempotency_key`` matches the example's
+    stable prefix). 1813 tests pass (+2 vs the
+    1811 baseline).
 
   - **Suppress deprecation noise in CI.** Add a
     ``warnings.filterwarnings`` rule to
@@ -991,13 +1057,25 @@ event loop is NOT blocked while the LLM runs.
 
 **Open follow-ups:**
 
-  - **Examples 01-07 migration**: examples 01-07 still
+  - ~~**Examples 01-07 migration**: examples 01-07 still
     use the legacy ``ChatRole`` / ``PlannerRole`` (with
     a deprecation warning on import). They should be
     migrated to use ``ChatRoleSystem`` /
     ``PlannerRoleSystem`` via the ``WorkerManager`` in
     the v0.9.0 cycle. ``examples/05c_session_chat_ecs_roles.py``
-    is the reference.
+    is the reference.~~ **Closed in 2026-07-14:** the
+    examples that demonstrated the legacy Role pattern
+    (03, 04, 05, 06) were REMOVED. The remaining
+    examples that used ``LiteLLMTool`` directly
+    (01) were migrated to ``LiteLLMToolWorker``;
+    the examples that demonstrated
+    ``LiteLLMTool``-specific features that are not
+    part of the worker contract (02 rate-limit
+    primitives, 07 caching transport) were also
+    removed. The canonical end-to-end ECS example
+    is ``examples/05c_session_chat_ecs_roles.py``;
+    the canonical session chat shim is
+    ``examples/05b_session_chat_ecs.py``.
   - **SemanticRouterRole migration**: the
     ``SemanticRoutingRole`` is not yet ported (its
     contract is different: it routes a user message
