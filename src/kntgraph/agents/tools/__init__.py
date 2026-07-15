@@ -6,9 +6,9 @@
 kntgraph.agents.tools — Tool subsystem (F8.2).
 
 Vertical-owned: how agents invoke external capabilities
-(fiscal authority, ERP, bank, etc.). The Tool Protocol,
-the Registry, the ACL, the Invoker (the EventLog bridge),
-and the bundled PII / LLM tools all live here.
+(fiscal authority, ERP, bank, etc). The Tool Protocol,
+the Registry, the ACL, and the bundled PII / LLM
+tools all live here.
 
 The framework (kntgraph) owns the **primitives**
 (``kntgraph.tools.protocol``, ``acl.py``,
@@ -43,19 +43,16 @@ Vertical-owned (this package)
   for Tool; ADR-006).
 * ``llm_transport`` -- :class:`LLMTransport` Protocol
   (generic LLM I/O boundary).
-* ``invoker`` -- :class:`ToolInvoker` (reads
-  ``tool.{name}.requested`` events, dispatches to the
-  registered tool, writes back results).
 * ``pii`` -- :class:`PiiRedactionTool` (bundled PII
   redaction tool).
 
 Concrete implementations
 
-* ``llm`` -- :class:`LiteLLMTool`,
-  :func:`configure_litellm_env` (the LLM Tool backed by
-  litellm; optional ``[llm]`` extra).
-* ``cache`` -- :class:`CachingLLMTransport` (decorator
-  for memoising LLM completions).
+* ``llm`` -- :class:`LiteLLMToolWorker` (the canonical
+  LLM bridge via ``@tool_worker(name="chat_llm")``;
+  ADR-043). The legacy ``LiteLLMTool`` (Tool Protocol
+  path) and the ``ToolInvoker`` orchestrator were
+  removed in v0.9.0.
 
 Concrete tools live in adapters — see
 ``kntgraph.agents/examples/12_invoice_issue_tool.py`` for a
@@ -77,18 +74,6 @@ from kntgraph.tools import (
 )
 from kntgraph.agents.tools.arg_validation import SchemaValidationError, validate_args
 from kntgraph.agents.tools.capability import Capability
-from kntgraph.agents.tools.invoker import (
-    ArgsInvalid,
-    ToolInvoker,
-    tool_name_from_request,
-)
-from kntgraph.agents.tools.llm import LiteLLMTool, configure_litellm_env
-from kntgraph.tools.llm_transport import (
-    LLMChunk,
-    LLMResponse,
-    LLMTransport,
-    LLMUsage,
-)
 from kntgraph.agents.tools.pii import (
     DEFAULT_PII_LABELS,
     PiiRedactionTool,
@@ -102,11 +87,17 @@ from kntgraph.agents.tools.protocol import (
     ToolCall,
     ToolEventType,
 )
+from kntgraph.tools.llm_transport import (
+    LLMChunk,
+    LLMResponse,
+    LLMTransport,
+    LLMUsage,
+)
+from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
 
 __all__ = [
     # Protocol / Registry / Events
-    "ArgsInvalid",
     "Callable",
     "Capability",
     "Describable",
@@ -114,7 +105,7 @@ __all__ = [
     "LLMResponse",
     "LLMTransport",
     "LLMUsage",
-    "LiteLLMTool",
+    "LiteLLMToolWorker",
     "PiiRedactionTool",
     "RedactionResult",
     "DEFAULT_PII_LABELS",
@@ -125,10 +116,7 @@ __all__ = [
     "ToolCall",
     "ToolDescriptor",
     "ToolEventType",
-    "ToolInvoker",
     "ToolRegistry",
-    "configure_litellm_env",
     "default_acl",
-    "tool_name_from_request",
     "validate_args",
 ]

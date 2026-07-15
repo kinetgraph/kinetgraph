@@ -43,7 +43,12 @@ def test_knt_new_context(tmp_path: Path):
         content = dispatcher_file.read_text()
         assert "ReactiveDispatcher" in content
         assert "def build_sales_dispatcher" in content
-        assert "systems = [IntentResolutionSystem(registry)]" in content
+        # The legacy ``IntentResolutionSystem`` was
+        # removed in v0.9.0; the new template emits
+        # an empty ``systems = []`` placeholder
+        # (per-role ``WorldSystem`` instances are
+        # wired by the context's agents).
+        assert "systems = []" in content
         assert "tools = []" in content
 
     finally:

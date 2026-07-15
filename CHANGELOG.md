@@ -292,6 +292,110 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches the example's stable prefix). 1813 tests
   pass (+2 vs the 1811 baseline).
 
+- **Deprecation removal: `LiteLLMTool`,
+  `ToolInvoker`, `kntgraph.agents.roles` (v0.9.0
+  breaking change).**
+
+    The deprecated Tool path was removed in
+    v0.9.0:
+
+      - **`LiteLLMTool`** (the legacy
+        ``Tool``-Protocol wrapper around LiteLLM)
+        was REMOVED. The canonical path is
+        ``LiteLLMToolWorker``
+        (``@tool_worker(name="chat_llm")``,
+        ADR-043). The worker runs in the
+        ``WorkerManager``'s
+        ``ProcessPoolExecutor`; the dispatcher's
+        event loop is no longer blocked by the
+        LLM call.
+      - **`ToolInvoker`** (the legacy
+        ``EventLog``-driven orchestrator) was
+        REMOVED. The canonical orchestration
+        path is the ``WorkerManager`` consuming
+        ``tool.<name>.requested`` events from
+        a Redis stream; the ``@tool_worker``
+        decorator handles the worker-class
+        registration, schema extraction, and
+        cross-tick correlation via
+        ``causation_id`` (= the
+        ``request_event_id``).
+      - **`kntgraph.agents.roles`** package
+        (containing ``ChatRole`` / ``PlannerRole``
+        / ``SummarizerRole`` / ``PersonalizedRole``
+        / ``SemanticRoutingRole`` /
+        ``IntentResolutionSystem`` /
+        ``RoleComponent`` / ``IntentComponent``)
+        was REMOVED. The canonical
+        ECS-shaped replacements live in
+        ``src/kntgraph/agents/role_systems/``:
+        ``ChatRoleSystem`` / ``PlannerRoleSystem``
+        / ``SummarizerRoleSystem`` /
+        ``PersonalizedRoleSystem``.
+      - **`agents/tools/cache/`** package
+        (containing ``CachingLLMTransport`` and
+        Redis/in-memory cache adapters) was
+        REMOVED. The caching transport was a
+        ``LiteLLMTool``-specific decorator; a
+        future iteration can add a similar
+        transport-agnostic cache adapter if
+        needed.
+      - **`agents/tools/llm_transport.py`**
+        shim was REMOVED. The canonical path
+        is ``kntgraph.tools.llm_transport``.
+
+    **Prompt extraction**: the ``SYSTEM_PROMPT``
+    constants, the Pydantic output schemas
+    (``ChatReply`` / ``Plan`` / ``Summary``), the
+    ``format_chat_history`` helper, and the
+    ``build_personalized_system_prompt`` helper
+    were extracted from the legacy roles into
+    ``src/kntgraph/agents/role_systems/_prompts.py``
+    so the prompt engineering lives in one place
+    and the role systems have a single source of
+    truth.
+
+    **CLI template** (``src/kntgraph/cli/templates/dispatcher.py.jinja``)
+    was updated: the legacy
+    ``IntentResolutionSystem(registry)`` reference
+    in the generated ``build_<context>_dispatcher``
+    was replaced with an empty ``systems = []``
+    placeholder (per-role ``WorldSystem``
+    instances are wired by the context's agents).
+
+    **Examples removed** (3):
+    ``examples/11_tool_invoker.py``
+    (ToolInvoker end-to-end demo),
+    ``examples/12_semantic_routing.py``
+    (semantic routing + arg extraction demo,
+    used the legacy ``ToolInvoker`` +
+    ``SemanticRoutingRole``),
+    ``examples/13_multi_agent.py`` (multi-agent
+    approval flow, used the legacy
+    ``IntentResolutionSystem``).
+
+    **Tests removed** (16 files, ~6k lines):
+    ``tests/agents/unit/roles/`` (9 files:
+    ``test_base``, ``test_chat``,
+    ``test_deprecation``, ``test_parsing``,
+    ``test_personalized``, ``test_planner``,
+    ``test_resolution``, ``test_semantic_router``,
+    ``test_summarizer``),
+    ``tests/agents/unit/tools/test_llm.py``,
+    ``tests/agents/unit/tools/test_llm_settings.py``,
+    ``tests/agents/unit/tools/test_cache.py``,
+    ``tests/agents/unit/tools/test_redis_cache_adapter.py``,
+    ``tests/agents/unit/tools/test_invoker_helpers.py``,
+    ``tests/unit/tools/test_invoker*.py`` (3),
+    ``tests/integration/tools/test_invoker.py``,
+    ``tests/integration/tools/test_litellm_transport.py``.
+
+    **1566 tests pass** (vs the 1813 baseline
+    = 247 fewer; net change is the 247 legacy
+    tests removed minus the 0 new tests; the
+    role_systems and ttl_sweeper tests survive
+    and run green).
+
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**
   - Enabled explicit `CorrelationContext` propagation in `IntentResolutionSystem` across all success (`tool.<name>.requested`) and failure (`intent.validation_failed`) event paths to guarantee end-to-end auditability.

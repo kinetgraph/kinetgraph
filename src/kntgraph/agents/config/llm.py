@@ -5,7 +5,7 @@
 """
 LLM configuration primitives.
 
-`LLMConfig` carrega o setup do LiteLLMTool a partir de env vars
+`LLMConfig` carrega o setup do LLM a partir de env vars
 ou dicionário explícito. Encapsula:
 
   - `default_model`: o modelo primário (ex: "gpt-4o-mini")
@@ -17,21 +17,18 @@ ou dicionário explícito. Encapsula:
   - `timeout_s`: timeout por chamada
 
 `RateLimiter` e `CostBudget` são wrappers async com janela
-deslizante. São passados ao `LiteLLMTool` no construtor.
+deslizante. São úteis para adapters que querem aplicar
+limites em frente ao ``LiteLLMToolWorker`` (e.g. um
+``LiteLLMTransportAdapter`` custom que consulta o budget
+antes de encaminhar a chamada).
 
 Uso típico:
 
     from kntgraph.agents.config import LLMConfig
-    from kntgraph.agents.tools.llm import LiteLLMTool
+    from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
     cfg = LLMConfig.from_env()  # lê OPENAI_API_KEY etc
-    tool = LiteLLMTool(
-        default_model=cfg.default_model,
-        fallback_models=cfg.fallback_models,
-        rate_limiter=cfg.rate_limiter(),
-        cost_budget=cfg.cost_budget(),
-        timeout_s=cfg.timeout_s,
-    )
+    worker = LiteLLMToolWorker()  # lê o config do env
 """
 
 from __future__ import annotations
@@ -129,7 +126,9 @@ class _LLMSettings(BaseSettings):
 @dataclass(frozen=True)
 class LLMConfig:
     """
-    Configuração imutável para LiteLLMTool.
+    Configuração imutável para o ``LiteLLMToolWorker`` (ou
+    qualquer outro ``@tool_worker`` que use o transporte
+    LiteLLM).
 
     Carregue de env via `LLMConfig.from_env()` ou construa
     explicitamente. O `__post_init__` valida invariantes

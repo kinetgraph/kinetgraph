@@ -940,7 +940,11 @@ still a shim; example 05b is WIP).
     ``pyproject.toml::[tool.pytest.ini_options]`` to
     suppress the ``DeprecationWarning`` from
     ``LiteLLMTool`` and ``ToolInvoker`` until the
-    examples are migrated.
+    examples are migrated. **Closed in 2026-07-14:**
+    the suppression rule is no longer needed — the
+    legacy classes were REMOVED in v0.9.0 (see
+    §2.20). The ``pyproject.toml`` filterwarnings
+    was not added.
 
 **Acceptable:** Continue with the legacy paths for
 now. The deprecation warnings are intentional;
@@ -1055,6 +1059,25 @@ the synchronous ``await role.reply()`` to the
 event-driven ``system(world)`` cycle. The dispatcher's
 event loop is NOT blocked while the LLM runs.
 
+**Removal of legacy roles** (2026-07-14): the
+``kntgraph.agents.roles`` package was REMOVED in
+v0.9.0 (the v0.9.0 target documented in the
+deprecation warning at the top of the package). The
+canonical replacement is the ``role_systems``
+module's ``ChatRoleSystem`` / ``PlannerRoleSystem``
+/ ``SummarizerRoleSystem`` / ``PersonalizedRoleSystem``.
+
+**Prompt extraction** (2026-07-14): the
+``SYSTEM_PROMPT`` constants, the Pydantic output
+schemas (``ChatReply`` / ``Plan`` / ``Summary``), the
+``format_chat_history`` helper, and the
+``build_personalized_system_prompt`` helper were
+extracted from the legacy roles into
+``src/kntgraph/agents/role_systems/_prompts.py`` so
+the role systems have a single source of truth for
+the prompt engineering and the legacy roles can be
+removed without losing the LLM-output schemas.
+
 **Open follow-ups:**
 
   - ~~**Examples 01-07 migration**: examples 01-07 still
@@ -1076,13 +1099,31 @@ event loop is NOT blocked while the LLM runs.
     is ``examples/05c_session_chat_ecs_roles.py``;
     the canonical session chat shim is
     ``examples/05b_session_chat_ecs.py``.
-  - **SemanticRouterRole migration**: the
+  - ~~**SemanticRouterRole migration**: the
     ``SemanticRoutingRole`` is not yet ported (its
     contract is different: it routes a user message
-    to a category, not a free-form LLM reply).
+    to a category, not a free-form LLM reply).~~
+    **Closed in 2026-07-14:** the
+    ``SemanticRoutingRole`` was REMOVED along with
+    the rest of the ``kntgraph.agents.roles``
+    package. A new ECS-shaped
+    ``SemanticRoutingRoleSystem`` is documented
+    for a future iteration (the contract is
+    genuinely different — it routes a user message
+    to a tool category via an ``IntentClassifier``;
+    it does not call an LLM). The example 12 that
+    demonstrated the M1+M2 pipeline was also
+    REMOVED; the equivalent ECS path is the
+    ``role_systems`` systems wired into a
+    ``ReactiveDispatcher`` (see 05c for the
+    end-to-end pattern).
   - **Removal of legacy roles** (target v1.0.0): the
     ``kntgraph.agents.roles`` package is kept alive
-    through v0.9 for back-compat.
+    through v0.9 for back-compat. **Closed in
+    2026-07-14:** the package was removed in v0.9.0
+    along with the legacy ``LiteLLMTool`` and
+    ``ToolInvoker``. See "Removal of legacy roles"
+    above.
 
 **Acceptable:** N/A — closed; migration is now
 production-ready. The legacy roles are kept on a

@@ -52,18 +52,14 @@ def _load_module(name: str) -> object:
 
 def test_example_01_imports_without_legacy_litellm_tool() -> None:
     """The example no longer imports
-    ``LiteLLMTool`` (the legacy Tool class); it uses
-    ``LiteLLMToolWorker`` instead (ADR-043).
+    ``LiteLLMTool`` (the legacy Tool class, removed
+    in v0.9.0 per ADR-043); it uses
+    ``LiteLLMToolWorker`` instead.
     """
     # The module's source must mention the worker.
     src = (_EXAMPLES_DIR / "01_llm_basic.py").read_text()
     assert "LiteLLMToolWorker" in src
     assert "LiteLLMTool(" not in src, "example 01 still uses LiteLLMTool(...)"
-    # The legacy Tool class must still be deprecated
-    # (it is removed in v0.9.0 per ADR-043).
-    from kntgraph.agents.tools import LiteLLMTool
-
-    assert LiteLLMTool.__deprecated__ is True
 
 
 def test_example_01_main_uses_litellm_tool_worker() -> None:

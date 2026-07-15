@@ -66,14 +66,17 @@ class TestVerticalImportability:
         importlib.import_module("kntgraph.agents")
 
     def test_import_kntgraph_agents_tools(self, block_optional):
-        # ``LiteLLMTool`` is importable; only its ``invoke``
-        # method touches litellm.
+        # ``LiteLLMToolWorker`` is importable; only its
+        # ``invoke`` method touches litellm.
         mod = importlib.import_module("kntgraph.agents.tools")
-        assert hasattr(mod, "LiteLLMTool")
-        assert hasattr(mod, "configure_litellm_env")
+        assert hasattr(mod, "LiteLLMToolWorker")
 
     def test_import_kntgraph_agents_roles(self, block_optional):
-        importlib.import_module("kntgraph.agents.roles")
+        # The legacy ``kntgraph.agents.roles`` package was
+        # removed in v0.9.0 (ADR-039 follow-up). The
+        # canonical replacement is
+        # ``kntgraph.agents.role_systems``.
+        importlib.import_module("kntgraph.agents.role_systems")
 
     def test_import_kntgraph_agents_config(self, block_optional):
         importlib.import_module("kntgraph.agents.config")
@@ -104,7 +107,7 @@ class TestVerticalExtrasIsolation:
         """
         importlib.import_module("kntgraph.agents")
         importlib.import_module("kntgraph.agents.tools")
-        importlib.import_module("kntgraph.agents.roles")
+        importlib.import_module("kntgraph.agents.role_systems")
         importlib.import_module("kntgraph.agents.config")
         # If we got here, no transitive import of falkordb
         # / ollama / litellm / gliner2 happened at top

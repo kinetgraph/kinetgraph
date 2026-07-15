@@ -81,11 +81,17 @@ from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import World
 from kntgraph.tools.system import ToolAwareSystem
 
-from ..roles._parsing import parse_model_json
-from ..roles.chat import ChatReply, ChatRole
-from ..roles.personalized import PersonalizedRole
-from ..roles.planner import Plan, PlannerRole
-from ..roles.summarizer import SummarizerRole, Summary
+from ._prompts import (
+    CHAT_SYSTEM_PROMPT,
+    PLANNER_SYSTEM_PROMPT,
+    SUMMARIZER_SYSTEM_PROMPT,
+    ChatReply,
+    Plan,
+    Summary,
+    build_personalized_system_prompt,
+    format_chat_history,
+    parse_role_output,
+)
 
 
 __all__ = [
@@ -232,7 +238,7 @@ class _BaseRoleSystem(ToolAwareSystem):
         ``<role>.generation_failed`` event downstream).
         """
         try:
-            return Ok(parse_model_json(text, self.OUTPUT_MODEL))
+            return Ok(parse_role_output(text, self.OUTPUT_MODEL))
         except Exception as e:
             return Err(ToolError(f"{self.GENERATED_EVENT_TYPE}_parse_error: {e}"))
 
@@ -413,45 +419,25 @@ class ChatRoleSystem(_BaseRoleSystem):
 
     def __init__(self, *, persona: str = "") -> None:
         super().__init__()
-        # Compose a ``ChatRole`` to REUSE its
-        # ``SYSTEM_PROMPT`` and the ``_format_history``
-        # helper. The ``llm`` argument is None because
-        # the ECS path does NOT call ``llm.invoke``
-        # directly — the system emits an event and the
-        # WorkerManager runs the LLM in a separate
-        # process.
-        self._role = ChatRole(llm=None, persona=persona)  # type: ignore[arg-type]
         self._persona = persona
 
     def _build_system_prompt(self) -> str:
-        return self._role.SYSTEM_PROMPT
+        if self._persona:
+            return f"{self._persona}\n\n{CHAT_SYSTEM_PROMPT}"
+        return CHAT_SYSTEM_PROMPT
 
     def _build_user_prompt(
         self, view, session: SessionComponent | None, new_input: str
     ) -> str:
         if session is None:
             return new_input
-        # The legacy role's ``_format_history`` takes a
-        # ``SessionState`` (the cached projection). The
-        # ``SessionComponent`` has the same fields. We
-        # adapt the component to a ``SessionState``-
-        # shaped dict via the ``model_dump``-like
-        # access.
-        # ``SessionState`` is a frozen dataclass; we
-        # build a duck-typed object with the same
-        # fields.
-        from kntgraph.memory.session import SessionState
-
-        state = SessionState(
+        return format_chat_history(
             session_id=session.session_id,
             user_id=session.user_id,
             tenant_id=session.tenant_id,
-            messages=tuple(session.messages),
-            context=dict(session.context),
-            started_at=session.started_at.timestamp() if session.started_at else 0.0,
-            ended_at=session.ended_at.timestamp() if session.ended_at else None,
+            messages=list(session.messages),
+            new_message=new_input,
         )
-        return self._role._format_history(state, new_input)
 
 
 # ---------------------------------------------------------------------------
@@ -477,10 +463,9 @@ class PlannerRoleSystem(_BaseRoleSystem):
 
     def __init__(self) -> None:
         super().__init__()
-        self._role = PlannerRole(llm=None)  # type: ignore[arg-type]
 
     def _build_system_prompt(self) -> str:
-        return self._role.SYSTEM_PROMPT
+        return PLANNER_SYSTEM_PROMPT
 
     def _read_new_input(self, view) -> str:
         # ``plan.request`` carries the task in
@@ -514,10 +499,9 @@ class SummarizerRoleSystem(_BaseRoleSystem):
 
     def __init__(self) -> None:
         super().__init__()
-        self._role = SummarizerRole(llm=None)  # type: ignore[arg-type]
 
     def _build_system_prompt(self) -> str:
-        return self._role.SYSTEM_PROMPT
+        return SUMMARIZER_SYSTEM_PROMPT
 
     def _read_new_input(self, view) -> str:
         return super()._read_new_input(view)
@@ -543,16 +527,21 @@ class PersonalizedRoleSystem(_BaseRoleSystem):
 
     REQUEST_EVENT_TYPE = EVENT_TYPE_PERSONALIZED_REQUEST
     GENERATED_EVENT_TYPE = EVENT_TYPE_PERSONALIZED_REPLY_GENERATED
-    # The legacy role does not parse JSON; we return
-    # the raw text in a ``{"text": "..."}`` envelope.
+    # The legacy role returns raw text. We wrap
+    # the text in a tiny model so the system's
+    # output is uniform.
     OUTPUT_MODEL = BaseModel
 
     def __init__(self) -> None:
         super().__init__()
-        self._role = PersonalizedRole(llm=None)  # type: ignore[arg-type]
 
     def _build_system_prompt(self) -> str:
-        return self._role.SYSTEM_PROMPT
+        # The system prompt is profile-driven; the
+        # default (no profile) is a generic
+        # personalised-role prompt. A future hook
+        # can read the ``ProfileComponent`` from the
+        # view and pass ``preferences`` here.
+        return build_personalized_system_prompt(preferences={})
 
     def _read_new_input(self, view) -> str:
         return super()._read_new_input(view)
