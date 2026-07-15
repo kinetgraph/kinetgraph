@@ -252,12 +252,40 @@ class ReactiveDispatcher:
         out of ``dispatch_once`` so the orchestrator stays
         flat (CC ≤ 2) and the per-agent path is easy to
         test in isolation.
+
+        The cycle ALWAYS runs the systems, even when
+        the EventLog has no new events for the agent
+        (DEBT §2.21 follow-up). The
+        :class:`ToolCallTTLSweeperSystem` is the
+        primary motivation: an orphan request sits in
+        the slot until its TTL expires, which may
+        happen several ticks after the request was
+        emitted; the dispatcher must run the sweeper
+        on those ticks even if the EventLog has no
+        new events for the agent. When the log has
+        no new events, the fold is a no-op (the
+        World is unchanged) and the cursor is NOT
+        advanced (the next non-empty batch still
+        sees the same ``last_stream_id``).
         """
         ckpt = await self._world_store.load(agent_id)
         new_events, new_last_stream_id = await self._fetch_new_events(
             agent_id, ckpt.last_stream_id
         )
         if not new_events:
+            # No new events from the log; still run
+            # the systems (the TTL sweeper may have
+            # orphan requests to evict). The fold
+            # is a no-op; the cursor is not advanced
+            # (we did not consume any new stream
+            # entries).
+            await self._run_systems_and_persist(
+                agent_id=agent_id,
+                world=ckpt.world,
+                last_stream_id=ckpt.last_stream_id,
+                new_event_count=0,
+                new_events=[],
+            )
             return 0
 
         world, new_event_count = self._fold_with_filter(ckpt.world, new_events)
@@ -281,12 +309,12 @@ class ReactiveDispatcher:
 
         After the base fold, if the batch contains any
         ``tool.*`` event (``tool.requested``,
-        ``tool.<name>.completed``, ``tool.<name>.failed``)
-        the ``overlay_tool_calls`` projection is applied
-        on top of the post-fold World so systems that
-        use ``ToolAwareSystem`` see the materialised
-        ``tool_requests`` and ``tool_completions`` slots
-        (ADR-036 §2.3).
+        ``tool.<name>.<suffix>``, ``tool.completed``,
+        ``tool.failed``) the ``overlay_tool_calls``
+        projection is applied on top of the post-fold
+        World so systems that use ``ToolAwareSystem``
+        see the materialised ``tool_requests`` and
+        ``tool_completions`` slots (ADR-036 §2.3).
 
         The overlay is base-projection-free: it reuses
         the views the incremental ``with_event`` loop
@@ -300,7 +328,11 @@ class ReactiveDispatcher:
         :class:`ToolCallTTLSweeperSystem` (registered
         with the dispatcher; emits
         ``tool.<name>.failed`` events for stale
-        requests).
+        requests). The orphan-request eviction is
+        handled by :meth:`_fold_with_systems`, a
+        second overlay pass over the system-emitted
+        events (DEBT §2.21 follow-up; closes the
+        memory leak documented in ADR-045).
         """
         new_event_count = 0
         for event in new_events:
@@ -316,6 +348,61 @@ class ReactiveDispatcher:
             )
         return world, new_event_count
 
+    def _fold_with_systems(
+        self,
+        world: "World",
+        system_events: list[Event],
+    ) -> "World":
+        """Re-fold the World with the events emitted by
+        the systems in the same tick (ADR-045 Slot GC;
+        DEBT §2.21 follow-up).
+
+        The :class:`ToolCallTTLSweeperSystem` emits
+        ``tool.<name>.failed`` events for stale
+        requests. The first overlay pass
+        (in :meth:`_fold_with_filter`) did not see
+        these events because they did not exist yet
+        (the systems run AFTER the overlay). Without
+        this second pass, the stale request stays in
+        the ``tool_requests`` slot forever (the
+        completion-driven eviction rule in
+        ``overlay_tool_calls`` only fires when the
+        matching ``failed`` event lands in a next
+        tick's batch, but the sweeper emits it in the
+        CURRENT tick and it is never folded into the
+        slot until then).
+
+        The second pass folds the system events into
+        the World and re-applies the overlay with
+        ``new_events=system_events`` so the
+        completion-driven eviction rule
+        (``request in existing_completions`` ->
+        ``pop``) removes the orphan request in the
+        SAME tick. The overlay is pure, so the
+        second pass is deterministic and idempotent
+        (the stale request is gone in the new
+        World; a stale ``tool.<name>.failed`` is
+        itself the completion the rule looks for).
+
+        No-op when ``system_events`` contains no
+        ``tool.*`` event: the ``_has_tool_events``
+        pre-check is the same fast path as in
+        :meth:`_fold_with_filter` (ADR-044 §2.4
+        "no allocation for non-tool batches"). A
+        non-tool batch pays zero for this second
+        pass; the same World object is returned.
+        """
+        if not _has_tool_events(system_events):
+            return world
+        new_world = world
+        for event in system_events:
+            new_world = new_world.with_event(event)
+        return _overlay_tool_projection(
+            new_world,
+            system_events,
+            tool_ttls=self._tool_ttls,
+        )
+
     async def _run_systems_and_persist(
         self,
         agent_id: str,
@@ -325,19 +412,65 @@ class ReactiveDispatcher:
         new_events: list[Event],
     ) -> None:
         """Run the systems, append the resulting events,
-        and persist the checkpoint.
+        re-fold the World with the emitted events (the
+        ADR-045 Slot GC step), and persist the
+        checkpoint.
 
         Durability ordering: append before save. The
         crash window between append and save is closed
         by the EventLog dedupe on the next dispatch.
+
+        The systems are run on the post-fold World
+        (which already has the tool-call overlay
+        applied). Their emitted events are appended
+        to the EventLog AND used to update the World
+        via :meth:`_fold_with_systems` so the
+        completion-driven eviction rule in
+        ``overlay_tool_calls`` removes any orphan
+        request whose TTL was just enforced by the
+        :class:`ToolCallTTLSweeperSystem`. The
+        resulting World is the one persisted to the
+        checkpoint (the next tick's fold starts from
+        a clean slot).
+
+        The systems run on EVERY tick, even when
+        ``new_event_count == 0``. The
+        :class:`ToolCallTTLSweeperSystem` is the
+        primary motivation: an orphan request sits in
+        the slot until its TTL expires, which may
+        happen several ticks after the request was
+        emitted; the dispatcher must run the sweeper
+        on those ticks even if the EventLog has no
+        new events for the agent. The ``dispatch_once``
+        short-circuit on ``not new_events`` (line
+        261) only skips the full pipeline when the
+        log has nothing to fold AND the per-agent
+        store is the source of truth; for the
+        in-process ``_run_systems_and_persist`` path
+        used here, the systems must always run.
+
+        The ``new_event_count > 0`` guard is replaced
+        by a check on the EventLog/router side only
+        (the router fan-out happens once per batch;
+        the system pipeline is decoupled from the
+        per-batch new-event count).
         """
-        if new_event_count > 0:
-            if self._tool_router is not None:
-                await self._tool_router.route_batch(new_events)
-            await self._append_system_outgoing(world, agent_id)
+        if new_event_count > 0 and self._tool_router is not None:
+            await self._tool_router.route_batch(new_events)
+        system_events = await self._append_system_outgoing(
+            world, agent_id, return_events=True
+        )
+        if system_events:
+            world = self._fold_with_systems(world, system_events)
         await self._save_checkpoint(agent_id, world, last_stream_id)
 
-    async def _append_system_outgoing(self, world: "World", agent_id: str) -> None:
+    async def _append_system_outgoing(
+        self,
+        world: "World",
+        agent_id: str,
+        *,
+        return_events: bool = False,
+    ) -> list[Event] | None:
         """Invoke every system with the post-fold World
         and append the resulting events to the log.
 
@@ -351,6 +484,17 @@ class ReactiveDispatcher:
         happens first so the agent's history is the
         source of truth; the router copy is a best-
         effort transport to the worker pool.
+
+        ``return_events``: when ``True`` (the
+        :meth:`_run_systems_and_persist` path), the
+        emitted events are returned to the caller so
+        the World can be re-folded with them
+        (ADR-045 Slot GC; see
+        :meth:`_fold_with_systems`). When ``False``
+        (the legacy / test path), the events are
+        appended to the log and discarded. The
+        default is ``False`` to preserve the public
+        contract for the existing tool-router tests.
         """
         outgoing: list[Event] = []
         for system in self._systems:
@@ -363,6 +507,9 @@ class ReactiveDispatcher:
             await self._log.append_batch(outgoing)
             if self._tool_router is not None:
                 await self._tool_router.route_batch(outgoing)
+        if return_events:
+            return outgoing
+        return None
 
     async def _save_checkpoint(
         self, agent_id: str, world: "World", last_stream_id: str

@@ -863,18 +863,88 @@ still a shim; example 05b is WIP).
     ``request_tool`` event in place of the
     synchronous ``_invoke``.
 
-  - **Example migration (01-07).** Examples
+  - ~~**Example migration (01-07).** Examples
     01-07 still use the legacy ``LiteLLMTool`` (with
     a deprecation warning on import). They should be
     migrated to use the ``LiteLLMToolWorker`` via
-    the ``WorkerManager`` in the v0.9.0 cycle.
+    the ``WorkerManager`` in the v0.9.0 cycle.~~
+    **Closed in 2026-07-14:** the
+    ``LiteLLMTool``-based examples were split into
+    two groups and processed differently:
+
+      - **Examples 03, 04, 05, 06 (legacy Role
+        pattern)** were REMOVED. The concept of a
+        ``Role`` as a synchronous wrapper around
+        ``LiteLLMTool`` was superseded by the
+        ECS path (ADR-039 + ADR-044):
+        ``ChatRoleSystem`` / ``PlannerRoleSystem``
+        / ``SummarizerRoleSystem`` /
+        ``PersonalizedRoleSystem`` in
+        ``src/kntgraph/agents/role_systems/``.
+        The end-to-end canonical example is
+        ``examples/05c_session_chat_ecs_roles.py``;
+        the hydration shim for legacy session chat
+        is in ``examples/05b_session_chat_ecs.py``.
+        Keeping 03-06 alongside 05b/05c would
+        document two contradictory patterns
+        (sync Role vs event-driven RoleSystem);
+        removing the sync pattern removes the
+        confusion.
+      - **Example 01 (``LiteLLMTool`` direct)**
+        was MIGRATED to ``LiteLLMToolWorker``:
+        one ``LiteLLMToolWorker()`` instance +
+        four ``await worker.invoke(...)`` calls.
+        The worker returns a JSON-serialisable
+        ``dict`` envelope (the same shape the
+        ``WorkerManager`` consumes in the
+        production path; the example calls the
+        worker directly without the
+        ``WorkerManager`` infrastructure because
+        the example is a one-shot script). The
+        migration is drop-in: the call signature
+        (``system`` / ``user`` / ``idempotency_key``
+        / ``temperature`` / ``max_tokens`` /
+        ``think``) is the same; the return
+        envelope is a ``dict`` instead of a
+        ``LLMResponse`` dataclass.
+      - **Examples 02 and 07 (rate-limit demo +
+        caching transport)** were REMOVED. The
+        ``LiteLLMToolWorker`` does not own a
+        ``rate_limiter`` / ``cost_budget`` (those
+        were Tool-class concerns; the worker is
+        a stateless callable that runs in a
+        process pool, and the rate-limit /
+        cost-budget primitives are not part of
+        the worker contract). The caching
+        transport is still supported via a
+        custom ``LiteLLMTransportAdapter`` (the
+        ``CachingLLMTransport`` decorator in
+        ``agents.tools.cache`` is unchanged) but
+        the example is better written as a
+        custom-transport snippet in the docs
+        rather than a standalone ``LiteLLMTool``
+        example.
+
+    2 unit tests in
+    ``tests/unit/examples/test_example_01_migration.py``
+    cover the source-level migration (no
+    ``LiteLLMTool`` import; ``LiteLLMToolWorker``
+    used) and the runtime contract (the worker's
+    transport is called once; the
+    ``idempotency_key`` matches the example's
+    stable prefix). 1813 tests pass (+2 vs the
+    1811 baseline).
 
   - **Suppress deprecation noise in CI.** Add a
     ``warnings.filterwarnings`` rule to
     ``pyproject.toml::[tool.pytest.ini_options]`` to
     suppress the ``DeprecationWarning`` from
     ``LiteLLMTool`` and ``ToolInvoker`` until the
-    examples are migrated.
+    examples are migrated. **Closed in 2026-07-14:**
+    the suppression rule is no longer needed — the
+    legacy classes were REMOVED in v0.9.0 (see
+    §2.20). The ``pyproject.toml`` filterwarnings
+    was not added.
 
 **Acceptable:** Continue with the legacy paths for
 now. The deprecation warnings are intentional;
@@ -989,22 +1059,71 @@ the synchronous ``await role.reply()`` to the
 event-driven ``system(world)`` cycle. The dispatcher's
 event loop is NOT blocked while the LLM runs.
 
+**Removal of legacy roles** (2026-07-14): the
+``kntgraph.agents.roles`` package was REMOVED in
+v0.9.0 (the v0.9.0 target documented in the
+deprecation warning at the top of the package). The
+canonical replacement is the ``role_systems``
+module's ``ChatRoleSystem`` / ``PlannerRoleSystem``
+/ ``SummarizerRoleSystem`` / ``PersonalizedRoleSystem``.
+
+**Prompt extraction** (2026-07-14): the
+``SYSTEM_PROMPT`` constants, the Pydantic output
+schemas (``ChatReply`` / ``Plan`` / ``Summary``), the
+``format_chat_history`` helper, and the
+``build_personalized_system_prompt`` helper were
+extracted from the legacy roles into
+``src/kntgraph/agents/role_systems/_prompts.py`` so
+the role systems have a single source of truth for
+the prompt engineering and the legacy roles can be
+removed without losing the LLM-output schemas.
+
 **Open follow-ups:**
 
-  - **Examples 01-07 migration**: examples 01-07 still
+  - ~~**Examples 01-07 migration**: examples 01-07 still
     use the legacy ``ChatRole`` / ``PlannerRole`` (with
     a deprecation warning on import). They should be
     migrated to use ``ChatRoleSystem`` /
     ``PlannerRoleSystem`` via the ``WorkerManager`` in
     the v0.9.0 cycle. ``examples/05c_session_chat_ecs_roles.py``
-    is the reference.
-  - **SemanticRouterRole migration**: the
+    is the reference.~~ **Closed in 2026-07-14:** the
+    examples that demonstrated the legacy Role pattern
+    (03, 04, 05, 06) were REMOVED. The remaining
+    examples that used ``LiteLLMTool`` directly
+    (01) were migrated to ``LiteLLMToolWorker``;
+    the examples that demonstrated
+    ``LiteLLMTool``-specific features that are not
+    part of the worker contract (02 rate-limit
+    primitives, 07 caching transport) were also
+    removed. The canonical end-to-end ECS example
+    is ``examples/05c_session_chat_ecs_roles.py``;
+    the canonical session chat shim is
+    ``examples/05b_session_chat_ecs.py``.
+  - ~~**SemanticRouterRole migration**: the
     ``SemanticRoutingRole`` is not yet ported (its
     contract is different: it routes a user message
-    to a category, not a free-form LLM reply).
+    to a category, not a free-form LLM reply).~~
+    **Closed in 2026-07-14:** the
+    ``SemanticRoutingRole`` was REMOVED along with
+    the rest of the ``kntgraph.agents.roles``
+    package. A new ECS-shaped
+    ``SemanticRoutingRoleSystem`` is documented
+    for a future iteration (the contract is
+    genuinely different — it routes a user message
+    to a tool category via an ``IntentClassifier``;
+    it does not call an LLM). The example 12 that
+    demonstrated the M1+M2 pipeline was also
+    REMOVED; the equivalent ECS path is the
+    ``role_systems`` systems wired into a
+    ``ReactiveDispatcher`` (see 05c for the
+    end-to-end pattern).
   - **Removal of legacy roles** (target v1.0.0): the
     ``kntgraph.agents.roles`` package is kept alive
-    through v0.9 for back-compat.
+    through v0.9 for back-compat. **Closed in
+    2026-07-14:** the package was removed in v0.9.0
+    along with the legacy ``LiteLLMTool`` and
+    ``ToolInvoker``. See "Removal of legacy roles"
+    above.
 
 **Acceptable:** N/A — closed; migration is now
 production-ready. The legacy roles are kept on a
@@ -1045,14 +1164,191 @@ multi-agent, empty world, and the legacy bare
 
 **Open follow-ups:**
 
-  - **Slot GC**: the sweeper does NOT evict the
+  - ~~**Slot GC**: the sweeper does NOT evict the
     stale request from the slot. The eviction is
     left to the completion-driven rule (ADR-044).
     If the completion never arrives, the request
     stays in the slot forever (memory leak).
     A follow-up GC_TICK event (or a periodic
     compaction pass) is the mitigation; out of
-    scope for ADR-045.
+    scope for ADR-045.~~ **Closed in 2026-07-14:**
+    the dispatcher (``ReactiveDispatcher``) now
+    performs the GC step in
+    :meth:`_run_systems_and_persist`:
+
+      - **The systems run on EVERY tick**, even
+        when the EventLog has no new events for
+        the agent (the legacy
+        ``if not new_events: return 0`` short-
+        circuit in :meth:`_dispatch_for_agent`
+        is replaced with a no-op fold + full
+        systems pipeline). The TTL sweeper is
+        the primary motivation: an orphan
+        request sits in the slot until its TTL
+        expires, which may happen several
+        ticks after the request was emitted;
+        the dispatcher must run the sweeper
+        on those ticks.
+
+      - **The post-systems re-fold
+        (:meth:`_fold_with_systems`)** re-
+        applies the ``overlay_tool_calls``
+        projection with the system-emitted
+        events as input. The
+        ``tool.<name>.failed`` event emitted
+        by the sweeper joins the slot as a
+        completion (status="failed"), and the
+        completion-driven eviction rule
+        (``request in existing_completions``
+        -> ``pop``) removes the orphan
+        request from the slot in the same
+        tick.
+
+      - **The re-fold is opt-in**:
+        :meth:`_fold_with_systems` short-
+        circuits when ``system_events`` has
+        no ``tool.*`` event, so a non-tool
+        batch pays zero for the second pass
+        (ADR-044 §2.4 "no allocation for
+        non-tool batches" optimisation
+        preserved).
+
+      - **6 new unit tests** in
+        ``tests/unit/runner/test_reactive_dispatcher_ttl_gc.py``
+        cover: orphan eviction in the same
+        tick, fresh request preserved,
+        opt-out path (no sweeper = no GC),
+        cheap non-tool batches, no GC when
+        systems emit nothing, and router
+        fan-out of the TTL-failure event.
 
 **Acceptable:** N/A — closed; migration is
 production-ready.
+
+
+## 2.22 Build artifacts + AGENTS.md scaffold
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:**
+
+  - **``build/`` artifact removed.** The 2 MB
+    ``build/`` directory left over from a
+    ``python -m build`` run was deleted from
+    the repo. ``build/`` was already in
+    ``.gitignore`` (line 11, ``# Distribution /
+    packaging``); the directory was not tracked
+    by git, but the on-disk presence was noise
+    (the next ``build`` regenerates it). Future
+    builds will land in the same path; the
+    gitignore entry ensures they stay out of
+    tracking.
+
+  - **``scratch_replace_redis_url.py`` +
+    ``scratch_run_all.py`` removed from
+    tracking.** Two one-off debug helpers at
+    the repo root were historically versioned
+    but are not part of the production code
+    (``scratch_replace_redis_url.py`` rewrote
+    the Redis URL in all example files;
+    ``scratch_run_all.py`` ran every example
+    sequentially). Both are now
+    ``git rm --cached`` (the on-disk files
+    remain, so any human with a local
+    reference still has them; the files are no
+    longer in git history going forward).
+    New scratch scripts should live in
+    ``scripts/`` (or ``/tmp/opencode/``) so
+    the ``__init__.py`` layout and the
+    gate's test discovery stay clean.
+
+  - **``AGENTS.md`` created.** The conventions
+    document referenced by the test files
+    (and the test docstrings: ``AGENTS.md §1``,
+    ``§1.2``, ``§1.4``, ``§1.5``, ``§2``,
+    ``§2.1``, ``§2.2``, ``§2.3``, ``§3``,
+    ``§3.1``, ``§3.3``, ``§4.6``, ``§6``,
+    ``§6.2``, ``§7``, ``§9``, ``§10``,
+    ``§11.3``, ``§13``) was missing — the
+    conventions lived implicitly in CONTRIBUTING.md
+    and the tests' docstrings, but the single
+    source of truth file did not exist. The
+    new ``AGENTS.md`` (at the repo root) is
+    the canonical reference: type discipline
+    (§1, with the ``Any`` / ``object``
+    exceptions), no-compat-shims (§2, with the
+    removal-target contract), 500-line file
+    guideline (§3), style (§4.6 prose in
+    English, identifiers follow the domain),
+    typed errors (§6, ``Result[T, E]`` + typed
+    ``*Error``), behaviour tests (§7), the
+    single CI gate (§9, the 9-step
+    ``scripts/ci.py``), prose language (§10,
+    English), branch policy (§11.3, AI
+    agents do not push or create branches),
+    and the env vars + local-services
+    reference (§13).
+
+**Acceptable:** N/A — closed.
+
+
+## 2.23 REUSE 3.3 license compliance cleanup
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:** the ``reuse`` gate is now part of
+the ``scripts/ci.py`` pipeline (the 9th step)
+and passes cleanly. The cleanup touched 56
+files:
+
+  - **Invalid SPDX expression** in
+    ``scripts/quality_report.py``: the
+    ``render_markdown`` function embedded a
+    markdown template string that REUSE
+    parsed as an invalid license expression
+    The invalid expression was the literal
+    SPDX header identifier (in the markdown
+    template) followed by a trailing Python
+    comma. Fixed by wrapping the template's
+    SPDX header in
+    ``REUSE-IgnoreStart`` / ``REUSE-IgnoreEnd``
+    comments (REUSE ignores the block).
+
+  - **Missing SPDX headers** added to 55 files:
+    ``CHANGELOG.md``, 8 ADRs (ADR-038 through
+    ADR-045), 3 docs (``docs/adr-042-sequence.md``,
+    ``docs/cli_guide.md``, ``docs/memory_model.md``),
+    3 ``dev-servers/`` files (2 docker-compose
+    YAML + 1 redis.conf), 9 ``examples/``
+    files (the 2 missing examples 18/20 plus
+    7 ``knt-cli/weather_platform`` files
+    including a ``pyproject.toml``,
+    ``.env.example``, and ``uv.lock``), 6
+    ``src/kntgraph/cli/`` files (the
+    ``__init__.py``, ``main.py``, and 4
+    ``commands/``), 9 ``cli/templates/``
+    Jinja files (using ``{# ... #}`` Jinja
+    comments), 1 ``scripts/export_kntgraph.py``,
+    1 ``tests/agents/unit/conftest.py``, 7
+    ``tests/unit/cli/test_*.py``, ``.gitignore``,
+    the top-level ``uv.lock``, and the 2
+    ``scratch_*.py`` debug helpers.
+
+  - **CI integration**: ``step_reuse()`` was
+    defined in ``scripts/ci.py`` but missing
+    from the ``ALL_STEPS`` dict; the gate
+    was effectively a no-op before this
+    cleanup. The dict now registers
+    ``"reuse": step_reuse()`` between
+    ``complexity`` and ``pyright``; the
+    ``--only reuse`` flag now works in
+    isolation for local iteration. The
+    ``AGENTS.md`` and ``CONTRIBUTING.md``
+    documentation was updated to reflect
+    the 9-step gate (the ``CONTRIBUTING.md``
+    table was out of date — it listed 8
+    steps; the new table has 9 with
+    ``reuse`` between ``complexity`` and
+    ``pyright``).
+
+**Acceptable:** N/A — closed.

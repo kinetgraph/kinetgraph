@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 #!/usr/bin/env python3
 """
 Export ``kntgraph/`` as a tarball ready to be

@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Kinetgraph CLI Guide: Building a Weather Platform
 
 The `knt` CLI is the official scaffolding tool for Kinetgraph. It strictly enforces Domain-Driven Design (DDD) and Kinetgraph's architectural standards (ADRs) by generating correctly structured boilerplate code.

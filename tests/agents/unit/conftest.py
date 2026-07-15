@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared pytest configuration for the agents/unit tests."""
 
 from __future__ import annotations

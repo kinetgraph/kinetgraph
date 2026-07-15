@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Kinetgraph Memory Model
 
 The Kinetgraph framework implements a multi-tiered memory model to handle agent state, conversational context, and long-term knowledge. The short-term memory architecture is heavily inspired by the **Redis Agent Builder (RAB)** cookbook, adapted to fit a purely event-sourced paradigm.

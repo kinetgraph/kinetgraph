@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
 from typing import TypedDict
 from kntgraph.core.event import Event
 from kntgraph.core.correlation import correlation_middleware

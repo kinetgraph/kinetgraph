@@ -76,29 +76,17 @@ import textwrap
 
 class TestToolsCacheImportChain:
     """The ``kntgraph.agents.tools.cache`` import path is
-    cycle-free."""
+    cycle-free.
 
-    def test_kntgraph_agents_tools_cache_imports_cleanly(self) -> None:
-        """``import kntgraph.agents.tools.cache`` must NOT
-        raise ``ImportError`` due to a cycle.
+    Closed in v0.9.0: the ``agents.tools.cache`` and
+    ``agents.tools.invoker`` modules were removed (the
+    legacy ``LiteLLMTool`` Tool path and the
+    ``ToolInvoker`` orchestrator). The test is kept as
+    a thin smoke test to confirm the public agents
+    submodules still import cleanly.
+    """
 
-        Before this iter, the cycle was:
-        ``kntgraph.agents.tools.cache`` →
-        ``kntgraph.agents.tools.invoker`` →
-        ``kntgraph.stream.event_log`` →
-        ``kntgraph.infra`` →
-        ``kntgraph.infra.graph._lite_pool`` →
-        ``kntgraph.knowledge.graph`` →
-        ``kntgraph.knowledge.falkordb.adapter`` →
-        ``kntgraph.stream.event_log``.
-
-        After this iter, the cycle is broken at
-        ``knowledge.falkordb.adapter`` (moved
-        ``EventLog`` import to ``TYPE_CHECKING``).
-        """
-        # Run a subprocess so any ``ImportError`` from
-        # a cycle is reported cleanly without polluting
-        # the test's own import state.
+    def test_kntgraph_agents_tools_imports_cleanly(self) -> None:
         import os
         from pathlib import Path
 
@@ -106,13 +94,8 @@ class TestToolsCacheImportChain:
             """
             import sys
             try:
-                import kntgraph.agents.tools.cache  # noqa: F401
+                import kntgraph.agents.tools  # noqa: F401
             except ImportError as e:
-                # Detect cycle-induced ImportError.
-                # Cycle message in CPython 3.12:
-                # "cannot import name 'X' from partially
-                # initialized module 'Y' (most likely due
-                # to a circular import)"
                 msg = str(e)
                 if "circular import" in msg or "partially initialized" in msg:
                     print(f"CYCLE: {e}", file=sys.stderr)
@@ -121,9 +104,6 @@ class TestToolsCacheImportChain:
             print("OK")
             """
         )
-        # Build PYTHONPATH: kntgraph/src and
-        # kntgraph.agents/src (siblings of the workspace
-        # root that contains this test's file).
         workspace_root = Path(__file__).parent.parent.parent.parent
         pythonpath = ":".join(
             [
@@ -138,11 +118,8 @@ class TestToolsCacheImportChain:
             text=True,
             env=env,
         )
-        # Exit code 2 = cycle (test failure).
-        # Other non-zero = real import error (test failure).
-        # Zero = success.
         assert result.returncode == 0, (
-            f"kntgraph.agents.tools.cache import failed "
+            f"kntgraph.agents.tools import failed "
             f"(rc={result.returncode}):\n"
             f"stdout={result.stdout}\n"
             f"stderr={result.stderr}"

@@ -1,7 +1,9 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
 from kntgraph.runner import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.registry import ToolRegistry
-from kntgraph.agents.roles import IntentResolutionSystem
 
 # Import all systems and tools from your context's agents here.
 # For example:
@@ -12,25 +14,36 @@ def build_{{ context_name }}_dispatcher(log: EventLog) -> ReactiveDispatcher:
     Orchestrates the ReactiveDispatcher for the entire '{{ context_name }}' context.
     Aggregates pure WorldSystems and impure Tools from all its Agents.
     """
-    
+
     # 1. Aggregate Tools
     # tools = get_checkout_agent_tools() + ...
     tools = []
-    
-    # 2. Register tools for IntentResolutionSystem
+
+    # 2. Register tools (per the ``ToolRegistry`` contract;
+    # the legacy ``IntentResolutionSystem`` ACL gate was
+    # removed in v0.9.0; per-tool ACL is enforced by
+    # the ``ToolACL`` at the ``ToolRegistry`` level).
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
-    
-    # 3. Aggregate Systems (including the universal IntentResolutionSystem)
-    # systems = [IntentResolutionSystem(registry)] + get_checkout_agent_systems() + ...
-    systems = [IntentResolutionSystem(registry)]
-    
+
+    # 3. Aggregate Systems. The legacy
+    # ``IntentResolutionSystem`` (kntgraph.agents.roles)
+    # was removed in v0.9.0 (ADR-039). The new
+    # architecture wires per-role ``WorldSystem``
+    # instances (e.g. ``ChatRoleSystem`` /
+    # ``PlannerRoleSystem`` from
+    # ``kntgraph.agents.role_systems``) directly into
+    # the dispatcher; the systems themselves emit
+    # ``tool.<name>.requested`` events that the
+    # ``WorkerManager`` orchestrates.
+    # systems = get_checkout_agent_systems() + ...
+    systems = []
+
     # 4. Create the dispatcher
     dispatcher = ReactiveDispatcher(
         log=log,
         systems=systems,
-        max_parallel_agents=5
     )
-    
+
     return dispatcher

@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-042: Memory Model Exposure in ECS Pattern (Systems vs. Tools) and CLI Support
 
 **Status:** Proposed

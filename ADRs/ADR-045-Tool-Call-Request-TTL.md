@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # ADR-045: Tool-call Request TTL (orphan eviction via sweeper system)
 
 **Status:** Accepted
