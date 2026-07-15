@@ -1045,14 +1045,63 @@ multi-agent, empty world, and the legacy bare
 
 **Open follow-ups:**
 
-  - **Slot GC**: the sweeper does NOT evict the
+  - ~~**Slot GC**: the sweeper does NOT evict the
     stale request from the slot. The eviction is
     left to the completion-driven rule (ADR-044).
     If the completion never arrives, the request
     stays in the slot forever (memory leak).
     A follow-up GC_TICK event (or a periodic
     compaction pass) is the mitigation; out of
-    scope for ADR-045.
+    scope for ADR-045.~~ **Closed in 2026-07-14:**
+    the dispatcher (``ReactiveDispatcher``) now
+    performs the GC step in
+    :meth:`_run_systems_and_persist`:
+
+      - **The systems run on EVERY tick**, even
+        when the EventLog has no new events for
+        the agent (the legacy
+        ``if not new_events: return 0`` short-
+        circuit in :meth:`_dispatch_for_agent`
+        is replaced with a no-op fold + full
+        systems pipeline). The TTL sweeper is
+        the primary motivation: an orphan
+        request sits in the slot until its TTL
+        expires, which may happen several
+        ticks after the request was emitted;
+        the dispatcher must run the sweeper
+        on those ticks.
+
+      - **The post-systems re-fold
+        (:meth:`_fold_with_systems`)** re-
+        applies the ``overlay_tool_calls``
+        projection with the system-emitted
+        events as input. The
+        ``tool.<name>.failed`` event emitted
+        by the sweeper joins the slot as a
+        completion (status="failed"), and the
+        completion-driven eviction rule
+        (``request in existing_completions``
+        -> ``pop``) removes the orphan
+        request from the slot in the same
+        tick.
+
+      - **The re-fold is opt-in**:
+        :meth:`_fold_with_systems` short-
+        circuits when ``system_events`` has
+        no ``tool.*`` event, so a non-tool
+        batch pays zero for the second pass
+        (ADR-044 §2.4 "no allocation for
+        non-tool batches" optimisation
+        preserved).
+
+      - **6 new unit tests** in
+        ``tests/unit/runner/test_reactive_dispatcher_ttl_gc.py``
+        cover: orphan eviction in the same
+        tick, fresh request preserved,
+        opt-out path (no sweeper = no GC),
+        cheap non-tool batches, no GC when
+        systems emit nothing, and router
+        fan-out of the TTL-failure event.
 
 **Acceptable:** N/A — closed; migration is
 production-ready.

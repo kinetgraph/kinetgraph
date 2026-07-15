@@ -150,6 +150,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       §2.18, §2.20, §2.21) and now live in
       `[Unreleased]`. The section is kept as a
       pointer, not a TODO list.
+- **Slot GC for the TTL sweeper (ADR-045 follow-up;
+  DEBT §2.21):** the `ReactiveDispatcher` now
+  closes the memory leak in the tool-call slot. The
+  legacy code path had two structural issues that
+  prevented the orphan request from being evicted
+  in the same tick the sweeper detected it:
+
+    - The `dispatch_once` short-circuit
+      (`if not new_events: return 0`) skipped the
+      systems pipeline on ticks where the EventLog
+      had no new events. The TTL sweeper emits its
+      `tool.<name>.failed` events in those very
+      ticks (the orphan request was emitted several
+      ticks earlier; the current tick has no
+      activity on the log).
+    - The first overlay pass
+      (`_fold_with_filter`) runs BEFORE the systems
+      and never sees the `failed` events. The
+      completion-driven eviction rule in
+      `overlay_tool_calls` only fires when the
+      matching completion lands in a next tick's
+      batch.
+
+  The fix:
+
+    - **Systems run on every tick.** The
+      `dispatch_once` short-circuit is replaced
+      with a no-op fold + full systems pipeline;
+      the cursor advances only when the EventLog
+      has new events.
+    - **Post-systems re-fold
+      (`_fold_with_systems`).** The
+      `overlay_tool_calls` projection is re-applied
+      with the system-emitted events as input. The
+      `tool.<name>.failed` event joins the slot as
+      a completion, and the completion-driven
+      eviction rule removes the orphan request in
+      the same tick.
+    - **Re-fold is opt-in.** `_fold_with_systems`
+      short-circuits when `system_events` has no
+      `tool.*` event, so a non-tool batch pays zero
+      for the second pass (ADR-044 §2.4 "no
+      allocation for non-tool batches"
+      optimisation preserved).
+
+  6 new unit tests in
+  `tests/unit/runner/test_reactive_dispatcher_ttl_gc.py`
+  cover: orphan eviction in the same tick, fresh
+  request preserved, opt-out path (no sweeper = no
+  GC), cheap non-tool batches, no GC when systems
+  emit nothing, and router fan-out of the
+  TTL-failure event. 1811 unit tests pass (+6 vs
+  the 1805 baseline).
 - **Tool-call request TTL (ADR-045):** the
   `ToolCallRequest` component has a new
   `expires_at: Optional[datetime]` field (computed at
