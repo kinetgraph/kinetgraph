@@ -396,6 +396,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     role_systems and ttl_sweeper tests survive
     and run green).
 
+- **Build cleanup + AGENTS.md scaffold (DEBT
+  §2.22).**
+
+    - **`build/` artifact removed.** The 2 MB
+      `build/` directory (a stale
+      `python -m build` artifact) was deleted
+      from the repo. `build/` is already in
+      `.gitignore` (line 11); the directory
+      was not tracked by git, but the on-disk
+      presence was noise. Future builds will
+      land in the same path; the gitignore
+      entry keeps them out of tracking.
+    - **`scratch_replace_redis_url.py`** and
+      **`scratch_run_all.py`** removed from
+      git tracking (`git rm --cached`; the
+      on-disk files remain). Two one-off
+      debug helpers that were historically
+      versioned but are not part of the
+      production code. New scratch scripts
+      should live in `scripts/` (or
+      `/tmp/opencode/`) so the `__init__.py`
+      layout and the gate's test discovery
+      stay clean.
+    - **`AGENTS.md` created** (at the repo
+      root). The conventions document
+      referenced by the test docstrings
+      (`AGENTS.md §1`, `§2`, `§6`, `§7`,
+      `§9`, etc) was missing — the
+      conventions lived implicitly in
+      `CONTRIBUTING.md` and the tests'
+      docstrings, but the single source of
+      truth file did not exist. The new
+      `AGENTS.md` is the canonical reference:
+      type discipline (`Any` / `object`
+      exceptions), no-compat-shims (removal-
+      target contract), 500-line file
+      guideline, typed errors (`Result[T, E]`
+      + typed `*Error`), behaviour tests, the
+      single CI gate (the 9-step
+      `scripts/ci.py`), prose language
+      (English), branch policy (AI agents do
+      not push or create branches), and the
+      env vars + local-services reference.
+
 ### Changed
 - **Traceability Enforcement (ADR-037 / ADR-039):**
   - Enabled explicit `CorrelationContext` propagation in `IntentResolutionSystem` across all success (`tool.<name>.requested`) and failure (`intent.validation_failed`) event paths to guarantee end-to-end auditability.

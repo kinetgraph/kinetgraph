@@ -1224,3 +1224,69 @@ multi-agent, empty world, and the legacy bare
 
 **Acceptable:** N/A — closed; migration is
 production-ready.
+
+
+## 2.22 Build artifacts + AGENTS.md scaffold
+
+**Status:** Closed in 2026-07-14.
+
+**Closed by:**
+
+  - **``build/`` artifact removed.** The 2 MB
+    ``build/`` directory left over from a
+    ``python -m build`` run was deleted from
+    the repo. ``build/`` was already in
+    ``.gitignore`` (line 11, ``# Distribution /
+    packaging``); the directory was not tracked
+    by git, but the on-disk presence was noise
+    (the next ``build`` regenerates it). Future
+    builds will land in the same path; the
+    gitignore entry ensures they stay out of
+    tracking.
+
+  - **``scratch_replace_redis_url.py`` +
+    ``scratch_run_all.py`` removed from
+    tracking.** Two one-off debug helpers at
+    the repo root were historically versioned
+    but are not part of the production code
+    (``scratch_replace_redis_url.py`` rewrote
+    the Redis URL in all example files;
+    ``scratch_run_all.py`` ran every example
+    sequentially). Both are now
+    ``git rm --cached`` (the on-disk files
+    remain, so any human with a local
+    reference still has them; the files are no
+    longer in git history going forward).
+    New scratch scripts should live in
+    ``scripts/`` (or ``/tmp/opencode/``) so
+    the ``__init__.py`` layout and the
+    gate's test discovery stay clean.
+
+  - **``AGENTS.md`` created.** The conventions
+    document referenced by the test files
+    (and the test docstrings: ``AGENTS.md §1``,
+    ``§1.2``, ``§1.4``, ``§1.5``, ``§2``,
+    ``§2.1``, ``§2.2``, ``§2.3``, ``§3``,
+    ``§3.1``, ``§3.3``, ``§4.6``, ``§6``,
+    ``§6.2``, ``§7``, ``§9``, ``§10``,
+    ``§11.3``, ``§13``) was missing — the
+    conventions lived implicitly in CONTRIBUTING.md
+    and the tests' docstrings, but the single
+    source of truth file did not exist. The
+    new ``AGENTS.md`` (at the repo root) is
+    the canonical reference: type discipline
+    (§1, with the ``Any`` / ``object``
+    exceptions), no-compat-shims (§2, with the
+    removal-target contract), 500-line file
+    guideline (§3), style (§4.6 prose in
+    English, identifiers follow the domain),
+    typed errors (§6, ``Result[T, E]`` + typed
+    ``*Error``), behaviour tests (§7), the
+    single CI gate (§9, the 9-step
+    ``scripts/ci.py``), prose language (§10,
+    English), branch policy (§11.3, AI
+    agents do not push or create branches),
+    and the env vars + local-services
+    reference (§13).
+
+**Acceptable:** N/A — closed.
