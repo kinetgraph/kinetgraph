@@ -230,12 +230,13 @@ canonical schema is `Settings` in
   docs.
 - [ADRs](ADRs/) — Architecture Decision Records.
 
-### ADRs em Discussão
+### ADRs Proposed in discussion
 
 | ADR | Título | Status |
 | --- | ------ | ------ |
 | [ADR-035](ADRs/ADR-035-sharding-and-dispatcher-coordination-for-horizontal-scaling.md) | Sharding and Dispatcher Coordination for Horizontal Scaling | Proposed (Under Review) |
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
+| [ADR-046](ADRs/ADR-046-CLI-Intent-Routing-Scaffold.md) | CLI Scaffold for Intent Routing Modes | Proposed |
 
 ## Project status
 
