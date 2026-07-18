@@ -137,9 +137,9 @@ class TestProjectMemorySession:
         out = project_memory([start, end])
         sc = out["session:s1"].components[SessionComponent]
         assert sc.ended_at is not None
-        # ``ended_at`` is a ``datetime`` matching the
+        # ``ended_at`` is a float timestamp matching the
         # ``session.ended`` event's timestamp.
-        assert sc.ended_at == end.timestamp
+        assert sc.ended_at == end.timestamp.timestamp()
 
     def test_session_context_keyvalue(self) -> None:
         """A ``session.context`` event sets a key
@@ -236,10 +236,10 @@ class TestProjectMemoryProfile:
         out = project_memory([created, set_lang, set_tone])
         pc = out["agent-1"].components[ProfileComponent]
         assert pc.preferences == {"language": "en", "tone": "casual"}
-        # ``updated_at`` is the timestamp of the
+        # ``updated_at`` is the float timestamp of the
         # latest preference change.
         assert pc.updated_at is not None
-        assert pc.updated_at == set_tone.timestamp
+        assert pc.updated_at == set_tone.timestamp.timestamp()
 
     def test_profile_tier_changed_updates_tier(self) -> None:
         """A ``profile.tier_changed`` event updates

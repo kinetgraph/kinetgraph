@@ -146,7 +146,6 @@ class EventLog:
                 returns ``Err`` immediately.
             append_timeout_seconds: per-attempt timeout for
                 the storage call. Default 5s.
-            append_backoff: the retry policy.
         """
         self._storage = storage
         # ADR-016 PR 5 enforcement hooks.

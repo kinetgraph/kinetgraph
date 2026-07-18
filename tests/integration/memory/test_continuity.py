@@ -17,6 +17,10 @@ Covers:
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisContinuityStorage
+from kntgraph.infra.redis._memory import RedisProfileStorage
+from kntgraph.infra.redis._memory import RedisSessionStorage
 
 from uuid import uuid4
 
@@ -47,8 +51,8 @@ pytestmark = pytest.mark.asyncio
 
 class TestContinuityManager:
     async def test_create(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis, ttl_seconds=60)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis), ttl_seconds=60)
         result = await cm.create("t-1", "u-1")
         assert result.is_ok()
 
@@ -62,8 +66,8 @@ class TestContinuityManager:
         assert state.cleared_at is None
 
     async def test_cache_uses_hash(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis, ttl_seconds=60)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis), ttl_seconds=60)
         await cm.create("t-1", "u-1")
 
         assert await clean_redis.exists(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
@@ -75,16 +79,18 @@ class TestContinuityManager:
         Sliding TTL: after a write, the key has a positive TTL.
         The TTL is renewed on every subsequent write.
         """
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis, ttl_seconds=120)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(
+            log, RedisContinuityStorage(clean_redis), ttl_seconds=120
+        )
         await cm.create("t-1", "u-1")
 
         ttl = await clean_redis.ttl(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
         assert 0 < ttl <= 120
 
     async def test_record_tool_used(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         r = await cm.record_tool_used(
             "t-1",
@@ -106,8 +112,8 @@ class TestContinuityManager:
         hash. Raw values are rejected before reaching the
         EventLog.
         """
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
 
         good = await cm.record_entity_seen(
@@ -133,8 +139,8 @@ class TestContinuityManager:
         assert len(events) == 2
 
     async def test_record_category_chosen(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         r = await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
         assert r.is_ok()
@@ -144,8 +150,8 @@ class TestContinuityManager:
         assert "cfop" in state.last_categories
 
     async def test_recency_suggest(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "7102")
@@ -155,8 +161,8 @@ class TestContinuityManager:
         assert last.startswith("7102|")
 
     async def test_recency_suggest_unknown_returns_none(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         last = await cm.recency_suggest("t-1", "u-1", "cfop")
         assert last is None
@@ -167,8 +173,8 @@ class TestContinuityManager:
         wiped (state has empty dicts and ``cleared_at`` set),
         and ``recency_suggest`` returns None.
         """
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
         r = await cm.clear("t-1", "u-1", reason="lgpd_erasure")
@@ -184,8 +190,8 @@ class TestContinuityManager:
         assert last is None
 
     async def test_post_clear_recording_starts_fresh(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "5102")
         await cm.clear("t-1", "u-1")
@@ -197,8 +203,8 @@ class TestContinuityManager:
         assert state.last_categories["cfop"].startswith("6102|")
 
     async def test_cache_rebuilt_from_log(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         await cm.record_tool_used(
             "t-1",
@@ -221,21 +227,21 @@ class TestContinuityManager:
         assert await clean_redis.exists(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
 
     async def test_read_unknown_returns_none(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         state = await cm.read("t-x", "u-x")
         assert state is None
 
     async def test_idempotent_create(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         r1 = await cm.create("t", "u")
         r2 = await cm.create("t", "u")
         assert r1.unwrap().event_id == r2.unwrap().event_id
 
     async def test_idempotent_clear(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t", "u")
         r1 = await cm.clear("t", "u", reason="user_request")
         r2 = await cm.clear("t", "u", reason="user_request")
@@ -253,8 +259,8 @@ class TestCacheWarmerContinuityDispatch:
         The CacheWarmer must accept a ``continuity_manager``
         and dispatch ``kind="continuity"`` requests to it.
         """
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
         await cm.record_tool_used(
             "t-1",
@@ -292,9 +298,9 @@ class TestCacheWarmerContinuityDispatch:
 
         # Construct warmer without continuity_manager.
         # We still need session/profile for the type signature.
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         warmer = CacheWarmer(bus, sm, pm)
 
         applied = await warmer.pump_once()
@@ -310,10 +316,10 @@ class TestCacheWarmerContinuityDispatch:
 
 class TestProjectorContinuity:
     async def test_project_all_includes_continuity(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         proj = Projector(log, sm, pm, cm)
 
         await sm.start("s-1", user_id="u", tenant_id="t")
@@ -341,9 +347,9 @@ class TestProjectorContinuity:
         }
 
     async def test_project_continuity_no_manager_returns_false(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         # No continuity_manager passed.
         proj = Projector(log, sm, pm)
         assert await proj.project_continuity("t", "u") is False
@@ -368,7 +374,7 @@ class TestConsolidatorContinuity:
         )
         from kntgraph.core.world import World
 
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus)
 
@@ -398,8 +404,8 @@ class TestPublicCacheContract:
         that the Projector relies on (parallel contract to
         SessionManager and ProfileManager).
         """
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         state = ContinuityState(
             tenant_id="t",
             user_id="u",
@@ -415,8 +421,8 @@ class TestPublicCacheContract:
         assert cached.last_categories == {"cfop": "6102|1.0"}
 
     async def test_continuity_refresh_cache_is_public(self, clean_redis):
-        log = EventLog(clean_redis)
-        cm = ContinuityManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t", "u")
         await cm.record_category_chosen("t", "u", "cfop", "6102")
         await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t:u")

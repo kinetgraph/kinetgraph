@@ -198,8 +198,9 @@ class TestReads:
         assert all(e.reason == DLQReason.TIMEOUT for e in timeouts)
 
     async def test_list_all_returns_inserts(self, queue):
-        for _ in range(3):
-            await queue.append(_make_dlq_event())
+        for i in range(3):
+            e = _make_event(type_=f"test.failed.{i}")
+            await queue.append(_make_dlq_event(event=e))
         all_entries = await queue.list_all()
         assert len(all_entries) == 3
 

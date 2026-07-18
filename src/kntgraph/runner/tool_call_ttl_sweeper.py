@@ -169,9 +169,7 @@ class ToolCallTTLSweeperSystem:
         # is in-memory; it is reset on process restart.
         self._emitted_failures: set[str] = set()
 
-    def __call__(
-        self, world_or_views: "World | Mapping[str, AgentView]"
-    ) -> list[Event]:
+    def __call__(self, world: "World | Mapping[str, AgentView]") -> list[Event]:
         events: list[Event] = []
         now = self._now or datetime.now(tz=timezone.utc)
         # Accept either a ``World`` (production
@@ -179,10 +177,10 @@ class ToolCallTTLSweeperSystem:
         # World) or a ``Mapping[str, AgentView]`` (test
         # path: the test passes a dict of views built
         # by ``project_tool_calls``).
-        if isinstance(world_or_views, World):
-            views_iter: Mapping[str, AgentView] = world_or_views.views
+        if isinstance(world, World):
+            views_iter: Mapping[str, AgentView] = world.views
         else:
-            views_iter = world_or_views
+            views_iter = world
         for agent_id, view in views_iter.items():
             tool_requests = view.components.get("tool_requests", {})
             if not isinstance(tool_requests, dict):
@@ -254,7 +252,7 @@ class ToolCallTTLSweeperSystem:
 
         tool_name = request.tool_name or "unknown"
         event_type = f"tool.{tool_name}.failed"
-        correlation = CorrelationContext(correlation_id=request.correlation_id)
+        correlation = CorrelationContext.new(correlation_id=request.correlation_id)
         return Event.create(
             event_type=event_type,
             agent_id=agent_id,

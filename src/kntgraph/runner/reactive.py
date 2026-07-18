@@ -273,6 +273,8 @@ class ReactiveDispatcher:
             agent_id, ckpt.last_stream_id
         )
         if not new_events:
+            if self._tool_ttls is None:
+                return 0
             # No new events from the log; still run
             # the systems (the TTL sweeper may have
             # orphan requests to evict). The fold
@@ -289,6 +291,13 @@ class ReactiveDispatcher:
             return 0
 
         world, new_event_count = self._fold_with_filter(ckpt.world, new_events)
+        if new_event_count == 0 and self._tool_ttls is None:
+            # If all events were filtered out, and no TTL sweeper is active,
+            # we don't need to run systems. We still save the checkpoint so
+            # the cursor advances past the filtered events.
+            await self._save_checkpoint(agent_id, world, new_last_stream_id)
+            return 0
+
         await self._run_systems_and_persist(
             agent_id, world, new_last_stream_id, new_event_count, new_events
         )
@@ -345,6 +354,7 @@ class ReactiveDispatcher:
                 world,
                 new_events,
                 tool_ttls=self._tool_ttls,
+                post_systems=False,
             )
         return world, new_event_count
 
@@ -401,6 +411,7 @@ class ReactiveDispatcher:
             new_world,
             system_events,
             tool_ttls=self._tool_ttls,
+            post_systems=True,
         )
 
     async def _run_systems_and_persist(
