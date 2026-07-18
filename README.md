@@ -19,14 +19,14 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 
 | Gate | Tool | Status | Reference |
 | --- | --- | --- | --- |
-| Lint | `ruff check` | [![lint](https://img.shields.io/badge/lint-ruff-3_issues-orange?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 3 issues |
-| Format | `ruff format --check` | [![format](https://img.shields.io/badge/format-ruff-2_files_formatted-orange?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 2 files formatted; 0 need reformat |
-| Complexity | `radon cc` | [![cc](https://img.shields.io/badge/CC-A%20%282.56%29-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | avg 2.56 (A); 0 rank D+ |
+| Lint | `ruff check` | [![lint](https://img.shields.io/badge/lint-ruff-0_issues-brightgreen?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 0 issues |
+| Format | `ruff format --check` | [![format](https://img.shields.io/badge/format-ruff-400_files_formatted-brightgreen?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 400 files formatted; 0 need reformat |
+| Complexity | `radon cc` | [![cc](https://img.shields.io/badge/CC-A%20%282.57%29-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | avg 2.57 (A); 0 rank D+ |
 | Maintainability | `radon mi` | [![mi](https://img.shields.io/badge/MI-235_A_0_B_0_C-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | 235 A; 0 B; 0 C- |
-| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-91%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 91 errors / 943 warnings; see [`DEBT.md`](DEBT.md) |
-| Coverage | `pytest + coverage` | [![coverage](https://img.shields.io/badge/coverage-80%25-brightgreen?style=flat-square)](https://coverage.readthedocs.io/) | 7011/8740 stmts; unit tests only |
+| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-67%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 67 errors / 943 warnings; see [`DEBT.md`](DEBT.md) |
+| Coverage | `pytest + coverage` | [![coverage](https://img.shields.io/badge/coverage-80.0%25-brightgreen?style=flat-square)](https://coverage.readthedocs.io/) | 7019/8764 stmts; unit tests only |
 | Tests | `pytest` | [![tests](https://img.shields.io/badge/tests-1502%20passed-brightgreen?style=flat-square&logo=pytest)](https://docs.pytest.org/) | 1502 unit passed; 0 failed |
-| Security | `bandit` | [![security](https://img.shields.io/badge/security-2%20M%2B4%20L-yellow?style=flat-square)](https://bandit.readthedocs.io/) | 0 H; 2 M; 4 L |
+| Security | `bandit` | [![security](https://img.shields.io/badge/security-clean-brightgreen?style=flat-square)](https://bandit.readthedocs.io/) | 0 H; 0 M; 0 L |
 | Audit | `pip-audit` | [![audit](https://img.shields.io/badge/audit-pip--audit-blueviolet?style=flat-square)](https://pypi.org/project/pip-audit/) | 0 known vulnerabilities |
 
 > The current value of each badge is generated locally by
@@ -36,8 +36,8 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 > Keep the snapshot in sync with this table when you
 > remove badges or change the gate count.
 
-A full breakdown of the current technical debt (91 pyright
-errors, 2 medium bandit findings, and 11 stale `# type: ignore` comments)
+A full breakdown of the current technical debt (67 pyright
+errors, 0 medium bandit findings, and 11 stale `# type: ignore` comments)
 is in [`DEBT.md`](DEBT.md).
 
 kntgraph is the renamed and unified successor of
