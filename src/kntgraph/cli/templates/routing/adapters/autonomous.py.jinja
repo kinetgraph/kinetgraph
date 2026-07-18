@@ -1,0 +1,8 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+
+def build_adapter(*, routing_mode: str = "autonomous"):
+    """Build the autonomous routing adapter."""
+
+    return {"mode": routing_mode, "kind": "autonomous"}

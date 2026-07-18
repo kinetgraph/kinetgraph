@@ -1,0 +1,8 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+
+def build_adapter(*, routing_mode: str = "external"):
+    """Build the external routing adapter."""
+
+    return {"mode": routing_mode, "kind": "external"}

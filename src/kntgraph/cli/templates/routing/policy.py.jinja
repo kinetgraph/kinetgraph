@@ -1,0 +1,10 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+class IntentPolicy:
+    """Shared policy layer for routing decisions."""
+
+    def evaluate(self, role: object, target_tool: str) -> bool:
+        if not hasattr(role, "allowed_tools"):
+            return False
+        return target_tool in role.allowed_tools

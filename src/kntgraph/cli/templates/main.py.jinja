@@ -74,6 +74,11 @@ from kntgraph.infra.redis._pool import create_redis_pool
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.manager import WorkerManager
 
+from {{ project_name }}.routing.components import IntentComponent, RoleComponent
+from {{ project_name }}.routing.policy import IntentPolicy
+from {{ project_name }}.routing.resolution import IntentResolutionSystem
+from {{ project_name }}.routing.adapters.{{ routing_mode }} import build_adapter
+
 # Example imports for your Context Dispatchers
 # from src.contexts.sales.dispatcher import build_sales_dispatcher
 # from src.contexts.logistics.dispatcher import build_logistics_dispatcher
@@ -81,26 +86,32 @@ from kntgraph.tools.manager import WorkerManager
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     print("Starting {{ project_name }} Modular Monolith...")
-    
+
     redis = create_redis_pool().client
     log = EventLog(RedisEventLogAdapter(client=redis))
-    
+
     # 1. Initialize the ToolRouter (Fan-out for impure tools)
     tool_router = ToolRouter(redis)
-    
+
     # 2. Initialize the WorkerManager (Execution pool for tools)
     worker_manager = WorkerManager(redis=redis, event_log=log)
-    
+
+    # 3. Initialize the routing core
+    policy = IntentPolicy()
+    resolution_system = IntentResolutionSystem(policy=policy)
+    adapter = build_adapter(routing_mode="{{ routing_mode }}")
+
     # Example: Register impure tools here
     # from src.contexts.sales.tools.payment_api import PaymentApiTool
     # worker_manager.register(PaymentApiTool)
-    
+
     # 3. Initialize Context Dispatchers (The pure brains)
     # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
     # logistics_dispatcher = build_logistics_dispatcher(log, redis, tool_router)
-    
+
     try:
         print("\n[Orchestrator] Starting Event Loops...")
+        print("Routing mode:", "{{ routing_mode }}")
         # 4. Start everything concurrently in the same asyncio Event Loop
         await asyncio.gather(
             worker_manager.start(),
