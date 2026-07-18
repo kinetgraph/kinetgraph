@@ -71,14 +71,20 @@ def test_knt_init_with_external_routing_mode(tmp_path: Path):
     current_dir = os.getcwd()
     try:
         os.chdir(tmp_path)
-        result = runner.invoke(app, ["init", "my_app_external", "--routing-mode", "external"])
+        result = runner.invoke(
+            app, ["init", "my_app_external", "--routing-mode", "external"]
+        )
     finally:
         os.chdir(current_dir)
 
     assert result.exit_code == 0
     project_dir = tmp_path / "my_app_external"
-    assert (project_dir / "src" / "my_app_external" / "routing" / "adapters" / "external.py").is_file()
-    assert (project_dir / "src" / "my_app_external" / "routing" / "components.py").is_file()
+    assert (
+        project_dir / "src" / "my_app_external" / "routing" / "adapters" / "external.py"
+    ).is_file()
+    assert (
+        project_dir / "src" / "my_app_external" / "routing" / "components.py"
+    ).is_file()
     main_content = (project_dir / "src" / "my_app_external" / "main.py").read_text()
     assert "IntentResolutionSystem" in main_content
     assert "routing_mode" in main_content
@@ -88,14 +94,25 @@ def test_knt_init_with_collaborate_routing_mode(tmp_path: Path):
     current_dir = os.getcwd()
     try:
         os.chdir(tmp_path)
-        result = runner.invoke(app, ["init", "my_app_collab", "--routing-mode", "collaborate"])
+        result = runner.invoke(
+            app, ["init", "my_app_collab", "--routing-mode", "collaborate"]
+        )
     finally:
         os.chdir(current_dir)
 
     assert result.exit_code == 0
     project_dir = tmp_path / "my_app_collab"
-    assert (project_dir / "src" / "my_app_collab" / "routing" / "adapters" / "collaborate.py").is_file()
-    assert (project_dir / "src" / "my_app_collab" / "routing" / "coordinator.py").is_file()
+    assert (
+        project_dir
+        / "src"
+        / "my_app_collab"
+        / "routing"
+        / "adapters"
+        / "collaborate.py"
+    ).is_file()
+    assert (
+        project_dir / "src" / "my_app_collab" / "routing" / "coordinator.py"
+    ).is_file()
     main_content = (project_dir / "src" / "my_app_collab" / "main.py").read_text()
     assert "collaborate" in main_content
 
@@ -104,7 +121,9 @@ def test_knt_init_rejects_invalid_routing_mode(tmp_path: Path):
     current_dir = os.getcwd()
     try:
         os.chdir(tmp_path)
-        result = runner.invoke(app, ["init", "my_app_invalid", "--routing-mode", "invalid"])
+        result = runner.invoke(
+            app, ["init", "my_app_invalid", "--routing-mode", "invalid"]
+        )
     finally:
         os.chdir(current_dir)
 

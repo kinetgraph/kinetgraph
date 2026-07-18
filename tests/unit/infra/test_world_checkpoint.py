@@ -4,12 +4,9 @@
 
 from __future__ import annotations
 
-import pickle
-
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.result import Err, Ok
 from kntgraph.core.world import World
 from kntgraph.infra.redis._errors import MemoryError
 from kntgraph.infra.redis._world_checkpoint._redis import (

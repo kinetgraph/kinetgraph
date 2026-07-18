@@ -37,7 +37,13 @@ def test_new_system_command_creates_expected_artifact(tmp_path: Path):
 
     assert result.exit_code == 0
     generated_file = (
-        project_dir / "src" / "demo_app" / "contexts" / "sales" / "systems" / "checkout_system.py"
+        project_dir
+        / "src"
+        / "demo_app"
+        / "contexts"
+        / "sales"
+        / "systems"
+        / "checkout_system.py"
     )
     assert generated_file.is_file()
     assert "Pure WorldSystem" in generated_file.read_text(encoding="utf-8")
@@ -47,7 +53,9 @@ def test_new_context_and_agent_commands_generate_structures(tmp_path: Path):
     project_dir = _bootstrap_project(tmp_path)
 
     context_result = _invoke_from_project(project_dir, "new", "context", "sales")
-    agent_result = _invoke_from_project(project_dir, "new", "agent", "sales.CheckoutAgent")
+    agent_result = _invoke_from_project(
+        project_dir, "new", "agent", "sales.CheckoutAgent"
+    )
 
     assert context_result.exit_code == 0
     assert agent_result.exit_code == 0
@@ -61,9 +69,15 @@ def test_new_context_and_agent_commands_generate_structures(tmp_path: Path):
 def test_new_component_event_and_tool_commands_create_files(tmp_path: Path):
     project_dir = _bootstrap_project(tmp_path)
 
-    component_result = _invoke_from_project(project_dir, "new", "component", "sales.CartItem")
-    event_result = _invoke_from_project(project_dir, "new", "event", "sales.OrderPlaced")
-    tool_result = _invoke_from_project(project_dir, "new", "tool", "sales.ProcessPayment")
+    component_result = _invoke_from_project(
+        project_dir, "new", "component", "sales.CartItem"
+    )
+    event_result = _invoke_from_project(
+        project_dir, "new", "event", "sales.OrderPlaced"
+    )
+    tool_result = _invoke_from_project(
+        project_dir, "new", "tool", "sales.ProcessPayment"
+    )
 
     assert component_result.exit_code == 0
     assert event_result.exit_code == 0
@@ -97,7 +111,9 @@ def test_keys_generate_writes_files_to_disk(tmp_path: Path):
 def test_keys_generate_prints_pem_to_stdout(tmp_path: Path):
     project_dir = _bootstrap_project(tmp_path)
 
-    result = _invoke_from_project(project_dir, "keys", "generate", "--agent-id", "agent-2")
+    result = _invoke_from_project(
+        project_dir, "keys", "generate", "--agent-id", "agent-2"
+    )
 
     assert result.exit_code == 0
     assert "BEGIN PRIVATE KEY" in result.stdout
