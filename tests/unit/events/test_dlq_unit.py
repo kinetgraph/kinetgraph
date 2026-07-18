@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis.aioredis
 import pytest
@@ -31,6 +32,7 @@ from kntgraph.core.event import (
     CorrelationContext,
     Event,
 )
+from kntgraph.core.result import Err, PersistenceError
 from kntgraph.events.dlq import (
     DeadLetterActions,
     DeadLetterEvent,
@@ -38,6 +40,7 @@ from kntgraph.events.dlq import (
     DLQReason,
 )
 from kntgraph.infra.redis._dlq import RedisDLQStorage
+from kntgraph.infra.redis._errors import MemoryError
 
 
 pytestmark = pytest.mark.asyncio
@@ -212,6 +215,40 @@ class TestStatsAndPurge:
         assert stats["total_events"] == 0
         assert stats["unique_agents"] == 0
         assert stats["by_reason"] == {}
+
+    async def test_get_event_returns_none_when_storage_errors(self):
+        storage = MagicMock()
+        storage.find_by_event_id = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.get_event("missing") is None
+
+    async def test_list_for_agent_returns_empty_on_storage_error(self):
+        storage = MagicMock()
+        storage.list_for_agent = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.list_for_agent("agent-1") == []
+
+    async def test_get_stats_returns_default_dict_on_storage_error(self):
+        storage = MagicMock()
+        storage.get_stats = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.get_stats() == {
+            "total_events": 0,
+            "unique_agents": 0,
+            "by_reason": {},
+        }
+
+    async def test_purge_returns_err_on_storage_error(self):
+        storage = MagicMock()
+        storage.purge = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        result = await queue.purge()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
     async def test_get_stats_after_inserts(self, queue):
         e1 = _make_event()
