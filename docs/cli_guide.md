@@ -34,6 +34,7 @@ uv run knt init weather_platform --use-intent-http
 
 ### What did this do?
 - **`--use-intent-http`**: This flag tells the CLI to scaffold a `main.py` configured with FastAPI, `ToolRouter`, and `WorkerManager`. It wires up an HTTP Gateway that can receive intents from users.
+- **`--routing-mode`**: This flag selects the intent-routing scaffold mode. Supported values are `external`, `autonomous`, and `collaborate`. The generated project includes a shared routing core (`components.py`, `policy.py`, `resolution.py`) plus mode-specific adapters under `src/<project>/routing/adapters/`.
 - Created `pyproject.toml` and injected `kntgraph[api]` and `uvicorn`.
 - Created the core folder structure: `src/weather_platform/contexts/`.
 
