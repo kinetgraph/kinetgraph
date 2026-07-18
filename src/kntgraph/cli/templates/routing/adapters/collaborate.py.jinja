@@ -1,0 +1,11 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+from ..coordinator import CollaborationCoordinator
+
+
+def build_adapter(*, routing_mode: str = "collaborate"):
+    """Build the collaborative routing adapter."""
+
+    coordinator = CollaborationCoordinator(routing_mode=routing_mode)
+    return {"mode": routing_mode, "kind": "collaborate", "coordinator": coordinator}

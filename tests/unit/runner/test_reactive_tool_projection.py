@@ -313,18 +313,24 @@ class TestOverlayToolProjection:
         )
         world_n_plus_1 = world_n_with_overlay.with_event(completion)
         world_n_plus_1_with_overlay = _overlay_tool_projection(
-            world_n_plus_1, [completion]
+            world_n_plus_1, [completion], post_systems=False
         )
         view = world_n_plus_1_with_overlay.views["a-1"]
-        # The request is evicted (it was in
-        # base_views; the matching completion has
-        # now arrived).
-        assert str(req.event_id) not in view.components["tool_requests"]
-        # The completion is in the slot.
+        # Pre-systems: neither request nor completion is evicted, so the system
+        # running in the current tick can see both and correlate them.
+        assert str(req.event_id) in view.components["tool_requests"]
         assert str(req.event_id) in view.components["tool_completions"]
         assert (
             view.components["tool_completions"][str(req.event_id)].status == "completed"
         )
+
+        # Post-systems: both the request and completion are evicted.
+        world_n_plus_1_post = _overlay_tool_projection(
+            world_n_plus_1, [completion], post_systems=True
+        )
+        view_post = world_n_plus_1_post.views["a-1"]
+        assert str(req.event_id) not in view_post.components["tool_requests"]
+        assert str(req.event_id) not in view_post.components["tool_completions"]
 
     def test_unrelated_request_persists_across_batches(self):
         """ADR-044: when batch 1 emits a request and

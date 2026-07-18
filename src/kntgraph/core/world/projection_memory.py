@@ -122,7 +122,7 @@ def _fold_session(
 
     for e in events:
         if e.event_type == SESSION_STARTED:
-            started_at = e.timestamp
+            started_at = e.timestamp.timestamp()
             user_id = str(e.data.get("user_id", user_id))
             tenant_id = str(e.data.get("tenant_id", tenant_id))
         elif e.event_type == SESSION_MESSAGE:
@@ -137,7 +137,7 @@ def _fold_session(
             if key:
                 context[key] = str(e.data.get("value", ""))
         elif e.event_type == SESSION_ENDED:
-            ended_at = e.timestamp
+            ended_at = e.timestamp.timestamp()
 
     if started_at == 0.0:
         return None
@@ -211,7 +211,7 @@ def _fold_profile(
 
     for e in events:
         if e.event_type == PROFILE_CREATED:
-            created_at = e.timestamp
+            created_at = e.timestamp.timestamp()
             tenant_id = str(e.data.get("tenant_id", tenant_id))
             user_id = str(e.data.get("user_id", user_id))
             initial = e.data.get("preferences") or {}
@@ -224,15 +224,15 @@ def _fold_profile(
             v = str(e.data.get("value", ""))
             if k:
                 preferences[k] = v
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
         elif e.event_type == PROFILE_PREFERENCE_UNSET:
             k = str(e.data.get("key", ""))
             if k:
                 preferences.pop(k, None)
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
         elif e.event_type == PROFILE_TIER_CHANGED:
             tier = str(e.data.get("tier", tier))
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
 
     if created_at == 0.0:
         return None
@@ -281,28 +281,28 @@ def _fold_continuity(
 
     for e in events:
         if e.event_type == CONTINUITY_CREATED:
-            created_at = e.timestamp
+            created_at = e.timestamp.timestamp()
             tenant_id = str(e.data.get("tenant_id", tenant_id))
             user_id = str(e.data.get("user_id", user_id))
         elif e.event_type == CONTINUITY_TOOL_USED:
             tool = str(e.data.get("tool", ""))
             if tool:
                 last_tools[tool] = f"{e.data.get('result_signature', '')}|{e.timestamp}"
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
         elif e.event_type == CONTINUITY_ENTITY_SEEN:
             kind = str(e.data.get("kind", ""))
             value_hash = str(e.data.get("value_hash", ""))
             if kind and value_hash:
                 last_entities[f"{kind}:{value_hash[:16]}"] = value_hash
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
         elif e.event_type == CONTINUITY_CATEGORY_CHOSEN:
             slot = str(e.data.get("slot", ""))
             value = str(e.data.get("value", ""))
             if slot:
                 last_categories[slot] = f"{value}|{e.timestamp}"
-            updated_at = e.timestamp
+            updated_at = e.timestamp.timestamp()
         elif e.event_type == CONTINUITY_CLEARED:
-            cleared_at = e.timestamp
+            cleared_at = e.timestamp.timestamp()
             last_tools.clear()
             last_entities.clear()
             last_categories.clear()
@@ -387,7 +387,7 @@ def project_memory(
         if session is None and profile is None and continuity is None:
             continue
 
-        new_components: dict[str, Any] = dict(base_view.components)
+        new_components: dict[str | type[Any], Any] = dict(base_view.components)
         if session is not None:
             new_components[SessionComponent] = session
         if profile is not None:

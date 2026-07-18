@@ -247,6 +247,12 @@ class TestResultExpect:
         with pytest.raises(Exception, match="custom message"):
             result.expect("custom message")
 
+    def test_expect_error_with_none_value(self):
+        """An Err result should still raise when the wrapped value is missing."""
+        result = Err(ValueError("error"))
+        with pytest.raises(Exception, match="missing"):
+            result.expect("missing")
+
 
 class TestResultMatch:
     """Testes de pattern matching."""
@@ -276,6 +282,25 @@ class TestResultMatch:
         """Deve retornar valor da função executada."""
         result = Ok(42).match(lambda v: v * 2, lambda e: 0)
         assert result == 84
+
+    def test_match_returns_none_for_indeterminate_result(self):
+        """A match should return None when neither branch is available."""
+
+        class NeutralResult:
+            def is_ok(self) -> bool:
+                return False
+
+            def is_err(self) -> bool:
+                return False
+
+            def ok(self) -> None:
+                return None
+
+            def err(self) -> None:
+                return None
+
+        result = Result[object, ValueError](NeutralResult())
+        assert result.match(lambda v: "ok", lambda e: "err") is None
 
 
 class TestRailwayComposition:

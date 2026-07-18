@@ -100,14 +100,14 @@ class SolutionExtractorSystem:
             # the lookup key into the params of the
             # original request, when the request is
             # still in the slot).
-            requests: dict[str, ToolCallRequest] = (
+            requests_by_id: dict[str, ToolCallRequest] = (
                 view.components.get("tool_requests", {}) or {}
             )
             for req_id, comp in completions.items():
                 if comp.status != "completed":
                     # Failed or unknown status: skip.
                     continue
-                req = requests.get(req_id)
+                req = requests_by_id.get(req_id)
                 if req is None:
                     # The request was evicted. We
                     # cannot match by tool_name /

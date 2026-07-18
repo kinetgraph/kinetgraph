@@ -46,7 +46,7 @@ if not _falkordb_available():
 
 import redis.asyncio as aioredis  # noqa: E402
 
-from kntgraph.core.event import Event  # noqa: E402
+from kntgraph.core.event import CorrelationContext, Event  # noqa: E402
 from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector  # noqa: E402
 from kntgraph.infra.graph import (  # noqa: E402
     GraphPool,
@@ -129,6 +129,7 @@ class TestFalkorDBProjector:
                 agent_id="NF-001",
                 type="nf.received",
                 data={"document_id": "NF-001", "amount": 100.0},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
         await event_log.append(
@@ -136,6 +137,7 @@ class TestFalkorDBProjector:
                 agent_id="NF-002",
                 type="nf.received",
                 data={"document_id": "NF-002", "amount": 200.0},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
 
@@ -165,6 +167,7 @@ class TestFalkorDBProjector:
                 agent_id="NF-001",
                 type="tool.invoice.issue.requested",
                 data={"document_id": "NF-001", "xml": "<a/>"},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
         await event_log.append(
@@ -177,6 +180,7 @@ class TestFalkorDBProjector:
                     "result": {"status": "authorized"},
                     "latency_ms": 12.3,
                 },
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
 
@@ -210,6 +214,7 @@ class TestFalkorDBProjector:
                 agent_id="NF-001",
                 type="nf.received",
                 data={"document_id": "NF-001", "amount": 100.0},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
         proj = FalkorDBProjector(
@@ -241,6 +246,7 @@ class TestFalkorDBProjector:
                     agent_id="NF-001",
                     type="nf.received",
                     data={"document_id": "NF-001-A", "amount": 100.0},
+                    correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
                 )
             )
             proj_a = FalkorDBProjector(
@@ -283,6 +289,7 @@ class TestGraphRAGRetriever:
                 agent_id="NF-A",
                 type="nf.received",
                 data={"document_id": "NF-A", "supplier": "ACME"},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
         await event_log.append(
@@ -290,6 +297,7 @@ class TestGraphRAGRetriever:
                 agent_id="NF-B",
                 type="nf.received",
                 data={"document_id": "NF-B", "supplier": "Widgets Inc"},
+                correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
             )
         )
 

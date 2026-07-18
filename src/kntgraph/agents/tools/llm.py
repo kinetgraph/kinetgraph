@@ -69,6 +69,8 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from typing import Any, Optional
 
+import structlog
+
 from kntgraph.core.result import (
     Err,
     Ok,
@@ -83,6 +85,9 @@ from kntgraph.tools.llm_transport import (
     LLMUsage,
 )
 from kntgraph.tools.worker import tool_worker
+
+
+logger = structlog.get_logger()
 
 
 # -----------------------------------------------------------------------------
@@ -155,8 +160,8 @@ def _compute_cost_usd(response: dict) -> Optional[float]:
 
         computed = float(litellm.completion_cost(completion_response=response))
         return computed
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("llm.compute_cost_fallback", error=str(exc))
     # Fallback for transport-side explicit cost.
     fallback = response.get("_cost_usd")
     if isinstance(fallback, (int, float)):
@@ -248,8 +253,8 @@ class LiteLLMTransportAdapter(LLMTransport):
         if callable(dump):
             try:
                 return response.model_dump()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("llm.transport_model_dump_failed", error=str(exc))
         if isinstance(response, dict):
             return dict(response)
         return {"_repr": repr(response)}
@@ -356,8 +361,8 @@ def _safe_dict(obj: Any) -> dict:
             if callable(v):
                 continue
             out[attr] = v
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("llm.safe_dict_attr_failed", attr=attr, error=str(exc))
     return out
 
 

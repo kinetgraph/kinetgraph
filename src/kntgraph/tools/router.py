@@ -41,10 +41,19 @@ class ToolRouter:
         ensuring the main dispatcher loop continues.
         """
         for event in events:
-            parsed = parse_tool_event(event.event_type)
-            if parsed is not None and parsed.kind == ToolEventKind.REQUESTED:
-                tool_name = parsed.tool_name
+            tool_name = None
+            if (
+                event.event_type == "tool.requested"
+                and isinstance(event.data, dict)
+                and "tool" in event.data
+            ):
+                tool_name = str(event.data["tool"])
+            else:
+                parsed = parse_tool_event(event.event_type)
+                if parsed is not None and parsed.kind == ToolEventKind.REQUESTED:
+                    tool_name = parsed.tool_name
 
+            if tool_name:
                 stream_key = f"knt:tools:{tool_name}:queue"
                 try:
                     payload = event.to_json()

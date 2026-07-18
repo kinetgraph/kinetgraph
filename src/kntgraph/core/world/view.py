@@ -88,7 +88,7 @@ class AgentView:
     """
 
     agent_id: str
-    components: Mapping[str, Any] = field(default_factory=dict)
+    components: Mapping[str | type[Any], Any] = field(default_factory=dict)
     operational_phase: OperationalPhase = "spawned"
     operational_at: Optional[datetime] = None
     domain_phase: Optional[str] = None

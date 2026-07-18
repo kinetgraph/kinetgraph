@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Raw Redis client constructors (F5 cleanup / Breaking):**
+  - Removed backward-compatibility wrappers from `EventLog`, `IncrementalWorldStore`, `SessionManager`, `ProfileManager`, and `ContinuityManager` constructors. They now strictly require their Protocol-compliant storage adapters (`EventLogStorage`, `WorldCheckpointStorage`, `ShortMemoryStorage`) instead of accepting raw Redis clients directly. Updated all test files and call sites accordingly.
+
 ### Added
 - **Pure ECS Role Architecture (ADR-039):**
   - Introduced `RoleComponent` as a pure, immutable data component to store agent personas, instructions, and permitted tool inventories.

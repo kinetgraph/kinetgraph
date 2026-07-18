@@ -189,7 +189,7 @@ class _BaseRoleSystem(ToolAwareSystem):
         """
         return new_input
 
-    def _is_request_event(self, view, event_id: str) -> bool:
+    def _is_request_event(self, view, event_id: str | None) -> bool:
         """True if the last folded event on the view is
         a domain event this role system reacts to.
 
@@ -198,6 +198,8 @@ class _BaseRoleSystem(ToolAwareSystem):
         type (last-event-wins). Subclasses can override
         for richer semantics.
         """
+        if event_id is None:
+            return False
         if not self.REQUEST_EVENT_TYPE:
             return False
         # The default rule is "the request event type
@@ -301,7 +303,7 @@ class _BaseRoleSystem(ToolAwareSystem):
                                 "request_event_id": rid,
                                 "error": str(parsed.err_value_or_raise()),
                             },
-                            causation_id=rid,
+                            causation_id=UUID(rid),
                             correlation=CorrelationContext.new(),
                         )
                     )
@@ -316,7 +318,7 @@ class _BaseRoleSystem(ToolAwareSystem):
                             "output": parsed.unwrap().model_dump(),
                             "input": pending_input,
                         },
-                        causation_id=rid,
+                        causation_id=UUID(rid),
                         correlation=CorrelationContext.new(),
                     )
                 )

@@ -18,6 +18,9 @@ type-narrowed dispatch.
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisProfileStorage
+from kntgraph.infra.redis._memory import RedisSessionStorage
 
 from dataclasses import FrozenInstanceError
 from uuid import uuid4
@@ -168,8 +171,8 @@ class TestRefreshAll:
         from kntgraph.core.world import World
         from kntgraph.core.event import CorrelationContext, Event
 
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus, sm)
 
@@ -202,8 +205,8 @@ class TestRefreshAll:
         from kntgraph.core.event import CorrelationContext, Event
         from kntgraph.core.event import OperationalEventType
 
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus, None, pm)
 
@@ -228,7 +231,7 @@ class TestRefreshAll:
         from kntgraph.core.event import CorrelationContext, Event
         from kntgraph.core.event import OperationalEventType
 
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus)
         # Build a World with an agent that is NOT memory.
@@ -256,9 +259,9 @@ class TestProjectAll:
         from kntgraph.memory.session import SessionManager
         from kntgraph.stream.event_log import EventLog
 
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         proj = Projector(log, sm, pm)
 
         await sm.start("s-1", user_id="u", tenant_id="t")
@@ -287,9 +290,9 @@ class TestProjectAll:
         from kntgraph.memory.session import SessionManager
         from kntgraph.stream.event_log import EventLog
 
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         proj = Projector(log, sm, pm)
 
         # Append a non-memory event directly to a foreign agent.

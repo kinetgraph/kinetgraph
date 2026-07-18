@@ -133,6 +133,49 @@ class TestRedisDLQStorage:
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryError)
 
+    async def test_list_for_agent_returns_empty_when_head_missing(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(return_value=None)
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_for_agent("agent-1")
+        assert result.is_ok()
+        assert result.ok_value() == []
+
+    async def test_list_for_agent_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+        from kntgraph.infra.redis._errors import MemoryError
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(side_effect=RuntimeError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_for_agent("agent-1")
+        assert result.is_err()
+        assert isinstance(result.err_value(), MemoryError)
+
+    async def test_find_by_event_id_returns_err_on_hscan_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+        from kntgraph.infra.redis._errors import MemoryError
+
+        redis = _fake_redis()
+        redis.hscan_iter = MagicMock(side_effect=RuntimeError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.find_by_event_id("abc")
+        assert result.is_err()
+        assert isinstance(result.err_value(), MemoryError)
+
+    async def test_purge_returns_err_on_delete_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+        from kntgraph.infra.redis._errors import MemoryError
+
+        redis = _fake_redis()
+        redis.delete = AsyncMock(side_effect=RuntimeError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.purge()
+        assert result.is_err()
+        assert isinstance(result.err_value(), MemoryError)
+
     async def test_read_index_returns_stream_id(self):
         from kntgraph.infra.redis._dlq import (
             DLQ_EVENT_INDEX,
