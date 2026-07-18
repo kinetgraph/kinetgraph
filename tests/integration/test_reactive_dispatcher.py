@@ -32,6 +32,7 @@ See ADR-018.
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.core.event import CorrelationContext
 
 import pytest
@@ -77,7 +78,7 @@ class TestCursorSemantics:
         exclusive, so xrange returns nothing for already-seen
         events).
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
 
         received_count: list[int] = []
@@ -125,7 +126,7 @@ class TestCursorSemantics:
         the cursor was trimmed out, dropping every subsequent
         event on the floor.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await clean_redis.delete("knt:agents:a-1:events")
         await _seed_spawned(log, "a-1")
         await log.append(
@@ -192,7 +193,7 @@ class TestCursorPersistence:
         We break ``scan_iter`` after bootstrap and verify the
         dispatcher still works for the already-seen agent.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -249,7 +250,7 @@ class TestWorldViewIsFresh:
         system once per batch — the World carries every event's
         effect via the projection.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
 
         # Append 3 received events
@@ -309,7 +310,7 @@ class TestCrossAgentEmissions:
         a follow-up event for agent B. That emission must be
         visible to a subsequent dispatch_once (for B), not lost.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
         await _seed_spawned(log, "b-1")
         await log.append(
@@ -365,7 +366,7 @@ class TestFilter:
         consistent with the full stream) but the system is
         not called for them.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -426,7 +427,7 @@ class TestSeenAgents:
         previously seen agent), the dispatcher reads that
         agent's stream directly via XRANGE — no scan needed.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -486,7 +487,7 @@ class TestIdempotency:
           - Second dispatch: nothing new in the stream
             → cursor advance → system not re-invoked.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(

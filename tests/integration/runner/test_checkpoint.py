@@ -27,6 +27,7 @@ See: ADR-018 — WorldIncremental + WorldSystem.
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 
 from uuid import uuid4
 
@@ -38,6 +39,7 @@ from kntgraph.infra.world_checkpoint import (
     IncrementalWorldStore,
     WorldCheckpoint,
 )
+from kntgraph.infra.redis._world_checkpoint._redis import RedisWorldCheckpointStorage
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 
@@ -72,8 +74,8 @@ class TestCheckpointPersisted:
         the ``IncrementalWorldStore`` has an entry for that
         agent with the post-fold World and the last stream id.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -110,8 +112,8 @@ class TestCheckpointPersisted:
         A dispatcher that never dispatched has no checkpoint
         (load returns the empty default).
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         _d = ReactiveDispatcher(log, systems=[], world_store=store)
         ckpt = await store.load("never-seen")
         assert ckpt.last_stream_id == "-"
@@ -123,8 +125,8 @@ class TestCheckpointPersisted:
         have been durably appended to the EventLog. If the system
         raises during execution, the checkpoint must NOT advance.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -170,8 +172,8 @@ class TestRestartSkipsProcessed:
         stopped, resumes from the saved checkpoint and does NOT
         re-dispatch events that were already processed.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -206,8 +208,8 @@ class TestRestartSkipsProcessed:
         A second dispatcher picks up events that arrived AFTER
         its predecessor stopped.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -255,8 +257,8 @@ class TestRestartSkipsProcessed:
         the World from the checkpoint and the new events from
         the stream.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await _seed_spawned(log, "a-1")
         await log.append(
             Event.create(
@@ -311,8 +313,8 @@ class TestMultiAgent:
         The dispatcher tracks agents independently. Two agents
         have separate checkpoints.
         """
-        log = EventLog(clean_redis)
-        store = IncrementalWorldStore(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         # Two agents, each with one event
         await _seed_spawned(log, "a-1")
         await _seed_spawned(log, "b-1")
@@ -335,12 +337,12 @@ class TestMultiAgent:
 
 class TestIncrementalWorldStore:
     async def test_load_returns_empty_when_absent(self, clean_redis):
-        store = IncrementalWorldStore(clean_redis)
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         ckpt = await store.load("never-seen")
         assert ckpt.last_stream_id == "-"
 
     async def test_save_and_load_roundtrip(self, clean_redis):
-        store = IncrementalWorldStore(clean_redis)
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         world = World.empty().with_event(
             Event.create(
                 event_type="agent.spawned",
@@ -359,7 +361,7 @@ class TestIncrementalWorldStore:
     async def test_discard_removes_checkpoint(self, clean_redis):
         from kntgraph.core.world import World
 
-        store = IncrementalWorldStore(clean_redis)
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
         await store.save(
             "a-1",
             WorldCheckpoint(world=World.empty(), last_stream_id="1234-0"),

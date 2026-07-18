@@ -16,6 +16,7 @@ The DLQ parks events that a system could not process. Tests cover:
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 
 import uuid
 
@@ -28,9 +29,48 @@ from kntgraph.events.dlq import (
     DLQ_REASON_INDEX,
     DLQ_STREAM_KEY,
     DLQReason,
-    DeadLetterActions,
+    DeadLetterActions as _ActualDeadLetterActions,
     DeadLetterEvent,
 )
+from kntgraph.events.dlq.store import DeadLetterQueue
+from kntgraph.infra.redis._dlq import RedisDLQStorage
+from typing import Any
+
+
+class DeadLetterActions(_ActualDeadLetterActions):
+    def __init__(self, redis_client: Any) -> None:
+        storage = RedisDLQStorage(client=redis_client)
+        queue = DeadLetterQueue(storage)
+        super().__init__(queue=queue)
+
+    async def append(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.append(*args, **kwargs)
+
+    async def get_event(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.get_event(*args, **kwargs)
+
+    async def list_for_agent(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.list_for_agent(*args, **kwargs)
+
+    async def list_by_reason(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.list_by_reason(*args, **kwargs)
+
+    async def list_all(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.list_all(*args, **kwargs)
+
+    async def get_stats(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.get_stats(*args, **kwargs)
+
+    async def purge(self, *args: Any, **kwargs: Any) -> Any:
+        assert self._queue is not None
+        return await self._queue.purge(*args, **kwargs)
+
 
 pytestmark = pytest.mark.asyncio
 
@@ -274,7 +314,7 @@ class TestDLQEndToEnd:
         from kntgraph.stream.event_log import EventLog
 
         dlq = DeadLetterActions(clean_redis)
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
 
         dle = make_dl_event()
         await dlq.append(dle)

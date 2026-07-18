@@ -116,6 +116,7 @@ def overlay_tool_calls(
     base_views: Mapping[str, AgentView],
     *,
     ttl: ToolCallTTL = ToolCallTTL(),
+    post_systems: bool = False,
 ) -> dict[str, AgentView]:
     """
     Overlay-only variant of ``project_tool_calls``.
@@ -288,8 +289,12 @@ def overlay_tool_calls(
         #     that reads the slot finds both. Correct.
         for request_id in list(merged_requests.keys()):
             if request_id in merged_completions:
-                if request_id in existing_requests:
-                    merged_requests.pop(request_id)
+                if post_systems or (
+                    request_id in existing_requests
+                    and request_id in existing_completions
+                ):
+                    merged_requests.pop(request_id, None)
+                    merged_completions.pop(request_id, None)
         out[agent_id] = _overlay(
             base_view,
             requests=merged_requests,

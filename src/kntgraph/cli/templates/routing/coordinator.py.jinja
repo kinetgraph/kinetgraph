@@ -1,0 +1,11 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+class CollaborationCoordinator:
+    """Coordinator for collaborative routing flows."""
+
+    def __init__(self, routing_mode: str = "collaborate") -> None:
+        self.routing_mode = routing_mode
+
+    def select_agent(self, intent: str) -> str:
+        return f"agent:{intent}"

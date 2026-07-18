@@ -1,0 +1,16 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+from __future__ import annotations
+
+from .policy import IntentPolicy
+
+
+class IntentResolutionSystem:
+    """Shared resolution system for generated intent-routing projects."""
+
+    def __init__(self, policy: IntentPolicy | None = None) -> None:
+        self._policy = policy or IntentPolicy()
+
+    def resolve(self, role: object, target_tool: str) -> bool:
+        return self._policy.evaluate(role, target_tool)

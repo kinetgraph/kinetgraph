@@ -8,6 +8,9 @@ Integration tests for memory/session.py and memory/profile.py
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisProfileStorage
+from kntgraph.infra.redis._memory import RedisSessionStorage
 
 
 import pytest
@@ -32,8 +35,8 @@ pytestmark = pytest.mark.asyncio
 
 class TestSessionManager:
     async def test_start_appends_started_event(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis, ttl_seconds=60)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis), ttl_seconds=60)
 
         result = await sm.start("sess-1", user_id="u-1", tenant_id="t-1")
         assert result.is_ok()
@@ -43,8 +46,8 @@ class TestSessionManager:
         assert events[0].event_type == "session.started"
 
     async def test_start_writes_cache_with_ttl(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis, ttl_seconds=60)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis), ttl_seconds=60)
         await sm.start("sess-1", user_id="u-1", tenant_id="t-1")
 
         # Cache key exists
@@ -54,8 +57,8 @@ class TestSessionManager:
         assert ttl > 0
 
     async def test_append_message_aggregates(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis, ttl_seconds=60)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis), ttl_seconds=60)
         await sm.start("sess-1", user_id="u", tenant_id="t")
 
         await sm.append_message("sess-1", "user", "olá")
@@ -71,16 +74,16 @@ class TestSessionManager:
         assert state.messages[2]["content"] == "tudo bem?"
 
     async def test_set_context(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         await sm.start("sess-1", user_id="u", tenant_id="t")
         await sm.set_context("sess-1", "scratchpad", {"todo": "x"})
         state = await sm.read("sess-1")
         assert state.context["scratchpad"] == {"todo": "x"}
 
     async def test_end_marks_inactive(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         await sm.start("sess-1", user_id="u", tenant_id="t")
         await sm.append_message("sess-1", "user", "olá")
         await sm.end("sess-1")
@@ -91,8 +94,8 @@ class TestSessionManager:
         assert state.ended_at is not None
 
     async def test_read_with_no_events_returns_none(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         state = await sm.read("nonexistent")
         assert state is None
 
@@ -101,8 +104,8 @@ class TestSessionManager:
         If we manually delete the cache, the next read
         should rebuild it from the EventLog.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         await sm.start("sess-1", user_id="u", tenant_id="t")
         await sm.append_message("sess-1", "user", "hello")
 
@@ -121,8 +124,8 @@ class TestSessionManager:
         assert await clean_redis.exists("knt:session:sess-1")
 
     async def test_idempotent_start(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         r1 = await sm.start("sess-1", user_id="u", tenant_id="t")
         r2 = await sm.start("sess-1", user_id="u", tenant_id="t")
         assert r1.is_ok() and r2.is_ok()
@@ -140,8 +143,8 @@ class TestSessionManager:
 
 class TestProfileManager:
     async def test_create(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         result = await pm.create(
             "t-1", "u-1", preferences={"lang": "pt-BR"}, tier="vip"
         )
@@ -153,8 +156,8 @@ class TestProfileManager:
         assert state.tier == "vip"
 
     async def test_cache_uses_hash(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
 
         # Cache key exists
@@ -164,8 +167,8 @@ class TestProfileManager:
         assert key_type == b"hash"
 
     async def test_set_preference(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t-1", "u-1")
         await pm.set_preference("t-1", "u-1", "lang", "pt-BR")
         await pm.set_preference("t-1", "u-1", "currency", "BRL")
@@ -174,8 +177,8 @@ class TestProfileManager:
         assert state.preferences == {"lang": "pt-BR", "currency": "BRL"}
 
     async def test_unset_preference(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
         await pm.unset_preference("t-1", "u-1", "lang")
 
@@ -183,8 +186,8 @@ class TestProfileManager:
         assert "lang" not in state.preferences
 
     async def test_change_tier(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t-1", "u-1", tier="standard")
         await pm.change_tier("t-1", "u-1", "vip")
 
@@ -192,8 +195,8 @@ class TestProfileManager:
         assert state.tier == "vip"
 
     async def test_cache_rebuilt_from_log(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
         await pm.set_preference("t-1", "u-1", "currency", "BRL")
 
@@ -206,14 +209,14 @@ class TestProfileManager:
         assert await clean_redis.exists("knt:profile:t-1:u-1")
 
     async def test_read_unknown_returns_none(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         state = await pm.read("t-x", "u-x")
         assert state is None
 
     async def test_idempotent_create(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         r1 = await pm.create("t", "u", preferences={"k": "v"})
         r2 = await pm.create("t", "u", preferences={"k": "v"})
         assert r1.unwrap().event_id == r2.unwrap().event_id
@@ -230,9 +233,9 @@ class TestConsolidator:
         The Consolidator must perform NO I/O. After `refresh_all`,
         the only side effect should be requests on the bus.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus, sm, pm)
 
@@ -262,9 +265,9 @@ class TestConsolidator:
         The CacheWarmer consumes the bus and applies the
         requests to the actual cache stores.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         cons = Consolidator(log, bus, sm, pm)
         warmer = CacheWarmer(bus, sm, pm)
@@ -293,9 +296,9 @@ class TestConsolidator:
         assert await clean_redis.exists("knt:profile:t-1:u-1")
 
     async def test_warmer_is_idempotent_on_empty_bus(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, sm, pm)
 
@@ -311,9 +314,9 @@ class TestConsolidator:
         second one is a malformed request that the warmer
         handles gracefully.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, sm, pm)
 
@@ -326,9 +329,9 @@ class TestConsolidator:
         assert applied == 2
 
     async def test_projector_project_all(self, clean_redis):
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         proj = Projector(log, sm, pm)
 
         # Set up one of each
@@ -369,8 +372,8 @@ class TestPublicCacheContract:
         `SessionManager.write_cache` is a public method.
         No leading underscore. The Projector relies on it.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         state = SessionState(
             session_id="s-1",
             user_id="u",
@@ -392,8 +395,8 @@ class TestPublicCacheContract:
         used by the CacheWarmer adapter. It rebuilds the
         cache by folding the EventLog.
         """
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
         await sm.start("s-1", user_id="u", tenant_id="t")
         await sm.append_message("s-1", "user", "olá")
         # Wipe the cache manually
@@ -407,8 +410,8 @@ class TestPublicCacheContract:
         assert len(state.messages) == 1
 
     async def test_profile_write_cache_is_public(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         state = ProfileState(
             tenant_id="t",
             user_id="u",
@@ -424,8 +427,8 @@ class TestPublicCacheContract:
         assert cached.preferences == {"lang": "pt-BR"}
 
     async def test_profile_refresh_cache_is_public(self, clean_redis):
-        log = EventLog(clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         await pm.create("t", "u", preferences={"lang": "pt-BR"})
         await pm.set_preference("t", "u", "currency", "BRL")
         await clean_redis.delete("knt:profile:t:u")
@@ -442,9 +445,9 @@ class TestPublicCacheContract:
         """
         from kntgraph.memory.consolidation import Projector
 
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         proj = Projector(log, sm, pm)
 
         await sm.start("s-1", user_id="u", tenant_id="t")
@@ -473,9 +476,9 @@ class TestPublicCacheContract:
             CacheWarmer,
         )
 
-        log = EventLog(clean_redis)
-        sm = SessionManager(log, clean_redis)
-        pm = ProfileManager(log, clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
+        sm = SessionManager(log, RedisSessionStorage(clean_redis))
+        pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, sm, pm)
 

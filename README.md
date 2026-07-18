@@ -19,14 +19,14 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 
 | Gate | Tool | Status | Reference |
 | --- | --- | --- | --- |
-| Lint | `ruff check` | [![lint](https://img.shields.io/badge/lint-ruff-0_issues-brightgreen?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 0 issues |
-| Format | `ruff format --check` | [![format](https://img.shields.io/badge/format-ruff-421%2F421-brightgreen?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 421/421 formatted |
-| Complexity | `radon cc` | [![cc](https://img.shields.io/badge/CC-A%20%282.53%29-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | avg 2.53 (A); 0 rank D+ |
-| Maintainability | `radon mi` | [![mi](https://img.shields.io/badge/MI-100%25_A%2FB-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | every file rank A or B |
-| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-71%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 71 errors / 1261 warnings; see [`DEBT.md`](DEBT.md) |
-| Coverage | `pytest + coverage` | [![coverage](https://img.shields.io/badge/coverage-75%25-yellow?style=flat-square)](https://coverage.readthedocs.io/) | 6796/9102 stmts; unit tests only |
-| Tests | `pytest` | [![tests](https://img.shields.io/badge/tests-1751%20passed-brightgreen?style=flat-square&logo=pytest)](https://docs.pytest.org/) | 1457 unit + 294 agents; 0 failed |
-| Security | `bandit` | [![security](https://img.shields.io/badge/security-3%20LOW-yellow?style=flat-square)](https://bandit.readthedocs.io/) | 3× B110 (intentional) |
+| Lint | `ruff check` | [![lint](https://img.shields.io/badge/lint-ruff-3_issues-orange?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 3 issues |
+| Format | `ruff format --check` | [![format](https://img.shields.io/badge/format-ruff-2_files_formatted-orange?style=flat-square&logo=ruff)](https://docs.astral.sh/ruff/) | 2 files formatted; 0 need reformat |
+| Complexity | `radon cc` | [![cc](https://img.shields.io/badge/CC-A%20%282.56%29-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | avg 2.56 (A); 0 rank D+ |
+| Maintainability | `radon mi` | [![mi](https://img.shields.io/badge/MI-235_A_0_B_0_C-brightgreen?style=flat-square)](https://radon.readthedocs.io/) | 235 A; 0 B; 0 C- |
+| Type-check | `pyright` | [![pyright](https://img.shields.io/badge/pyright-91%20errors-orange?style=flat-square&logo=microsoft)](https://microsoft.github.io/pyright/) | 91 errors / 943 warnings; see [`DEBT.md`](DEBT.md) |
+| Coverage | `pytest + coverage` | [![coverage](https://img.shields.io/badge/coverage-80%25-brightgreen?style=flat-square)](https://coverage.readthedocs.io/) | 7011/8740 stmts; unit tests only |
+| Tests | `pytest` | [![tests](https://img.shields.io/badge/tests-1502%20passed-brightgreen?style=flat-square&logo=pytest)](https://docs.pytest.org/) | 1502 unit passed; 0 failed |
+| Security | `bandit` | [![security](https://img.shields.io/badge/security-2%20M%2B4%20L-yellow?style=flat-square)](https://bandit.readthedocs.io/) | 0 H; 2 M; 4 L |
 | Audit | `pip-audit` | [![audit](https://img.shields.io/badge/audit-pip--audit-blueviolet?style=flat-square)](https://pypi.org/project/pip-audit/) | 0 known vulnerabilities |
 
 > The current value of each badge is generated locally by
@@ -36,8 +36,8 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 > Keep the snapshot in sync with this table when you
 > remove badges or change the gate count.
 
-A full breakdown of the open technical debt (111 pyright
-errors + 3 coverage gaps + 11 stale `# type: ignore` comments)
+A full breakdown of the current technical debt (91 pyright
+errors, 2 medium bandit findings, and 11 stale `# type: ignore` comments)
 is in [`DEBT.md`](DEBT.md).
 
 kntgraph is the renamed and unified successor of
@@ -162,6 +162,13 @@ uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
 # 2. Scaffold a new application with the HTTP Gateway included
 knt init my_platform --use-intent-http
 
+# or generate an intent-routing scaffold with an explicit mode
+knt init my_platform --routing-mode external
+# supported values: external, autonomous, collaborate
+# external: routes intents from outside the agent boundary
+# autonomous: lets the agent resolve intents internally
+# collaborate: coordinates multiple agents or roles for a shared intent
+
 # 3. Enter the project and scaffold domain contexts
 cd my_platform
 knt new context weather
@@ -230,12 +237,13 @@ canonical schema is `Settings` in
   docs.
 - [ADRs](ADRs/) — Architecture Decision Records.
 
-### ADRs em Discussão
+### ADRs Proposed in discussion
 
 | ADR | Título | Status |
 | --- | ------ | ------ |
 | [ADR-035](ADRs/ADR-035-sharding-and-dispatcher-coordination-for-horizontal-scaling.md) | Sharding and Dispatcher Coordination for Horizontal Scaling | Proposed (Under Review) |
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
+| [ADR-046](ADRs/ADR-046-CLI-Intent-Routing-Scaffold.md) | CLI Scaffold for Intent Routing Modes | Proposed |
 
 ## Project status
 

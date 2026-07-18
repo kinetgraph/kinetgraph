@@ -9,7 +9,7 @@ Tools worker - primitives for the Tool Worker Pattern (ADR-036).
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, TypeVar, get_type_hints
 
 from pydantic import create_model
 
@@ -85,7 +85,8 @@ def tool_worker(
 
                     mod = _importlib.import_module(cls.__module__)
                     ns = {**vars(_typing), **vars(mod)}
-                    param_type = eval(param_type, ns)  # noqa: S307 — controlled input
+                    hints = get_type_hints(invoke_method, globalns=ns, localns=ns)
+                    param_type = hints.get(param_name, Any)
                 except Exception:
                     param_type = Any
 

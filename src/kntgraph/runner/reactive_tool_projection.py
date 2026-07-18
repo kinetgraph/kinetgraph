@@ -35,7 +35,7 @@ the §3.1 500-L guideline. The helpers depend on
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast, Any
 
 from kntgraph.core.event import Event
 from kntgraph.core.world import World
@@ -74,6 +74,7 @@ def _overlay_tool_projection(
     new_events: list[Event],
     *,
     tool_ttls: Optional[ToolCallTTL] = None,
+    post_systems: bool = False,
 ) -> "World":
     """Run ``overlay_tool_calls`` on the batch and absorb
     the result into the post-fold World.
@@ -114,6 +115,7 @@ def _overlay_tool_projection(
         new_events,
         world.views,
         ttl=tool_ttls or ToolCallTTL(),
+        post_systems=post_systems,
     )
     if not tool_views:
         return world
@@ -127,7 +129,7 @@ def _overlay_tool_projection(
             new_views = dict(world.views)
         new_views[agent_id] = tool_view
         new_storage = new_storage.clone_with_entity(
-            agent_id, dict(tool_view.components)
+            agent_id, cast(dict[str, Any], dict(tool_view.components))
         )
     if new_views is None:
         return world

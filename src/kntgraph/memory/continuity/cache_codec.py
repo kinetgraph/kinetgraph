@@ -31,7 +31,7 @@ dicts (no fakeredis needed).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Optional, Union
+from typing import Optional, Union, cast
 
 from ...core._typing import JsonValue
 from ...infra.redis._codec import decode_dict
@@ -132,9 +132,10 @@ def _normalise_raw(
     (``ShortMemoryStorage``) inputs.
     """
     if any(isinstance(k, bytes) for k in raw):
-        bytes_raw: dict[bytes, bytes] = {
-            k: v.encode() if isinstance(v, str) else v for k, v in raw.items()
-        }
+        bytes_raw: dict[bytes, bytes] = cast(
+            dict[bytes, bytes],
+            {k: v.encode() if isinstance(v, str) else v for k, v in raw.items()},
+        )
         return decode_dict(bytes_raw)
     return {str(k): str(v) for k, v in raw.items()}
 

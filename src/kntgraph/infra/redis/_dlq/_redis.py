@@ -102,18 +102,39 @@ class RedisDLQStorage:
         stream id (the caller's dedup boundary).
         """
         try:
+            # Check if already exists (sequential idempotency)
+            existing = await self.client.hget(DLQ_EVENT_INDEX, idem_key)
+            if existing is not None:
+                return Ok(
+                    existing.decode("utf-8")
+                    if isinstance(existing, (bytes, bytearray))
+                    else str(existing)
+                )
+
             stream_id_bytes = await self.client.xadd(
                 DLQ_STREAM_KEY,
                 dict(payload),
                 maxlen=self.maxlen,
             )
             # Two-phase claim: placeholder → final id.
-            await self.client.hsetnx(DLQ_EVENT_INDEX, idem_key, PLACEHOLDER)
+            success = await self.client.hsetnx(DLQ_EVENT_INDEX, idem_key, PLACEHOLDER)
             stream_id = (
                 stream_id_bytes.decode("utf-8")
                 if isinstance(stream_id_bytes, (bytes, bytearray))
                 else str(stream_id_bytes)
             )
+            if not success:
+                # Concurrent insert won the race to set placeholder/final id.
+                # Retrieve the winner's stream_id.
+                val = await self.client.hget(DLQ_EVENT_INDEX, idem_key)
+                if val is not None:
+                    return Ok(
+                        val.decode("utf-8")
+                        if isinstance(val, (bytes, bytearray))
+                        else str(val)
+                    )
+                return Ok(PLACEHOLDER)
+
             await self.client.hset(DLQ_EVENT_INDEX, idem_key, stream_id)
             return Ok(stream_id)
         except Exception as e:

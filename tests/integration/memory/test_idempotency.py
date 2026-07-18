@@ -22,6 +22,8 @@ in the event.
 
 import pytest
 
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisProfileStorage, RedisSessionStorage
 from kntgraph.memory.profile import ProfileManager
 from kntgraph.memory.session import SessionManager
 from kntgraph.stream.event_log import EventLog
@@ -33,8 +35,8 @@ class TestChangeTierIdempotency:
     async def test_repeat_change_tier_same_target_produces_same_event_id(
         self, redis_client
     ):
-        log = EventLog(redis_client)
-        pm = ProfileManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        pm = ProfileManager(log, RedisProfileStorage(redis_client))
         await pm.create("t", "u", tier="standard")
 
         r1 = await pm.change_tier("t", "u", "vip")
@@ -46,8 +48,8 @@ class TestChangeTierIdempotency:
         assert r1.unwrap().event_id == r2.unwrap().event_id == r3.unwrap().event_id
 
     async def test_repeat_change_tier_stores_one_event(self, redis_client):
-        log = EventLog(redis_client)
-        pm = ProfileManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        pm = ProfileManager(log, RedisProfileStorage(redis_client))
         await pm.create("t", "u", tier="standard")
 
         for _ in range(5):
@@ -59,8 +61,8 @@ class TestChangeTierIdempotency:
         assert tier_events[0].data["to_tier"] == "vip"
 
     async def test_different_target_tier_stores_separate_events(self, redis_client):
-        log = EventLog(redis_client)
-        pm = ProfileManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        pm = ProfileManager(log, RedisProfileStorage(redis_client))
         await pm.create("t", "u", tier="standard")
 
         await pm.change_tier("t", "u", "vip")
@@ -74,8 +76,8 @@ class TestChangeTierIdempotency:
         assert {e.data["to_tier"] for e in tier_events} == {"vip", "basic"}
 
     async def test_final_state_after_repeat_changes(self, redis_client):
-        log = EventLog(redis_client)
-        pm = ProfileManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        pm = ProfileManager(log, RedisProfileStorage(redis_client))
         await pm.create("t", "u", tier="standard")
         for _ in range(10):
             await pm.change_tier("t", "u", "vip")
@@ -87,16 +89,16 @@ class TestChangeTierIdempotency:
 
 class TestSessionStartIdempotency:
     async def test_repeat_start_same_args_produces_same_event_id(self, redis_client):
-        log = EventLog(redis_client)
-        sm = SessionManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        sm = SessionManager(log, RedisSessionStorage(redis_client))
 
         r1 = await sm.start("s-1", user_id="u", tenant_id="t")
         r2 = await sm.start("s-1", user_id="u", tenant_id="t")
         assert r1.unwrap().event_id == r2.unwrap().event_id
 
     async def test_repeat_start_with_varying_metadata_is_idempotent(self, redis_client):
-        log = EventLog(redis_client)
-        sm = SessionManager(log, redis_client)
+        log = EventLog(RedisEventLogAdapter(redis_client))
+        sm = SessionManager(log, RedisSessionStorage(redis_client))
 
         r1 = await sm.start("s-1", user_id="u", tenant_id="t", metadata={"a": 1})
         r2 = await sm.start("s-1", user_id="u", tenant_id="t", metadata={"b": 2})

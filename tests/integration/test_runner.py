@@ -21,6 +21,7 @@ See: ADR-018 — WorldIncremental + WorldSystem.
 """
 
 from __future__ import annotations
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.core.event import CorrelationContext
 
 import pytest
@@ -103,7 +104,7 @@ def validate_received_documents(world):
 
 class TestRunnerTick:
     async def test_tick_once_no_events(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         runner = Runner(log, cyclic_systems=[])
         n_before = await log.stream_len("a-1")
         await runner.tick_once()
@@ -111,7 +112,7 @@ class TestRunnerTick:
         assert n_after == n_before
 
     async def test_tick_once_promotes_spawned(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -134,7 +135,7 @@ class TestRunnerTick:
         a subsequent tick produces no events (the rule is
         already satisfied).
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -153,7 +154,7 @@ class TestRunnerTick:
         assert n_after_first == n_after_second
 
     async def test_multiple_ticks(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -171,7 +172,7 @@ class TestRunnerTick:
         assert n_after_first == n_after_second
 
     async def test_multiple_systems(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -209,7 +210,7 @@ class TestRunnerTick:
         assert idle_count == 1
 
     async def test_idempotent_replay(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -235,13 +236,13 @@ class TestRunnerTick:
         assert n_after == n_before
 
     async def test_start_and_stop(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         runner = Runner(log, cyclic_systems=[], tick_interval=0.1)
         await runner.start()
         await runner.stop()
 
     async def test_start_is_idempotent(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         runner = Runner(log, cyclic_systems=[], tick_interval=0.1)
         await runner.start()
         await runner.start()  # no-op
@@ -255,7 +256,7 @@ class TestRunnerTick:
 
 class TestRunnerReactive:
     async def test_reactive_dispatch(self, clean_redis):
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -294,7 +295,7 @@ class TestRunnerReactive:
         only invokes systems when at least one event in the
         batch passed the filter.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -356,7 +357,7 @@ class TestRunnerReactive:
         not duplicate the output. The second dispatch
         produces nothing (cursor advanced; no new events).
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",
@@ -395,7 +396,7 @@ class TestRunnerWithReactive:
         run via the EventLog; the World is always
         reconstructed by fold.
         """
-        log = EventLog(clean_redis)
+        log = EventLog(RedisEventLogAdapter(clean_redis))
         await log.append(
             Event.create(
                 event_type="agent.spawned",

@@ -1,0 +1,24 @@
+{# SPDX-FileCopyrightText: 2026 kinetgraph
+   SPDX-License-Identifier: Apache-2.0 #}
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(frozen=True, slots=True)
+class RoleComponent:
+    """Semantic role for the generated project."""
+
+    persona: str
+    instructions: str
+    allowed_tools: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
+class IntentComponent:
+    """Pending intent for the generated project."""
+
+    target_tool: str
+    parameters: dict[str, Any]
+    status: str = "pending"
+    correlation_id: str | None = None
