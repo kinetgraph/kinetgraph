@@ -162,6 +162,13 @@ uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
 # 2. Scaffold a new application with the HTTP Gateway included
 knt init my_platform --use-intent-http
 
+# or generate an intent-routing scaffold with an explicit mode
+knt init my_platform --routing-mode external
+# supported values: external, autonomous, collaborate
+# external: routes intents from outside the agent boundary
+# autonomous: lets the agent resolve intents internally
+# collaborate: coordinates multiple agents or roles for a shared intent
+
 # 3. Enter the project and scaffold domain contexts
 cd my_platform
 knt new context weather

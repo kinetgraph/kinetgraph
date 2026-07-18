@@ -29,12 +29,15 @@ pip install "kntgraph[cli,api]"
 The first step is to bootstrap our repository. The `init` command generates the standard directory structure, dependency files, and the main entry point.
 
 ```bash
-uv run knt init weather_platform --use-intent-http
+uv run knt init weather_platform --use-intent-http --routing-mode external
 ```
 
 ### What did this do?
 - **`--use-intent-http`**: This flag tells the CLI to scaffold a `main.py` configured with FastAPI, `ToolRouter`, and `WorkerManager`. It wires up an HTTP Gateway that can receive intents from users.
 - **`--routing-mode`**: This flag selects the intent-routing scaffold mode. Supported values are `external`, `autonomous`, and `collaborate`. The generated project includes a shared routing core (`components.py`, `policy.py`, `resolution.py`) plus mode-specific adapters under `src/<project>/routing/adapters/`.
+  - `external`: intent entry comes from outside the agent boundary.
+  - `autonomous`: the agent resolves the intent internally and proceeds without a collaboration layer.
+  - `collaborate`: multiple agents or roles participate in resolving the same intent.
 - Created `pyproject.toml` and injected `kntgraph[api]` and `uvicorn`.
 - Created the core folder structure: `src/weather_platform/contexts/`.
 
