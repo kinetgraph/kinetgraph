@@ -110,11 +110,11 @@ class Result(Generic[T, E]):
 
     def ok_value(self) -> T | None:
         """Return the value if Ok, None if Err."""
-        return self._result.ok()
+        return self._result.ok()  # type: ignore[reportCallIssue]
 
     def err_value(self) -> E | None:
         """Return the error if Err, None if Ok."""
-        return self._result.err()
+        return self._result.err()  # type: ignore[reportCallIssue]
 
     def err_value_or_raise(self) -> E:
         """
@@ -129,7 +129,7 @@ class Result(Generic[T, E]):
                 return Err(r.err_value_or_raise())  # E, not E | None
         """
         if self.is_err():
-            e = self._result.err()
+            e = self._result.err()  # type: ignore[reportCallIssue]
             if e is not None:
                 return e
         raise UnwrapError("err_value_or_raise called on an Ok Result")
