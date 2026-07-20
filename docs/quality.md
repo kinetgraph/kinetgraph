@@ -9,8 +9,8 @@ Do not edit by hand; re-run the script to refresh the snapshot.
 
 # Quality report
 
-Generated: 2026-07-18T02:54:31Z
-Total duration: 84.34s
+Generated: 2026-07-20T12:45:04Z
+Total duration: 113.45s
 
 Each row mirrors one of the nine gates in
 [`scripts/ci.py`](../scripts/ci.py) and one of the
@@ -21,14 +21,14 @@ sync with the README.
 | Gate | Tool | OK | Detail | Duration |
 | --- | --- | :-: | --- | ---: |
 | Lint | `ruff check` | ✅ | 0 issues | 0.02s |
-| Format | `ruff format --check` | ✅ | 400 files formatted, 0 need reformat | 0.02s |
-| Complexity | `radon cc` | ✅ | avg 2.57 over 1252 blocks; 0 rank D+ | 0.42s |
-| Maintainability | `radon mi` | ✅ | 235 A + 0 B + 0 C- | 1.17s |
-| Pyright | `pyright` | ❌ | 67 errors, 943 warnings | 7.95s |
-| Coverage | `coverage` | ✅ | 80.0% (7019/8764 stmts) | 33.4s |
-| Tests | `pytest` | ✅ | 1502 unit + 0 agents passed; 0 failed | 27.62s |
-| Bandit | `bandit` | ✅ | 0 H + 0 M + 0 L | 1.38s |
-| pip-audit | `pip-audit` | ✅ | 0 known vulnerabilities | 12.36s |
+| Format | `ruff format --check` | ✅ | 405 files formatted, 0 need reformat | 0.01s |
+| Complexity | `radon cc` | ✅ | avg 2.56 over 1263 blocks; 0 rank D+ | 0.47s |
+| Maintainability | `radon mi` | ✅ | 237 A + 0 B + 0 C- | 1.24s |
+| Pyright | `pyright` | ❌ | 51 errors, 927 warnings | 9.08s |
+| Coverage | `coverage` | ✅ | 80.0% (7041/8791 stmts) | 53.13s |
+| Tests | `pytest` | ✅ | 1512 unit + 94 agents passed; 0 failed | 30.14s |
+| Bandit | `bandit` | ✅ | 0 H + 0 M + 0 L | 2.17s |
+| pip-audit | `pip-audit` | ✅ | 0 known vulnerabilities | 17.19s |
 
 ## Re-generating this report
 

@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lists `LLMTransport` / `EmbeddingProvider` / `RedisLike` /
   `HttpClientLike` as the four I/O boundaries a ToolWorker
   can reuse.
+- **CLI test suite collect-time skip (DEBT §2.25):** the
+  `tests/unit/cli/` directory now ships a `conftest.py` that
+  uses `collect_ignore_glob` to skip the directory at
+  collect time when the optional `typer` dependency is
+  missing. The pattern is the standard Python community
+  fix for optional-dependency test directories. The
+  `scripts/ci.py::_run_step` step now tolerates pytest
+  exit code 5 ("no tests ran") on the `tests` step with a
+  guard that the output mentions "no tests ran", so the
+  CI gate passes in both the default (no `[cli]` extra) and
+  the `uv sync --extra cli` configurations.
 
 ### Changed
 - **Tool-Adapter Pattern — Workers refactored to typed errors

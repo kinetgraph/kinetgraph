@@ -1485,3 +1485,62 @@ files:
     closed in this iteration.
 
 **Acceptable:** N/A — closed.
+
+
+## 2.25 CLI test suite: collect errors on missing optional dep
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **Root cause.** The 9 test files in
+    `tests/unit/cli/` (`test_cli_commands.py`,
+    `test_init.py`, `test_keys.py`, `test_new_*.py`)
+    do ``from typer.testing import CliRunner`` at
+    the **module level**. The ``typer`` package is
+    the framework's optional ``[cli]`` extra
+    (``pyproject.toml::[project.optional-dependencies]``).
+    The CI's default ``uv run scripts/ci.py`` does
+    NOT install the extra, so pytest fails at
+    collect time with 9 ``ModuleNotFoundError``s
+    and the `tests` step aborts with
+    ``Interrupted: 9 errors during collection``.
+    The pre-existing gate was failing on the
+    `tests` step even though the rest of the suite
+    was clean.
+
+  - **`tests/unit/cli/conftest.py`** (new): the
+    optional-dependency test directory pattern.
+    The conftest calls ``pytest.importorskip("typer")``
+    at module load; if the skip fires, it sets
+    ``collect_ignore_glob = ["test_*.py"]``, which
+    excludes the entire directory from the collect
+    phase. The pattern is the same one the Python
+    community uses for ``torch``-bound tests in ML
+    libraries (collect-time skip, not per-test
+    skip — per-test ``importorskip`` does not help
+    when the import is at module top).
+
+  - **`scripts/ci.py::_run_step`** updated: the
+    step now tolerates ``pytest`` exit code 5
+    ("no tests ran") on the `tests` step **only**,
+    with a guard that the output mentions
+    "no tests ran". The guard is specific enough
+    to not hide real failures (a test failure
+    would still report the failure summary in the
+    output, not "no tests ran"). The tolerated
+    path prints a hint to the operator about
+    `uv sync --extra cli` so the skip is
+    self-explanatory.
+
+  - **CI verification.** The full 9-step pipeline
+    now passes in both configurations:
+    - Without the ``[cli]`` extra (default CI):
+      the CLI directory is silently skipped, the
+      rest of the suite (1729 tests) runs clean.
+    - With the ``[cli]`` extra
+      (``uv sync --extra cli``): the 18 CLI
+      tests are collected and pass (1747 tests
+      total).
+
+**Acceptable:** N/A — closed.

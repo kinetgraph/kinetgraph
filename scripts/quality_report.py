@@ -361,22 +361,59 @@ def gate_tests() -> dict:
 
 
 def _parse_pytest_counts(out: str) -> dict:
+    """Parse the trailing summary line ``pytest`` prints
+    in ``-q --no-header`` mode.
+
+    The line is shaped like ``1512 passed, 1 skipped, 87
+    warnings in 27.70s`` (or ``94 passed in 0.77s`` when
+    no skips/warnings are present). The previous
+    implementation filtered on ``"passed" in line and
+    "warning" in line``, which silently returned
+    ``passed=0`` when the suite had no warnings
+    (e.g. ``tests/agents/`` on a clean run) — the gate
+    then reported ``1512 unit + 0 agents passed``
+    instead of ``1512 unit + 94 agents passed``.
+
+    The fix is to look for the standalone ``<N> passed``
+    token at the start of the summary chunk; the
+    ``<N> failed`` and ``<N> skipped`` tokens are
+    optional and ignored (the gate only needs the
+    pass/fail count to mark the row ✅/❌).
+    """
     passed = failed = 0
     for line in out.splitlines():
         line = line.strip()
-        if "passed" in line and "warning" in line:
-            for chunk in line.split(","):
-                chunk = chunk.strip()
-                if "passed" in chunk and "warning" not in chunk:
-                    try:
-                        passed = int(chunk.split()[0])
-                    except (ValueError, IndexError):
-                        pass
-                if "failed" in chunk:
-                    try:
-                        failed = int(chunk.split()[0])
-                    except (ValueError, IndexError):
-                        pass
+        # The summary line always starts with the
+        # "passed" / "failed" count chunk. Match
+        # the leading "<N> passed" / "<N> failed"
+        # pattern; reject "X passed in" (the docstring
+        # summary) by anchoring the comma-separated list
+        # form. The line is a single comma-separated
+        # chain ("1512 passed, 1 skipped, 87 warnings in
+        # 27.70s"), so we tokenise by comma and pick
+        # the first chunk that mentions "passed" or
+        # "failed".
+        if "passed in" in line and "failed" not in line and "," not in line:
+            # Bare "94 passed in 0.77s" form (no
+            # warnings, no skips). This is the path
+            # that fired the bug.
+            try:
+                passed = int(line.split("passed")[0].strip().split()[-1])
+            except (ValueError, IndexError):
+                pass
+            continue
+        for chunk in line.split(","):
+            chunk = chunk.strip()
+            if " passed" in chunk and " passed=" not in chunk:
+                try:
+                    passed = int(chunk.split(" passed")[0].split()[-1])
+                except (ValueError, IndexError):
+                    pass
+            if " failed" in chunk and " failed=" not in chunk:
+                try:
+                    failed = int(chunk.split(" failed")[0].split()[-1])
+                except (ValueError, IndexError):
+                    pass
     return {"passed": passed, "failed": failed}
 
 

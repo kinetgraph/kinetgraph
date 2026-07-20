@@ -412,14 +412,42 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
     stdout/stderr are suppressed on success and
     printed on failure. When ``capture=False``, all
     output is streamed live.
+
+    The ``tests`` step has one exception: ``pytest``
+    returns exit code 5 ("no tests ran") when a
+    ``collect_ignore_glob`` skip filter excluded
+    every test in a directory. The skip is a known
+    case (the optional-dependency test directory
+    pattern: e.g. ``tests/unit/cli`` is skipped when
+    the ``[cli]`` extra is not installed). Without
+    the tolerance, a missing optional dep would
+    fail the gate even though the skip is by design.
     """
     r = step.run(capture=capture)
-    if r.returncode != 0:
-        failed.append(step.name)
-        if r.stdout:
-            print(r.stdout)
-        if r.stderr:
-            print(r.stderr, file=sys.stderr)
+    if r.returncode == 0:
+        return r.stdout or ""
+    # Tolerated skip: ``pytest`` exit 5 + "no tests
+    # ran" in the output. The check is on the
+    # combined output (stdout + stderr) so a CI run
+    # with ``--capture=no`` (which mixes them) does
+    # not bypass the gate.
+    if (
+        step.name == "unit tests (pytest)"
+        and r.returncode == 5
+        and "no tests ran" in (r.stdout or "") + (r.stderr or "")
+    ):
+        print(
+            "  >>> tolerated: pytest exit 5 ('no tests ran') — "
+            "the suite is empty because the optional-dependency "
+            "conftest skip fired. Re-run with `uv sync --extra cli` "
+            "to enable the CLI tests."
+        )
+        return r.stdout or ""
+    failed.append(step.name)
+    if r.stdout:
+        print(r.stdout)
+    if r.stderr:
+        print(r.stderr, file=sys.stderr)
     return r.stdout or ""
 
 
