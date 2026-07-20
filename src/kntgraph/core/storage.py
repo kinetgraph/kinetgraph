@@ -54,7 +54,9 @@ class ArchetypeStorage:
     """
 
     def __init__(self) -> None:
-        self._archetypes: dict[ArchetypeId, dict[str, dict[str | type[Any], ComponentT]]] = {}
+        self._archetypes: dict[
+            ArchetypeId, dict[str, dict[str | type[Any], ComponentT]]
+        ] = {}
         self._entity_archetype: dict[str, ArchetypeId] = {}
 
     @property
@@ -71,7 +73,9 @@ class ArchetypeStorage:
     def get_archetype_of(self, entity_id: str) -> ArchetypeId | None:
         return self._entity_archetype.get(entity_id)
 
-    def get_components(self, entity_id: str) -> dict[str | type[Any], ComponentT] | None:
+    def get_components(
+        self, entity_id: str
+    ) -> dict[str | type[Any], ComponentT] | None:
         arch = self._entity_archetype.get(entity_id)
         if arch is None:
             return None
@@ -194,7 +198,9 @@ class ArchetypeStorage:
                 result[eid] = Map(comps)
         return Map(result)
 
-    def _derive_archetype(self, components: dict[str | type[Any], ComponentT]) -> ArchetypeId:
+    def _derive_archetype(
+        self, components: dict[str | type[Any], ComponentT]
+    ) -> ArchetypeId:
         types = frozenset(type(c) for c in components.values())
         return ArchetypeId(types)
 
