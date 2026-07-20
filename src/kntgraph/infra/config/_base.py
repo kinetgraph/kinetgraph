@@ -101,7 +101,7 @@ def load_dotenv_files(*paths: Path) -> list[Path]:
     """
     loaded: list[Path] = []
     try:
-        from dotenv import load_dotenv  # type: ignore[import-not-found]
+        from dotenv import load_dotenv
     except ImportError:
         return loaded
     for p in paths:

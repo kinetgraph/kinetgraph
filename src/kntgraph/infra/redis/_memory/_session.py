@@ -100,7 +100,10 @@ class RedisSessionStorage:
     ) -> Result[None, MemoryError]:
         """Persist a JSON-encoded payload via ``SET`` with optional TTL."""
         try:
-            payload = json.dumps(dict(record), default=str)
+            payload = json.dumps(
+                dict(record) if isinstance(record, Mapping) else record,
+                default=str,
+            )
         except (TypeError, ValueError) as e:
             return Err(MemorySerializationError(f"cannot serialize: {e}", key=key))
         effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds

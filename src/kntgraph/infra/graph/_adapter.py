@@ -44,7 +44,7 @@ from kntgraph.knowledge.graph._protocol import GraphError, GraphQueryResult
 
 
 if TYPE_CHECKING:
-    from falkordb.asyncio import AsyncGraph
+    from falkordb.asyncio.graph import AsyncGraph
 
 
 class FalkorDBGraphAdapter:

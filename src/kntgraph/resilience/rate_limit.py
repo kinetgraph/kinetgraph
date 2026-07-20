@@ -63,15 +63,17 @@ if TYPE_CHECKING:
     # ``HttpRequest`` is the framework-level adapter for
     # the inbound HTTP request (Starlette ``Request`` in
     # production; any object that exposes ``.url.path``,
-    # ``.headers``, ``.client`` can be substituted in
+    # ``headers``, ``.client`` can be substituted in
     # tests). The framework never imports Starlette at
     # the top level — only this TYPE_CHECKING branch
     # mentions it. The runtime code accepts the duck
     # type via ``cast``.
     from starlette.requests import Request as StarletteRequest
+    from starlette.responses import Response as StarletteResponse
     from starlette.types import ASGIApp
 
     HttpRequest = StarletteRequest
+    HttpResponse = StarletteResponse
 else:
     # At runtime the framework treats the request as
     # opaque; callers may pass any object that exposes
@@ -83,6 +85,7 @@ else:
     # that need attribute access use ``cast(StarletteRequest, ...)``
     # before reading ``.headers``/``.url.path``.
     HttpRequest = object
+    HttpResponse = object
 
 
 # Result type for ``key_fn`` and the middleware's
@@ -308,9 +311,9 @@ def _make_middleware_class() -> type:
 
         async def dispatch(
             self,
-            request: object,
-            call_next: "Callable[[object], Awaitable[object]]",
-        ) -> object:
+            request: "HttpRequest",
+            call_next: "Callable[[HttpRequest], Awaitable[HttpResponse]]",
+        ) -> "HttpResponse":
             url = getattr(request, "url", None)
             path = getattr(url, "path", "/")
             if not isinstance(path, str):

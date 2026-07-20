@@ -244,6 +244,8 @@ canonical schema is `Settings` in
 | [ADR-035](ADRs/ADR-035-sharding-and-dispatcher-coordination-for-horizontal-scaling.md) | Sharding and Dispatcher Coordination for Horizontal Scaling | Proposed (Under Review) |
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
 | [ADR-046](ADRs/ADR-046-CLI-Intent-Routing-Scaffold.md) | CLI Scaffold for Intent Routing Modes | Proposed |
+| [ADR-047](ADRs/ADR-047-Tool-Adapter-Pattern.md) | Standardizing Tool Construction via Adapters | Proposed |
+| [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 
 ## Project status
 
