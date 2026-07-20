@@ -340,10 +340,30 @@ def gate_complexity(verbose: bool = False) -> bool:
         base_cc = baseline.get("cc", {})
         base_mi = baseline.get("mi", {})
 
-        # CC regression: any block that grew.
+        # CC regression: any block that grew, OR a
+        # NEW block that landed above the threshold.
+        # The previous implementation only flagged
+        # ``cur > base`` for keys present in the
+        # baseline; blocks added by a new refactor
+        # silently passed the gate even when they
+        # were over CC=10. The fix is explicit: a
+        # block with no baseline entry and CC > 10
+        # is a regression (the operator introduced
+        # new debt without updating the baseline).
+        # A block with no baseline entry and CC <= 10
+        # is fine (a new function under the ceiling
+        # does not need to be added to the baseline).
         for key, cur in cc_snap.items():
             base = base_cc.get(key)
-            if base and cur["complexity"] > base["complexity"]:
+            if base is None:
+                if cur["complexity"] > 10:
+                    regressions.append(
+                        f"CC new offender: {key} = {cur['complexity']} "
+                        f"(no baseline entry; CC > 10 requires a "
+                        f"refactor before merging)"
+                    )
+                continue
+            if cur["complexity"] > base["complexity"]:
                 regressions.append(
                     f"CC grew for {key}: {base['complexity']} -> {cur['complexity']}"
                 )
@@ -412,14 +432,42 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
     stdout/stderr are suppressed on success and
     printed on failure. When ``capture=False``, all
     output is streamed live.
+
+    The ``tests`` step has one exception: ``pytest``
+    returns exit code 5 ("no tests ran") when a
+    ``collect_ignore_glob`` skip filter excluded
+    every test in a directory. The skip is a known
+    case (the optional-dependency test directory
+    pattern: e.g. ``tests/unit/cli`` is skipped when
+    the ``[cli]`` extra is not installed). Without
+    the tolerance, a missing optional dep would
+    fail the gate even though the skip is by design.
     """
     r = step.run(capture=capture)
-    if r.returncode != 0:
-        failed.append(step.name)
-        if r.stdout:
-            print(r.stdout)
-        if r.stderr:
-            print(r.stderr, file=sys.stderr)
+    if r.returncode == 0:
+        return r.stdout or ""
+    # Tolerated skip: ``pytest`` exit 5 + "no tests
+    # ran" in the output. The check is on the
+    # combined output (stdout + stderr) so a CI run
+    # with ``--capture=no`` (which mixes them) does
+    # not bypass the gate.
+    if (
+        step.name == "unit tests (pytest)"
+        and r.returncode == 5
+        and "no tests ran" in (r.stdout or "") + (r.stderr or "")
+    ):
+        print(
+            "  >>> tolerated: pytest exit 5 ('no tests ran') — "
+            "the suite is empty because the optional-dependency "
+            "conftest skip fired. Re-run with `uv sync --extra cli` "
+            "to enable the CLI tests."
+        )
+        return r.stdout or ""
+    failed.append(step.name)
+    if r.stdout:
+        print(r.stdout)
+    if r.stderr:
+        print(r.stderr, file=sys.stderr)
     return r.stdout or ""
 
 

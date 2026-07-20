@@ -15,6 +15,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tool-Adapter Pattern — `HttpClientLike` Protocol (ADR-047, DEBT §2.24):** the
+  framework now owns the I/O boundary for async HTTP clients
+  (`HttpClientLike` / `HttpResponseLike` in
+  `src/kntgraph/infra/http/_client.py`). The
+  `HttpxHttpClientAdapter` wraps `httpx2.AsyncClient` with a
+  lazy import; verticals inject the adapter via DI. The
+  framework-level Protocol catalogue (ADR-047 §2.2.4) now
+  lists `LLMTransport` / `EmbeddingProvider` / `RedisLike` /
+  `HttpClientLike` as the four I/O boundaries a ToolWorker
+  can reuse.
+- **CLI test suite collect-time skip (DEBT §2.25):** the
+  `tests/unit/cli/` directory now ships a `conftest.py` that
+  uses `collect_ignore_glob` to skip the directory at
+  collect time when the optional `typer` dependency is
+  missing. The pattern is the standard Python community
+  fix for optional-dependency test directories. The
+  `scripts/ci.py::_run_step` step now tolerates pytest
+  exit code 5 ("no tests ran") on the `tests` step with a
+  guard that the output mentions "no tests ran", so the
+  CI gate passes in both the default (no `[cli]` extra) and
+  the `uv sync --extra cli` configurations.
+- **CC gate detects new blocks (DEBT §2.26):** the
+  `gate_complexity` in `scripts/ci.py` previously detected
+  only "block grew in CC" regressions. Blocks added by a
+  refactor that landed above CC=10 silently passed the
+  gate (10 new offenders were hidden from CI). The gate
+  now flags `CC new offender: <key> = <N>` when a block has
+  no baseline entry and CC > 10, with a hint that the
+  operator must refactor or update the baseline before
+  merging.
+
+### Changed
+- **Tool-Adapter Pattern — Workers refactored to typed errors
+  (ADR-047, DEBT §2.24):** the `invoke` signatures of every
+  existing `@tool_worker` in the codebase were tightened from
+  `Result[dict, Exception]` to `Result[dict, ToolError]`
+  (AGENTS.md §6.1). The original exception is preserved as
+  `__cause__` on the `ToolError` for diagnostics.
+  Affected Workers:
+  - `LiteLLMToolWorker` (`src/kntgraph/agents/tools/llm.py`).
+  - `OpenMeteoApi` (`examples/knt-cli/weather_platform/.../tools/open_meteo_api.py`).
+    The Worker was also refactored to receive the new
+    `HttpClientLike` via DI; the `httpx` import is no longer
+    in the Worker's module path.
+  - `SessionRecorderTool` (in `examples/05b_session_chat_ecs.py`
+    and `examples/05c_session_chat_ecs_roles.py`).
+  - `WeatherTool` (`examples/19_tool_worker_pattern.py`).
+  - The `knt new tool` CLI template
+    (`src/kntgraph/cli/templates/tool.py.jinja`).
+- **ADR-047 §3.1 / §3.2 / §5 / §6.4 aligned with the canonical
+  code:** the `LLMTransport` Protocol returns the LiteLLM-style
+  dict (not a discriminated envelope), the `LLMResponse`
+  dataclass is the LLM-side envelope the `LiteLLMToolWorker`
+  returns to the `WorkerManager`, and the `AdapterResponse`
+  base class proposal from §6.4 is deferred to ADR-049. The
+  ADR **status** remains `Draft` (the §6.1 `StreamsWorker` /
+  §6.2 cancellation follow-ups are still open; "Accepted"
+  is gated on ADR-049).
+- **Cyclomatic complexity — 10 offenders refactored to CC ≤ 10
+  (DEBT §2.26):** all 10 functions over CC=10 in the previous
+  baseline were broken into per-event-type dispatch tables
+  (or single-responsibility helpers) and dropped to A/B
+  rank. The radon baseline (`.radon-baseline.json`) was
+  regenerated. The 10 refactors:
+
+  | File | Function | CC before | CC after |
+  | --- | --- | --- | --- |
+  | `memory/profile.py` | `_fold_profile_events` | 18 | 4 |
+  | `agents/role_systems/__init__.py` | `_BaseRoleSystem.__call__` | 16 | 8 |
+  | `core/world/projection_memory.py` | `project_memory` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_session` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_profile` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_continuity` | 13 | 4 |
+  | `memory/session.py` | `_fold_session_events` | 11 | 4 |
+  | `agents/tools/arg_validation.py` | `validate_args` | 11 | 4 |
+  | `agents/tools/llm.py` | `LiteLLMTransportAdapter` | 11 | 5 |
+  | `core/world/projection_tool_calls.py` | `overlay_tool_calls` | 11 | 4 |
+
+  The shared pattern is the **dispatch table**:
+  ``_HANDLERS: dict[str, Callable[[Event, dict], None]]``
+  with one small handler per event type; the fold itself
+  is a linear ``for`` loop. Net effect: ``avg 2.56 → 2.49``
+  CC, ``237 → 237`` A-rank files (MI), ``1263 → 1309`` CC
+  blocks (more, smaller).
+
 ### Removed
 - **Raw Redis client constructors (F5 cleanup / Breaking):**
   - Removed backward-compatibility wrappers from `EventLog`, `IncrementalWorldStore`, `SessionManager`, `ProfileManager`, and `ContinuityManager` constructors. They now strictly require their Protocol-compliant storage adapters (`EventLogStorage`, `WorldCheckpointStorage`, `ShortMemoryStorage`) instead of accepting raw Redis clients directly. Updated all test files and call sites accordingly.

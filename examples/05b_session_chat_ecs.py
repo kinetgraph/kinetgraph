@@ -94,7 +94,7 @@ from kntgraph.core.event import (
     Event,
     correlation_middleware,
 )
-from kntgraph.core.result import Err, Ok, Result
+from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import World
 from kntgraph.core.world.projection_memory import project_memory
 from kntgraph.infra.redis import RedisEventLogAdapter
@@ -336,7 +336,7 @@ class SessionRecorderTool:
         *,
         idempotency_key: str,
         data: dict[str, Any] | None = None,
-    ) -> Result[dict[str, Any], Exception]:
+    ) -> Result[dict[str, Any], ToolError]:
         data = data or {}
         if command == "start":
             r = await self._sm.start(
@@ -360,10 +360,12 @@ class SessionRecorderTool:
         elif command == "end":
             r = await self._sm.end(session_id=session_id)
         else:
-            return Err(ValueError(f"unknown command: {command!r}"))
+            return Err(ToolError(f"session_recorder_unknown_command: {command!r}"))
         if r.is_err():
             err = r.err_value()
-            return Err(Exception(str(err)) if err is not None else Exception("unknown"))
+            inner = str(err) if err is not None else "unknown"
+            wrapped = ToolError(f"session_recorder_error: {inner}")
+            return Err(wrapped)
         return Ok({"session_id": session_id, "command": command})
 
 

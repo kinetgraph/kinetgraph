@@ -9,10 +9,18 @@ from .checkpoint import (
     utcnow,
 )
 from .graph._lite_pool import LiteGraphAdapter, LiteGraphPool
+from .http import (
+    HttpClientLike,
+    HttpResponseLike,
+    HttpxHttpClientAdapter,
+)
 
 __all__ = [
     "CHECKPOINT_KEY",
     "CheckpointStore",
+    "HttpClientLike",
+    "HttpResponseLike",
+    "HttpxHttpClientAdapter",
     "LiteGraphAdapter",
     "LiteGraphPool",
     "ReactiveCheckpoint",

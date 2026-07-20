@@ -35,9 +35,9 @@ concrete ``RedisSessionStorage`` via constructor injection.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
@@ -422,53 +422,104 @@ def _fold_session_events(
     `started_at` and `ended_at` come from the Event's
     `timestamp` (not from `data`, which is now
     idempotency-stable).
+
+    Per-event dispatch is delegated to a small table of
+    handlers (``_SESSION_HANDLERS``) so the fold itself
+    stays a linear ``for`` loop and under the CC ≤ 10
+    ceiling.
     """
-    user_id = ""
-    tenant_id = ""
-    started_at: Optional[float] = None
-    ended_at: Optional[float] = None
-    messages: list[dict[str, JsonValue]] = []
-    context: dict[str, JsonValue] = {}
+    state: dict[str, Any] = {
+        "user_id": "",
+        "tenant_id": "",
+        "started_at": None,
+        "ended_at": None,
+        "messages": [],
+        "context": {},
+    }
 
     for e in events:
-        if e.event_type == SessionEventType.STARTED:
-            user_id = _scalar_str(e.data.get("user_id"))
-            tenant_id = _scalar_str(e.data.get("tenant_id"))
-            started_at = e.timestamp.timestamp()
-            meta = e.data.get("metadata")
-            if isinstance(meta, dict):
-                context.update(meta)
-        elif e.event_type == SessionEventType.MESSAGE:
-            messages.append(
-                {
-                    "role": _scalar_str(e.data.get("role"), default="user"),
-                    "content": _scalar_str(e.data.get("content")),
-                    "metadata": e.data.get("metadata", {}),
-                    "at": e.timestamp.timestamp(),
-                }
-            )
-            if len(messages) > MAX_MESSAGES_IN_CACHE:
-                # Keep only the most recent MAX_MESSAGES_IN_CACHE
-                # in cache; the EventLog retains everything.
-                messages[:-MAX_MESSAGES_IN_CACHE] = []
-        elif e.event_type == SessionEventType.CONTEXT:
-            slot = e.data.get("key")
-            if slot is not None and isinstance(slot, str):
-                context[slot] = e.data.get("value")
-        elif e.event_type == SessionEventType.ENDED:
-            ended_at = e.timestamp.timestamp()
+        handler = _SESSION_HANDLERS.get(e.event_type)
+        if handler is not None:
+            handler(e, state)
 
-    if started_at is None:
+    if state["started_at"] is None:
         return None
 
+    return _build_session_state_from_fold(session_id, state)
+
+
+def _on_session_started(e: Event, state: dict[str, Any]) -> None:
+    """``session.started`` handler: capture identity,
+    stamp the start time, and seed ``context`` from
+    the event's ``metadata`` field (if any)."""
+    state["user_id"] = _scalar_str(e.data.get("user_id"))
+    state["tenant_id"] = _scalar_str(e.data.get("tenant_id"))
+    state["started_at"] = e.timestamp.timestamp()
+    meta = e.data.get("metadata")
+    if isinstance(meta, dict):
+        state["context"].update(meta)
+
+
+def _on_session_message(e: Event, state: dict[str, Any]) -> None:
+    """``session.message`` handler: append a single
+    message and enforce the
+    ``MAX_MESSAGES_IN_CACHE`` cap (older messages are
+    dropped from the cache; the EventLog retains
+    everything)."""
+    state["messages"].append(
+        {
+            "role": _scalar_str(e.data.get("role"), default="user"),
+            "content": _scalar_str(e.data.get("content")),
+            "metadata": e.data.get("metadata", {}),
+            "at": e.timestamp.timestamp(),
+        }
+    )
+    if len(state["messages"]) > MAX_MESSAGES_IN_CACHE:
+        # Keep only the most recent MAX_MESSAGES_IN_CACHE
+        # in cache; the EventLog retains everything.
+        state["messages"][:-MAX_MESSAGES_IN_CACHE] = []
+
+
+def _on_session_context(e: Event, state: dict[str, Any]) -> None:
+    """``session.context`` handler: write a key/value
+    pair. ``None`` and non-string keys are dropped
+    (the canonical enforcer is upstream in the
+    recorder)."""
+    slot = e.data.get("key")
+    if slot is not None and isinstance(slot, str):
+        state["context"][slot] = e.data.get("value")
+
+
+def _on_session_ended(e: Event, state: dict[str, Any]) -> None:
+    """``session.ended`` handler: stamp the end time."""
+    state["ended_at"] = e.timestamp.timestamp()
+
+
+_SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
+    SessionEventType.STARTED: _on_session_started,
+    SessionEventType.MESSAGE: _on_session_message,
+    SessionEventType.CONTEXT: _on_session_context,
+    SessionEventType.ENDED: _on_session_ended,
+}
+
+
+def _build_session_state_from_fold(
+    session_id: str, state: dict[str, Any]
+) -> SessionState:
+    """Materialise the ``SessionState`` from the fold
+    state dict. The fold's ``messages`` list and
+    ``context`` dict are passed straight through;
+    the identity + timestamps come from the state
+    too (the per-event handlers are responsible for
+    their values)."""
     return SessionState(
         session_id=session_id,
-        user_id=user_id,
-        tenant_id=tenant_id,
-        messages=tuple(messages),
-        context=context,
-        started_at=started_at,
-        ended_at=ended_at,
+        user_id=state["user_id"],
+        tenant_id=state["tenant_id"],
+        messages=tuple(state["messages"]),
+        context=state["context"],
+        started_at=state["started_at"],
+        ended_at=state["ended_at"],
     )
 
 

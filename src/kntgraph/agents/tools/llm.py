@@ -198,7 +198,35 @@ class LiteLLMTransportAdapter(LLMTransport):
         import litellm
 
         litellm.drop_params = request.drop_unsupported_params
-        completion_kwargs: dict = {
+        completion_kwargs = self._build_completion_kwargs(request)
+        try:
+            response: Any = await litellm.acompletion(**completion_kwargs)
+        except litellm.RateLimitError as e:
+            # Provider 429. Translate to typed LLM
+            # exception so the fallback loop can switch
+            # to the next model in `fallback_models``.
+            raise LLMRateLimitError(str(e)) from e
+        except litellm.AuthenticationError as e:
+            # Provider 401/403. Non-recoverable.
+            raise LLMAuthError(str(e)) from e
+        except litellm.APIError as e:
+            # Generic provider error. Surface as a
+            # typed `LLMError`; the fallback loop
+            # treats this as non-recoverable.
+            raise LLMError(str(e)) from e
+        return self._dump_response(response)
+
+    def _build_completion_kwargs(self, request: "LLMRequest") -> dict[str, Any]:
+        """Build the ``litellm.acompletion`` kwargs
+        from the ``LLMRequest`` value object. The
+        ``response_format`` slot is forwarded to
+        ``litellm_params`` (litellm's per-request
+        escape hatch) so it survives the
+        ``drop_unsupported_params`` filter. The
+        request's ``extra`` dict is merged last so
+        callers can override defaults via
+        ``LLMRequest(extra={"...": ...})``."""
+        kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
             "temperature": request.temperature,
@@ -224,31 +252,22 @@ class LiteLLMTransportAdapter(LLMTransport):
                     "litellm_params": litellm_params,
                 },
             )
-        completion_kwargs.update(request.extra)
-        # The runtime type is `ModelResponse | CustomStreamWrapper`.
-        # Stream wrappers are iterable (not full responses),
-        # but in this code path `stream` is False (we use
-        # `acompletion`, not `astream`), so the runtime
-        # type is always `ModelResponse` (a pydantic model).
-        # We annotate as `Any` and probe carefully.
-        try:
-            response: Any = await litellm.acompletion(**completion_kwargs)
-        except litellm.RateLimitError as e:
-            # Provider 429. Translate to typed LLM
-            # exception so the fallback loop can switch
-            # to the next model in `fallback_models`.
-            raise LLMRateLimitError(str(e)) from e
-        except litellm.AuthenticationError as e:
-            # Provider 401/403. Non-recoverable.
-            raise LLMAuthError(str(e)) from e
-        except litellm.APIError as e:
-            # Generic provider error. Surface as a
-            # typed `LLMError`; the fallback loop
-            # treats this as non-recoverable.
-            raise LLMError(str(e)) from e
-        # pydantic v2 ModelResponse has model_dump().
-        # The probe via `is not None` after getattr is a
-        # way to satisfy pyright without `type: ignore`.
+        kwargs.update(request.extra)
+        return kwargs
+
+    def _dump_response(self, response: Any) -> dict:
+        """Coerce the litellm ``ModelResponse`` (or
+        a fallback shape) into a JSON-serialisable
+        dict. The runtime type is ``ModelResponse``
+        in the ``acompletion`` path
+        (``CustomStreamWrapper`` is reserved for the
+        ``astream`` path, which this adapter does
+        not exercise). ``model_dump`` is the
+        canonical serialiser; we fall back to a
+        raw dict copy, then to a ``{"_repr": ...}``
+        sentinel so the response is always
+        JSON-serialisable (some custom transports
+        return exotic objects)."""
         dump = getattr(response, "model_dump", None)
         if callable(dump):
             try:
@@ -635,7 +654,7 @@ class LiteLLMToolWorker:
         think: bool = False,
         response_format: "dict | None" = None,
         stream: bool = False,
-    ) -> "Result[dict[str, Any], Exception]":
+    ) -> "Result[dict[str, Any], ToolError]":
         """
         Run a single LLM completion via the
         ``LiteLLMTransportAdapter`` and return the
@@ -644,9 +663,11 @@ class LiteLLMToolWorker:
         The result envelope is documented in the
         class docstring. On any transport error
         (rate limit, auth, timeout, etc.) the
-        worker returns ``Err(Exception(...))``; the
+        worker returns ``Err(ToolError(...))``; the
         ``WorkerManager`` translates that into a
-        ``tool.chat_llm.failed`` event.
+        ``tool.chat_llm.failed`` event. The
+        original exception is preserved as
+        ``__cause__`` for diagnostics.
         """
         effective_model = model or self._default_model
         # ``temperature`` and ``max_tokens`` are
@@ -678,10 +699,14 @@ class LiteLLMToolWorker:
                 timeout=self._timeout_s,
             )
             latency_ms = (time.perf_counter() - started) * 1000.0
-        except asyncio.TimeoutError:
-            return Err(TimeoutError(f"llm_timeout after {self._timeout_s}s"))
+        except asyncio.TimeoutError as e:
+            err = ToolError(f"llm_timeout after {self._timeout_s}s")
+            err.__cause__ = e
+            return Err(err)
         except Exception as e:
-            return Err(e)
+            err = ToolError(f"llm_transport_error: {e!r}")
+            err.__cause__ = e
+            return Err(err)
 
         # Translate the transport's dict into the
         # worker's public envelope.

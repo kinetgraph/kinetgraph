@@ -1352,3 +1352,289 @@ files:
     ``pyright``).
 
 **Acceptable:** N/A — closed.
+
+
+## 2.24 ADR-047 Tool-Adapter Pattern: Worker refactor + Protocol catalogue
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **`HttpClientLike` Protocol** (new in
+    `src/kntgraph/infra/http/_client.py`): the
+    framework-level Protocol for an async HTTP
+    client. Narrow on purpose: a single
+    `get(url) -> HttpResponseLike` method, mirroring
+    the parts of `httpx.Response` the framework
+    actually reads (`status_code` /
+    `raise_for_status` / `json`). `@runtime_checkable`
+    so callers can do `isinstance(client, HttpClientLike)`
+    defensively (same pattern as `RedisLike`).
+  - **`HttpxHttpClientAdapter`** (new in the same
+    module): the concrete implementation that
+    wraps `httpx2.AsyncClient`. The `httpx2`
+    import is **lazy** (inside `__init__`), so
+    the framework's import graph does not pay
+    the dep cost unless the operator
+    instantiates the adapter.
+  - **`OpenMeteoApi` refactor**
+    (`examples/knt-cli/weather_platform/.../tools/open_meteo_api.py`):
+    the canonical `weather_platform` Worker was
+    the only `@tool_worker` in the codebase that
+    violated ADR-047 §2.2.1 ("No Direct External
+    Imports") — it imported `httpx.AsyncClient`
+    directly inside `invoke`. The refactor
+    re-routes the Worker through the new
+    `HttpClientLike` Protocol: the constructor
+    accepts `http: HttpClientLike | None = None`
+    and lazy-defaults to `HttpxHttpClientAdapter()`
+    (the ADR-047 §2.3 template). The Worker is
+    now testable with an in-memory `FakeHttpClient`
+    (no network, no `httpx` on the test path).
+    The `invoke` signature changed from
+    `Result[dict, Exception]` to
+    `Result[dict, ToolError]`; the three error
+    paths (`http_error`, `decode_error`,
+    `missing_key`) are typed `ToolError` instances
+    with a clear prefix on the message.
+  - **`LiteLLMToolWorker` typed errors**
+    (`src/kntgraph/agents/tools/llm.py`): the
+    Worker's `invoke` was returning
+    `Result[dict, Exception]` with bare
+    `Err(TimeoutError(...))` / `Err(e)`. The
+    refactor changes the signature to
+    `Result[dict, ToolError]`; the original
+    exception is preserved as `__cause__` on the
+    `ToolError` so operators can introspect the
+    root cause without losing the typed-error
+    contract. The 7 unit tests in
+    `tests/agents/unit/tools/test_litellm_worker.py`
+    were updated to assert on `isinstance(err, ToolError)`
+    and `isinstance(err.__cause__, TimeoutError)`
+    (the original behaviour was that
+    `isinstance(err, TimeoutError)` directly).
+  - **`SessionRecorderTool` typed errors**
+    (`examples/05b_session_chat_ecs.py` and
+    `examples/05c_session_chat_ecs_roles.py`):
+    both copies of the class were returning
+    `Result[dict, Exception]` with bare
+    `Err(ValueError(...))` for the
+    "unknown command" path and
+    `Err(Exception(...))` for the
+    `SessionManager.is_err()` path. The
+    refactor changes both to typed `ToolError`
+    messages with clear prefixes.
+  - **`WeatherTool` typed errors**
+    (`examples/19_tool_worker_pattern.py`): the
+    canonical example Worker was also returning
+    `Result[dict, Exception]`. The signature
+    changes to `Result[dict, ToolError]`; the
+    example's body never returns `Err(...)`
+    (the example is a happy-path mock), so the
+    change is signature-only.
+  - **CLI scaffold template updated**
+    (`src/kntgraph/cli/templates/tool.py.jinja`):
+    the `knt new tool` template now generates
+    Workers with `Result[dict, ToolError]` and
+    imports `ToolError` from `core.result`. New
+    vertical Workers are born compliant with
+    AGENTS.md §6.1 (the "Never `raise Exception`"
+    rule and the `Result[T, E]` discipline).
+  - **New unit tests** (10 in total, in
+    `tests/unit/infra/http/`):
+    - `test_http_client.py`: the
+      `HttpClientLike` / `HttpxHttpClientAdapter`
+      Protocol contract, the lazy-import contract,
+      and the in-memory `FakeHttpClient` /
+      `_FakeResponse` test doubles.
+    - `test_open_meteo_tool.py`: the
+      `OpenMeteoApi` Worker end-to-end with the
+      in-memory HTTP client (4 scenarios: 2xx
+      happy path, non-2xx HTTP error, invalid
+      JSON, missing `current_weather` key) plus
+      the worker metadata + the default
+      `HttpxHttpClientAdapter` constructor path.
+  - **ADR-047 §3.1 / §3.2 / §5 / §6.4 / §6.5
+    updated** to reflect the canonical code
+    shape. The earlier draft of the ADR
+    proposed a discriminated envelope
+    (`LLMResponse(success: bool, text, error)`)
+    as the return type of the `LLMTransport`
+    Protocol; the canonical code returns the
+    LiteLLM-style dict from the Protocol and
+    uses the `LLMResponse` dataclass as the
+    JSON-serialisable result envelope the
+    `LiteLLMToolWorker` returns to the
+    `WorkerManager`. The ADR now documents the
+    actual shape (§3.1 "Why the Protocol
+    returns a `dict` (not a typed envelope)")
+    and defers the discriminated envelope to
+    a future ADR-049 (§6.4 status: deferred).
+    The §2.2.4 "Adapter Reuse" rule now lists
+    the framework-level Protocol catalogue
+    (`LLMTransport` / `EmbeddingProvider` /
+    `RedisLike` / `HttpClientLike`).
+  - **ADR-047 status remains `Draft`** (the
+    `StreamsWorker` / cancellation /
+    `AdapterResponse` follow-ups in §6 are
+    still open; "Accepted" is gated on
+    ADR-049). The sync `ToolWorker` category
+    is the recommended standard for new
+    development; the recommendation is now
+    backed by the per-Worker refactoring that
+    closed in this iteration.
+
+**Acceptable:** N/A — closed.
+
+
+## 2.25 CLI test suite: collect errors on missing optional dep
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **Root cause.** The 9 test files in
+    `tests/unit/cli/` (`test_cli_commands.py`,
+    `test_init.py`, `test_keys.py`, `test_new_*.py`)
+    do ``from typer.testing import CliRunner`` at
+    the **module level**. The ``typer`` package is
+    the framework's optional ``[cli]`` extra
+    (``pyproject.toml::[project.optional-dependencies]``).
+    The CI's default ``uv run scripts/ci.py`` does
+    NOT install the extra, so pytest fails at
+    collect time with 9 ``ModuleNotFoundError``s
+    and the `tests` step aborts with
+    ``Interrupted: 9 errors during collection``.
+    The pre-existing gate was failing on the
+    `tests` step even though the rest of the suite
+    was clean.
+
+  - **`tests/unit/cli/conftest.py`** (new): the
+    optional-dependency test directory pattern.
+    The conftest calls ``pytest.importorskip("typer")``
+    at module load; if the skip fires, it sets
+    ``collect_ignore_glob = ["test_*.py"]``, which
+    excludes the entire directory from the collect
+    phase. The pattern is the same one the Python
+    community uses for ``torch``-bound tests in ML
+    libraries (collect-time skip, not per-test
+    skip — per-test ``importorskip`` does not help
+    when the import is at module top).
+
+  - **`scripts/ci.py::_run_step`** updated: the
+    step now tolerates ``pytest`` exit code 5
+    ("no tests ran") on the `tests` step **only**,
+    with a guard that the output mentions
+    "no tests ran". The guard is specific enough
+    to not hide real failures (a test failure
+    would still report the failure summary in the
+    output, not "no tests ran"). The tolerated
+    path prints a hint to the operator about
+    `uv sync --extra cli` so the skip is
+    self-explanatory.
+
+  - **CI verification.** The full 9-step pipeline
+    now passes in both configurations:
+    - Without the ``[cli]`` extra (default CI):
+      the CLI directory is silently skipped, the
+      rest of the suite (1729 tests) runs clean.
+    - With the ``[cli]`` extra
+      (``uv sync --extra cli``): the 18 CLI
+      tests are collected and pass (1747 tests
+      total).
+
+**Acceptable:** N/A — closed.
+
+
+## 2.26 CC offenders + gate bug (10 new offenders above CC=10)
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **Refactor of 10 CC offenders to CC ≤ 10.** The
+    radon CC scan flagged 10 functions over CC=10
+    in the current tree (the previous baseline had
+    only 1, the `validate_args` outlier). The
+    refactor uses a **per-event-type dispatch
+    table** pattern: the fold / dispatch function
+    is a linear ``for`` loop that looks up the
+    handler in a ``dict[str, Callable]``; each
+    handler is a small single-responsibility
+    function. The pattern keeps the per-event
+    logic close together while pushing the
+    cyclomatic complexity out of the orchestrator
+    into the dispatch map (which is data, not
+    control flow).
+
+    | File | Function | CC before | CC after |
+    | --- | --- | --- | --- |
+    | `memory/profile.py` | `_fold_profile_events` | 18 | 4 |
+    | `agents/role_systems/__init__.py` | `_BaseRoleSystem.__call__` | 16 | 8 |
+    | `core/world/projection_memory.py` | `project_memory` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_session` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_profile` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_continuity` | 13 | 4 |
+    | `memory/session.py` | `_fold_session_events` | 11 | 4 |
+    | `agents/tools/arg_validation.py` | `validate_args` | 11 | 4 |
+    | `agents/tools/llm.py` | `LiteLLMTransportAdapter` | 11 | 5 |
+    | `core/world/projection_tool_calls.py` | `overlay_tool_calls` | 11 | 4 |
+
+    Net effect: ``avg 2.56 → 2.49`` CC across the
+    codebase, ``237 → 237`` A-rank files (MI).
+    The block count grew (``1263 → 1309``) because
+    the refactor split the orchestrators into
+    smaller dispatch / handler / init /
+    build-component functions; the trade-off is
+    the canonical one (more, smaller functions
+    with clearer single responsibilities).
+
+  - **Bug fix in `gate_complexity`
+    (`scripts/ci.py`).** The previous
+    implementation only flagged CC regressions
+    for **existing** baseline keys
+    (``if base and cur > base``). New blocks
+    that landed above CC=10 were silently
+    passed. The 10 offenders above were all
+    introduced by recent refactors (mostly
+    the ADR-039 / ADR-042 / ADR-044 ECS path)
+    and bypassed the gate for that reason.
+    The fix is explicit: a key absent from the
+    baseline with CC > 10 is reported as
+    ``CC new offender: <key> = <N>`` with a
+    hint that the operator must refactor or
+    update the baseline. A new block with
+    CC ≤ 10 is fine (a new function under the
+    ceiling does not need to be added to the
+    baseline — it just goes unobserved until
+    the next ``--update-baseline`` pass).
+
+  - **Baseline regenerated.** After the 10
+    refactors, ``uv run scripts/ci.py
+    --update-baseline`` was re-run; the new
+    baseline has 0 CC offenders and 0 MI
+    offenders (radon cc avg 2.49 over 1309
+    blocks; 237 A-rank files). The ``pyright``
+    baseline is unchanged (51 errors, the same
+    51 that were there before the refactor —
+    the refactor did not introduce new pyright
+    errors).
+
+  - **CI verification.** All 9 gates pass:
+
+    - `syntax` ✅
+    - `lint` ✅ (0 ruff issues)
+    - `format` ✅ (407 files formatted)
+    - `complexity` ✅ (0 CC offenders, 0 MI
+      offenders; 0 regressions vs the new
+      baseline)
+    - `reuse` ✅ (REUSE 3.3 compliant)
+    - `pyright` ✅ (51 errors, baseline 68,
+      delta -17 — the 17-error delta is from
+      the ADR-047 + CLI conftest work, not
+      from this refactor)
+    - `tests` ✅ (1747 passed, 1 skipped)
+    - `bandit` ✅ (0 H + 0 M + 0 L)
+    - `audit` ✅ (0 known vulnerabilities)
+
+**Acceptable:** N/A — closed.

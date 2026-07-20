@@ -129,12 +129,32 @@ def validate_args(
     with `unexpected`.
     """
     fields = walk_schema(schema)
-    declared: set[str] = {f.name for f in fields}
+    declared = {f.name for f in fields}
 
+    missing, type_mismatches = _collect_required_and_type_errors(args, fields)
+    unexpected = _collect_unexpected_keys(args, declared)
+
+    if missing or type_mismatches:
+        raise SchemaValidationError(
+            missing=missing,
+            unexpected=unexpected,
+            type_mismatches=type_mismatches,
+        )
+
+
+def _collect_required_and_type_errors(
+    args: Mapping[str, ToolArgValue],
+    fields: list,
+) -> tuple[list[str], list[tuple[str, str, str]]]:
+    """Walk the schema's required fields and record
+    the ones that are missing from ``args`` plus the
+    type mismatches (a field is in ``args`` but the
+    value does not match the JSON type). Returns
+    ``(missing, type_mismatches)`` — both lists in
+    the same order as the schema's fields, so the
+    error report is deterministic."""
     missing: list[str] = []
     type_mismatches: list[tuple[str, str, str]] = []
-    unexpected: list[str] = []
-
     for spec in fields:
         if spec.required and spec.name not in args:
             missing.append(spec.name)
@@ -147,16 +167,19 @@ def validate_args(
                     _python_type_name(args[spec.name]),
                 )
             )
-    for k in args.keys():
-        if k not in declared:
-            unexpected.append(k)
+    return missing, type_mismatches
 
-    if missing or type_mismatches:
-        raise SchemaValidationError(
-            missing=missing,
-            unexpected=unexpected,
-            type_mismatches=type_mismatches,
-        )
+
+def _collect_unexpected_keys(
+    args: Mapping[str, ToolArgValue],
+    declared: set[str],
+) -> list[str]:
+    """Return the keys in ``args`` that are not in
+    the schema's ``declared`` set. The list is in
+    insertion order (Python dicts preserve
+    insertion order) so the error report matches
+    what the caller sent over the wire."""
+    return [k for k in args.keys() if k not in declared]
 
 
 __all__ = ["SchemaValidationError", "validate_args"]

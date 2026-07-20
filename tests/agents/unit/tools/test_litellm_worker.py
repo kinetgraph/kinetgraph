@@ -16,8 +16,10 @@ The worker is the canonical path going forward
     dict with ``text`` / ``model`` / ``usage`` /
     ``finish_reason`` / ``cost_usd`` / ``latency_ms``).
   - The timeout / error path: a transport timeout
-    returns ``Err(TimeoutError(...))``; a transport
-    error returns ``Err(...)``.
+    returns ``Err(ToolError)`` (with the original
+    ``TimeoutError`` as ``__cause__``); a transport
+    error returns ``Err(ToolError)`` (with the
+    original exception as ``__cause__``).
 
 The transport is mocked (the worker is exercised
 end-to-end with a fake ``LLMTransport``); no real
@@ -33,6 +35,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kntgraph.agents.tools.llm import LiteLLMToolWorker
+from kntgraph.core.result import ToolError
 
 
 def test_litellm_worker_metadata():
@@ -131,10 +134,12 @@ async def test_invoke_returns_envelope_on_ok():
 
 @pytest.mark.asyncio
 async def test_invoke_returns_err_on_transport_timeout():
-    """A transport timeout returns ``Err(TimeoutError)``
-    so the ``WorkerManager`` emits a
+    """A transport timeout returns ``Err(ToolError)``
+    with the original ``TimeoutError`` preserved as
+    ``__cause__`` (so the ``WorkerManager`` emits a
     ``tool.chat_llm.failed`` event with a clear
-    error."""
+    error and the operator can introspect the
+    cause)."""
     fake_transport = AsyncMock(side_effect=asyncio.TimeoutError("provider hung"))
     with patch(
         "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -149,15 +154,18 @@ async def test_invoke_returns_err_on_transport_timeout():
         )
     assert r.is_err()
     err = r.err_value()
-    assert isinstance(err, TimeoutError)
+    assert isinstance(err, ToolError)
+    assert "llm_timeout" in str(err)
+    assert isinstance(err.__cause__, TimeoutError)
 
 
 @pytest.mark.asyncio
 async def test_invoke_returns_err_on_generic_transport_error():
     """A non-timeout transport error returns
-    ``Err(Exception)`` (the ``WorkerManager``
+    ``Err(ToolError)`` (the ``WorkerManager``
     propagates this to the agent's EventLog as a
-    ``tool.chat_llm.failed`` event).
+    ``tool.chat_llm.failed`` event). The original
+    exception is preserved as ``__cause__``.
     """
     fake_transport = AsyncMock(side_effect=RuntimeError("provider down"))
     with patch(
@@ -172,8 +180,10 @@ async def test_invoke_returns_err_on_generic_transport_error():
         )
     assert r.is_err()
     err = r.err_value()
-    assert isinstance(err, RuntimeError)
+    assert isinstance(err, ToolError)
+    assert "llm_transport_error" in str(err)
     assert "provider down" in str(err)
+    assert isinstance(err.__cause__, RuntimeError)
 
 
 @pytest.mark.asyncio

@@ -41,9 +41,9 @@ por configuração explícita ou billing → `profile`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 
@@ -390,62 +390,115 @@ def _fold_profile_events(
     `created_at` and `updated_at` come from the Event's
     `timestamp` (not from `data`, which is now
     idempotency-stable).
+
+    Per-event dispatch is delegated to a small table of
+    handlers (``_PROFILE_HANDLERS``) below — the fold
+    itself stays a linear loop and stays under the CC ≤ 10
+    ceiling (each handler is ≤ 5).
     """
-    created_at: Optional[float] = None
-    updated_at: float = 0.0
-    preferences: dict[str, str] = {}
-    tier = "standard"
+    state: dict[str, Any] = {
+        "created_at": None,
+        "updated_at": 0.0,
+        "preferences": {},
+        "tier": "standard",
+    }
 
     for e in events:
-        if e.event_type == ProfileEventType.CREATED:
-            created_at = e.timestamp.timestamp()
-            updated_at = e.timestamp.timestamp()
-            prefs = e.data.get("preferences")
-            if isinstance(prefs, dict):
-                for k, v in prefs.items():
-                    if isinstance(k, str):
-                        preferences[k] = (
-                            str(v) if not isinstance(v, (dict, list)) else ""
-                        )
-            tier_value = e.data.get("tier", tier)
-            if isinstance(tier_value, str):
-                tier = tier_value
-            else:
-                tier = (
-                    str(tier_value)
-                    if not isinstance(tier_value, (dict, list))
-                    else tier
-                )
-        elif e.event_type == ProfileEventType.PREFERENCE_SET:
-            k = e.data.get("key")
-            v = e.data.get("value")
-            if isinstance(k, str):
-                preferences[k] = str(v) if not isinstance(v, (dict, list)) else ""
-            updated_at = e.timestamp.timestamp()
-        elif e.event_type == ProfileEventType.PREFERENCE_UNSET:
-            k = e.data.get("key")
-            if isinstance(k, str):
-                preferences.pop(k, None)
-            updated_at = e.timestamp.timestamp()
-        elif e.event_type == ProfileEventType.TIER_CHANGED:
-            to_tier = e.data.get("to_tier")
-            if isinstance(to_tier, str):
-                tier = to_tier
-            else:
-                tier = str(to_tier) if not isinstance(to_tier, (dict, list)) else tier
-            updated_at = e.timestamp.timestamp()
+        handler = _PROFILE_HANDLERS.get(e.event_type)
+        if handler is not None:
+            handler(e, state)
 
-    if created_at is None:
+    if state["created_at"] is None:
         return None
 
     return ProfileState(
         tenant_id=tenant_id,
         user_id=user_id,
-        preferences=preferences,
-        tier=tier,
-        created_at=created_at,
-        updated_at=updated_at,
+        preferences=state["preferences"],
+        tier=state["tier"],
+        created_at=state["created_at"],
+        updated_at=state["updated_at"],
     )
+
+
+def _coerce_profile_scalar_value(
+    value: Any,
+    *,
+    fallback: str,
+) -> str:
+    """Coerce a profile scalar slot to ``str``.
+
+    Returns ``fallback`` for non-string scalar values
+    that are not coercible (dict / list). The check is
+    the same one the fold used inline: ``str(v)`` for
+    primitives, ``fallback`` for containers.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return fallback
+    return str(value)
+
+
+def _on_profile_created(e: Event, state: dict[str, Any]) -> None:
+    """``profile.created`` handler: initialise the state
+    and seed preferences / tier from the event payload."""
+    ts = e.timestamp.timestamp()
+    state["created_at"] = ts
+    state["updated_at"] = ts
+    prefs = e.data.get("preferences")
+    if isinstance(prefs, dict):
+        for k, v in prefs.items():
+            if isinstance(k, str):
+                state["preferences"][k] = _coerce_profile_scalar_value(v, fallback="")
+    state["tier"] = _coerce_profile_scalar_value(
+        e.data.get("tier", state["tier"]), fallback=state["tier"]
+    )
+
+
+def _on_profile_preference_set(e: Event, state: dict[str, Any]) -> None:
+    """``profile.preference_set`` handler: write a key."""
+    k = e.data.get("key")
+    if isinstance(k, str):
+        state["preferences"][k] = _coerce_profile_scalar_value(
+            e.data.get("value"), fallback=""
+        )
+    state["updated_at"] = e.timestamp.timestamp()
+
+
+def _on_profile_preference_unset(e: Event, state: dict[str, Any]) -> None:
+    """``profile.preference_unset`` handler: drop a key."""
+    k = e.data.get("key")
+    if isinstance(k, str):
+        state["preferences"].pop(k, None)
+    state["updated_at"] = e.timestamp.timestamp()
+
+
+def _on_profile_tier_changed(e: Event, state: dict[str, Any]) -> None:
+    """``profile.tier_changed`` handler: update the tier."""
+    state["tier"] = _coerce_profile_scalar_value(
+        e.data.get("to_tier"), fallback=state["tier"]
+    )
+    state["updated_at"] = e.timestamp.timestamp()
+
+
+_ProfileHandler = Callable[[Event, dict[str, Any]], None]
+"""Per-event-type side-effect on the fold's ``state``
+dict. Each handler reads the event payload and mutates
+``state`` in place; the fold itself stays a linear
+``for`` loop. Keeping the handlers as module-level
+functions (rather than nested closures) gives the
+dispatch table a stable identity and a clean type
+alias for the ``dict[str, _ProfileHandler]`` map.
+"""
+
+
+_PROFILE_HANDLERS: dict[str, _ProfileHandler] = {
+    ProfileEventType.CREATED: _on_profile_created,
+    ProfileEventType.PREFERENCE_SET: _on_profile_preference_set,
+    ProfileEventType.PREFERENCE_UNSET: _on_profile_preference_unset,
+    ProfileEventType.TIER_CHANGED: _on_profile_tier_changed,
+}
 
 
 def _coerce_profile_scalar(
