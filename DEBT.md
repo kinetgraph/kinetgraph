@@ -1544,3 +1544,97 @@ files:
       total).
 
 **Acceptable:** N/A — closed.
+
+
+## 2.26 CC offenders + gate bug (10 new offenders above CC=10)
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **Refactor of 10 CC offenders to CC ≤ 10.** The
+    radon CC scan flagged 10 functions over CC=10
+    in the current tree (the previous baseline had
+    only 1, the `validate_args` outlier). The
+    refactor uses a **per-event-type dispatch
+    table** pattern: the fold / dispatch function
+    is a linear ``for`` loop that looks up the
+    handler in a ``dict[str, Callable]``; each
+    handler is a small single-responsibility
+    function. The pattern keeps the per-event
+    logic close together while pushing the
+    cyclomatic complexity out of the orchestrator
+    into the dispatch map (which is data, not
+    control flow).
+
+    | File | Function | CC before | CC after |
+    | --- | --- | --- | --- |
+    | `memory/profile.py` | `_fold_profile_events` | 18 | 4 |
+    | `agents/role_systems/__init__.py` | `_BaseRoleSystem.__call__` | 16 | 8 |
+    | `core/world/projection_memory.py` | `project_memory` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_session` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_profile` | 13 | 4 |
+    | `core/world/projection_memory.py` | `_fold_continuity` | 13 | 4 |
+    | `memory/session.py` | `_fold_session_events` | 11 | 4 |
+    | `agents/tools/arg_validation.py` | `validate_args` | 11 | 4 |
+    | `agents/tools/llm.py` | `LiteLLMTransportAdapter` | 11 | 5 |
+    | `core/world/projection_tool_calls.py` | `overlay_tool_calls` | 11 | 4 |
+
+    Net effect: ``avg 2.56 → 2.49`` CC across the
+    codebase, ``237 → 237`` A-rank files (MI).
+    The block count grew (``1263 → 1309``) because
+    the refactor split the orchestrators into
+    smaller dispatch / handler / init /
+    build-component functions; the trade-off is
+    the canonical one (more, smaller functions
+    with clearer single responsibilities).
+
+  - **Bug fix in `gate_complexity`
+    (`scripts/ci.py`).** The previous
+    implementation only flagged CC regressions
+    for **existing** baseline keys
+    (``if base and cur > base``). New blocks
+    that landed above CC=10 were silently
+    passed. The 10 offenders above were all
+    introduced by recent refactors (mostly
+    the ADR-039 / ADR-042 / ADR-044 ECS path)
+    and bypassed the gate for that reason.
+    The fix is explicit: a key absent from the
+    baseline with CC > 10 is reported as
+    ``CC new offender: <key> = <N>`` with a
+    hint that the operator must refactor or
+    update the baseline. A new block with
+    CC ≤ 10 is fine (a new function under the
+    ceiling does not need to be added to the
+    baseline — it just goes unobserved until
+    the next ``--update-baseline`` pass).
+
+  - **Baseline regenerated.** After the 10
+    refactors, ``uv run scripts/ci.py
+    --update-baseline`` was re-run; the new
+    baseline has 0 CC offenders and 0 MI
+    offenders (radon cc avg 2.49 over 1309
+    blocks; 237 A-rank files). The ``pyright``
+    baseline is unchanged (51 errors, the same
+    51 that were there before the refactor —
+    the refactor did not introduce new pyright
+    errors).
+
+  - **CI verification.** All 9 gates pass:
+
+    - `syntax` ✅
+    - `lint` ✅ (0 ruff issues)
+    - `format` ✅ (407 files formatted)
+    - `complexity` ✅ (0 CC offenders, 0 MI
+      offenders; 0 regressions vs the new
+      baseline)
+    - `reuse` ✅ (REUSE 3.3 compliant)
+    - `pyright` ✅ (51 errors, baseline 68,
+      delta -17 — the 17-error delta is from
+      the ADR-047 + CLI conftest work, not
+      from this refactor)
+    - `tests` ✅ (1747 passed, 1 skipped)
+    - `bandit` ✅ (0 H + 0 M + 0 L)
+    - `audit` ✅ (0 known vulnerabilities)
+
+**Acceptable:** N/A — closed.

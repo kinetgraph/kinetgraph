@@ -37,6 +37,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guard that the output mentions "no tests ran", so the
   CI gate passes in both the default (no `[cli]` extra) and
   the `uv sync --extra cli` configurations.
+- **CC gate detects new blocks (DEBT §2.26):** the
+  `gate_complexity` in `scripts/ci.py` previously detected
+  only "block grew in CC" regressions. Blocks added by a
+  refactor that landed above CC=10 silently passed the
+  gate (10 new offenders were hidden from CI). The gate
+  now flags `CC new offender: <key> = <N>` when a block has
+  no baseline entry and CC > 10, with a hint that the
+  operator must refactor or update the baseline before
+  merging.
 
 ### Changed
 - **Tool-Adapter Pattern — Workers refactored to typed errors
@@ -65,6 +74,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ADR **status** remains `Draft` (the §6.1 `StreamsWorker` /
   §6.2 cancellation follow-ups are still open; "Accepted"
   is gated on ADR-049).
+- **Cyclomatic complexity — 10 offenders refactored to CC ≤ 10
+  (DEBT §2.26):** all 10 functions over CC=10 in the previous
+  baseline were broken into per-event-type dispatch tables
+  (or single-responsibility helpers) and dropped to A/B
+  rank. The radon baseline (`.radon-baseline.json`) was
+  regenerated. The 10 refactors:
+
+  | File | Function | CC before | CC after |
+  | --- | --- | --- | --- |
+  | `memory/profile.py` | `_fold_profile_events` | 18 | 4 |
+  | `agents/role_systems/__init__.py` | `_BaseRoleSystem.__call__` | 16 | 8 |
+  | `core/world/projection_memory.py` | `project_memory` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_session` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_profile` | 13 | 4 |
+  | `core/world/projection_memory.py` | `_fold_continuity` | 13 | 4 |
+  | `memory/session.py` | `_fold_session_events` | 11 | 4 |
+  | `agents/tools/arg_validation.py` | `validate_args` | 11 | 4 |
+  | `agents/tools/llm.py` | `LiteLLMTransportAdapter` | 11 | 5 |
+  | `core/world/projection_tool_calls.py` | `overlay_tool_calls` | 11 | 4 |
+
+  The shared pattern is the **dispatch table**:
+  ``_HANDLERS: dict[str, Callable[[Event, dict], None]]``
+  with one small handler per event type; the fold itself
+  is a linear ``for`` loop. Net effect: ``avg 2.56 → 2.49``
+  CC, ``237 → 237`` A-rank files (MI), ``1263 → 1309`` CC
+  blocks (more, smaller).
 
 ### Removed
 - **Raw Redis client constructors (F5 cleanup / Breaking):**

@@ -252,79 +252,107 @@ class _BaseRoleSystem(ToolAwareSystem):
             if not isinstance(view.components, dict):
                 continue
             last_eid = view.last_event_id
-            is_new_event = (
-                agent_id not in self._last_seen_event_id
-                or self._last_seen_event_id[agent_id] != last_eid
-            )
-            if is_new_event and last_eid:
-                self._last_seen_event_id[agent_id] = last_eid
+            is_new_event = self._is_new_event(agent_id, last_eid)
 
             session = view.components.get(SessionComponent)
             if session is None and self.REQUEST_EVENT_TYPE == EVENT_TYPE_USER_INTENT:
                 # The chat role requires a session.
                 continue
 
-            # Request phase: a new request event landed
-            # on this view.
             if is_new_event and self._is_request_event(view, last_eid):
-                new_input = self._read_new_input(view)
-                if not new_input:
-                    continue
-                e = self._emit_request(agent_id, view, session, new_input)
-                if e is not None:
-                    events.append(e)
+                request_event = self._build_request_event(agent_id, view, session)
+                if request_event is not None:
+                    events.append(request_event)
                 continue
 
-            # Completion phase: a chat_llm completion
-            # landed on this view.
-            for completion in self._consume_completion(view):
-                rid, comp = completion
-                pending_input = self._pending_inputs.pop(rid, None)
-                pending_agent = self._pending_agents.pop(rid, agent_id)
-                if pending_input is None:
-                    # The request was not emitted by
-                    # THIS system (e.g. another role
-                    # system emitted a chat_llm
-                    # request on the same agent).
-                    continue
-                parsed = self._parse_completion((comp.result or {}).get("text", ""))
-                if parsed.is_err():
-                    # The completion was received but
-                    # the JSON parse failed. We still
-                    # emit an event so downstream
-                    # systems can react (e.g. a
-                    # fallback path).
-                    events.append(
-                        Event.create(
-                            event_type=f"{self.GENERATED_EVENT_TYPE}.failed",
-                            agent_id=pending_agent,
-                            event_class="domain",
-                            data={
-                                "request_event_id": rid,
-                                "error": str(parsed.err_value_or_raise()),
-                            },
-                            causation_id=UUID(rid),
-                            correlation=CorrelationContext.new(),
-                        )
-                    )
-                    continue
-                events.append(
-                    Event.create(
-                        event_type=self.GENERATED_EVENT_TYPE,
-                        agent_id=pending_agent,
-                        event_class="domain",
-                        data={
-                            "request_event_id": rid,
-                            "output": parsed.unwrap().model_dump(),
-                            "input": pending_input,
-                        },
-                        causation_id=UUID(rid),
-                        correlation=CorrelationContext.new(),
-                    )
-                )
+            events.extend(self._consume_pending_completions(agent_id, view))
         return events
 
     # -- internals --
+
+    def _is_new_event(self, agent_id: str, last_eid: Any) -> bool:
+        """True when ``last_eid`` differs from the last
+        event_id the system saw for this agent. Updates
+        the seen map as a side effect (the caller's loop
+        relies on the ``is_new_event`` flag to decide
+        whether to fire the request phase)."""
+        previous = self._last_seen_event_id.get(agent_id)
+        is_new = previous != last_eid
+        if is_new and last_eid:
+            self._last_seen_event_id[agent_id] = last_eid
+        return is_new
+
+    def _build_request_event(
+        self,
+        agent_id: str,
+        view,
+        session: SessionComponent | None,
+    ) -> Event | None:
+        """Build the ``tool.chat_llm.requested`` event for
+        a new request. Returns ``None`` if the input is
+        empty (the system skips an empty request)."""
+        new_input = self._read_new_input(view)
+        if not new_input:
+            return None
+        return self._emit_request(agent_id, view, session, new_input)
+
+    def _consume_pending_completions(self, agent_id: str, view) -> list[Event]:
+        """Walk the view's completions, pop the ones we
+        emitted, and return the downstream events
+        (success or parse-failure). The completion that
+        was emitted by another system stays in
+        ``_pending_inputs`` / ``_pending_agents`` and is
+        handled by its own role system."""
+        events: list[Event] = []
+        for rid, comp in self._consume_completion(view):
+            pending_input = self._pending_inputs.pop(rid, None)
+            pending_agent = self._pending_agents.pop(rid, agent_id)
+            if pending_input is None:
+                continue
+            events.append(
+                self._build_completion_event(rid, comp, pending_input, pending_agent)
+            )
+        return events
+
+    def _build_completion_event(
+        self,
+        rid: str,
+        comp: Any,
+        pending_input: str,
+        pending_agent: str,
+    ) -> Event:
+        """Build the domain event for a single completion:
+        either the success event (with the typed output)
+        or the ``.failed`` variant (with the parse
+        error), so downstream systems can react
+        uniformly to both shapes."""
+        parsed = self._parse_completion((comp.result or {}).get("text", ""))
+        if parsed.is_err():
+            return Event.create(
+                event_type=f"{self.GENERATED_EVENT_TYPE}.failed",
+                agent_id=pending_agent,
+                event_class="domain",
+                data={
+                    "request_event_id": rid,
+                    "error": str(parsed.err_value_or_raise()),
+                },
+                causation_id=UUID(rid),
+                correlation=CorrelationContext.new(),
+            )
+        return Event.create(
+            event_type=self.GENERATED_EVENT_TYPE,
+            agent_id=pending_agent,
+            event_class="domain",
+            data={
+                "request_event_id": rid,
+                "output": parsed.unwrap().model_dump(),
+                "input": pending_input,
+            },
+            causation_id=UUID(rid),
+            correlation=CorrelationContext.new(),
+        )
+
+    # -- internals (existing) --
 
     def _emit_request(
         self,

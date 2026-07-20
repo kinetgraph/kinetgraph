@@ -340,10 +340,30 @@ def gate_complexity(verbose: bool = False) -> bool:
         base_cc = baseline.get("cc", {})
         base_mi = baseline.get("mi", {})
 
-        # CC regression: any block that grew.
+        # CC regression: any block that grew, OR a
+        # NEW block that landed above the threshold.
+        # The previous implementation only flagged
+        # ``cur > base`` for keys present in the
+        # baseline; blocks added by a new refactor
+        # silently passed the gate even when they
+        # were over CC=10. The fix is explicit: a
+        # block with no baseline entry and CC > 10
+        # is a regression (the operator introduced
+        # new debt without updating the baseline).
+        # A block with no baseline entry and CC <= 10
+        # is fine (a new function under the ceiling
+        # does not need to be added to the baseline).
         for key, cur in cc_snap.items():
             base = base_cc.get(key)
-            if base and cur["complexity"] > base["complexity"]:
+            if base is None:
+                if cur["complexity"] > 10:
+                    regressions.append(
+                        f"CC new offender: {key} = {cur['complexity']} "
+                        f"(no baseline entry; CC > 10 requires a "
+                        f"refactor before merging)"
+                    )
+                continue
+            if cur["complexity"] > base["complexity"]:
                 regressions.append(
                     f"CC grew for {key}: {base['complexity']} -> {cur['complexity']}"
                 )

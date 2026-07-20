@@ -9,8 +9,8 @@ Do not edit by hand; re-run the script to refresh the snapshot.
 
 # Quality report
 
-Generated: 2026-07-20T12:45:04Z
-Total duration: 113.45s
+Generated: 2026-07-20T13:09:00Z
+Total duration: 113.47s
 
 Each row mirrors one of the nine gates in
 [`scripts/ci.py`](../scripts/ci.py) and one of the
@@ -22,7 +22,7 @@ sync with the README.
 | --- | --- | :-: | --- | ---: |
 | Lint | `ruff check` | ✅ | 0 issues | 0.02s |
 | Format | `ruff format --check` | ✅ | 405 files formatted, 0 need reformat | 0.01s |
-| Complexity | `radon cc` | ✅ | avg 2.56 over 1263 blocks; 0 rank D+ | 0.47s |
+| Complexity | `radon cc` | ✅ | avg 2.49 over 1309 blocks; 0 rank D+ | 0.49s |
 | Maintainability | `radon mi` | ✅ | 237 A + 0 B + 0 C- | 1.24s |
 | Pyright | `pyright` | ❌ | 51 errors, 927 warnings | 9.08s |
 | Coverage | `coverage` | ✅ | 80.0% (7041/8791 stmts) | 53.13s |

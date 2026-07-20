@@ -192,115 +192,163 @@ def overlay_tool_calls(
     for e in events:
         request_tool_name = _requested_tool_name(e.event_type)
         if request_tool_name is not None:
-            ttl_seconds = ttl.ttl_for(request_tool_name)
-            req = _build_request(
+            _collect_request(
                 e,
                 tool_name=request_tool_name,
-                ttl_seconds=ttl_seconds,
+                ttl=ttl,
+                tool_requests=tool_requests,
+                agents_to_merge=agents_to_merge,
             )
-            tool_requests[e.agent_id][req.request_event_id] = req
-            agents_to_merge.add(e.agent_id)
         else:
             completion_status = _completion_status(e.event_type)
             if completion_status is not None:
-                # The completion's join key is the
-                # ``causation_id`` (the request's
-                # ``event_id``). The request may live
-                # in EITHER the local batch (this
-                # call's ``tool_requests``) OR the
-                # base view (a previous tick's
-                # request). Look in both.
-                existing_requests_for_agent: dict[str, ToolCallRequest] = (
-                    base_views.get(
-                        e.agent_id, AgentView(agent_id=e.agent_id)
-                    ).components.get("tool_requests", {})
-                )
-                _maybe_attach_completion(
+                _collect_completion(
                     e,
-                    requests_for_agent={
-                        **existing_requests_for_agent,
-                        **tool_requests[e.agent_id],
-                    },
-                    completions_for_agent=tool_completions[e.agent_id],
+                    base_views=base_views,
                     status=completion_status,
+                    tool_requests=tool_requests,
+                    tool_completions=tool_completions,
+                    agents_to_merge=agents_to_merge,
                 )
-                agents_to_merge.add(e.agent_id)
 
-    # Phase 2: build the overlay. Every agent in
-    # ``base_views`` is in the output; agents without
-    # tool events get their original view unchanged.
-    # Agents touched by tool events get the slots
-    # installed via ``_overlay``. Agents not in
-    # ``base_views`` but touched by tool events get
-    # a fresh ``AgentView`` with only the slots.
-    #
-    # Accumulation (ADR-044): the new
-    # ``tool_requests`` / ``tool_completions`` dicts
-    # are MERGED with the existing slots on the base
-    # view (if any), keyed by ``request_event_id``.
-    # A request emitted in tick N remains visible in
-    # tick N+K; a completion overwrites the matching
-    # entry (the framework's at-least-once delivery
-    # contract).
+    return _assemble_overlay(
+        base_views,
+        tool_requests=tool_requests,
+        tool_completions=tool_completions,
+        agents_to_merge=agents_to_merge,
+        post_systems=post_systems,
+    )
+
+
+def _collect_request(
+    e: Event,
+    *,
+    tool_name: str,
+    ttl: "ToolCallTTL",
+    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
+    agents_to_merge: set[str],
+) -> None:
+    """Handle a single ``tool.<name>.requested`` event:
+    build a ``ToolCallRequest`` (with the per-tool TTL
+    applied) and register the request in the
+    ``tool_requests`` map. The request is the "new"
+    side of the overlay; it is merged with the base
+    view's existing requests in ``_assemble_overlay``."""
+    ttl_seconds = ttl.ttl_for(tool_name)
+    req = _build_request(e, tool_name=tool_name, ttl_seconds=ttl_seconds)
+    tool_requests[e.agent_id][req.request_event_id] = req
+    agents_to_merge.add(e.agent_id)
+
+
+def _collect_completion(
+    e: Event,
+    *,
+    base_views: Mapping[str, "AgentView"],
+    status: str,
+    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
+    tool_completions: dict[str, dict[str, "ToolCallCompletion"]],
+    agents_to_merge: set[str],
+) -> None:
+    """Handle a single ``tool.<name>.completed`` /
+    ``tool.<name>.failed`` event: build a
+    ``ToolCallCompletion`` and attach it to the
+    matching request. The join key is the completion's
+    ``causation_id`` (== request's ``event_id``). The
+    request may live in EITHER the local batch
+    (``tool_requests``) OR the base view (a previous
+    tick's request). Look in both."""
+    existing_requests_for_agent: dict[str, ToolCallRequest] = base_views.get(
+        e.agent_id, AgentView(agent_id=e.agent_id)
+    ).components.get("tool_requests", {})
+    _maybe_attach_completion(
+        e,
+        requests_for_agent={
+            **existing_requests_for_agent,
+            **tool_requests[e.agent_id],
+        },
+        completions_for_agent=tool_completions[e.agent_id],
+        status=status,
+    )
+    agents_to_merge.add(e.agent_id)
+
+
+def _assemble_overlay(
+    base_views: Mapping[str, "AgentView"],
+    *,
+    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
+    tool_completions: dict[str, dict[str, "ToolCallCompletion"]],
+    agents_to_merge: set[str],
+    post_systems: bool,
+) -> dict[str, "AgentView"]:
+    """Build the overlay map: every agent in
+    ``base_views`` is in the output; agents without
+    tool events get their original view unchanged.
+    Agents touched by tool events get the slots
+    installed via ``_overlay``. Agents not in
+    ``base_views`` but touched by tool events get a
+    fresh ``AgentView`` with only the slots.
+
+    Accumulation (ADR-044): the new
+    ``tool_requests`` / ``tool_completions`` dicts
+    are MERGED with the existing slots on the base
+    view (if any), keyed by ``request_event_id``.
+    A request emitted in tick N remains visible in
+    tick N+K; a completion overwrites the matching
+    entry (the framework's at-least-once delivery
+    contract).
+    """
     out: dict[str, AgentView] = dict(base_views)
     for agent_id in agents_to_merge:
-        if agent_id in base_views:
-            base_view = base_views[agent_id]
-        else:
-            base_view = AgentView(agent_id=agent_id)
-        # Merge with the existing slots (accumulation
-        # across ticks). The merge is keyed by
-        # ``request_event_id``; the new batch wins
-        # (it is the most recent observation).
-        existing_requests: dict[str, ToolCallRequest] = base_view.components.get(
-            "tool_requests", {}
-        )
-        existing_completions: dict[str, ToolCallCompletion] = base_view.components.get(
-            "tool_completions", {}
-        )
-        merged_requests: dict[str, ToolCallRequest] = {
-            **existing_requests,
-            **tool_requests.get(agent_id, {}),
-        }
-        merged_completions: dict[str, ToolCallCompletion] = {
-            **existing_completions,
-            **tool_completions.get(agent_id, {}),
-        }
-        # Eviction (ADR-044 §2.3 option 1): a
-        # ``tool_requests`` entry that has been
-        # answered (a matching
-        # ``tool_completions`` entry exists) is
-        # removed from the slot, but ONLY when the
-        # request was carried in from a previous
-        # tick (``existing_requests``). Requests
-        # created by the current batch are kept
-        # (the system may not have reacted to them
-        # yet). This is the distinction that makes
-        # the overlay behave correctly in BOTH paths:
-        #
-        #   - Incremental (dispatcher, tick N+1 has
-        #     only the completion): the request came
-        #     from base_views, is evicted, the slot
-        #     is clean. Correct.
-        #
-        #   - Full projection (replay, the batch has
-        #     both): the request was just created in
-        #     this batch, is NOT evicted; the system
-        #     that reads the slot finds both. Correct.
-        for request_id in list(merged_requests.keys()):
-            if request_id in merged_completions:
-                if post_systems or (
-                    request_id in existing_requests
-                    and request_id in existing_completions
-                ):
-                    merged_requests.pop(request_id, None)
-                    merged_completions.pop(request_id, None)
-        out[agent_id] = _overlay(
-            base_view,
-            requests=merged_requests,
-            completions=merged_completions,
+        out[agent_id] = _build_overlay_view(
+            base_views.get(agent_id, AgentView(agent_id=agent_id)),
+            tool_requests.get(agent_id, {}),
+            tool_completions.get(agent_id, {}),
+            post_systems=post_systems,
         )
     return out
+
+
+def _build_overlay_view(
+    base_view: "AgentView",
+    new_requests: dict[str, "ToolCallRequest"],
+    new_completions: dict[str, "ToolCallCompletion"],
+    *,
+    post_systems: bool,
+) -> "AgentView":
+    """Install the (merged) tool slots on the base
+    view. The merge is keyed by ``request_event_id``;
+    the new batch wins (it is the most recent
+    observation). The eviction policy (ADR-044
+    §2.3 option 1) drops a request from the slot
+    when a matching completion exists, but ONLY when
+    the request was carried in from a previous tick
+    (``existing_requests``). Requests created by the
+    current batch are kept (the system may not have
+    reacted to them yet). The ``post_systems`` flag
+    is set by the dispatcher's second fold pass
+    (after the systems have run) so the eviction
+    applies unconditionally — the system has had its
+    chance to react."""
+    existing_requests: dict[str, ToolCallRequest] = base_view.components.get(
+        "tool_requests", {}
+    )
+    existing_completions: dict[str, ToolCallCompletion] = base_view.components.get(
+        "tool_completions", {}
+    )
+    merged_requests = {**existing_requests, **new_requests}
+    merged_completions = {**existing_completions, **new_completions}
+    for request_id in list(merged_requests.keys()):
+        if request_id in merged_completions:
+            if post_systems or (
+                request_id in existing_requests and request_id in existing_completions
+            ):
+                merged_requests.pop(request_id, None)
+                merged_completions.pop(request_id, None)
+    return _overlay(
+        base_view,
+        requests=merged_requests,
+        completions=merged_completions,
+    )
 
 
 def _build_request(
