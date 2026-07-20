@@ -94,7 +94,7 @@ Usage
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import TYPE_CHECKING, Iterable, Optional, cast
 
 from .base import Classification, Entity
 from .gliner import DEFAULT_LABELS, GlinerEntityAdapter
@@ -228,7 +228,20 @@ class SLMIntentClassifier(IntentClassifier):
         labels: Iterable[str],
         descriptions: Optional[Iterable[str]] = None,
     ) -> Classification:
-        return await self._adapter.classify(text, labels, descriptions)
+        # ``self._adapter`` is typed as ``IntentClassifier``,
+        # whose ``classify`` accepts 2 args. The default
+        # adapter (``GlinerIntentAdapter``) extends the
+        # Protocol with an optional ``descriptions`` kwarg;
+        # the cast pins the wider signature here so the
+        # facade can forward descriptions transparently.
+        # The cast is sound: the Protocol return shape is
+        # ``Classification`` (same as the concrete adapter's)
+        # and the runtime always resolves to the concrete
+        # adapter (or to a test double that mirrors the
+        # contract).
+        return await cast("GlinerIntentAdapter", self._adapter).classify(
+            text, labels, descriptions
+        )
 
 
 class SLMArgumentExtractor(ArgumentExtractor):

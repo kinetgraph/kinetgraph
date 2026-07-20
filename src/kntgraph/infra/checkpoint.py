@@ -214,7 +214,7 @@ class CheckpointStore:
             try:
                 out[agent_id] = ReactiveCheckpoint.from_dict(
                     agent_id,
-                    dict(data),  # type: ignore[arg-type]
+                    dict(data),
                 )
             except (KeyError, ValueError) as e:
                 logger.warning(

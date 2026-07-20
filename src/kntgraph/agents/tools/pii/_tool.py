@@ -110,7 +110,7 @@ class PiiRedactionTool(Tool):
         "required": ["payload"],
     }
 
-    async def invoke(
+    async def invoke(  # type: ignore[reportIncompatibleMethodOverride]
         self,
         *,
         idempotency_key: str,

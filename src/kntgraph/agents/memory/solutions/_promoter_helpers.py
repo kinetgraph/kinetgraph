@@ -24,7 +24,7 @@ path).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 from kntgraph.agents.memory.solutions._values import (
     Action,
@@ -34,6 +34,10 @@ from kntgraph.agents.memory.solutions._values import (
 )
 
 if TYPE_CHECKING:
+    from kntgraph.agents.memory.solutions._promoter import (
+        Redactor,
+        _RedactionResultLike,
+    )
     from kntgraph.agents.memory.solutions._promoter import SolutionPromoter
 
 
@@ -54,13 +58,14 @@ async def redact_candidate(
     (same input → same output) is sufficient;
     no idempotency_key is needed at this layer.
     """
-    redactor = promoter_self._redactor
-    if redactor is None:
+    redactor_opt: "Redactor | None" = promoter_self._redactor
+    if redactor_opt is None:
         # No redactor wired in: pass-through. The
         # candidate is returned with the original
         # (unredacted) data. The promoter is in
         # "no-redact" mode.
         return candidate
+    redactor: "Redactor" = redactor_opt
 
     # Two calls (problem text, action params). The
     # payloads are different but the redaction is
@@ -72,8 +77,10 @@ async def redact_candidate(
     # payload). The vertical PII implementation
     # ``PiiRedactionTool.__call__`` returns a
     # ``RedactionResult`` which satisfies this contract.
-    problem_redaction = await redactor(candidate.problem.text)
-    params_redaction = await redactor(dict(candidate.action.params))
+    problem_redaction: _RedactionResultLike = await redactor(candidate.problem.text)
+    params_redaction: _RedactionResultLike = await redactor(
+        dict(candidate.action.params)
+    )
 
     # Build a new candidate with the redacted
     # data. The original is immutable; we
@@ -87,7 +94,7 @@ async def redact_candidate(
     # (it walked a string, so the result is the
     # redacted string). We coerce back to dict
     # for the params field.
-    new_params: JsonValue = params_redaction.redacted
+    new_params: JsonValue = cast(JsonValue, params_redaction.redacted)
     if not isinstance(new_params, dict):
         new_params = {"value": str(new_params)}
     new_action = Action(

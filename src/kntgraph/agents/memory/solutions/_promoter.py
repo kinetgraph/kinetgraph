@@ -18,7 +18,7 @@ the pump continues with the next one.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Protocol
 
 from kntgraph.agents.memory.solutions._bus import SolutionPromotionBus
 from kntgraph.agents.memory.solutions._promoter_helpers import redact_candidate
@@ -29,11 +29,26 @@ from kntgraph.agents.memory.solutions._values import (
 
 if TYPE_CHECKING:
     from kntgraph.agents.knowledge.solution_projector import SolutionProjector
-    from kntgraph.tools.protocol import Callable
+
+    class _RedactionResultLike(Protocol):
+        """
+        Structural type for the redactor's return value.
+
+        The vertical PII implementation
+        (``PiiRedactionTool.__call__``) returns a
+        ``RedactionResult`` which has a ``.redacted``
+        attribute. We use a ``Protocol`` instead of an
+        eager import to keep the no-cycle invariant
+        documented in Iter 25 (see
+        ``_promoter_helpers.py`` for the matching
+        declaration used at the call site).
+        """
+
+        redacted: object
 
     # ``Redactor`` is a callable that takes a payload and
-    # returns a ``RedactionResult``. The promoter calls it
-    # as a function — NOT through the Tool Protocol — so
+    # returns a ``_RedactionResultLike``. The promoter calls
+    # it as a function — NOT through the Tool Protocol — so
     # the redactor is decoupled from the Tool orchestration
     # envelope (idempotency_key, Result envelope, event
     # emission). A redactor is a pure transformer; the
@@ -41,12 +56,18 @@ if TYPE_CHECKING:
     # tools (PiiRedactionTool) that wrap a Redactor.
     #
     # The payload and result types are kept abstract
-    # (``Any``-shaped) to avoid an eager import of
+    # (``object``-shaped) to avoid an eager import of
     # ``kntgraph.agents.tools.pii`` (which would re-introduce
     # the load-time cycle that Iter 25 broke). The
     # vertical PII implementation conforms to this shape
-    # by duck typing.
-    Redactor = Callable[[object], object]
+    # by duck typing; the contract surface is the
+    # ``.redacted`` attribute.
+    #
+    # We use the stdlib ``typing.Callable`` (not the
+    # framework's ``kntgraph.tools.protocol.Callable``,
+    # which is a ``Protocol`` with TypeVars and rejects
+    # the ``[X, Y]`` form when assigned to a TypeAlias).
+    Redactor = Callable[[object], _RedactionResultLike]
 
 
 class SolutionPromoter:
