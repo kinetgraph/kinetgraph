@@ -15,6 +15,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tool-Adapter Pattern — `HttpClientLike` Protocol (ADR-047, DEBT §2.24):** the
+  framework now owns the I/O boundary for async HTTP clients
+  (`HttpClientLike` / `HttpResponseLike` in
+  `src/kntgraph/infra/http/_client.py`). The
+  `HttpxHttpClientAdapter` wraps `httpx2.AsyncClient` with a
+  lazy import; verticals inject the adapter via DI. The
+  framework-level Protocol catalogue (ADR-047 §2.2.4) now
+  lists `LLMTransport` / `EmbeddingProvider` / `RedisLike` /
+  `HttpClientLike` as the four I/O boundaries a ToolWorker
+  can reuse.
+
+### Changed
+- **Tool-Adapter Pattern — Workers refactored to typed errors
+  (ADR-047, DEBT §2.24):** the `invoke` signatures of every
+  existing `@tool_worker` in the codebase were tightened from
+  `Result[dict, Exception]` to `Result[dict, ToolError]`
+  (AGENTS.md §6.1). The original exception is preserved as
+  `__cause__` on the `ToolError` for diagnostics.
+  Affected Workers:
+  - `LiteLLMToolWorker` (`src/kntgraph/agents/tools/llm.py`).
+  - `OpenMeteoApi` (`examples/knt-cli/weather_platform/.../tools/open_meteo_api.py`).
+    The Worker was also refactored to receive the new
+    `HttpClientLike` via DI; the `httpx` import is no longer
+    in the Worker's module path.
+  - `SessionRecorderTool` (in `examples/05b_session_chat_ecs.py`
+    and `examples/05c_session_chat_ecs_roles.py`).
+  - `WeatherTool` (`examples/19_tool_worker_pattern.py`).
+  - The `knt new tool` CLI template
+    (`src/kntgraph/cli/templates/tool.py.jinja`).
+- **ADR-047 §3.1 / §3.2 / §5 / §6.4 aligned with the canonical
+  code:** the `LLMTransport` Protocol returns the LiteLLM-style
+  dict (not a discriminated envelope), the `LLMResponse`
+  dataclass is the LLM-side envelope the `LiteLLMToolWorker`
+  returns to the `WorkerManager`, and the `AdapterResponse`
+  base class proposal from §6.4 is deferred to ADR-049. The
+  ADR **status** remains `Draft` (the §6.1 `StreamsWorker` /
+  §6.2 cancellation follow-ups are still open; "Accepted"
+  is gated on ADR-049).
+
 ### Removed
 - **Raw Redis client constructors (F5 cleanup / Breaking):**
   - Removed backward-compatibility wrappers from `EventLog`, `IncrementalWorldStore`, `SessionManager`, `ProfileManager`, and `ContinuityManager` constructors. They now strictly require their Protocol-compliant storage adapters (`EventLogStorage`, `WorldCheckpointStorage`, `ShortMemoryStorage`) instead of accepting raw Redis clients directly. Updated all test files and call sites accordingly.

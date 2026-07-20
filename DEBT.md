@@ -1352,3 +1352,136 @@ files:
     ``pyright``).
 
 **Acceptable:** N/A — closed.
+
+
+## 2.24 ADR-047 Tool-Adapter Pattern: Worker refactor + Protocol catalogue
+
+**Status:** Closed in 2026-07-20.
+
+**Delivered in this iteration (2026-07-20):**
+
+  - **`HttpClientLike` Protocol** (new in
+    `src/kntgraph/infra/http/_client.py`): the
+    framework-level Protocol for an async HTTP
+    client. Narrow on purpose: a single
+    `get(url) -> HttpResponseLike` method, mirroring
+    the parts of `httpx.Response` the framework
+    actually reads (`status_code` /
+    `raise_for_status` / `json`). `@runtime_checkable`
+    so callers can do `isinstance(client, HttpClientLike)`
+    defensively (same pattern as `RedisLike`).
+  - **`HttpxHttpClientAdapter`** (new in the same
+    module): the concrete implementation that
+    wraps `httpx2.AsyncClient`. The `httpx2`
+    import is **lazy** (inside `__init__`), so
+    the framework's import graph does not pay
+    the dep cost unless the operator
+    instantiates the adapter.
+  - **`OpenMeteoApi` refactor**
+    (`examples/knt-cli/weather_platform/.../tools/open_meteo_api.py`):
+    the canonical `weather_platform` Worker was
+    the only `@tool_worker` in the codebase that
+    violated ADR-047 §2.2.1 ("No Direct External
+    Imports") — it imported `httpx.AsyncClient`
+    directly inside `invoke`. The refactor
+    re-routes the Worker through the new
+    `HttpClientLike` Protocol: the constructor
+    accepts `http: HttpClientLike | None = None`
+    and lazy-defaults to `HttpxHttpClientAdapter()`
+    (the ADR-047 §2.3 template). The Worker is
+    now testable with an in-memory `FakeHttpClient`
+    (no network, no `httpx` on the test path).
+    The `invoke` signature changed from
+    `Result[dict, Exception]` to
+    `Result[dict, ToolError]`; the three error
+    paths (`http_error`, `decode_error`,
+    `missing_key`) are typed `ToolError` instances
+    with a clear prefix on the message.
+  - **`LiteLLMToolWorker` typed errors**
+    (`src/kntgraph/agents/tools/llm.py`): the
+    Worker's `invoke` was returning
+    `Result[dict, Exception]` with bare
+    `Err(TimeoutError(...))` / `Err(e)`. The
+    refactor changes the signature to
+    `Result[dict, ToolError]`; the original
+    exception is preserved as `__cause__` on the
+    `ToolError` so operators can introspect the
+    root cause without losing the typed-error
+    contract. The 7 unit tests in
+    `tests/agents/unit/tools/test_litellm_worker.py`
+    were updated to assert on `isinstance(err, ToolError)`
+    and `isinstance(err.__cause__, TimeoutError)`
+    (the original behaviour was that
+    `isinstance(err, TimeoutError)` directly).
+  - **`SessionRecorderTool` typed errors**
+    (`examples/05b_session_chat_ecs.py` and
+    `examples/05c_session_chat_ecs_roles.py`):
+    both copies of the class were returning
+    `Result[dict, Exception]` with bare
+    `Err(ValueError(...))` for the
+    "unknown command" path and
+    `Err(Exception(...))` for the
+    `SessionManager.is_err()` path. The
+    refactor changes both to typed `ToolError`
+    messages with clear prefixes.
+  - **`WeatherTool` typed errors**
+    (`examples/19_tool_worker_pattern.py`): the
+    canonical example Worker was also returning
+    `Result[dict, Exception]`. The signature
+    changes to `Result[dict, ToolError]`; the
+    example's body never returns `Err(...)`
+    (the example is a happy-path mock), so the
+    change is signature-only.
+  - **CLI scaffold template updated**
+    (`src/kntgraph/cli/templates/tool.py.jinja`):
+    the `knt new tool` template now generates
+    Workers with `Result[dict, ToolError]` and
+    imports `ToolError` from `core.result`. New
+    vertical Workers are born compliant with
+    AGENTS.md §6.1 (the "Never `raise Exception`"
+    rule and the `Result[T, E]` discipline).
+  - **New unit tests** (10 in total, in
+    `tests/unit/infra/http/`):
+    - `test_http_client.py`: the
+      `HttpClientLike` / `HttpxHttpClientAdapter`
+      Protocol contract, the lazy-import contract,
+      and the in-memory `FakeHttpClient` /
+      `_FakeResponse` test doubles.
+    - `test_open_meteo_tool.py`: the
+      `OpenMeteoApi` Worker end-to-end with the
+      in-memory HTTP client (4 scenarios: 2xx
+      happy path, non-2xx HTTP error, invalid
+      JSON, missing `current_weather` key) plus
+      the worker metadata + the default
+      `HttpxHttpClientAdapter` constructor path.
+  - **ADR-047 §3.1 / §3.2 / §5 / §6.4 / §6.5
+    updated** to reflect the canonical code
+    shape. The earlier draft of the ADR
+    proposed a discriminated envelope
+    (`LLMResponse(success: bool, text, error)`)
+    as the return type of the `LLMTransport`
+    Protocol; the canonical code returns the
+    LiteLLM-style dict from the Protocol and
+    uses the `LLMResponse` dataclass as the
+    JSON-serialisable result envelope the
+    `LiteLLMToolWorker` returns to the
+    `WorkerManager`. The ADR now documents the
+    actual shape (§3.1 "Why the Protocol
+    returns a `dict` (not a typed envelope)")
+    and defers the discriminated envelope to
+    a future ADR-049 (§6.4 status: deferred).
+    The §2.2.4 "Adapter Reuse" rule now lists
+    the framework-level Protocol catalogue
+    (`LLMTransport` / `EmbeddingProvider` /
+    `RedisLike` / `HttpClientLike`).
+  - **ADR-047 status remains `Draft`** (the
+    `StreamsWorker` / cancellation /
+    `AdapterResponse` follow-ups in §6 are
+    still open; "Accepted" is gated on
+    ADR-049). The sync `ToolWorker` category
+    is the recommended standard for new
+    development; the recommendation is now
+    backed by the per-Worker refactoring that
+    closed in this iteration.
+
+**Acceptable:** N/A — closed.

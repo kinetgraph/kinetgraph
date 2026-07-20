@@ -6,11 +6,11 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-047: Standardizing ToolWorker Construction via Adapters
 
-**Status:** Draft (sync `ToolWorker` category ready for Accepted; `StreamsWorker` and cancellation tracked in §6)
-**Date:** July 19, 2026
+**Status:** Draft (sync `ToolWorker` category stable; existing Workers refactored to the pattern; `StreamsWorker`, cancellation, and `AdapterResponse` tracked in §6 — Accepted transition gated on ADR-049)
+**Date:** July 19, 2026 (revised 2026-07-20: §3.1 / §3.2 / §5 / §6.4 aligned with the canonical code; existing Workers refactored)
 **Version:** 0.3.0 (sync ToolWorker category stable; StreamsWorker proposed in §6.1)
 **Authors:** Architecture Team
-**Related:** ADR-019-Epilogo-Typed-Adapters, ADR-034-ToolCall-ECS-Components, ADR-036-Tool-Worker-Pattern, ADR-037-Mandatory-Correlation-Propagation, ADR-044-Tool-call-Overlay-Accumulation, ADR-045-Tool-Call-Request-TTL, AGENTS.md
+**Related:** ADR-019-Epilogo-Typed-Adapters, ADR-030-LLMTransport-as-Callable, ADR-034-ToolCall-ECS-Components, ADR-036-Tool-Worker-Pattern, ADR-037-Mandatory-Correlation-Propagation, ADR-043-LiteLLM-Worker-Migration, ADR-044-Tool-call-Overlay-Accumulation, ADR-045-Tool-Call-Request-TTL, AGENTS.md
 
 **Note on scope (v0.2.0):** The pattern described here applies to **ToolWorkers** (classes decorated with `@tool_worker` and executed by the `WorkerManager`), not to the `Tool` Protocol. The two are distinct: `Tool` is the identity/describable surface registered with the framework; `ToolWorker` is the executor. This ADR is about the executor's construction (how it reaches the outside world), not the identity. The "Tool" terminology in the body is shorthand for "ToolWorker" unless otherwise noted.
 
@@ -59,7 +59,12 @@ This design introduces a clear separation between two distinct boundaries in the
 1. **No Direct External Imports:** A ToolWorker class or module must never import, instantiate, or configure a concrete third-party client (e.g., `import stripe`, `import sap_client`).
 2. **Abstract via Protocol:** All external service interactions must be defined behind a typed `Protocol` (e.g., `PaymentGatewayLike` or `ErpClient`).
 3. **Dependency Injection:** The ToolWorker class must receive the adapter instance implementing the Protocol via its constructor (`__init__`).
-4. **Adapter Reuse (when available):** If a suitable adapter Protocol already exists in the framework or vertical (e.g., `RedisLike`, `LLMTransport`, `EmbeddingProvider`), the ToolWorker SHOULD reuse it. A ToolWorker is also free to declare its own Protocol (e.g., `PaymentGatewayLike` for a new external service) — the pattern is **open**: reuse is the default for known adapters, but a new domain is a legitimate reason to introduce a new Protocol.
+4. **Adapter Reuse (when available):** If a suitable adapter Protocol already exists in the framework or vertical (e.g., `RedisLike`, `LLMTransport`, `EmbeddingProvider`, `HttpClientLike`), the ToolWorker SHOULD reuse it. A ToolWorker is also free to declare its own Protocol (e.g., `PaymentGatewayLike` for a new external service) — the pattern is **open**: reuse is the default for known adapters, but a new domain is a legitimate reason to introduce a new Protocol. The framework-level Protocol catalogue as of v0.9.0:
+
+   - `LLMTransport` (`src/kntgraph/tools/llm_transport.py`) — async LLM completion boundary.
+   - `EmbeddingProvider` (`src/kntgraph/knowledge/embedding/_protocol.py`) — async embedding boundary.
+   - `RedisLike` / `PipelineLike` (`src/kntgraph/infra/redis/_client.py`) — async Redis client boundary.
+   - `HttpClientLike` / `HttpResponseLike` (`src/kntgraph/infra/http/_client.py`) — async HTTP client boundary (added in v0.9.0 for the weather_platform vertical; can be reused by any future HTTP-bound Worker).
 5. **Concrete Implementation Placement:** The concrete implementation of the adapter wrapping the external library must live in the infrastructure layer (`kntgraph.infra.<service>` or similar vertical-specific package) and use lazy/guarded imports to avoid startup overhead.
 6. **Mock Testing:** Unit tests for the ToolWorker must inject a fake/stub implementation of the Protocol (e.g., `FakePaymentGateway`) instead of using mock patches or live external connections.
 
@@ -120,54 +125,98 @@ To illustrate the flexibility of the Tool-Adapter pattern, we show how a single,
 
 ### 3.1 Step 1: Reference the Adapter Protocol
 
-The `LLMTransport` protocol is defined at the framework level in `src/kntgraph/tools/llm_transport.py`. It abstracts away LiteLLM/Ollama and takes an `LLMRequest` value object:
+The `LLMTransport` protocol is defined at the framework level in `src/kntgraph/tools/llm_transport.py`. It abstracts away LiteLLM/Ollama and takes an `LLMRequest` value object. The `LLMRequest` value object is the bundle that the previous `complete(**kwargs)` API exposed as 9 keyword parameters; the Protocol's `__call__` takes the bundle and returns a raw completion dict (LiteLLM-style):
 
 ```python
 # kntgraph/tools/llm_transport.py
 from typing import Protocol, runtime_checkable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
+class LLMUsage:
+    """Token usage extracted from an LLM response."""
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+@dataclass(frozen=True, slots=True)
+class LLMResponse:
+    """
+    Result of a single completion call.
+
+    `text` is the content of the first choice. For
+    multi-choice or multi-message, use `raw` (the
+    original response dict, LiteLLM-style).
+
+    `cost_usd` is populated when the client can compute
+    it (e.g. via `litellm.completion_cost`); it may be
+    `None` for local or unknown models.
+    """
+    text: str
+    model: str
+    usage: LLMUsage
+    latency_ms: float
+    cost_usd: "float | None" = None
+    finish_reason: "str | None" = None
+    raw: dict = field(default_factory=dict)
+
+@dataclass(frozen=True, slots=True)
 class LLMRequest:
+    """
+    The value object passed to ``LLMTransport.__call__``.
+
+    The ``extra`` dict carries provider-specific kwargs
+    (the ``**kwargs`` of the previous ``complete()``).
+    Concrete transports extract what they need (e.g.
+    ``top_p``, ``stop``, ``tools``); unused keys are
+    ignored.
+    """
     model: str
     messages: list[dict]
-    temperature: float = 0.0
-    max_tokens: int = 1000
-    idempotency_key: str = ""
-
-@dataclass(frozen=True)
-class LLMError:
-    """Typed error channel for transport-level failures
-    (rate limit, network, context overflow, etc.)."""
-    kind: str       # e.g. "rate_limited", "context_overflow", "network"
-    message: str
-
-@dataclass(frozen=True)
-class LLMResponse:
-    """Discriminated envelope: success carries ``text``;
-    failure carries ``error``. The Protocol returns
-    this — not a raw dict."""
-    success: bool
-    text: str = ""
-    error: "LLMError | None" = None
+    temperature: float
+    max_tokens: int
+    response_format: "dict | None" = None
+    drop_unsupported_params: bool = True
+    idempotency_key: "str | None" = None
+    extra: "dict[str, JsonValue]" = field(default_factory=dict)
 
 @runtime_checkable
 class LLMTransport(Protocol):
-    """Generic async boundary for making LLM completion requests.
-
-    The return type is a typed envelope (success or error);
-    raw dict access (e.g. ``res["choices"][0]``) is
-    NOT part of the Protocol — the concrete adapter
-    is responsible for the LiteLLM-to-envelope translation.
     """
-    async def __call__(self, request: LLMRequest) -> LLMResponse: ...
+    Async transport that turns a completion request into
+    a raw response dict (LiteLLM-style by convention,
+    but the contract is shape-only -- any compatible
+    response can be passed to the Tool's response
+    adapter).
+
+    ``__call__(request)`` is async and returns a dict
+    with at least:
+
+      - ``choices``: list, first element has ``.message.content``
+        and ``.finish_reason``.
+      - ``usage``: dict with ``prompt_tokens``,
+        ``completion_tokens``, ``total_tokens``.
+      - ``model``: str (the actual model used; may differ
+        from requested on routing).
+
+    The transport is responsible for raising rate-limit,
+    auth, and timeout errors as exceptions. The Tool
+    translates them into ``Result`` outcomes.
+    """
+    async def __call__(self, request: LLMRequest) -> dict: ...
 ```
 
-**Why a typed envelope (not `dict`):** the ToolWorkers below (Section 3.2) consume the response. With `dict` returns, the ToolWorker has to know LiteLLM's wire format (`res["choices"][0]["message"]["content"]`) and reproduce the same KeyError-prone parsing. With a typed envelope, the Protocol is a clean boundary: the adapter translates, the ToolWorker consumes. This is a consequence of rule §2.2.2 ("Abstract via Protocol") — a Protocol that returns the third-party's native shape is not actually abstracting the third-party.
+**Why the Protocol returns a `dict` (not a typed envelope).** Earlier drafts of this ADR proposed a discriminated envelope (`LLMResponse(success, text, error)`) and a `LLMError` typed channel; the canonical shape, however, returns the LiteLLM-style dict directly from the Protocol and lets the concrete `LLMTransportAdapter` translate the dict into a `LLMResponse` dataclass at the **caller** of the transport. The split is:
+
+  - **Protocol contract (`LLMTransport.__call__`)**: returns `dict`. The shape is "LiteLLM-compatible", but the contract is shape-only — any compatible response (a fake transport in tests, a custom HTTP client, a streaming decoder) is accepted. The Protocol is a clean boundary because (a) LiteLLM is the de-facto Python LLM wire format and every transport already speaks it, (b) the ToolWorker can introspect fields the Protocol does not declare (`res["usage"]["prompt_tokens"]`) without breaking the Protocol.
+  - **Concrete adapter (`LiteLLMTransportAdapter`)**: wraps `litellm.acompletion`, raises typed exceptions (`LLMRateLimitError`, `LLMAuthError`, `LLMError`) on provider failure, and returns the LiteLLM `model_dump()` dict.
+  - **ToolWorker (`LiteLLMToolWorker`)**: receives the dict, translates it into a JSON-serialisable result envelope (`text` / `model` / `usage` / `finish_reason` / `cost_usd` / `latency_ms`), and returns `Result[dict, ToolError]` to the `WorkerManager`.
+
+The `LLMResponse` dataclass is still in the public API — it is what the `LiteLLMToolWorker` returns to the framework's `WorkerManager` as the JSON-serialisable result envelope (it is **not** the return type of the `LLMTransport` Protocol). The discriminated-envelope proposal from the earlier draft is tracked in §6.4 ("`AdapterResponse` base class") as a future ADR-049 follow-up; the canonical shape today is the dict-Protocol.
 
 ### 3.2 Step 2: Implement Distinct ToolWorkers Sharing the Adapter
 
-Each ToolWorker implements a unique role by wrapping the same `LLMTransport` dependency and encapsulating its specific prompt engineering, parameter validation, and response formatting logic.
+Each ToolWorker implements a unique role by wrapping the same `LLMTransport` dependency and encapsulating its specific prompt engineering, parameter validation, and response formatting logic. Per AGENTS.md §6.1, all mutating Worker operations return `Result[T, ToolError]`; the **transport exception** (rate limit, auth, timeout) is preserved as `__cause__` on the `ToolError` so operators can introspect the root cause without losing the typed-error contract.
 
 #### A. Classification ToolWorker
 A ToolWorker that classifies user queries into a set of predefined labels.
@@ -201,12 +250,24 @@ class IntentClassifierTool:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.0,
             max_tokens=100,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
-        response = await self._llm(request)
-        if not response.success:
-            return Err(ToolError.from_llm_error(response.error))
-        return Ok({"category": response.text.strip()})
+        try:
+            completion = await self._llm(request)
+        except Exception as e:
+            err = ToolError(f"llm_transport_error: {e!r}")
+            err.__cause__ = e
+            return Err(err)
+        # The transport returned a LiteLLM-style dict;
+        # the worker translates it into the public
+        # result envelope (the same shape every
+        # ``@tool_worker`` returns).
+        text_value = (
+            completion.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        return Ok({"category": text_value.strip()})
 ```
 
 #### B. Text Generation ToolWorker
@@ -240,12 +301,20 @@ class TextGeneratorTool:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=max_length,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
-        response = await self._llm(request)
-        if not response.success:
-            return Err(ToolError.from_llm_error(response.error))
-        return Ok({"text": response.text})
+        try:
+            completion = await self._llm(request)
+        except Exception as e:
+            err = ToolError(f"llm_transport_error: {e!r}")
+            err.__cause__ = e
+            return Err(err)
+        text_value = (
+            completion.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        return Ok({"text": text_value})
 ```
 
 #### C. Multimodal Image Analysis ToolWorker
@@ -291,12 +360,20 @@ class ImageAnalyzerTool:
             messages=messages,
             temperature=0.2,
             max_tokens=300,
-            idempotency_key=idempotency_key
+            idempotency_key=idempotency_key,
         )
-        response = await self._llm(request)
-        if not response.success:
-            return Err(ToolError.from_llm_error(response.error))
-        return Ok({"description": response.text})
+        try:
+            completion = await self._llm(request)
+        except Exception as e:
+            err = ToolError(f"llm_transport_error: {e!r}")
+            err.__cause__ = e
+            return Err(err)
+        text_value = (
+            completion.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        return Ok({"description": text_value})
 ```
 
 **A note on the "no progress events" stance (§2.4):** the three ToolWorkers above all return a single `Result` at the end of `invoke`. A long-running streaming variant (e.g., a streaming LLM response) is not expressible as a sync `ToolWorker`. The framework's transport-agnostic answer is the `StreamsWorker` partial-completion model (§6.1): the streaming case is the same Worker invoked N times under the same `causation_id`, with each invocation producing one chunk. The Worker is stateless across partials from the framework's point of view, so the same code runs on a local process pool or on remote gRPC workers.
@@ -322,11 +399,17 @@ class ImageAnalyzerTool:
 
 ## 5. Recommendation
 
-We recommend adopting this standard for all **new** sync `ToolWorker` development immediately. The `ToolWorker` (sync) category is well-defined and can move from **Draft** to **Accepted** once the review of §2 (especially §2.2.4 — Adapter Reuse) and §3 (the LLM reference implementation) is complete.
+The sync `ToolWorker` category is the canonical path going forward. All existing sync `@tool_worker` classes in the codebase have been refactored to the Tool-Adapter pattern (see DEBT.md §2.24 for the per-Worker refactoring targets that were closed in this cycle):
+
+  - **`LiteLLMToolWorker`** (`src/kntgraph/agents/tools/llm.py`): the canonical LLM bridge (ADR-043). The `__init__` reads the LLM config from the environment and lazy-initialises the transport; tests inject a `FakeLLMTransport` via `unittest.mock.patch`. The Worker's `invoke` returns `Result[dict[str, Any], ToolError]`; the original transport exception (`TimeoutError`, `RuntimeError`) is preserved as `__cause__` on the `ToolError` so operators can introspect the root cause without losing the typed-error contract.
+  - **`OpenMeteoApi`** (in the `weather_platform` vertical): the canonical I/O Worker. Refactored to receive a `HttpClientLike` via DI; the `httpx` import is hidden behind `HttpxHttpClientAdapter` (lazy). The Worker is now testable with an in-memory `FakeHttpClient` (no network, no `httpx` import on the test path). The `HttpClientLike` Protocol is the second framework-level Protocol defined for I/O (after `LLMTransport`); it lives at `src/kntgraph/infra/http/_client.py`.
+  - **`SessionRecorderTool`** (in `examples/05b_session_chat_ecs.py` and `examples/05c_session_chat_ecs_roles.py`): the canonical short-memory-bound Worker. Both copies of the class were refactored to return `Result[dict, ToolError]`; the original `ValueError` and the wrapped `Exception` were replaced with typed `ToolError` messages.
+  - **`WeatherTool`** (`examples/19_tool_worker_pattern.py`): the canonical mock Worker for the example flow. Refactored to return `Result[dict, ToolError]`.
+  - **CLI scaffold template** (`src/kntgraph/cli/templates/tool.py.jinja`): the `knt new tool` template now generates Workers with the canonical signature (`Result[dict, ToolError]`), so new vertical Workers are born compliant with AGENTS.md §6.1.
 
 The `StreamsWorker` category (§6.1), the sync cancellation channel (§6.2), and the `AdapterResponse` base class (§6.4) are tracked as proposed follow-ups. They will be formalized in a separate ADR (e.g., ADR-049 "Streaming, Cancellation, and Adapter Responses for ToolWorkers") when the first concrete use case lands — a streaming LLM Worker is the most likely first adopter, and its transport target (local pool vs. remote gRPC) is a deployment choice the framework should not preempt.
 
-Existing ToolWorkers that directly import external dependencies should be refactored to conform to the Tool-Adapter pattern in future sprints, logging their refactoring targets in `DEBT.md`.
+The ADR **status** remains **Draft** because the §6.1 / §6.2 / §6.4 follow-ups are open. The sync `ToolWorker` category itself is the recommended standard for new development; the "Accepted" transition is gated on ADR-049 (or equivalent) closing the open follow-ups.
 
 ---
 
@@ -462,81 +545,22 @@ The earlier draft listed this as a separate question. With the partial-completio
 
 ### 6.4 Base adapter response class for typed envelopes
 
-**Problem.** §3.1 introduced `LLMResponse` and `LLMError` for the LLM case. The question: should every Protocol in the framework follow the same discriminated shape, or is the LLM case special?
+**Problem.** Earlier drafts of this ADR proposed a discriminated envelope (`LLMResponse(success: bool, text: str, error: LLMError | None)`) as the return type of the `LLMTransport` Protocol. The canonical shape, however, returned the LiteLLM-style dict from the Protocol and let the concrete `LiteLLMTransportAdapter` translate the dict into a `LLMResponse` dataclass at the **caller** of the transport (see §3.1, "Why the Protocol returns a `dict` (not a typed envelope)"). The discriminated envelope was rejected because:
 
-**Proposal (option a from earlier draft, now adopted as the recommended shape).** Provide a generic base class in the framework that Protocols compose or subclass. The dev decides the granularity per domain — the base class is a **scaffolding helper**, not a constraint.
+  - LiteLLM is the de-facto Python LLM wire format; every transport already speaks it. The dict return is a clean, structural boundary.
+  - The `LLMResponse` dataclass (`text` / `model` / `usage` / `latency_ms` / `cost_usd` / `finish_reason` / `raw`) lives in the public API; it is what the `LiteLLMToolWorker` returns to the `WorkerManager` as the JSON-serialisable result envelope, not the return type of the Protocol.
 
-```python
-# kntgraph/tools/adapter_response.py (proposed)
-from dataclasses import dataclass
-from typing import Generic, TypeVar
+**Open question.** The framework does not yet have a generic `AdapterResponse[T]` base class (a discriminated envelope for adapter returns) to help verticals that are not the LLM case. A simple domain (e.g. a payment gateway) might benefit from a `AdapterResponse[dict]`-shaped Protocol return; a richer domain (e.g. ERP, RAG) might want to subclass the base for extra fields.
 
-T = TypeVar("T")
-
-@dataclass(frozen=True, slots=True)
-class AdapterError:
-    kind: str        # "rate_limited" | "context_overflow" | "network" | ...
-    message: str
-
-@dataclass(frozen=True, slots=True)
-class AdapterResponse(Generic[T]):
-    """Discriminated envelope for adapter returns.
-
-    The dev may use ``AdapterResponse`` directly for
-    simple cases (one success payload, one error kind)
-    or subclass for richer domain shapes (LLM needs
-    ``usage_tokens``, payment needs ``transaction_id``,
-    etc.).
-    """
-    success: bool
-    value: "T | None" = None
-    error: "AdapterError | None" = None
-
-    @classmethod
-    def ok(cls, value: T) -> "AdapterResponse[T]":
-        return cls(success=True, value=value)
-
-    @classmethod
-    def err(cls, kind: str, message: str) -> "AdapterResponse[T]":
-        return cls(success=False, error=AdapterError(kind=kind, message=message))
-
-    def unwrap(self) -> T:
-        if not self.success:
-            raise ValueError(f"unwrap on Err: {self.error}")
-        return self.value  # type: ignore[return-value]
-
-    def unwrap_or(self, default: T) -> T:
-        return self.value if self.success else default
-```
-
-A simple adapter uses it as-is:
-
-```python
-@runtime_checkable
-class PaymentGatewayLike(Protocol):
-    async def charge(self, amount: int) -> AdapterResponse[dict]: ...
-```
-
-A richer domain (LLM) subclasses for the extra fields:
-
-```python
-@dataclass(frozen=True, slots=True)
-class LLMResponse(AdapterResponse[str]):
-    """LLM-specific response. Extends the base with
-    usage telemetry and finish reason."""
-    usage_tokens: int = 0
-    finish_reason: str = "stop"
-```
-
-**Status:** **proposed**. Lightweight, opt-in, no impact on existing Protocols. A future ADR (e.g., ADR-049 "Standardized Adapter Response Shape") can formalize the migration of `LLMTransport`, `EmbeddingProvider`, and other Protocols to use the base class.
+**Status:** **deferred**. The canonical shape today is `Protocol -> dict`; `LLMResponse` is the LLM-side envelope that the **Worker** returns, not the Protocol. A future ADR (e.g., ADR-049 "Standardized Adapter Response Shape") can formalize the `AdapterResponse[T]` base class as a scaffolding helper for non-LLM verticals (e.g. `PaymentGatewayLike`, `ErpAdapter`) when a second use case lands.
 
 ### 6.5 Summary of open items
 
 | # | Item | Status | Blocking ADR acceptance? |
 | --- | --- | --- | --- |
-| 6.1 | `StreamsWorker` (partial-completion model, transport-agnostic) | proposed | No (the sync `ToolWorker` category is sufficient today) |
+| 6.1 | `StreamsWorker` (partial-completion model, transport-agnostic) | proposed | No (the sync `ToolWorker` category is sufficient today; ADR-049 will formalize) |
 | 6.2 | Sync `ToolWorker` cancellation channel | proposed, coupled to 6.1 | No (TTL is the current termination signal) |
 | 6.3 | Partial / streaming return shape | resolved by 6.1 | — |
-| 6.4 | `AdapterResponse` base class | proposed | No (opt-in scaffolding) |
+| 6.4 | `AdapterResponse` base class | deferred (canonical shape is `Protocol -> dict`; `LLMResponse` is the Worker-side envelope, not the Protocol return) | No (opt-in scaffolding; the LLM case does not need it today) |
 
-This ADR can move from **Draft** to **Accepted** for the sync `ToolWorker` category once the review above is incorporated. The `StreamsWorker`, cancellation, and adapter response work will be tracked in a follow-up ADR (e.g., ADR-049 "Streaming, Cancellation, and Adapter Responses for ToolWorkers") when the first concrete use case lands.
+This ADR remains **Draft** while the §6 follow-ups are open. The sync `ToolWorker` category is the recommended standard for new development; all existing sync Workers in the codebase have been refactored to the pattern (see DEBT.md §2.24). The "Accepted" transition is gated on ADR-049 (or equivalent) closing the open follow-ups.

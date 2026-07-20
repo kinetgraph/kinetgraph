@@ -635,7 +635,7 @@ class LiteLLMToolWorker:
         think: bool = False,
         response_format: "dict | None" = None,
         stream: bool = False,
-    ) -> "Result[dict[str, Any], Exception]":
+    ) -> "Result[dict[str, Any], ToolError]":
         """
         Run a single LLM completion via the
         ``LiteLLMTransportAdapter`` and return the
@@ -644,9 +644,11 @@ class LiteLLMToolWorker:
         The result envelope is documented in the
         class docstring. On any transport error
         (rate limit, auth, timeout, etc.) the
-        worker returns ``Err(Exception(...))``; the
+        worker returns ``Err(ToolError(...))``; the
         ``WorkerManager`` translates that into a
-        ``tool.chat_llm.failed`` event.
+        ``tool.chat_llm.failed`` event. The
+        original exception is preserved as
+        ``__cause__`` for diagnostics.
         """
         effective_model = model or self._default_model
         # ``temperature`` and ``max_tokens`` are
@@ -678,10 +680,14 @@ class LiteLLMToolWorker:
                 timeout=self._timeout_s,
             )
             latency_ms = (time.perf_counter() - started) * 1000.0
-        except asyncio.TimeoutError:
-            return Err(TimeoutError(f"llm_timeout after {self._timeout_s}s"))
+        except asyncio.TimeoutError as e:
+            err = ToolError(f"llm_timeout after {self._timeout_s}s")
+            err.__cause__ = e
+            return Err(err)
         except Exception as e:
-            return Err(e)
+            err = ToolError(f"llm_transport_error: {e!r}")
+            err.__cause__ = e
+            return Err(err)
 
         # Translate the transport's dict into the
         # worker's public envelope.

@@ -47,7 +47,7 @@ from kntgraph.tools.worker import tool_worker
 
 from _lib.redis_or_fake import make_redis_client
 
-from kntgraph.core.result import Ok, Result
+from kntgraph.core.result import Ok, Result, ToolError
 
 
 # 1. Define a tool using the @tool_worker decorator
@@ -57,7 +57,7 @@ class WeatherTool:
 
     async def invoke(
         self, city: str, *, idempotency_key: str
-    ) -> Result[dict[str, Any], Exception]:
+    ) -> Result[dict[str, Any], ToolError]:
         print(
             f"    [Worker] 🌩️ Fetching weather for {city} (idempotency={idempotency_key})..."
         )
