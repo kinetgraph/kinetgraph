@@ -249,6 +249,19 @@ canonical schema is `Settings` in
 
 ## Project status
 
+- `0.9.0` — current release. Drops the legacy
+  `LiteLLMTool` / `ToolInvoker` / `kntgraph.agents.roles`
+  paths (the canonical path is
+  `LiteLLMToolWorker` + the `WorkerManager`, and the
+  `role_systems` ECS-shaped counterparts). Adds the
+  `HttpClientLike` Protocol and the `HttpxHttpClientAdapter`
+  for HTTP-bound `ToolWorkers` (ADR-047). CLI tests
+  ship a   `conftest.py` for the optional `[cli]` extra
+  (DEBT §2.25). CC refactor of 10 functions over the
+  CC=10 ceiling (DEBT §2.26); the `gate_complexity` in
+  `scripts/ci.py` now flags new CC offenders that
+  bypass the previous baseline-only check. Pyright
+  errors down from 68 → 51 (17-error delta).
 - `0.7.0` — public release under the
   `kntgraph` package name. Backwards-incompatible
   with the old `fmh_backend` / `fmh_agents`
@@ -268,6 +281,7 @@ development setup, the gate that runs in CI, and
 the pull request workflow. Bug reports and
 security disclosures follow
 [SECURITY.md](SECURITY.md).
+
 
 
 
