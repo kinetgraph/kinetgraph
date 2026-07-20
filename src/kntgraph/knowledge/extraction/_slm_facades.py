@@ -102,6 +102,7 @@ from .gliner_intent import GlinerIntentAdapter
 from kntgraph.knowledge.extraction.base import (
     ArgExtraction,
     ArgumentExtractor,
+    EntityExtractor,
     EntityExtractorWithMentions,
     IntentClassifier,
 )
@@ -157,7 +158,16 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
             Ignored when ``adapter`` is supplied.
         """
         if adapter is not None:
-            self._adapter = adapter
+            # ``EntityExtractorWithMentions`` is the
+            # rich contract (preserves offsets). Per
+            # the Protocol's docstring (base.py
+            # ``EntityExtractorWithMentions``), every
+            # implementation MUST also satisfy
+            # ``EntityExtractor`` (callers can rely on
+            # ``extract`` being available). The Union
+            # keeps the wider type exposed so the
+            # facade's ``extract`` method is type-safe.
+            self._adapter: "EntityExtractor | EntityExtractorWithMentions" = adapter
         else:
             self._adapter = GlinerEntityAdapter(
                 labels=labels if labels is not None else DEFAULT_LABELS,
@@ -165,12 +175,24 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
             )
 
     async def extract(self, text: str) -> list[Entity]:
-        return await self._adapter.extract(text)
+        # Per the ``EntityExtractorWithMentions`` Protocol
+        # contract (base.py), every implementation MUST
+        # also satisfy ``EntityExtractor``. The cast pins
+        # the wider type so the ``.extract`` access is
+        # type-safe. The runtime always resolves to a
+        # concrete adapter that implements both shapes.
+        return await cast("EntityExtractor", self._adapter).extract(text)
 
     async def extract_with_mentions(
         self, text: str
     ) -> list[tuple[Entity, Optional[int]]]:
-        return await self._adapter.extract_with_mentions(text)
+        # Narrow to the rich Protocol; the runtime is
+        # always the ``EntityExtractorWithMentions`` path
+        # because ``self._adapter`` is only typed as the
+        # Union for type-check convenience.
+        return await cast(
+            "EntityExtractorWithMentions", self._adapter
+        ).extract_with_mentions(text)
 
 
 class SLMIntentClassifier(IntentClassifier):

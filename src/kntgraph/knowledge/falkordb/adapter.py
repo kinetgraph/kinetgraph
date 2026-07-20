@@ -61,7 +61,8 @@ from ._params import (
 
 
 if TYPE_CHECKING:
-    from kntgraph.infra.graph import GraphAdapter, GraphPool
+    from ...graph._protocol import GraphAdapter
+    from ...infra.graph import GraphPool
     from ...stream.event_log import EventLog
 
 
