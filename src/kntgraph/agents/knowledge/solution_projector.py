@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from typing import Optional
+from typing import Optional, cast
 
 import structlog
 
@@ -297,7 +297,7 @@ class SolutionProjector:
                 status=candidate.outcome.status,
                 confidence=candidate.confidence,
                 result_json=(candidate.outcome.result_signature),
-                error_message=candidate.outcome.error_message,
+                error_message=candidate.outcome.error_message or "",
             )
             # 6. Problem → Action edge. ``SOLVED_BY`` for
             # completed outcomes, ``FAILED_WITH`` for
@@ -327,7 +327,7 @@ class SolutionProjector:
                     error=type(bulkhead_result.err_value()).__name__,
                 )
                 return 0
-            return bulkhead_result.ok_value()
+            return cast(int, bulkhead_result.ok_value())
         return await _do_upsert()
 
     # ------------------------------------------------------------------ vector index

@@ -21,7 +21,7 @@ auto-promotion.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, cast
 
 from kntgraph.core.event.event import Event
 
@@ -77,7 +77,7 @@ class SolutionReviewPublisherSystem:
         for ev in events:
             if ev.event_type != "solution.candidate_extracted":
                 continue
-            cross = int(ev.data.get("cross_agent_count", 1))
+            cross = int(cast(int, ev.data.get("cross_agent_count", 1)))
             if cross >= self._threshold:
                 # Auto-promote path handles it.
                 skipped += 1

@@ -266,18 +266,18 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor.py:method:_build_candidate": {
-      "complexity": 8,
+      "complexity": 9,
       "lineno": 411,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor.py:method:_extract_tags": {
       "complexity": 3,
-      "lineno": 489,
+      "lineno": 491,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor.py:method:_extract_tags_async": {
       "complexity": 1,
-      "lineno": 486,
+      "lineno": 488,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor.py:method:_group_events_by_agent": {
@@ -346,7 +346,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_fingerprints.py:function:maybe_float": {
-      "complexity": 3,
+      "complexity": 4,
       "lineno": 115,
       "rank": "A"
     },
@@ -577,37 +577,37 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:class:SchemaValidationError": {
       "complexity": 6,
-      "lineno": 43,
+      "lineno": 44,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:function:_collect_required_and_type_errors": {
       "complexity": 6,
-      "lineno": 145,
+      "lineno": 146,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:function:_collect_unexpected_keys": {
       "complexity": 3,
-      "lineno": 173,
+      "lineno": 174,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:function:_matches_type": {
       "complexity": 6,
-      "lineno": 98,
+      "lineno": 99,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:function:_python_type_name": {
       "complexity": 8,
-      "lineno": 79,
+      "lineno": 80,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:function:validate_args": {
       "complexity": 4,
-      "lineno": 115,
+      "lineno": 116,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py:method:__init__": {
       "complexity": 5,
-      "lineno": 56,
+      "lineno": 57,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/capability.py:class:Capability": {
@@ -6287,7 +6287,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/knowledge/solution_projector.py": {
-      "mi": 66.29933601290405,
+      "mi": 65.2745636346076,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/__init__.py": {
@@ -6295,7 +6295,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solution_extractor.py": {
-      "mi": 66.07673364628425,
+      "mi": 65.74831628280477,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solution_promoter.py": {
@@ -6315,7 +6315,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor.py": {
-      "mi": 52.60735011019825,
+      "mi": 52.363457090878455,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_extractor_helpers.py": {
@@ -6323,7 +6323,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_fingerprints.py": {
-      "mi": 67.95481038688992,
+      "mi": 68.86168233559908,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/memory/solutions/_promoter.py": {
@@ -6351,7 +6351,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/arg_validation.py": {
-      "mi": 68.22306038581559,
+      "mi": 68.15075222846555,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/capability.py": {

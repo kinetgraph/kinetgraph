@@ -127,7 +127,7 @@ class SolutionExtractorSystem:
                 # same tool_name AND same params
                 # (structural equality on the JSON-shaped
                 # params dict).
-                cross = self._cross_agent_count(world, req, completions)
+                cross = self._cross_agent_count(world, req)
                 if cross < self._bump_min_agents:
                     continue
                 out.append(self._emit_candidate(agent_id, req, comp, cross))
@@ -137,9 +137,9 @@ class SolutionExtractorSystem:
         self,
         world: World,
         req: ToolCallRequest,
-        completions_per_agent: dict[str, dict[str, ToolCallCompletion]],
     ) -> int:
-        """Count distinct agents that have a completion
+        """
+        Count distinct agents that have a completion
         matching this request's (tool_name, params).
 
         For Iter 28 FU 8 we count `>= 1` (the requesting

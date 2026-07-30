@@ -36,6 +36,7 @@ from __future__ import annotations
 
 from typing import Mapping, Optional
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.tools.protocol import ToolArgValue
 from kntgraph.tools.schema import walk_schema
 
@@ -114,7 +115,7 @@ def _matches_type(value: ToolArgValue, json_type: str) -> bool:
 
 def validate_args(
     args: Mapping[str, ToolArgValue],
-    schema: Optional[Mapping[str, ToolArgValue]],
+    schema: Optional[Mapping[str, JsonValue]],
 ) -> None:
     """
     Validate `args` against `schema` (a JSON-Schema
