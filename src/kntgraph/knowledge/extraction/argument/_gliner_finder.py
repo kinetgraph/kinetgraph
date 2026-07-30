@@ -31,7 +31,7 @@ shapes.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Protocol, Union
+from typing import Any, Optional, Protocol, Union, runtime_checkable
 
 from kntgraph.core._typing import JsonScalar, ValidatorInput
 from kntgraph.knowledge.extraction.argument._finder import FieldFinder
@@ -44,7 +44,7 @@ class _MatchDict(Protocol):
     GLiNER2 1.3.x with ``include_confidence=True`` returns
     matches as ``{"text": str, "confidence": float}`` (or
     ``"score"`` / ``"surface"`` / ``"value"`` aliases; the
-    helpers read these via :func:`field_o`). The Protocol
+    helpers read these via :func:`_read`). The Protocol
     is for static typing only; the helpers duck-type at
     runtime.
     """
@@ -53,12 +53,15 @@ class _MatchDict(Protocol):
     confidence: float
 
 
+@runtime_checkable
 class _MatchObj(Protocol):
     """Structural shape of a GLiNER2 dataclass-shaped match.
 
     GLiNER2 pre-1.3 returns dataclass instances with
     ``.text`` and ``.score`` attributes. The Protocol is
-    for static typing only.
+    for static typing only; ``@runtime_checkable`` lets
+    the candidate-list helper narrow the union without
+    having to import the upstream type at module level.
     """
 
     text: str
@@ -75,14 +78,28 @@ GlinerMatch = Union[str, _MatchDict, _MatchObj]
 # The raw GLiNER2 ``.extract_entities(...)`` response is
 # a nested dict: ``{"entities": {label: [match, ...]}}``
 # (1.3.x). Older versions return a list of dataclasses
-# directly. The framework reads it through :func:`field_o`
+# directly. The framework reads it through :func:`_read`
 # so the exact shape is tolerated; this alias exists for
 # the call sites that bind the result.
-GlinerRawResult = Union[dict[str, dict[str, list[GlinerMatch]]], list[GlinerMatch]]
+GlinerRawResult = Union[dict[str, Any], list[GlinerMatch]]
+
+
+# The narrow union consumed by the private ``_read`` helper.
+# ``field_o`` is reserved for JSON-shaped ``ValidatorInput``
+# (the framework's stream-boundary contract); the GLiNER2
+# paths (which admit attribute-bearing objects) use
+# ``_read`` instead.
+_MatchCandidate = Union[_MatchDict, _MatchObj, dict[str, Any]]
 
 
 def field_o(obj: ValidatorInput, name: str) -> Optional[JsonScalar]:
-    """Read `name` from `obj` whether dict or attribute."""
+    """Read `name` from `obj` whether dict or attribute.
+
+    Reserved for JSON-shaped ``ValidatorInput`` at the
+    stream boundary. The GLiNER2 match helpers use the
+    local :func:`_read` instead — ``field_o`` is not
+    designed to admit attribute-bearing objects.
+    """
     if obj is None:
         return None
     if isinstance(obj, dict):
@@ -93,10 +110,29 @@ def field_o(obj: ValidatorInput, name: str) -> Optional[JsonScalar]:
     return getattr(obj, name, None)
 
 
+def _read(obj: Any, name: str) -> Any:
+    """Read ``name`` from a GLiNER2-shaped match object.
+
+    Mirrors :func:`field_o` but admits the GLiNER2
+    ``_MatchDict`` / ``_MatchObj`` Protocols (objects
+    with attribute access) alongside plain dicts. The
+    parameter is deliberately typed ``Any`` because
+    the call sites bind different shapes (the raw
+    response, one match from a list, or one match
+    from a nested dict); the consumers narrow via
+    ``isinstance`` or ``str()``/``float()`` coercion.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
 def extract_first(
     raw: GlinerRawResult,
     entity_name: str,
-) -> Optional[tuple[GlinerMatch, float]]:
+) -> Optional[tuple[str, float]]:
     """
     Pull the first match for `entity_name` from the raw
     GLiNER2 output.
@@ -131,9 +167,9 @@ def extract_first(
 
 def _extract_from_entities_dict(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[GlinerMatch, float]]:
+) -> Optional[tuple[str, float]]:
     """1.3.x canonical shape: ``{"entities": {label: [...]}}``."""
-    entities_dict = field_o(raw, "entities")
+    entities_dict = _read(raw, "entities")
     if not isinstance(entities_dict, dict):
         return None
     return match_to_value(entities_dict.get(entity_name))
@@ -141,18 +177,19 @@ def _extract_from_entities_dict(
 
 def _extract_from_top_level_label(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[GlinerMatch, float]]:
+) -> Optional[tuple[str, float]]:
     """Older dict shape: top-level ``{label: [match, ...]}``."""
     if not isinstance(raw, dict) or entity_name not in raw:
         return None
-    if isinstance(field_o(raw, entity_name), dict):
+    if isinstance(_read(raw, "entities"), dict):
+        # Already handled by the entities_dict path.
         return None
     return match_to_value(raw[entity_name])
 
 
 def _extract_from_candidates(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[GlinerMatch, float]]:
+) -> Optional[tuple[str, float]]:
     """Older list-of-candidates shape.
 
     Walks ``raw`` (or its ``"predictions"`` field) and
@@ -168,40 +205,65 @@ def _extract_from_candidates(
     return None
 
 
-def _as_candidate_list(raw: GlinerRawResult) -> list[object]:
+def _as_candidate_list(raw: GlinerRawResult) -> list[_MatchCandidate]:
     """Normalise the various list-of-candidates shapes
-    into a plain list.
+    into a plain list of ``_MatchCandidate``.
+
+    Bare ``str`` matches (the no-confidence form) are
+    dropped here — they are handled by
+    :func:`match_to_value` before the candidate walk
+    would have processed them. The walk only needs the
+    scored candidates.
     """
     if isinstance(raw, (list, tuple)):
-        return list(raw)
-    inner = field_o(raw, "predictions")
+        return _collect_from_sequence(raw)
+    inner = _read(raw, "predictions")
     if isinstance(inner, (list, tuple)):
-        return list(inner)
-    return [raw]
+        return _collect_from_sequence(inner)
+    if isinstance(raw, dict):
+        return [raw]
+    if isinstance(raw, _MatchObj):
+        return [raw]
+    return []
+
+
+def _collect_from_sequence(seq: Any) -> list[_MatchCandidate]:
+    """Filter a sequence of raw candidates to keep only
+    ``_MatchCandidate`` (dict or ``_MatchObj``). Bare
+    strings (handled by :func:`match_to_value`) and
+    anything else are dropped.
+    """
+    out: list[_MatchCandidate] = []
+    for c in seq:
+        if isinstance(c, dict):
+            out.append(c)
+        elif isinstance(c, _MatchObj):
+            out.append(c)
+    return out
 
 
 def _candidate_to_text_score(
-    c: object, entity_name: str
+    c: _MatchCandidate, entity_name: str
 ) -> tuple[Optional[str], float]:
     """Pull ``(text, score)`` out of one candidate.
 
     Returns ``(None, 0.0)`` when the candidate's label
     doesn't match or the text/score is unusable.
     """
-    label = field_o(c, "label") or field_o(c, "entity")
+    label = _read(c, "label") or _read(c, "entity")
     if label is not None and label != entity_name:
         return (None, 0.0)
-    text = field_o(c, "text") or field_o(c, "surface") or field_o(c, "value")
+    text = _read(c, "text") or _read(c, "surface") or _read(c, "value")
     if text is None:
         return (None, 0.0)
-    raw_score = field_o(c, "score") or field_o(c, "confidence") or 0.0
+    raw_score = _read(c, "score") or _read(c, "confidence") or 0.0
     try:
-        return (text, float(raw_score))
+        return (str(text), float(raw_score))
     except (TypeError, ValueError):
         return (None, 0.0)
 
 
-def match_to_value(match: GlinerMatch) -> Optional[tuple[str, float]]:
+def match_to_value(match: Optional[GlinerMatch]) -> Optional[tuple[str, float]]:
     """
     Convert one match from a GLiNER2 entities result into a
     `(text, confidence)` tuple. The framework treats the
@@ -229,17 +291,14 @@ def match_to_value(match: GlinerMatch) -> Optional[tuple[str, float]]:
     # Bare string: GLiNER2 default (no confidence).
     if isinstance(match, str):
         return (match, 1.0)
-    text = (
-        field_o(match, "text") or field_o(match, "surface") or field_o(match, "value")
-    )
+    text = _read(match, "text") or _read(match, "surface") or _read(match, "value")
     if text is None:
         return None
-    score = field_o(match, "score") or field_o(match, "confidence") or 1.0
+    score = _read(match, "score") or _read(match, "confidence") or 1.0
     try:
-        score_f = float(score)
+        return (str(text), float(score))
     except (TypeError, ValueError):
         return None
-    return (text, score_f)
 
 
 class GlinerFieldFinder(FieldFinder):
