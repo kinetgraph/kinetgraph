@@ -6,7 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-046: CLI Scaffold for Intent Routing Modes
 
-**Status:** Proposed
+**Status:** Accepted (Implemented)
+**Accepted:** 2026-07-30 (consolidation in v0.9.0)
 
 **Date:** July 17, 2026
 

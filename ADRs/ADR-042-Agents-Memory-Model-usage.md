@@ -6,11 +6,41 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-042: Memory Model Exposure in ECS Pattern (Systems vs. Tools) and CLI Support
 
-**Status:** Proposed
+**Status:** Accepted (Implemented, with one CLI follow-up outstanding)
 **Date:** July 13, 2026
+**Accepted:** 2026-07-30 (consolidation in v0.9.0)
 **Version:** 1.1.0
 **Authors:** FMH Architecture Team
 **Related to:** [ADR-004](./ADR-004-Memory-Tools-Knowledge.md), [ADR-014](./ADR-014-Continuity-Tier.md), [ADR-034](./ADR-034-ToolCall-ECS-Components.md), [ADR-036](./ADR-036-Non-Blocking-Systems.md), [ADR-039](./ADR-039-Role-rethinking-and-intentions-routing.md)
+
+**Note (2026-07-30):** the core of this ADR
+(`SessionComponent` / `ProfileComponent` /
+`ContinuityComponent`, the `project_memory` projection,
+the derived-component preservation rule in
+`_apply_event`, and the `SolutionExtractor` /
+`SolutionPromoter` integration) is delivered and in
+production. 16 unit tests in
+`tests/unit/core/test_projection_memory.py` cover the
+fold semantics (single + multi-tick preservation).
+The example `examples/05b_session_chat_ecs.py`
+end-to-end exercises the canonical pattern.
+
+The §6.1-6.3 sub-checklist (`ToolChainingForbiddenError`,
+`_in_dispatch` runtime guard, `scripts/audit_tool_chains.py`,
+the `--with-memory` and `--extends` CLI flags) is
+**partially obsolete** because the legacy
+`ToolInvoker` was removed in v0.9.0 (per
+[ADR-041](./ADR-041-agents-roles-deprecation.md) and
+the v0.9.0 release); the structural tool-to-tool
+chaining check it guarded is no longer reachable
+through the new `@tool_worker` + `WorkerManager`
+path (the worker runs in `ProcessPoolExecutor`, not
+the dispatcher's event loop). The CLI convenience
+flags (`--with-memory` on `knt new system`,
+`--extends` on `knt new component`) are still
+outstanding; they are tracked as a follow-up under
+[this ADR's §6.2-6.3](./ADR-042-Agents-Memory-Model-usage.md)
+rather than as a blocker for the "Accepted" promotion.
 
 > **Event type form (canonical).** All tool events in this
 > ADR follow the canonical ADR-036 form

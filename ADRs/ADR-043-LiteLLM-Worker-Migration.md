@@ -6,9 +6,29 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-043: LiteLLM worker migration + ToolInvoker deprecation
 
-**Status:** Proposed
+**Status:** Accepted (Implemented)
 **Date:** July 14, 2026
+**Accepted:** July 14, 2026 (v0.8.0); consolidation in v0.9.0
 **Related to:** [ADR-007](./ADR-007-LiteLLM-Adapter.md), [ADR-036](./ADR-036-Tool-Worker-Pattern.md), [ADR-039](./ADR-039-Role-rethinking-and-intentions-routing.md), [ADR-041](./ADR-041-agents-roles-deprecation.md), [ADR-042](./ADR-042-Agents-Memory-Model-usage.md)
+
+**Note (2026-07-30):** the ADR was delivered as planned and
+superated its own removal target — both `LiteLLMTool`
+(target v0.9.0) and `ToolInvoker` (target v1.0.0) were
+removed in v0.9.0 (the more conservative two-release
+deprecation of `ToolInvoker` was accelerated). The
+canonical `LiteLLMToolWorker` (`@tool_worker(name="chat_llm")`,
+`src/kntgraph/agents/tools/llm.py:534-729`) is the
+only LLM path; the `WorkerManager` consumes the
+canonical `tool.<name>.requested` events from a Redis
+stream and produces the `tool.<name>.completed` /
+`tool.<name>.failed` events. 7 unit tests in
+`tests/agents/unit/tools/test_litellm_worker.py`
+cover the worker metadata, the `invoke` envelope
+(`text` / `model` / `usage` / `finish_reason` /
+`cost_usd` / `latency_ms`), the timeout path, the
+generic-error path, and the default-model fallback.
+See `CHANGELOG.md [Unreleased]` and `[0.10.0]` for
+the full delivery record.
 
 ## 1. Context
 
