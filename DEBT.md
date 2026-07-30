@@ -1274,14 +1274,14 @@ from __future__ import annotations
 #                                      no regression vs the
 #                                      2026-07-29 snapshot)
 #
-#   6.4  Gate snapshot (post-§2 sync, 2026-07-30):
+#   6.4  Gate snapshot (post-v0.10.0, 2026-07-30):
 #
 #         ruff lint               0 errors
-#         ruff format             237 / 237 formatted
+#         ruff format             424 / 424 formatted
 #         bandit                  0 H + 0 M + 0 L
 #         radon CC                avg ~2.49 (A), 0 rank D+
 #         radon MI                237 A + 0 B + 0 C-
-#         pytest tests/unit       1810 passed, 3 skipped
+#         pytest tests/unit       1808 passed, 3 skipped
 #         pytest tests/agents     (collected with unit pool)
 #         coverage                80.0% (7041/8791 stmts)
 #         pyright                 0 errors / ~1043 warnings
@@ -1291,6 +1291,20 @@ from __future__ import annotations
 #
 #         All 9 gates pass. The v1.0 quality milestone
 #         is satisfied.
+#
+#         v0.10.0 (this sync) introduced one breaking
+#         change: the `_legacy_principal` fallback in
+#         `RedisAPIKeyVerifier` was removed (ADR-017 §7.3).
+#         Plain-string bindings (pre-ADR-017) are now
+#         rejected as `AuthError("malformed")`; operators
+#         must run `scripts/migrate_principals.py --apply`
+#         to upgrade their binding table before installing
+#         0.10.0. The migration script is idempotent and
+#         safe to dry-run. Test count dropped from 1810 to
+#         1808 (-2) because the two legacy-helper tests
+#         were deleted (replaced by a single
+#         `test_redis_verifier_rejects_legacy_string`).
+#         See CHANGELOG `[0.10.0]` for the full note.
 #
 # ---------------------------------------------------------------------------
 

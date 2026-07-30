@@ -6,9 +6,29 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-044: Tool-call Overlay Accumulation (slot persistence across ticks)
 
-**Status:** Proposed
+**Status:** Accepted (Implemented)
 **Date:** July 14, 2026
+**Accepted:** July 14, 2026
 **Related to:** [ADR-034](./ADR-034-ToolCall-ECS-Components.md), [ADR-036](./ADR-036-Tool-Worker-Pattern.md), [ADR-042](./ADR-042-Agents-Memory-Model-usage.md), [ADR-043](./ADR-043-LiteLLM-Worker-Migration.md)
+
+**Note (2026-07-30):** the ADR was delivered as planned.
+The `overlay_tool_calls` function
+(`src/kntgraph/core/world/projection_tool_calls.py:114-220`)
+merges the new requests/completions with the existing
+slots on the base view, keyed by `request_event_id`
+(Option B, completion-driven eviction). The
+`_apply_event` helper in `core/world/projection.py`
+preserves the `tool_requests` and `tool_completions`
+slots when the incoming event is a tool event, so the
+`World.with_event` chain between ticks no longer drops
+the slot before the overlay runs. Multi-tick acceptance
+tests in
+`tests/unit/runner/test_reactive_tool_projection.py`
+cover the request-remains-visible-until-completion
+behaviour and the unrelated-request-persists-across-batches
+behaviour. The follow-up TTL-based eviction
+([ADR-045](./ADR-045-Tool-Call-Request-TTL.md)) closed
+the orphaned-request memory-leak gap.
 
 ## 1. Context
 

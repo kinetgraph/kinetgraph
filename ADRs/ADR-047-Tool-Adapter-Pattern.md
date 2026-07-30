@@ -7,6 +7,19 @@ SPDX-License-Identifier: Apache-2.0
 # ADR-047: Standardizing ToolWorker Construction via Adapters
 
 **Status:** Draft (sync `ToolWorker` category stable; existing Workers refactored to the pattern; `StreamsWorker`, cancellation, and `AdapterResponse` tracked in §6 — Accepted transition gated on ADR-049)
+
+**Note (2026-07-30):** the sync `ToolWorker` category
+is in production. All existing sync Workers
+(`LiteLLMToolWorker`, `OpenMeteoApi`, `WeatherTool`,
+`SessionRecorderTool`) have been refactored to the
+`Result[dict, ToolError]` + `Protocol -> dict` shape.
+The four open items in §6 (`StreamsWorker`, sync
+cancellation, partial/streaming return shape, and
+the `AdapterResponse` scaffolding helper) remain
+proposed and are explicitly tracked below. The
+"Accepted" transition is still gated on ADR-049 (or
+equivalent) closing these follow-ups; until then the
+ADR stays Draft.
 **Date:** July 19, 2026 (revised 2026-07-20: §3.1 / §3.2 / §5 / §6.4 aligned with the canonical code; existing Workers refactored)
 **Version:** 0.3.0 (sync ToolWorker category stable; StreamsWorker proposed in §6.1)
 **Authors:** Architecture Team
