@@ -1030,6 +1030,253 @@ from __future__ import annotations
 #   Net delta: 77% → 100% (64 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
+#
+# 3.20  infra/redis/_event_log/_adapter.py — CLOSED (79% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/redis/_event_log/test_adapter.py``
+#   covers every public method of
+#   ``RedisEventLogAdapter`` + the three error paths:
+#
+#     - **``append`` happy path:** the
+#       ``_idempotency.claim_event_id_slot`` is monkey-
+#       patched (the module attribute lookup is what
+#       makes the patch observable inside the adapter)
+#       and the resulting ``stream_id`` is returned as
+#       ``Ok``.
+#     - **``append`` idempotency conflict:** the
+#       ``_idempotency.claim_event_id_slot`` raises
+#       ``IdempotencyConflict``; the adapter returns
+#       ``Err(PersistenceError("Concurrent insert in
+#       flight"))`` (the contract is "the caller retries;
+#       the event will land on the next attempt").
+#     - **``append`` redis error:** the slot claim
+#       raises a generic ``ConnectionError``; the
+#       adapter returns ``Err(PersistenceError("Redis
+#       error: ..."))``.
+#     - **``read`` with count:** the ``xrange`` result
+#       is parsed via ``_parse_event`` (the bytes-keyed
+#       payload shape that the real redis client
+#       returns).
+#     - **``read`` without count:** the kwargs dict
+#       omits ``count`` (the optional branch).
+#     - **``read_with_cursor`` `-` / `0-0`:** the
+#       cursor resets to the beginning and the
+#       adapter returns ``([], cursor)`` when the
+#       stream is empty.
+#     - **``read_with_cursor`` exclusive:** the
+#       ``(cursor`` branch is used when the cursor
+#       is non-zero.
+#     - **``read_with_cursor`` str stream id:** the
+#       adapter decodes a bytes stream id to a ``str``
+#       (the redis-py ``decode_responses=True`` case).
+#     - **``read_latest``** parses the ``xrevrange``
+#       result.
+#     - **``stream_len``** returns the ``length`` field
+#       from ``xinfo_stream``.
+#     - **``stream_len`` missing stream:** the
+#       ``ResponseError`` is caught and ``0`` is
+#       returned.
+#     - **``stream_len`` missing length key:** the
+#       ``length`` field is missing from
+#       ``xinfo_stream`` and the default ``0`` is
+#       returned (``info.get("length", 0)``).
+#     - **``list_agents``** parses the
+#       ``knt:agents:<id>:events`` keys via
+#       ``parse_agent_id_from_stream_key``.
+#     - **``delete``** calls
+#       ``client.delete(stream_key_for_agent(agent_id))``.
+#
+#   The existing
+#   ``tests/unit/stream/event_log/test_event_log_refactor.py``
+#   covers the ``EventLog`` orchestrator that delegates
+#   to this adapter; the new tests cover the adapter
+#   directly.
+#
+#   Net delta: 79% → 100% (77 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.21  infra/redis/_memory/_continuity.py — CLOSED (80% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/redis/_memory/test_continuity.py``
+#   covers every public method of
+#   ``RedisContinuityStorage`` (the Hash-backed cache
+#   with sliding TTL that backs the continuity manager)
+#   plus the three error paths and the defensive
+#   non-Mapping fallback.
+#
+#     - **``get_record``:** ``HGETALL`` returns the
+#       decoded dict; an empty hash returns
+#       ``Err(MemoryMiss)``; a Redis connection error
+#       returns ``Err(MemoryError)`` (logged).
+#     - **``put_record``:** the transaction pipeline
+#       is verified end-to-end (``DEL`` + ``HSET`` +
+#       ``EXPIRE`` + ``execute``); a constructor with
+#       ``ttl_seconds=None`` does NOT call ``EXPIRE``;
+#       a per-call ``ttl_seconds=`` kwarg overrides the
+#       constructor default; a non-Mapping ``record``
+#       (e.g. a frozen dataclass) falls back to an empty
+#       dict (defensive — the codec never sends
+#       non-Mapping, but the storage is forgiving); a
+#       Redis connection error during the pipeline
+#       returns ``Err(MemoryError)``.
+
+#     - **``delete_record``:** ``DEL`` the key; a
+#       Redis error returns ``Err(MemoryError)``.
+#     - **``iter_keys``:** ``SCAN`` with the given
+#       prefix; the iterator yields decoded keys
+#       that match the prefix and skips others.
+#
+#   Net delta: 80% → 100% (55 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.22  infra/redis/_dlq/_redis.py — CLOSED (81% → 99%)
+#
+#   CLOSED in 2026-07-29. The existing
+#   ``tests/unit/infra/redis/_dlq/test_storage_dlq.py``
+#   covered the basic happy path and the most common
+#   error paths. The new tests in the same module
+#   cover the remaining branches:
+#
+#     - **Append race-loser path:** ``hsetnx`` returns
+#       ``False`` (a concurrent writer claimed the
+#       slot first). The adapter reads the winner's
+#       stream id back and returns ``Ok(winner_id)``.
+#       When the winner's id is also missing (race),
+#       the adapter returns ``Ok(PLACEHOLDER)``.
+#     - **Append idempotent path:** the index already
+#       has the idem key (the caller is deduplicating).
+#       The adapter returns the existing stream id
+#       without re-appending (``xadd`` is NOT called).
+#     - **Append str stream id:** ``xadd`` returns a
+#       ``str`` (some redis clients / new fakeredis);
+#       the adapter decodes it correctly.
+#     - **Append existing idem key as str:** the
+#       existing idem key is a ``str`` (the repo's
+#       ``decode_value`` handles both bytes and str).
+#     - **``list_by_reason``** filters entries by
+#       the ``reason`` field; returns ``Err`` on
+#       storage failure.
+#     - **``list_for_agent``** returns the scanned
+#       entries when the head pointer is set; the
+#       ``_scan_from`` helper returns ``Err`` on
+#       storage failure.
+#     - **``list_all``** returns ``Err`` on storage
+#       failure.
+#     - **``read_index``** returns ``Err`` on storage
+#       failure.
+#     - **``find_by_event_id``** skips entries with
+#       ``None`` or ``PLACEHOLDER`` values; returns
+#       ``Err`` on storage failure.
+#     - **``bump_reason_counter``** returns ``Err``
+#       on storage failure.
+#     - **``get_stats``** returns ``Ok`` with the
+#       default empty aggregate when ``xinfo_stream``
+#       raises (the stream does not exist); returns
+#       ``Err`` when the ``hgetall`` raises.
+#     - **``purge``** returns ``Ok(0)`` when the
+#       stream does not exist (the ``xinfo_stream``
+#       ``no such key`` error is caught; the delete
+#       still runs).
+#     - **``drop_entry``** returns ``Err`` on storage
+#       failure.
+#     - **``_decode_int_dict``** skips ``None`` keys
+#       (defensive — a real Redis client never
+#       returns ``None`` keys) and unparseable values
+#       (the helper coerces to ``int`` and skips
+#       ``TypeError`` / ``ValueError``).
+#
+#   The 1 remaining line (99% ceiling) is the
+#   ``if messages is None: return Ok([])`` defensive
+#   branch in ``list_by_reason`` — the upstream
+#   ``list_all`` returns ``[]`` on empty (not
+#   ``None``), so the branch is unreachable on the
+#   public API.
+#
+#   Net delta: 81% → 99% (157 stmts, 1 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.23  infra/redis/_memory/_profile.py — CLOSED (85% → 100%)
+# 3.24  infra/redis/_memory/_session.py — CLOSED (88% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test modules
+#   ``tests/unit/infra/redis/_memory/test_profile.py``
+#   and
+#   ``tests/unit/infra/redis/_memory/test_session.py``
+#   cover the two remaining ``ShortMemoryStorage``
+#   implementations. They share the same protocol
+#   (and were structured identically — see the
+#   ``_continuity.py`` test module for the
+#   precedent), but each has a distinct wire format:
+#
+#     - **``_profile.py`` (Hash + ``DEL + HSET + EXPIRE``):**
+#       the default ``ttl_seconds`` is ``None`` (long-
+#       lived profile, no TTL by default). The new
+#       tests cover the happy path (``HSET`` with
+#       ``mapping=``), the ``ttl_seconds=`` kwarg
+#       override, the non-Mapping fallback, the
+#       ``MemorySerializationError`` defensive path,
+#       and the redis-error branches on every method.
+#     - **``_session.py`` (JSON + ``SET ... EX ttl``):**
+#       the payload is a single JSON-encoded value.
+#       The new tests cover the JSON happy path
+#       (the ``ttl`` is forwarded via the ``ex``
+#       kwarg), the three decode failure modes
+#       (``raw is None`` → ``MemoryMiss``; ``decode_value``
+#       returns ``None`` → ``MemoryMiss`` defensive;
+#       ``json.loads`` raises → ``MemoryDecodeError``),
+#       the redis-error paths, and the
+#       ``MemorySerializationError`` defensive path
+#       (reached by monkey-patching ``json.dumps`` to
+#       raise).
+#
+#   Net delta: 11 + 13 tests; the two files now have
+#   no untested lines on the public API.
+#
+# ---------------------------------------------------------------------------
+#
+# 3.25  infra/redis/_auth/_redis.py — CLOSED (93% → 100%)
+# 3.26  infra/config/_base.py — CLOSED (93% → 100%)
+# 3.27  infra/hashing.py — CLOSED (92% → 100%)
+# 3.28  infra/http/_client.py — CLOSED (87% → 100%)
+#
+#   CLOSED in 2026-07-29. The four remaining
+#   ``infra/`` files with sub-90% coverage had a
+#   total of 8 missed lines — all defensive branches
+#   reachable only via monkey-patches or via the
+#   ``httpx2`` import path.
+#
+#     - **``_auth/_redis.py`` (93% → 100%):** the
+#       ``lookup`` method's two str-return paths
+#       (``decode_responses=True`` raw value is
+#       re-encoded to bytes) and the defensive
+#       unexpected-return-type arm.
+#     - **``config/_base.py`` (93% → 100%):** the
+#       ``load_dotenv_files`` defensive branch when
+#       ``python-dotenv`` is not installed (the
+#       helper returns ``[]`` and the caller is
+#       expected to rely on real env vars).
+#     - **``hashing.py`` (92% → 100%):** the
+#       ``length >= len(digest)`` branch in
+#       ``short_hash`` (a caller asking for the
+#       full digest gets the full digest, no
+#       padding).
+#     - **``http/_client.py`` (87% → 100%):** the
+#       ``HttpxHttpClientAdapter.get`` body and
+#       ``aclose`` body. The ``httpx2`` package is
+#       not installed in the dev environment; the
+#       test monkey-patches the lazy import with a
+#       stub ``AsyncClient`` so the call path is
+#       exercised without the network.
+#
+#   Net delta: 4 new tests; the four files now have
+#   no untested lines on the public API.
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------

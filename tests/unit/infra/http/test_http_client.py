@@ -119,19 +119,77 @@ def test_httpx_adapter_lazy_imports_httpx() -> None:
 
 
 @pytest.mark.asyncio
-async def test_httpx_adapter_get_returns_httpx_response() -> None:
-    """``HttpxHttpClientAdapter.get`` returns a value
-    that satisfies ``HttpResponseLike``.
+class TestHttpxAdapterGet:
+    """``HttpxHttpClientAdapter.get`` delegates to the
+    underlying ``AsyncClient``. ``httpx2`` is not
+    installed in the dev environment; the test
+    monkey-patches the ``httpx2`` import inside the
+    adapter module to a stub ``AsyncClient`` so the
+    lazy import resolves and the call path is
+    exercised."""
 
-    Uses a non-existent host so the test does not
-    depend on the network; the test only checks
-    that the bound client class is the
-    ``httpx2.AsyncClient`` (the package is
-    vendored as ``httpx2`` in this project)."""
-    import httpx2  # local: only needed for the assertion below
+    async def test_get_returns_underlying_client_response(self, monkeypatch) -> None:
+        import sys
+        import types
 
-    adapter = HttpxHttpClientAdapter()
+        from kntgraph.infra.http import _client as client_mod
+
+        class _StubResponse:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {}
+
+        class _StubAsyncClient:
+            def __init__(self) -> None:
+                pass
+
+            async def get(self, url: str) -> _StubResponse:
+                return _StubResponse()
+
+        stub_httpx = types.ModuleType("httpx2")
+        stub_httpx.AsyncClient = _StubAsyncClient
+        monkeypatch.setitem(sys.modules, "httpx2", stub_httpx)
+
+        adapter = client_mod.HttpxHttpClientAdapter()
+        assert isinstance(adapter, client_mod.HttpClientLike)
+        response = await adapter.get("https://example.com")
+        assert isinstance(response, client_mod.HttpResponseLike)
+        assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_httpx_adapter_aclose() -> None:
+    """``aclose`` closes the underlying ``AsyncClient``.
+    The stub ``_StubAsyncClient`` records the call so
+    the test can assert it was awaited."""
+
+    import sys
+    import types
+
+    from kntgraph.infra.http import _client as client_mod
+
+    class _StubAsyncClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stub_httpx = types.ModuleType("httpx2")
+    stub_httpx.AsyncClient = _StubAsyncClient
+    original = sys.modules.get("httpx2")
+    sys.modules["httpx2"] = stub_httpx
     try:
-        assert adapter._client.__class__ is httpx2.AsyncClient
-    finally:
+        adapter = client_mod.HttpxHttpClientAdapter()
+        assert adapter._client.closed is False
         await adapter.aclose()
+        assert adapter._client.closed is True
+    finally:
+        if original is not None:
+            sys.modules["httpx2"] = original
+        else:
+            sys.modules.pop("httpx2", None)

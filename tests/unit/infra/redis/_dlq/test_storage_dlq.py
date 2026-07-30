@@ -285,3 +285,279 @@ class TestRedisDLQStorage:
         result = await storage.drop_entry("abc", "timeout", "PLACEHOLDER")
         assert result.is_ok()
         redis.xdel.assert_not_called()
+
+
+class TestAppendRaceLoser:
+    """Append path: ``hsetnx`` returns ``False`` (a
+    concurrent writer claimed the slot first). The
+    storage reads the winner's stream id back and
+    returns ``Ok`` with it."""
+
+    async def test_hsetnx_loser_returns_winner_id(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(side_effect=[None, b"winner-1"])
+        redis.hsetnx = AsyncMock(return_value=False)
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.append("abc:timeout", SAMPLE_PAYLOAD)
+        assert result.is_ok()
+        assert result.ok_value() == "winner-1"
+
+    async def test_hsetnx_loser_no_winner_returns_placeholder(self):
+        from kntgraph.infra.redis._dlq import PLACEHOLDER, RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(side_effect=[None, None])
+        redis.hsetnx = AsyncMock(return_value=False)
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.append("abc:timeout", SAMPLE_PAYLOAD)
+        assert result.is_ok()
+        assert result.ok_value() == PLACEHOLDER
+
+
+class TestAppendIdempotent:
+    """Append path: the index already has the idem key
+    (the caller is deduplicating). Returns the
+    existing stream id without re-appending."""
+
+    async def test_existing_idem_key_returns_existing(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(return_value=b"existing-1")
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.append("abc:timeout", SAMPLE_PAYLOAD)
+        assert result.is_ok()
+        assert result.ok_value() == "existing-1"
+        redis.xadd.assert_not_called()
+
+
+class TestAppendStrStreamId:
+    """Append path: ``xadd`` returns a ``str`` (some
+    redis clients / new fakeredis returns ``str``,
+    not bytes)."""
+
+    async def test_str_stream_id_decoded(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xadd = AsyncMock(return_value="1234-0")
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.append("abc:timeout", SAMPLE_PAYLOAD)
+        assert result.is_ok()
+        assert result.ok_value() == "1234-0"
+
+
+class TestAppendExistingStr:
+    """Append path: existing idem key returns ``str``
+    (the repo's ``decode_value`` handles both)."""
+
+    async def test_existing_idem_key_str(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(return_value="existing-1")
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.append("abc:timeout", SAMPLE_PAYLOAD)
+        assert result.is_ok()
+        assert result.ok_value() == "existing-1"
+
+
+class TestListByReason:
+    async def test_filters_by_reason(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xrange = AsyncMock(
+            return_value=[
+                (b"1-0", {**SAMPLE_PAYLOAD, "reason": "timeout"}),
+                (b"2-0", {**SAMPLE_PAYLOAD, "reason": "validation_error"}),
+                (b"3-0", {**SAMPLE_PAYLOAD, "reason": "timeout"}),
+            ]
+        )
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_by_reason("timeout")
+        assert result.is_ok()
+        assert len(result.ok_value()) == 2
+
+    async def test_returns_empty_on_storage_error(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xrange = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_by_reason("timeout")
+        assert result.is_err()
+
+
+class TestListForAgentScans:
+    """``list_for_agent`` reads the head pointer and
+    forward-scans."""
+
+    async def test_returns_scanned_entries(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(return_value=b"1-0")
+        redis.xrange = AsyncMock(return_value=[(b"1-0", SAMPLE_PAYLOAD)])
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_for_agent("agent-1")
+        assert result.is_ok()
+        assert len(result.ok_value()) == 1
+
+    async def test_scan_from_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(return_value=b"1-0")
+        redis.xrange = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_for_agent("agent-1")
+        assert result.is_err()
+
+
+class TestListAllError:
+    async def test_list_all_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xrange = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.list_all()
+        assert result.is_err()
+
+
+class TestReadIndexError:
+    async def test_read_index_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hget = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.read_index("abc", "timeout")
+        assert result.is_err()
+
+
+class TestFindByEventId:
+    """``find_by_event_id`` skips ``None`` and
+    ``PLACEHOLDER`` values during the scan."""
+
+    async def test_skips_placeholder(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+
+        async def fake_hscan_iter(*args, **kwargs):
+            yield b"abc:timeout", b"PLACEHOLDER"
+            yield b"abc:validation_error", b"real-1"
+
+        redis.hscan_iter = fake_hscan_iter  # type: ignore[assignment]
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.find_by_event_id("abc")
+        assert result.is_ok()
+        assert result.ok_value() == "real-1"
+
+    async def test_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+
+        async def failing_hscan_iter(*args, **kwargs):
+            raise ConnectionError("redis down")
+            yield  # noqa: ERA001
+
+        redis.hscan_iter = failing_hscan_iter  # type: ignore[assignment]
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.find_by_event_id("abc")
+        assert result.is_err()
+
+
+class TestBumpReasonCounterError:
+    async def test_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hincrby = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.bump_reason_counter("timeout", 1)
+        assert result.is_err()
+
+
+class TestGetStatsMissingStream:
+    """``get_stats`` catches the ``XINFO`` ``no such key``
+    error and treats the stream as empty."""
+
+    async def test_get_stats_returns_zero_when_stream_missing(self):
+        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.get_stats()
+        assert result.is_ok()
+        assert result.ok_value()["total_events"] == 0
+
+    async def test_get_stats_returns_err_when_hgetall_fails(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.hgetall = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.get_stats()
+        assert result.is_err()
+
+
+class TestPurgeMissingStream:
+    """``purge`` catches the ``XINFO`` ``no such key``
+    error and treats the cached length as 0 (the
+    purge is still performed)."""
+
+    async def test_purge_returns_zero_when_stream_missing(self):
+        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.purge()
+        assert result.is_ok()
+        assert result.ok_value() == 0
+        redis.delete.assert_awaited_once()
+
+
+class TestDropEntryError:
+    async def test_returns_err_on_redis_failure(self):
+        from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+        redis = _fake_redis()
+        redis.xdel = AsyncMock(side_effect=ConnectionError("redis down"))
+        storage = RedisDLQStorage(client=redis)
+        result = await storage.drop_entry("abc", "timeout", "1-0")
+        assert result.is_err()
+
+
+class TestDecodeIntDict:
+    """The ``_decode_int_dict`` helper filters out
+    ``None`` keys and unparseable values."""
+
+    def test_skips_none_keys(self):
+        from kntgraph.infra.redis._dlq._redis import (
+            _decode_int_dict,
+        )
+
+        # ``None`` key — the inner ``decode_value`` returns
+        # ``None`` and the helper skips.
+        # Note: a real Redis client never returns
+        # ``None`` keys, but the helper is defensive.
+        result = _decode_int_dict({None: b"1"})
+        assert result == {}
+
+    def test_skips_unparseable_values(self):
+        from kntgraph.infra.redis._dlq._redis import (
+            _decode_int_dict,
+        )
+
+        result = _decode_int_dict({b"k": b"not-a-number"})
+        assert result == {}
