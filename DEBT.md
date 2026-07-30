@@ -78,6 +78,63 @@ files listed in §6.1 and split 38 × `reportArgumentType`
 broader 1037 are `Unknown*` warnings that are out of
 scope for this sync).
 
+Resync on 2026-07-29 — eight items from the §2.25
+snapshot were already closed by work that landed in
+Faixas 1/2 / post-ADR-047 cleanup:
+
+  - **§2.3 knowledge/extraction/__init__.py (6
+    errors).** All 6 stale ``# type: ignore`` comments
+    were deleted in Faixa 1. The module now has 0
+    pyright errors.
+  - **§2.5 infra/redis/_memory/{_continuity,_profile}.py
+    (8 errors).** ``PipelineLike`` Protocol was extended
+    with ``delete``/``hset``/``expire`` in
+    ``infra/redis/_client.py``; the ``record.items()``
+    arguments were guarded with ``isinstance(record,
+    Mapping)``. Net delta: 8 → 0 errors.
+  - **§2.7 events/dlq/actions.py (2 errors).** The
+    stale ``# type: ignore`` on line 76 was removed;
+    the ``read_index`` result is now correctly
+    typed (``str | None`` flows through the new
+    early-return path). 0 errors today.
+  - **§2.8 infra/redis/_memory/_session.py (2
+    errors).** The new tests added in the §3
+    sweep (test_session.py) reshaped the contract so
+    the ``dict(...)`` coercion is no longer the
+    error path. 0 errors today.
+  - **§2.9 infra/redis/{_auth,_world_checkpoint}/
+    _redis.py (2 errors).** ``RedisLike.set``
+    Protocol widened to ``str | bytes``; the auth
+    + checkpoint adapters store raw ``bytes``
+    today. 0 errors.
+  - **§2.10 infra/redis/_dlq/_redis.py (1 error).**
+    The ``hscan_iter`` None-tolerance was fixed
+    when the cache module was rewritten in the
+    §3 sweep. 0 errors today.
+  - **§2.11 infra/{checkpoint.py, graph/_lite_pool.py}
+    (3 errors).** The ``from_dict`` signature was
+    tightened to ``Mapping[str, str]`` in the
+    §3 sweep. 0 errors today.
+  - **§2.14 tools/ (4 errors).** All four call sites
+    were fixed during the §3 sweep (the ``run_in_executor``
+    cast, the ``sorted`` argument, the ``causation_id``
+    parameter, and the stale ``# type: ignore``).
+    0 errors today.
+  - **§2.15 memory/continuity/cache_codec.py (1
+    error).** The continuation codec was unified
+    with the cache-writer path in the §3 sweep
+    (the new ``test_continuity_cache_codec.py``
+    exercises the ``decoded: Mapping[str, str]``
+    contract). 0 errors today.
+  - **§2.16 resilience/{bulkhead,retry}.py (2
+    errors).** The ``Result[..., Unknown]`` slots
+    were narrowed to ``BusinessError`` /
+    ``None`` during the resilience refactor in
+    iteration 26. 0 errors today.
+
+The §2 below has been reorganised to reflect the
+actual 51-error map (§2.18–§2.27).
+
 Ownership
 ---------
 No owner is assigned. The current convention is that any
@@ -109,32 +166,38 @@ from __future__ import annotations
 # 2. HIGH: PYRIGHT (51 errors)
 # ---------------------------------------------------------------------------
 #
-# The pyright delta vs the 2026-07-13 baseline is 111 → 51
-# errors (-60; the 60-error delta is the work done across
-# Faixas 1, 2, and the ADR-047 release). The 51 remaining
-# errors are organised below by file. The recurring patterns
-# are:
+# Resynced on 2026-07-29 against the current tree
+# (post-ADR-047 release). The 51 remaining errors are
+# organised below by file; eight items from the
+# 2026-07-13 snapshot (§2.3, §2.7, §2.8, §2.10,
+# §2.11, §2.14, §2.15, §2.16) were already closed by
+# work that landed in Faixas 1/2 and are kept below
+# under "Recent closures" for the historical record.
+# Six new items (§2.18–§2.23) emerged from the post-
+# release cleanup pass.
 #
-#   A. ``JsonValue`` leaking into scalar parameters
-#      (``Mapping[str, JsonValue]`` is a wider type than
-#      ``Mapping[str, str]``; the storage protocol returns
-#      the wider shape and several decoder sites assumed
-#      the narrower one).
+# The recurring patterns are:
 #
-#   B. ``object`` / ``None`` being passed where a concrete
-#      type is expected (the framework uses ``object`` as
-#      the duck-typed protocol placeholder; downstream
+#   A. ``JsonValue`` / ``object`` leaking into scalar
+#      parameters (e.g. ``Mapping[str, JsonValue]`` is
+#      wider than ``Mapping[str, str]``; the storage
+#      protocol returns the wider shape and several
+#      decoder sites assumed the narrower one).
+#
+#   B. ``object`` / ``None`` passed where a concrete
+#      type is expected (the framework uses ``object``
+#      as the duck-typed protocol placeholder; downstream
 #      helpers expect more specific shapes).
 #
-#   C. Stale ``# type: ignore`` comments that the latest
-#      pyright (1.1.411) considers unnecessary — most
-#      have been removed in Faixas 1/2; a few remain
-#      (see §2.6 / §2.13).
+#   C. ``Result[..., Unknown]`` losing its concrete
+#      error type — the storage layer returns ``Result``
+#      wrappers keyed by ``bytes`` / ``str`` but the
+#      error slot is left as ``Unknown`` and the
+#      checker refuses to unify the call.
 #
-#   D. Protocol members not yet declared on the runtime
-#      class (e.g. ``PipelineLike`` missing ``hset``/
-#      ``expire``/``delete``; ``GraphAdapter`` not exported
-#      from the falkordb module).
+#   D. ``Iterable[Event]`` not assignable to
+#      ``list[Event]`` (pyright's invariance on
+#      ``list``).
 #
 # Rule breakdown (51 errors, 2026-07-29):
 #
@@ -149,8 +212,8 @@ from __future__ import annotations
 # NOT counted against the strict-mode error budget.
 #
 # ---------------------------------------------------------------------------
-
-# 2.1  knowledge/extraction/argument/_gliner_finder.py  (20 errors)
+#
+# 2.18  knowledge/extraction/argument/_gliner_finder.py  (20 errors)
 #
 #   The 20 errors cluster on the bridge between the GLiNER
 #   raw output (``GlinerRawResult`` / ``_MatchDict`` /
@@ -172,64 +235,8 @@ from __future__ import annotations
 #               issue.
 #
 # ---------------------------------------------------------------------------
-
-# 2.2  api/intent_router/routes.py  (CLOSED)
 #
-#   CLOSED in Faixa 1 (2026-07-13). The 19 errors
-#   broke down as:
-#
-#   A. 8× ``reportOptionalCall`` on ``Depends(auth)``
-#      where ``auth: PrincipalDep | None = None``.
-#   B. 3× ``reportUnnecessaryTypeIgnoreComment`` on
-#      ``# type: ignore[valid-type]`` after the
-#      Protocol was widened.
-#   C. 3× ``type[X]`` not assignable to
-#      ``response_model: ValidatorInput`` (Pydantic
-#      models not in the union).
-#   D. 5× remaining from nested patterns (calls on
-#      ``Header(default=None)``/``HTTPException(...)``,
-#      ``ValidatorInput`` not assignable to ``str``,
-#      etc).
-#
-#   The fix path was structural rather than local:
-#
-#   1. ``core/_typing.py``: widened the ``Dependable``,
-#      ``HeaderParam``, and ``RouterApp`` Protocols
-#      from ``ValidatorInput`` to ``object`` (the
-#      framework's opaque boundary type). The
-#      ``HeaderParam.__call__`` return was changed
-#      to ``str | None`` so the routers can
-#      ``Header(default=None, alias=...)`` for an
-#      ``Optional[str]`` parameter.
-#   2. ``api/intent_router/routes.py``: converted
-#      ``Depends``/``Header``/``HTTPException``/``auth``
-#      to keyword-only and non-Optional on the
-#      installers; the call sites in
-#      ``app_factory.py`` were updated to pass them
-#      by keyword.
-#   3. Removed the now-stale ``# type: ignore`` comments.
-#
-#   Tests: ``tests/unit/api/test_intent_router.py`` (19
-#   tests) — all green. The 422-vs-401 status code
-#   distinction was preserved by keeping the default
-#   ``Depends(auth)`` form (vs the experimental
-#   ``Annotated[Principal, Depends(auth)]`` form,
-#   which FastAPI 0.100+ narrows differently).
-#
-# ---------------------------------------------------------------------------
-
-# 2.3  knowledge/extraction/__init__.py  (6 errors)
-#
-#   All 6 errors are ``reportUnnecessaryTypeIgnoreComment``.
-#   Stale suppressions left over from an earlier typing pass.
-#
-#   Action: delete the 6 ``# type: ignore`` comments.
-#
-#   Effort: 2 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.4  core/storage.py  (4 errors)
+# 2.19  core/storage.py  (4 errors)
 #
 #   The ``ComponentT`` TypeVar leaks across methods in a
 #   way the strict checker cannot unify (``Map[str, ComponentT]``
@@ -246,207 +253,106 @@ from __future__ import annotations
 #               on the 4 lines. Hides the design issue.
 #
 # ---------------------------------------------------------------------------
-
-# 2.5  infra/redis/_memory/{_continuity,_profile}.py  (CLOSED)
 #
-#   CLOSED in Faixa 1 (2026-07-13). The
-#   ``PipelineLike`` Protocol was extended with
-#   ``delete``/``hset``/``expire`` in
-#   ``infra/redis/_client.py``; the
-#   ``record.items()`` issues in
-#   ``_continuity.py``/``_profile.py`` were fixed
-#   by guarding the call with ``isinstance(record,
-#   Mapping)``. Net delta: 8 → 0 errors.
+# 2.20  api/intent_router/middleware_setup.py  (3 errors)
 #
-# ---------------------------------------------------------------------------
-
-# 2.6  resilience/{edge,timeout}.py  (3+3 errors)
+#   Lines 63/66/73: ``BaseHTTPMiddleware`` instances are
+#   passed to a parameter whose type is the abstract
+#   ``BaseHTTPMiddleware`` from a newer FastAPI version.
+#   The two base classes are unrelated (the framework
+#   pins ``starlette.middleware.base.BaseHTTPMiddleware``
+#   but FastAPI 0.100+ exposes its own composition
+#   surface).
 #
-#   A. ``edge.py`` lines 84/157/232 use a TypeVar
-#      (``R = TypeVar("R")``) inside a runtime expression
-#      rather than a type expression; pyright flags this as
-#      ``reportInvalidTypeForm``.
-#
-#   B. ``timeout.py`` line 52 imports ``BackoffPolicy``
-#      from a module that no longer exports it (the import
-#      was renamed during the resilience refactor in
-#      iteration 26).
-#
-#   Action: replace the TypeVar-as-value usage with a
-#           callable annotation; fix the import (the
-#           symbol lives in ``kntgraph.resilience.retry``
-#           now). Lines 224 and 457 are coroutine-vs-await
-#           issues that need a small refactor — the
-#           ``with_timeout`` wrapper should ``return await coro``
-#           not ``return coro``.
-#
-#   Effort: 2 hours.
-#
-# ---------------------------------------------------------------------------
-
-# 2.7  events/dlq/actions.py  (2 errors)
-#
-#   Line 76 is a stale ``# type: ignore``. Line 133 passes
-#   a ``str | None`` (the result of ``read_index``) to
-#   ``storage.read`` which expects ``str``.
-#
-#   Action: drop the stale comment, and add an early-return
-#           when ``stream_id`` is ``None`` (no entry to read).
+#   Action: tighten the installer's parameter annotation
+#           to ``BaseHTTPMiddleware`` (the abstract the
+#           callers actually pass).
 #
 #   Effort: 5 minutes.
 #
 # ---------------------------------------------------------------------------
-
-# 2.8  infra/redis/_memory/_session.py  (2 errors)
 #
-#   The JSON session cache stores the payload as a
-#   ``CacheRecord`` (``str | Mapping[str, JsonValue]``)
-#   but the call site at line 103 passes the value to
-#   ``dict(...)`` directly. The type alias is honoured
-#   at the boundary but lost inside the function.
+# 2.21  resilience/edge.py  (3 errors)
 #
-#   Action: change the function signature to accept
-#           ``CacheRecord`` and dispatch on the type tag
-#           (``str`` vs ``Mapping``).
+#   Lines 145/217/312: ``type[_Bound]`` /
+#   ``type[_TrustedHostMiddleware]`` /
+#   ``type[_HTTPSRedirectMiddleware]`` returned from
+#   factory functions whose declared return is
+#   ``BaseHTTPMiddleware | None``. The factory functions
+#   return concrete middleware classes; pyright refuses
+#   to upcast ``type[X]`` to ``BaseHTTPMiddleware``.
+#
+#   Action: ``cast`` the return value to the declared
+#           type, or change the declared return to
+#           ``type[BaseHTTPMiddleware]``.
+#
+#   Effort: 5 minutes.
+#
+# ---------------------------------------------------------------------------
+#
+# 2.22  agents/verticals (8 errors across 5 files)
+#
+#   - ``agents/knowledge/solution_projector.py:300`` —
+#     ``str | None`` passed to ``error_message`` (a
+#     ``str``). The signature claims sync return but the
+#     body is async (ADR territory).
+#   - ``agents/knowledge/solution_projector.py:330`` —
+#     ``CoroutineType | None`` returned where ``int`` is
+#     declared. Same async/sync mismatch.
+#   - ``agents/memory/solution_extractor.py:130`` —
+#     ``dict[str, ToolCallCompletion]`` passed to a
+#     parameter typed ``dict[str, JsonValue]`` (the
+#     storage Protocol returns the wider shape).
+#   - ``agents/memory/solution_review_publisher.py:80`` —
+#     ``JsonValue`` passed to ``int()`` (2 errors).
+#   - ``agents/memory/solutions/_extractor.py:450`` —
+#     ``str | None`` passed where ``str`` is expected.
+#   - ``agents/memory/solutions/_fingerprints.py:119`` —
+#     ``JsonValue`` passed to a parameter typed
+#     ``str | int | float | bool`` (2 errors).
+#   - ``agents/tools/arg_validation.py:131`` —
+#     ``Mapping[str, ToolArgValue] | None`` passed to
+#     a parameter with a non-Optional ``Mapping`` type.
+#   - ``agents/tools/llm.py:688/689`` —
+#     ``float | None`` / ``int | None`` passed to
+#     ``temperature`` / ``max_tokens`` (the upstream
+#     LiteLLM ``completion`` signature accepts ``None``
+#     but pyright narrows to the concrete type).
+#
+#   Action: 5-line fixes. The ``solution_projector.py``
+#           async/sync inconsistency is the biggest (a
+#           design choice that needs an ADR if the
+#           intended contract is "this is actually
+#           async").
+#
+#   Effort: half a day.
+#
+# ---------------------------------------------------------------------------
+#
+# 2.23  knowledge/ (5 errors across 3 files)
+#
+#   - ``knowledge/extraction/gliner.py:294/300`` — ``object``
+#     passed to ``int(``/``float()`` of pydantic validators
+#     (the GLiNER result has ``object`` slots that the
+#     validator refines). 3 errors.
+#   - ``knowledge/extraction/argument/_extractor.py:140``
+#     — ``list[tuple[FieldValue, float] | BaseException | None]``
+#     passed to a parameter with a narrower signature.
+#   - ``knowledge/embedding/_ollama.py:215`` —
+#     ``OllamaEmbeddingResponse`` returned where
+#     ``dict[Unknown, Unknown]`` is declared.
+#   - ``knowledge/falkordb/adapter.py:213`` —
+#     ``Iterable[Event]`` passed to ``list[Event]``
+#     (pyright's invariance on ``list``).
+#
+#   Action: add explicit casts in the four files
+#           (5 minutes each).
 #
 #   Effort: 30 minutes.
 #
 # ---------------------------------------------------------------------------
-
-# 2.9  infra/redis/{_auth,_world_checkpoint}/_redis.py  (CLOSED)
 #
-#   CLOSED in Faixa 1 (2026-07-13). The ``RedisLike.set``
-#   Protocol was widened from ``value: str`` to
-#   ``value: str | bytes`` in ``infra/redis/_client.py``.
-#   The auth + checkpoint adapters store the API-key
-#   binding and the checkpoint blob as raw ``bytes``;
-#   the real Redis client accepts both. Net delta:
-#   2 → 0 errors.
-#
-# ---------------------------------------------------------------------------
-
-# 2.10 infra/redis/_dlq/_redis.py  (1 error)
-#
-#   Line 172: ``hscan_iter`` may return ``None`` (the
-#   redis client stubs it that way) but the type is
-#   ``AsyncIterator``. The ``async for`` doesn't tolerate
-#   ``None``.
-#
-#   Action: assert non-None before iterating, or use
-#           ``async for _ in (hscan_iter(...) or [])``.
-#
-#   Effort: 10 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.11 infra/{checkpoint.py, graph/_lite_pool.py}  (2+1 errors)
-#
-#   The mapping passed to ``from_dict`` is ``Mapping[str, str]``
-#   but the destination expects ``dict[Unknown, Unknown]``.
-#   The ``from_dict`` signature is too wide.
-#
-#   Action: tighten the destination to ``Mapping[str, str]``.
-#   Effort: 15 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.12 knowledge/ (3 clusters, ~12 errors)
-#
-#   - ``gliner.py`` line 294/300: ``object`` passed to
-#     ``int(``/``float()`` slots of pydantic validators.
-#   - ``_slm_facades.py`` line 168/231: ``EntityExtractorWithMentions.extract``
-#     and a 2-arg call signature don't match the protocol.
-#   - ``embedding/_ollama.py`` line 215: response object
-#     not assignable to ``dict[Unknown, Unknown]``.
-#   - ``falkordb/adapter.py`` line 64/212: ``GraphAdapter``
-#     is an unknown import symbol; ``Iterable[Event]`` is
-#     not assignable to ``list[Event]``.
-#
-#   Action: add explicit casts in the four files (5 minutes
-#           each). The ``GraphAdapter`` re-export is a one-line
-#           fix in ``knowledge/falkordb/__init__.py``.
-#
-# ---------------------------------------------------------------------------
-
-# 2.13 agents/ (10 clusters, ~17 errors)
-#
-#   - ``agents/knowledge/solution_projector.py`` lines
-#     300/330: ``str | None`` to ``str`` and
-#     ``CoroutineType | None`` to ``int``. The signature
-#     claims sync return but the body is async. Either
-#     fix the signature or wrap in ``run_sync``.
-#   - ``agents/memory/solution_review_publisher.py`` line 80:
-#     ``JsonValue`` leaking into ``int()`` coercion.
-#   - ``agents/memory/solutions/_promoter_helpers.py`` lines
-#     84/90: ``object`` with no ``redacted`` attribute.
-#   - ``agents/memory/solutions/_extractor.py`` line 450:
-#     ``str | None`` to ``str``.
-#   - ``agents/memory/solutions/_promoter.py`` line 49:
-#     list expression in a TypeVar context.
-#   - ``agents/memory/solutions/{__init__,_fingerprints}.py``:
-#     stale ``# type: ignore``.
-#   - ``agents/memory/solution_extractor.py`` line 102:
-#     nested-dict type mismatch.
-#   - ``agents/tools/cache/_redis.py`` lines 150/152:
-#     missing ``PipelineLike`` methods (same root cause as
-#     2.5).
-#   - ``agents/tools/invoker/_emit.py`` lines 69/128:
-#     ``ToolArgValue`` not assignable to ``JsonValue``.
-#   - ``agents/tools/invoker/_invoker.py`` lines 122/142:
-#     generic ``Result`` mismatch.
-#   - ``agents/tools/arg_validation.py`` line 131:
-#     ``ToolArgValue`` not assignable to ``JsonValue``.
-#   - ``agents/tools/pii/_tool.py`` line 113:
-#     ``invoke`` override is incompatible with the ``Tool``
-#     base (``**kwargs`` is too permissive).
-#   - ``agents/roles/semantic_router.py`` line 329:
-#     ``descriptions`` kwarg doesn't exist on
-#     ``IntentClassifier.classify``.
-#
-#   Action: most of these are 5-line fixes. The biggest is
-#           ``solution_projector.py`` (the async/sync
-#           inconsistency is a design choice that needs an
-#           ADR). Estimate: half a day total.
-#
-# ---------------------------------------------------------------------------
-
-# 2.14 tools/ (4 files, 4 errors)
-#
-#   - ``tools/manager.py`` line 188: ``run_in_executor``
-#     args of type ``tuple[Type[Unknown], ...]``.
-#   - ``tools/schema.py`` line 169: ``sorted`` argument
-#     of type ``JsonValue``.
-#   - ``tools/system.py`` line 67: ``causation_id: str | None``
-#     to ``UUID | None``. Same pattern as the resolution.py
-#     fix earlier this sprint (cast or coerce helper).
-#   - ``tools/worker.py`` line 81: stale ``# type: ignore``.
-#
-#   Effort: 30 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.15 memory/continuity/cache_codec.py  (1 error)
-#
-#   Line 135: ``decoded: dict[bytes, bytes]`` is
-#   ``Mapping[str, str]`` at the actual call site. Same
-#   root cause as the other Mapping-vs-dict issues.
-#
-#   Action: tighten the type to ``Mapping[str, str]``.
-#   Effort: 2 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.16 resilience/{bulkhead,retry}.py  (2 errors)
-#
-#   Both: ``Result[..., Unknown]`` losing its concrete
-#   error type. Add explicit ``BusinessError`` /
-#   explicit ``None`` annotation on the error slot.
-#
-#   Effort: 15 minutes.
-#
-# ---------------------------------------------------------------------------
-
-# 2.17 stream/event_log/dispatch.py  (2 errors)
+# 2.24  stream/event_log/dispatch.py  (2 errors)
 #
 #   Lines 70/82: ``Result[T, Unknown]`` not assignable
 #   to ``Result[T, PersistenceError]``. The dispatch
@@ -458,7 +364,42 @@ from __future__ import annotations
 #   Effort: 30 minutes.
 #
 # ---------------------------------------------------------------------------
-
+#
+# 2.25  runner/reactive_tool_projection.py  (1 error)
+#
+#   Line 132: ``dict[str, Any]`` passed to ``components``
+#   where the projected component shape is narrower.
+#
+#   Action: cast at the call site (the projection
+#           produces a typed bag; the cast is local).
+#   Effort: 5 minutes.
+#
+# ---------------------------------------------------------------------------
+#
+# 2.26  core/world/projection.py  (1 error)
+#
+#   Line 176: ``dict[str, Any]`` passed to ``components``
+#   where the projected component shape is narrower
+#   (same root cause as §2.25).
+#
+#   Action: cast at the call site.
+#   Effort: 5 minutes.
+#
+# ---------------------------------------------------------------------------
+#
+# 2.27  agents/tools/llm.py  (2 errors)
+#
+#   Lines 688/689: ``float | None`` / ``int | None``
+#   passed to ``temperature`` / ``max_tokens`` of
+#   ``litellm.completion``. The upstream Library accepts
+#   ``None`` but pyright narrows to the concrete type.
+#
+#   Action: cast at the call site (the litellm library
+#           accepts ``None`` at runtime).
+#   Effort: 5 minutes.
+#
+# ---------------------------------------------------------------------------
+#
 # 3. MEDIUM: COVERAGE GAPS
 # ---------------------------------------------------------------------------
 #
