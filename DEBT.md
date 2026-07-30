@@ -3,28 +3,29 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Outstanding technical debt — Kinetgraph v0.7 → v0.8 quality push.
+Outstanding technical debt — Kinetgraph v0.9.0 quality sync.
 
-Generated on 2026-07-13 after the memory / events-dlq / agents.roles /
-pyright sprint. This file lists every gate that still has open
-issues, with a short description, severity, location, and
-suggested next action. The intent is to give the next contributor
-(or the next AI session) a one-pager that maps the debt so the
-work can be picked up without re-discovering the baseline.
+Resynced on 2026-07-29 against the current tree (post-ADR-047
+release). The previous snapshot dated 2026-07-13 had drifted:
+several items marked "open" are in fact already closed by work
+that landed since (see "Recent closures (post-2026-07-29 sync)"
+below). This file is now the live map of the debt again.
 
-Gate state at the time of writing:
+Gate state at the time of resync (2026-07-29):
 
   - ruff lint:        All checks passed!
-  - ruff format:      421 files already formatted
-  - bandit:           3 LOW (B110 try/except/pass — intentional)
-  - radon CC:         avg 2.53 (A), 0 functions rank D+
-  - radon MI:         100% rank A/B
-  - pytest unit:      1457 passed, 1 skipped (87 warnings)
-  - pytest agents:    294 passed (32 DeprecationWarning, filtered)
-  - coverage unit:    75% (target: 80% in `core` + `infra`; 90% in
-                       `memory` and `events`)
-  - pyright strict:   111 errors (baseline 253; the 142-error
-                       delta is the work done in this sprint)
+  - ruff format:      405 files formatted, 0 need reformat
+  - bandit:           0 H + 0 M + 0 L (clean)
+  - radon CC:         avg 2.49 (A), 0 rank D+
+  - radon MI:         237 A + 0 B + 0 C-
+  - pytest unit:      1588 passed, 1 skipped
+  - pytest agents:    (collected with unit pool, all green)
+  - coverage unit:    80.0% (7041/8791 stmts; the per-file
+                      breakdown in §3 lists the gaps below 80%)
+  - pyright strict:   51 errors (baseline 68; the 17-error
+                      delta is the ADR-047 work that landed in
+                      2026-07-20)
+  - pip-audit:        0 known vulnerabilities
 
 How to use this file
 --------------------
@@ -36,36 +37,46 @@ How to use this file
 4. Line numbers are pinned to the current tree; re-run
    pyright / ruff / coverage to refresh.
 
-Recent closures (since the last regen of this file)
-----------------------------------------------------
+Recent closures (post-2026-07-29 sync)
+--------------------------------------
 
-The "Faixa 1" work merged via ``quality/pyright-low-hanging``
-(2026-07-13). The following items were closed and are
-kept here as a historical record.
+Re-verified against the current tree on 2026-07-29. The
+following items from the 2026-07-13 snapshot are now CLOSED
+and kept here as a historical record:
 
-  - 2.3 / 2.4  Stale ``# type: ignore`` (11 lines) —
-    deleted; the underlying errors are no longer present.
-  - 2.5  ``PipelineLike`` Protocol missing 4 methods —
-    extended the Protocol in
-    ``infra/redis/_client.py`` (added ``delete``,
-    ``hset``, ``expire``). Fixed 10 errors across
-    ``infra/redis/_memory/{_continuity,_profile}.py``
-    and ``agents/tools/cache/_redis.py``.
-  - 2.9  ``_auth/_redis.py`` and ``_world_checkpoint/_redis.py``
-    passing ``bytes`` to ``client.set`` — widened the
-    ``RedisLike.set`` Protocol to accept ``str | bytes``.
-  - 1.3  ``api/intent_router/routes.py`` — 19 errors.
-    Tightened the ``Dependable`` / ``HeaderParam`` /
-    ``RouterApp`` Protocols in ``core/_typing.py`` to use
-    ``object`` instead of ``ValidatorInput`` (the framework's
-    opaque boundary type) so FastAPI kwargs don't
-    get narrowed. Converted ``Depends``/``Header``/
-    ``HTTPException``/``auth`` to keyword-only and
-    non-Optional on the installers. The
-    ``app_factory.py`` was updated to pass them by
-    keyword.
+  - **§1.1 Bandit B110 (3 `except: pass` in `llm.py`).** The
+    three sites cited (lines 163/858/966) are stale. The
+    file now has 731 lines; the original `except: pass`
+    blocks were converted to `logger.debug("llm.skip", ...)`
+    in earlier work. `uv run bandit -r src/kntgraph` reports
+    **0 issues** (0 H, 0 M, 0 L).
+  - **§2.3 knowledge/extraction/__init__.py (6 stale
+    ` # type: ignore`).** All 6 lines were deleted in
+    Faixa 1. `reportUnnecessaryTypeIgnoreComment` no longer
+    fires in this module.
+  - **§2.5 infra/redis/_memory/{_continuity,_profile}.py.**
+    `PipelineLike` Protocol was extended with
+    `delete`/`hset`/`expire` in `infra/redis/_client.py`.
+    Net delta: 8 → 0 errors.
+  - **§2.9 infra/redis/{_auth,_world_checkpoint}/_redis.py.**
+    `RedisLike.set` Protocol widened to `str | bytes`.
+    Net delta: 2 → 0 errors.
+  - **§2.2 api/intent_router/routes.py.** Tightened the
+    `Dependable` / `HeaderParam` / `RouterApp` Protocols
+    in `core/_typing.py` to use `object` instead of
+    `ValidatorInput`. The `Depends`/`Header`/
+    `HTTPException`/`auth` keyword-only conversion on the
+    installers is in. Net delta: 19 → 0 errors.
+  - **§2.15–§2.26** (the post-0.8.0 work): all closed in
+    2026-07-14 / 2026-07-20 (see per-section close notes
+    further down).
 
-Net pyright delta: 111 → 71 (-40 errors).
+Net pyright delta: 111 → 51 (-60 errors, across Faixas 1
+and 2). The remaining 51 errors are concentrated in the
+files listed in §6.1 and split 38 × `reportArgumentType`
++ 13 × `reportReturnType` (the strict-mode subset; the
+broader 1037 are `Unknown*` warnings that are out of
+scope for this sync).
 
 Ownership
 ---------
@@ -80,34 +91,29 @@ from __future__ import annotations
 # 1. CRITICAL: SECURITY
 # ---------------------------------------------------------------------------
 #
-# 1.1  Bandit B110 (try/except/pass) — 3 occurrences
+# 1.1  Bandit B110 (try/except/pass) — CLOSED
 #
-#   Why it's open: B110 is filtered at severity MEDIUM in
-#   ``scripts/ci.py`` so it does not fail the gate. Three
-#   LLM-tool paths swallow the exception silently:
-#
-#     src/kntgraph/agents/tools/llm.py:163
-#     src/kntgraph/agents/tools/llm.py:858
-#     src/kntgraph/agents/tools/llm.py:966
-#
-#   Action: replace each ``except: pass`` with
-#           ``except Exception as exc: logger.debug("llm.skip", error=str(exc))``
-#           so the LLM transport never silently drops errors
-#           during a streaming decode. The intent is documented
-#           but the silence is hostile to operators.
-#
-#   Acceptable: keep as-is, but document the rationale in each
-#               site as a comment + bump the bandit filter to LOW
-#               (already the case).
+#   CLOSED in 2026-07-29 sync. The three sites cited in
+#   the 2026-07-13 snapshot (``llm.py:163``, ``:858``,
+#   ``:966``) are stale; the file now has 731 lines and
+#   ``uv run bandit -r src/kntgraph`` reports
+#   **0 issues** (0 H, 0 M, 0 L). The original
+#   ``except: pass`` blocks at line 163 (``_compute_cost``
+#   helper) and downstream were converted to
+#   ``logger.debug("llm.skip", error=str(exc))`` in
+#   earlier work; the other two sites no longer match
+#   the current source. No further action.
 #
 # ---------------------------------------------------------------------------
 
-# 2. HIGH: PYRIGHT (111 errors)
+# 2. HIGH: PYRIGHT (51 errors)
 # ---------------------------------------------------------------------------
 #
-# The pyright delta vs the baseline is 142 errors resolved
-# in this sprint. The 111 remaining errors are organised
-# below by file. The recurring patterns are:
+# The pyright delta vs the 2026-07-13 baseline is 111 → 51
+# errors (-60; the 60-error delta is the work done across
+# Faixas 1, 2, and the ADR-047 release). The 51 remaining
+# errors are organised below by file. The recurring patterns
+# are:
 #
 #   A. ``JsonValue`` leaking into scalar parameters
 #      (``Mapping[str, JsonValue]`` is a wider type than
@@ -121,14 +127,26 @@ from __future__ import annotations
 #      helpers expect more specific shapes).
 #
 #   C. Stale ``# type: ignore`` comments that the latest
-#      pyright (1.1.411) considers unnecessary — the bug
-#      they were suppressing was fixed in this sprint and
-#      the comment can be removed.
+#      pyright (1.1.411) considers unnecessary — most
+#      have been removed in Faixas 1/2; a few remain
+#      (see §2.6 / §2.13).
 #
 #   D. Protocol members not yet declared on the runtime
 #      class (e.g. ``PipelineLike`` missing ``hset``/
 #      ``expire``/``delete``; ``GraphAdapter`` not exported
 #      from the falkordb module).
+#
+# Rule breakdown (51 errors, 2026-07-29):
+#
+#   38  reportArgumentType
+#   13  reportReturnType
+#
+# The broader pyright output includes 1037 ``Unknown*``
+# warnings (reportUnknownMemberType, reportUnknownVariableType,
+# reportUnknownArgumentType, reportUnknownParameterType,
+# reportMissingTypeArgument) and 11 ``reportInvalidTypeVarUse``;
+# these are tracked in §4.2 (config tightening) and are
+# NOT counted against the strict-mode error budget.
 #
 # ---------------------------------------------------------------------------
 
@@ -448,7 +466,7 @@ from __future__ import annotations
 # tests are skipped in this CI run):
 #
 #   memory/cache_warmer.py            43%   ← weakest in memory
-#   memory/consolidation.py           32%   ← projector + consolidator
+#   memory/consolidation.py           97%   ← closed 2026-07-29 (was 32%)
 #   memory/continuity/cache_codec.py  74%   ← bytes-vs-JSON branch
 #   memory/continuity/manager.py      69%   ← PII gate + entity
 #   memory/continuity/pii.py          60%
@@ -471,20 +489,43 @@ from __future__ import annotations
 #
 # ---------------------------------------------------------------------------
 #
-# 3.2  memory/consolidation.py (32%)
+# 3.2  memory/consolidation.py — CLOSED (32% → 97%)
 #
-#   The Consolidator + Projector pull from the EventLog
-#   and write to the cache. The fold path is well-tested
-#   (see ``tests/unit/memory/test_continuity_fold.py``)
-#   but the orchestration (consume events → fold →
-#   write cache) is not.
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/memory/test_consolidation.py`` exercises
+#   every public function of the module:
 #
-#   Action: extract the orchestration into a pure
-#           ``consolidate(events) -> State`` helper and
-#           unit-test it directly. The Projector writes
-#           to the cache; the Consolidator consumes
-#           events. Two more focused unit tests would
-#           push coverage past 80%.
+#     - ``MemoryAgent.{session,profile,continuity}`` (the
+#       three discriminator factories + ``agent_id`` /
+#       ``cache_key`` properties + ``__repr__``).
+#     - ``parse_agent_id`` — empty body, unknown prefix,
+#       session with colons in the id, profile/continuity
+#       with two parts and with extra colons, empty parts
+#       on either side of the colon.
+#     - ``Consolidator.refresh_all`` — publishes
+#       ``CacheRefreshRequest``s for every memory agent
+#       in the world, skips non-memory agent_ids, and
+#       returns ``[]`` (the housekeeping contract).
+#     - ``Consolidator.as_cyclic_system`` — the
+#       returned callable delegates to ``refresh_all``.
+#     - ``Projector.project_session`` /
+#       ``project_profile`` / ``project_continuity`` /
+#       ``project_all`` — the four entry points that
+#       fold the EventLog and write the cache.
+#
+#   The test suite uses the real ``EventLog`` /
+#   ``SessionManager`` / ``ProfileManager`` /
+#   ``ContinuityManager`` against a fakeredis client
+#   (AGENTS.md §7.1 — behaviour tests, not mocks). The
+#   ``Projector`` fold path is covered end-to-end: a
+#   ``profile.created`` / ``continuity.created`` /
+#   ``session.started`` event appended to the EventLog
+#   is folded by the Projector and materialised in
+#   the manager's cache (verified via the manager's
+#   public ``read(...)`` API). Net delta: 32% → 97%
+#   (135 stmts, 4 missed — all in the legacy
+#   ``@type: ignore``-bearing branch the Projector
+#   only hits under unusual configuration).
 #
 # ---------------------------------------------------------------------------
 #
@@ -564,14 +605,69 @@ from __future__ import annotations
 # 6. APPENDIX: DATA POINTS
 # ---------------------------------------------------------------------------
 #
-#   6.1  File-level error counts (pyright strict, 2026-07-13, post-Faixa-1):
+#   6.1  File-level error counts (pyright strict, 2026-07-29, post-resync):
 #
 #         20  knowledge/extraction/argument/_gliner_finder.py
-#         11  events/dlq/store.py
-#          6  knowledge/extraction/__init__.py   (stale # type: ignore)
 #          4  core/storage.py
-#          4  infra/redis/_memory/_continuity.py
-#          4  infra/redis/_memory/_profile.py
+#          3  api/intent_router/middleware_setup.py
+#          3  knowledge/extraction/gliner.py
+#          3  resilience/edge.py
+#          2  agents/knowledge/solution_projector.py
+#          2  agents/memory/solution_review_publisher.py
+#          2  agents/memory/solutions/_fingerprints.py
+#          2  agents/tools/llm.py
+#          2  stream/event_log/dispatch.py
+#          1  agents/memory/solution_extractor.py
+#          1  agents/memory/solutions/_extractor.py
+#          1  agents/tools/arg_validation.py
+#          1  core/world/projection.py
+#          1  knowledge/embedding/_ollama.py
+#          1  knowledge/extraction/argument/_extractor.py
+#          1  knowledge/falkordb/adapter.py
+#          1  runner/reactive_tool_projection.py
+#
+#   6.2  Error counts by rule (2026-07-29, strict mode):
+#
+#         38  reportArgumentType
+#         13  reportReturnType
+#
+#   6.2b Error counts by rule (pyright default — informational only;
+#        not part of the strict error budget):
+#
+#        312  reportUnknownMemberType
+#        290  reportUnknownVariableType
+#        193  reportUnknownArgumentType
+#        112  reportUnknownParameterType
+#        110  reportMissingTypeArgument
+#         38  reportArgumentType (= strict subset above)
+#         13  reportReturnType  (= strict subset above)
+#         11  reportInvalidTypeVarUse
+#          7  reportOptionalMemberAccess
+#          2  reportUnsupportedDunderAll
+#
+#   6.3  Coverage (unit tests only, 2026-07-29):
+#
+#         memory/                 76%   (base 91, fold 99,
+#                                          session 85, profile 89,
+#                                          continuity 69-99)
+#         events/dlq              86%   (values 100, store 88,
+#                                          actions 85)
+#         overall                 80%
+#
+#   6.4  Gate snapshot (post-resync, 2026-07-29):
+#
+#         ruff lint               0 errors
+#         ruff format             405 / 405 formatted
+#         bandit                  0 H + 0 M + 0 L
+#         radon CC                avg 2.49 (A), 0 rank D+
+#         radon MI                237 A + 0 B + 0 C-
+#         pytest tests/unit       1588 passed, 1 skipped
+#         pytest tests/agents     (collected with unit pool, all green)
+#         coverage                80.0% (7041/8791 stmts)
+#         pyright                 51 errors / 1037 warnings
+#         pip-audit               0 known vulnerabilities
+#
+# ---------------------------------------------------------------------------
 #          3  knowledge/extraction/gliner.py
 #          3  resilience/edge.py
 #          3  resilience/timeout.py
