@@ -140,3 +140,39 @@ class TestRedisAPIKeyStorage:
         result = await storage.delete("digest-abc")
         assert result.is_err()
         assert isinstance(result.err_value(), MemoryError)
+
+
+class TestRedisAPIKeyStorageStrReturn:
+    """``lookup`` accepts a ``str`` ``raw`` (the
+    ``decode_responses=True`` case) and re-encodes
+    to bytes."""
+
+    async def test_lookup_str_raw_is_encoded(
+        self,
+    ):
+        from kntgraph.infra.redis._auth import RedisAPIKeyStorage
+
+        redis = _fake_redis()
+        redis.get = AsyncMock(return_value="payload-string")
+        storage = RedisAPIKeyStorage(client=redis)
+        result = await storage.lookup("digest-abc")
+        assert result.is_ok()
+        assert result.ok_value() == b"payload-string"
+
+
+class TestRedisAPIKeyStorageUnexpectedReturn:
+    """``lookup`` returns ``Err(MemoryError)`` when the
+    underlying ``get`` returns a non-bytes/non-str
+    value (defensive — the contract is bytes or str)."""
+
+    async def test_lookup_unexpected_return_type(self):
+        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._auth import RedisAPIKeyStorage
+
+        redis = _fake_redis()
+        redis.get = AsyncMock(return_value=12345)
+        storage = RedisAPIKeyStorage(client=redis)
+        result = await storage.lookup("digest-abc")
+        assert result.is_err()
+        assert isinstance(result.err_value(), MemoryError)
+        assert "unexpected redis return type" in str(result.err_value())

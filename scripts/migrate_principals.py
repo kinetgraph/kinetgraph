@@ -26,9 +26,10 @@ The script:
   2. For each binding:
      - If already JSON with all required fields → skip.
      - If a legacy string → parse it as ``agent_id`` and
-       construct a Principal via the same heuristic the
-       verifier uses (``_legacy_principal`` in
-       ``api/auth.py``). Write the JSON form.
+       construct a Principal via ``Principal.from_agent_id``
+       (the same factory the verifier used before the
+       legacy fallback was removed in 0.10.0). Write the
+       JSON form.
   3. Prints a summary.
 
 This script is **idempotent**. Running it twice does not
@@ -50,6 +51,8 @@ import sys
 from collections.abc import Iterator
 
 import redis.asyncio as aioredis
+
+from kntgraph.security import Principal, Role
 
 
 KEY_PREFIX = "knt:api:keys:"
@@ -105,6 +108,11 @@ def _migrate_value(raw: bytes) -> bytes | None:
     Returns the new value (bytes), or ``None`` when
     the binding is already in the correct shape (no
     migration needed).
+
+    The tenant derivation lives in
+    :meth:`Principal.from_agent_id` (single source of
+    truth) — this script delegates to it instead of
+    reimplementing the heuristic.
     """
     if not _is_legacy_string(raw):
         return None  # already migrated
@@ -113,12 +121,12 @@ def _migrate_value(raw: bytes) -> bytes | None:
         # Empty value — leave alone, surface as
         # migration failure (we don't write).
         raise ValueError("empty legacy binding")
-    tenant_id = decoded.partition(".")[0] or decoded
-    payload = {
-        "agent_id": decoded,
-        "role": "agent",
-        "tenant_id": tenant_id,
-        "key_id": "legacy",
+    principal = Principal.from_agent_id(decoded, role=Role.agent, key_id="legacy")
+    payload: dict[str, object] = {
+        "agent_id": principal.agent_id,
+        "role": principal.role.value,
+        "tenant_id": principal.tenant_id,
+        "key_id": principal.key_id,
     }
     return json.dumps(payload, sort_keys=True).encode("utf-8")
 

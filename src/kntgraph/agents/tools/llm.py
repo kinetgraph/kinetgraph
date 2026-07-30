@@ -67,7 +67,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import structlog
 
@@ -182,7 +182,8 @@ class LiteLLMTransportAdapter(LLMTransport):
     FalkorDBGraphAdapter, OllamaEmbeddingAdapter).
 
     Most callers should NOT construct this directly —
-    use ``LLMClient`` (the facade) which holds a
+    the canonical entry point is ``LiteLLMToolWorker``
+    (``@tool_worker(name="chat_llm")``), which holds a
     reference to a low-level adapter and delegates
     every call.
 
@@ -685,8 +686,8 @@ class LiteLLMToolWorker:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=effective_temperature,
-            max_tokens=effective_max_tokens,
+            temperature=cast(float, effective_temperature),
+            max_tokens=cast(int, effective_max_tokens),
             response_format=response_format,
             drop_unsupported_params=True,
             idempotency_key=idempotency_key,

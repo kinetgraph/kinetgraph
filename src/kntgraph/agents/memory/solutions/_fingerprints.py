@@ -115,7 +115,9 @@ def cast_any_to_json(raw: dict[str, JsonValue]) -> Mapping[str, JsonValue]:
 def maybe_float(v: JsonValue) -> float | None:
     if v is None:
         return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+    if isinstance(v, (str, int, float, bool)):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    return None

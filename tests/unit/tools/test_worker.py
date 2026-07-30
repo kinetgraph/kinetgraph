@@ -113,3 +113,20 @@ def test_tool_worker_missing_idempotency_key():
         class BadTool:
             async def invoke(self, *, user_id: str) -> Result[str, str]:
                 return Ok("ok")
+
+
+def test_tool_worker_idempotency_key_positional_only_raises():
+    """
+    ``idempotency_key`` is accepted as keyword-only OR
+    positional-or-keyword; a positional-only parameter
+    with that name is rejected (the Worker's
+    ``invoke(**kwargs)`` call would never bind it).
+    """
+    with pytest.raises(TypeError, match="must be passable as keyword"):
+
+        @tool_worker(name="bad_posonly", description="...")
+        class BadPositional:
+            async def invoke(
+                self, idempotency_key, /, **kwargs: object
+            ) -> Result[dict, str]:
+                return Ok({})

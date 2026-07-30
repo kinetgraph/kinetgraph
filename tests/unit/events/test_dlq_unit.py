@@ -32,7 +32,7 @@ from kntgraph.core.event import (
     CorrelationContext,
     Event,
 )
-from kntgraph.core.result import Err, PersistenceError
+from kntgraph.core.result import Err, Ok, PersistenceError
 from kntgraph.events.dlq import (
     DeadLetterActions,
     DeadLetterEvent,
@@ -271,6 +271,60 @@ class TestStatsAndPurge:
 
 
 # ---------------------------------------------------------------------------
+# Storage-error branches of the queue facade (DEBT §3.3 / §3.5)
+# ---------------------------------------------------------------------------
+
+
+class TestErrorBranches:
+    async def test_append_returns_err_on_storage_error(self):
+        storage = MagicMock()
+        storage.append = AsyncMock(return_value=Err(MemoryError("boom")))
+        storage.client = None
+        queue = DeadLetterQueue(storage)
+
+        result = await queue.append(_make_dlq_event())
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
+
+    async def test_append_warns_when_counter_bump_fails(self, queue, monkeypatch):
+        from kntgraph.infra.redis._dlq import PLACEHOLDER
+        from kntgraph.infra.redis._errors import MemoryError
+
+        async def failing_bump(self, *_args, **_kwargs):
+            return Err(MemoryError("counter down"))
+
+        monkeypatch.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.bump_reason_counter",
+            failing_bump,
+        )
+        result = await queue.append(_make_dlq_event())
+        assert result.is_ok()
+        assert result.ok_value() != PLACEHOLDER
+
+    async def test_get_event_returns_none_when_read_errors(self):
+        storage = MagicMock()
+        storage.find_by_event_id = AsyncMock(return_value=Ok("1234-0"))
+        storage.read = AsyncMock(return_value=Err(MemoryError("read fail")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.get_event("any") is None
+
+    async def test_list_by_reason_returns_empty_on_storage_error(self):
+        storage = MagicMock()
+        storage.list_by_reason = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.list_by_reason(DLQReason.TIMEOUT) == []
+
+    async def test_list_all_returns_empty_on_storage_error(self):
+        storage = MagicMock()
+        storage.list_all = AsyncMock(return_value=Err(MemoryError("boom")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.list_all() == []
+
+
+# ---------------------------------------------------------------------------
 # Actions: reprocess / discard
 # ---------------------------------------------------------------------------
 
@@ -323,3 +377,115 @@ class TestActionsWithBareStorage:
         event_id = str(dl.event.event_id)
         result = await actions.reprocess(event_id)
         assert result.is_ok()
+
+
+# ---------------------------------------------------------------------------
+# DeadLetterActions error branches (DEBT §3.5)
+# ---------------------------------------------------------------------------
+
+
+class TestActionsErrorBranches:
+    async def test_init_raises_when_no_queue_or_storage(self):
+        with pytest.raises(TypeError):
+            DeadLetterActions()
+
+    async def test_drop_entry_silently_skips_on_read_index_failure(
+        self, queue, monkeypatch
+    ):
+        async def failing_read_index(self, *_args, **_kwargs):
+            return Err(MemoryError("index down"))
+
+        monkeypatch.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.read_index",
+            failing_read_index,
+        )
+        dl = _make_dlq_event()
+        await queue.append(dl)
+        event_id = str(dl.event.event_id)
+        result = await DeadLetterActions(queue=queue).reprocess(event_id)
+        assert result.is_ok()
+
+    async def test_drop_entry_silently_skips_on_drop_failure(self, queue, monkeypatch):
+        async def failing_drop(self, *_args, **_kwargs):
+            return Err(MemoryError("drop down"))
+
+        monkeypatch.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.drop_entry",
+            failing_drop,
+        )
+        dl = _make_dlq_event()
+        await queue.append(dl)
+        event_id = str(dl.event.event_id)
+        result = await DeadLetterActions(queue=queue).reprocess(event_id)
+        assert result.is_ok()
+
+    async def test_drop_entry_silently_skips_on_counter_failure(
+        self, queue, monkeypatch
+    ):
+        async def failing_bump(self, *_args, **_kwargs):
+            return Err(MemoryError("counter down"))
+
+        monkeypatch.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.bump_reason_counter",
+            failing_bump,
+        )
+        dl = _make_dlq_event()
+        await queue.append(dl)
+        event_id = str(dl.event.event_id)
+        result = await DeadLetterActions(queue=queue).reprocess(event_id)
+        assert result.is_ok()
+
+    async def test_find_entry_via_storage_returns_none_on_lookup_error(self, storage):
+        async def failing_find(self, *_args, **_kwargs):
+            return Err(MemoryError("find down"))
+
+        monkeypatch_ = __import__("pytest").MonkeyPatch()
+        monkeypatch_.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.find_by_event_id",
+            failing_find,
+        )
+        try:
+            actions = DeadLetterActions(storage=storage)
+            result = await actions.reprocess("any-id")
+            assert result.is_err()
+        finally:
+            monkeypatch_.undo()
+
+    async def test_find_entry_via_storage_returns_none_when_lookup_none(self, storage):
+        async def none_find(self, *_args, **_kwargs):
+            return Ok(None)
+
+        monkeypatch_ = __import__("pytest").MonkeyPatch()
+        monkeypatch_.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.find_by_event_id",
+            none_find,
+        )
+        try:
+            actions = DeadLetterActions(storage=storage)
+            result = await actions.reprocess("any-id")
+            assert result.is_err()
+        finally:
+            monkeypatch_.undo()
+
+    async def test_find_entry_via_storage_returns_none_when_read_errors(self, storage):
+        async def ok_find(self, *_args, **_kwargs):
+            return Ok("1234-0")
+
+        async def failing_read(self, *_args, **_kwargs):
+            return Err(MemoryError("read down"))
+
+        monkeypatch_ = __import__("pytest").MonkeyPatch()
+        monkeypatch_.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.find_by_event_id",
+            ok_find,
+        )
+        monkeypatch_.setattr(
+            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.read",
+            failing_read,
+        )
+        try:
+            actions = DeadLetterActions(storage=storage)
+            result = await actions.reprocess("any-id")
+            assert result.is_err()
+        finally:
+            monkeypatch_.undo()

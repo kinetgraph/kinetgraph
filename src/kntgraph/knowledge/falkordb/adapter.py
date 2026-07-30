@@ -210,7 +210,7 @@ class FalkorDBProjector:
         self, agent_id: str, events: Iterable[Event], graph: GraphAdapter
     ) -> None:
         """Write the Agent node via GraphAgentAdapter."""
-        params = _agent_node_params(agent_id, events, tenant_id=self._tenant_id)
+        params = _agent_node_params(agent_id, list(events), tenant_id=self._tenant_id)
         adapter = GraphAgentAdapter(graph)
         await adapter.upsert(
             agent_id=params["agent_id"],

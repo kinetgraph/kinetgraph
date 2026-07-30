@@ -29,7 +29,7 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any, Type
+from typing import Any, Generic, Type
 
 from immutables import Map
 
@@ -44,13 +44,23 @@ from .archetype import ArchetypeId
 Component = ComponentT
 
 
-class ArchetypeStorage:
+class ArchetypeStorage(Generic[ComponentT]):
     """
     In-memory archetype-keyed storage. Pure Python, no native deps.
 
     Mutations are in-place (we need fast O(1) for tick loops), but
     the World facade does NOT expose them directly — every change
     goes through `World.add/remove/move` which return a new World.
+
+    The class is parameterised on ``ComponentT`` so the static
+    checker can keep the same TypeVar binding across the
+    ``get_components`` / ``query`` / ``to_map`` / ``clone_with_entity``
+    methods (the previous non-generic shape forced
+    ``ComponentT`` to be inferred per method, which produced
+    ``ComponentT@get_components`` ≠ ``ComponentT@query`` style
+    diagnostic noise — see DEBT.md §2.19). The parameter is not
+    used at runtime: the storage holds whatever the projection
+    produces and the framework does not inspect the value's type.
     """
 
     def __init__(self) -> None:

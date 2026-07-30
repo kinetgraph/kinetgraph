@@ -127,3 +127,27 @@ class TestDefaultDotenvCandidates:
         cands = default_dotenv_candidates()
         assert cands[0] == Path.cwd() / ".env"
         assert cands[1] == Path.home() / ".env"
+
+
+class TestLoadDotenvFilesMissingPackage:
+    """``load_dotenv_files`` returns ``[]`` when the
+    ``python-dotenv`` package is not installed
+    (defensive — the framework's ``infra.config`` is
+    optional)."""
+
+    def test_returns_empty_when_dotenv_missing(self, monkeypatch) -> None:
+        import builtins
+
+        original_import = builtins.__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "dotenv" or name.startswith("dotenv."):
+                raise ImportError("No module named 'dotenv'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", blocked_import)
+        # The call must still return an empty list
+        # (the caller is expected to rely on real env
+        # vars when python-dotenv is not installed).
+        loaded = load_dotenv_files(Path("/tmp/.env"))
+        assert loaded == []

@@ -22,19 +22,13 @@ JSON payload:
         "key_id":    "k-2026-06-23-001"
     }
 
-Legacy compatibility (deprecated): if the stored value
-is **not JSON** (i.e. a plain string), the verifier
-treats it as ``agent_id`` and constructs:
-
-    Principal(
-        agent_id=raw,
-        role=Role.agent,
-        tenant_id=raw.partition("/")[0],   # heuristic
-        key_id="legacy",
-    )
-
-A `scripts/migrate_principals.py` migrates the table
-to the JSON format. Legacy mode is removed in 0.10.0.
+Legacy compatibility (removed in 0.10.0, ADR-017 §7.3):
+the verifier no longer accepts plain-string bindings
+(pre-ADR-017). Such bindings are now rejected as
+``AuthError(kind="malformed", ...)``. Operators with
+legacy bindings MUST run
+``scripts/migrate_principals.py --apply`` to upgrade
+the binding table before upgrading to 0.10.0.
 
 Implementation layout
 ---------------------
@@ -47,9 +41,10 @@ guideline (AGENTS.md §3.1):
   - ``_auth._verifier`` -- ``APIKeyVerifier`` Protocol
     and ``RedisAPIKeyVerifier`` (the default
     implementation).
-  - ``_auth._helpers`` -- the three pure helpers
-    (``_digest``, ``_decode``, ``_legacy_principal``)
-    used by the verifier pipeline.
+  - ``_auth._helpers`` -- the two pure helpers
+    (``_digest``, ``_decode``) used by the verifier
+    pipeline. The pre-ADR-017 ``_legacy_principal``
+    factory was removed in 0.10.0.
   - ``_auth._dependencies`` -- the FastAPI ``Depends``
     helpers (``check_agent_binding`` and
     ``bind_principal_dependency``).
@@ -70,7 +65,6 @@ from __future__ import annotations
 
 from .._auth._dependencies import bind_principal_dependency, check_agent_binding
 from .._auth._errors import AuthError
-from .._auth._helpers import _legacy_principal
 from .._auth._verifier import APIKeyVerifier, RedisAPIKeyVerifier
 
 
@@ -80,8 +74,4 @@ __all__ = [
     "RedisAPIKeyVerifier",
     "bind_principal_dependency",
     "check_agent_binding",
-    # Private internal -- re-exported for tests of
-    # the legacy principal-parsing branch only.
-    # Production code MUST NOT import this.
-    "_legacy_principal",
 ]

@@ -114,11 +114,10 @@ def _stats() -> str:
     return (
         "## Project metrics\n"
         "\n"
-        f"- **Source modules**: {src_files} ({src_loc:,} LOC)\n"
-        f"- **Test modules**: {test_files} ({test_loc:,} LOC, "
-        f"{tests_str} tests collected)\n"
-        f"- **ADRs**: {adrs}\n"
-        f"- **Docs** (`docs/`): {docs} pages\n"
+        "| Source modules | Test modules | ADRs | Docs |\n"
+        "| --- | --- | --- | --- |\n"
+        f"| {src_files} ({src_loc:,} LOC) | {test_files} ({test_loc:,} LOC, "
+        f"{tests_str} tests collected) | {adrs} | {docs} pages |\n"
     )
 
 

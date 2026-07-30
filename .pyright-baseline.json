@@ -1,29 +1,7 @@
 {
-  "by_file_count": {
-    "src/kntgraph/agents/knowledge/solution_projector.py": 2,
-    "src/kntgraph/agents/memory/solution_extractor.py": 1,
-    "src/kntgraph/agents/memory/solution_review_publisher.py": 2,
-    "src/kntgraph/agents/memory/solutions/_extractor.py": 1,
-    "src/kntgraph/agents/memory/solutions/_fingerprints.py": 2,
-    "src/kntgraph/agents/tools/arg_validation.py": 1,
-    "src/kntgraph/agents/tools/llm.py": 2,
-    "src/kntgraph/api/intent_router/middleware_setup.py": 3,
-    "src/kntgraph/core/storage.py": 4,
-    "src/kntgraph/core/world/projection.py": 1,
-    "src/kntgraph/knowledge/embedding/_ollama.py": 1,
-    "src/kntgraph/knowledge/extraction/argument/_extractor.py": 1,
-    "src/kntgraph/knowledge/extraction/argument/_gliner_finder.py": 20,
-    "src/kntgraph/knowledge/extraction/gliner.py": 3,
-    "src/kntgraph/knowledge/falkordb/adapter.py": 1,
-    "src/kntgraph/resilience/edge.py": 3,
-    "src/kntgraph/runner/reactive_tool_projection.py": 1,
-    "src/kntgraph/stream/event_log/dispatch.py": 2
-  },
-  "by_rule": {
-    "reportArgumentType": 38,
-    "reportReturnType": 13
-  },
-  "files_with_errors": 18,
-  "total_errors": 51,
+  "by_file_count": {},
+  "by_rule": {},
+  "files_with_errors": 0,
+  "total_errors": 0,
   "version": "1.1.411"
 }

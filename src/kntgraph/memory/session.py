@@ -384,18 +384,6 @@ class SessionManager(BaseShortTermMemory[SessionState]):
             "ended_at": state.ended_at,
         }
 
-    def _store_cache(
-        self,
-        key: str,
-        payload: object,
-        ttl: Optional[int],
-    ) -> None:
-        """Deprecated hook — the storage layer handles writes now."""
-        # Kept as a no-op for back-compat with subclasses
-        # that may still call it. Iteration 2 routes writes
-        # through ``self._storage.put_record`` directly.
-        return None
-
     # ------------------------------------------------------------------ base hooks (fold)
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]

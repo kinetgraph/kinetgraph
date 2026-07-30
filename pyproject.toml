@@ -4,7 +4,7 @@
 
 [project]
 name = "kntgraph"
-version = "0.9.0"
+version = "0.10.0"
 description = "Pure ECS agent framework: event-sourced via Redis Streams, semantic routing via GLiNER2, tool re-use via the Solution tier (ADR-010). Sub-package `agents` ships concrete LLM/cache/PII adapters over the framework."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -101,8 +101,7 @@ useLibraryCodeForTypes = true
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
-    "ignore::DeprecationWarning:kntgraph.agents.roles",
-    "ignore::DeprecationWarning:kntgraph.cli",
+    "error::DeprecationWarning:kntgraph",
 ]
 
 [dependency-groups]

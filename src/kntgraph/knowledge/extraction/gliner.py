@@ -98,7 +98,7 @@ wiring is a deployment concern.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Optional, Protocol, cast, runtime_checkable
 
 from kntgraph.knowledge.extraction.base import (
     Entity,
@@ -291,13 +291,13 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
             offset = None
         else:
             try:
-                offset = int(start)
+                offset = int(cast(int, start))
             except (TypeError, ValueError):
                 offset = None
         attrs: dict[str, ExtractedValue] = {}
         if score is not None:
             try:
-                attrs["gliner_score"] = float(score)
+                attrs["gliner_score"] = float(cast(float, score))
             except (TypeError, ValueError):
                 pass
         return (

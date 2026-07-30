@@ -138,12 +138,65 @@ class TestFieldSpec:
         spec = FieldSpec(name="x", json_type="string", required=False)
         assert spec.format is None
 
+    def test_format_non_string_falls_back_to_none(self):
+        """``format`` that is not a string is dropped to
+        None (the field is otherwise valid; we don't
+        fail the whole walk)."""
+        result = walk_schema(
+            {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "string", "format": 12345},
+                },
+            }
+        )
+        assert result == [
+            FieldSpec(name="x", json_type="string", required=False, format=None)
+        ]
+
 
 class TestComputeSchemaVersion:
     def test_none_schema(self):
         v = compute_schema_version(None)
         assert isinstance(v, str)
         assert len(v) == 16
+
+    def test_required_non_list_falls_back_to_empty(self):
+        """``required`` is a JSON-Schema array; if a
+        caller hands us a non-list (e.g. a string), the
+        version is computed with an empty required set
+        (the contract is "fall back to the safe default"
+        rather than crash — the cache key stays
+        deterministic)."""
+        s = {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": "not-a-list",
+        }
+        v = compute_schema_version(s)
+        # Compare against the same schema with required=[].
+        s2 = {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": [],
+        }
+        assert v == compute_schema_version(s2)
+
+    def test_properties_non_dict_falls_back_to_empty(self):
+        """``properties`` is a JSON-Schema object; if a
+        caller hands us a non-dict (e.g. a string), the
+        version is computed with an empty properties set
+        (the contract is "fall back to the safe default")."""
+        s = {
+            "type": "object",
+            "properties": "not-a-dict",
+        }
+        v = compute_schema_version(s)
+        s2 = {
+            "type": "object",
+            "properties": {},
+        }
+        assert v == compute_schema_version(s2)
 
     def test_stable_across_reorder(self):
         """Two schemas with same properties in different

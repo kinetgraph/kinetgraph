@@ -102,11 +102,6 @@ class TestBaseShortTermMemory:
         ``_serialize_for_cache``, ``cache_key``. If someone
         adds a hook, this test will fail and they can decide
         whether to update subclasses too.
-
-        Note: ``_store_cache`` is NOT abstract anymore —
-        Iteration 2 (ADR-019) moved the actual storage call
-        into the ``ShortMemoryStorage`` adapter. The base
-        now delegates via ``self._storage.put_record``.
         """
         from kntgraph.memory.base import BaseShortTermMemory
 

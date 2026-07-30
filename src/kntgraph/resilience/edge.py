@@ -53,7 +53,14 @@ if TYPE_CHECKING:
     # for Starlette / ASGI middleware classes (each of
     # the three ``build_*`` factories returns a class
     # to be passed to ``app.add_middleware(...)``).
-    from starlette.middleware.base import BaseHTTPMiddleware as ASGIMiddleware
+    # We accept both ``BaseHTTPMiddleware`` subclasses
+    # (TrustedHost, HTTPSRedirect) and Starlette's
+    # ``CORSMiddleware`` (which does not inherit from
+    # ``BaseHTTPMiddleware`` in the installed version).
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.middleware.cors import CORSMiddleware
+
+    ASGIMiddleware = BaseHTTPMiddleware | CORSMiddleware
 
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     from starlette.requests import Request
@@ -79,7 +86,7 @@ def _parse_csv(value: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def build_cors_middleware(*, allow_origins: str = "") -> "ASGIMiddleware | None":
+def build_cors_middleware(*, allow_origins: str = "") -> "type[ASGIMiddleware] | None":
     """
     Build a Starlette ``CORSMiddleware`` configured by
     the operator.
@@ -152,7 +159,7 @@ def build_cors_middleware(*, allow_origins: str = "") -> "ASGIMiddleware | None"
 
 def build_trusted_host_middleware(
     *, allowed_hosts: str = ""
-) -> "ASGIMiddleware | None":
+) -> "type[ASGIMiddleware] | None":
     """
     Build a custom middleware that rejects requests
     whose ``Host`` header is not in the allow-list.
@@ -227,7 +234,7 @@ def build_https_redirect_middleware(
     enabled: bool = True,
     status_code: int = 308,
     hsts_max_age: int = 0,
-) -> "ASGIMiddleware | None":
+) -> "type[ASGIMiddleware] | None":
     """
     Build a custom middleware that 308-redirects
     GET/HEAD requests from http → https when the

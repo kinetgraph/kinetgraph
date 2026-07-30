@@ -430,6 +430,8 @@ class SolutionExtractor:
             return None
 
         tool_name = tool_name_of(request.event_type)
+        if tool_name is None:
+            return None
         if self.allowlist is not None and tool_name not in self.allowlist:
             return None
 
