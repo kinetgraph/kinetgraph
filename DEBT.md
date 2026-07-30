@@ -693,7 +693,7 @@ from __future__ import annotations
 #       ``xreadgroup`` returning ``[]`` path on the
 #       no-message branch — the loop runs but the
 #       branch is one-shot in a tight loop).
-#     - Lines 290-294: the reaper log + ``create_task``
+#   - Lines 290-294: the reaper log + ``create_task``
 #       dispatch (the reaper loop test is ``skip``-marked
 #       due to an asyncio-vs-``ProcessPoolExecutor``
 #       timing flake under pytest-asyncio — the
@@ -704,6 +704,45 @@ from __future__ import annotations
 #       reason).
 #
 #   Net delta: 16% → 96% (126 stmts, 5 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.10  tools/router.py — CLOSED (38% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/tools/test_router.py`` covers every
+#   branch of the ``ToolRouter.route_batch`` method
+#   (the only public surface of the module):
+#
+#     - **Legacy form** (``event_type ==
+#       "tool.requested"`` + ``data["tool"]``) is
+#       matched directly and forwarded to
+#       ``knt:tools:<tool>:queue``.
+#     - **Canonical form** (``event_type ==
+#       "tool.<tool>.requested"``) is parsed via
+#       ``parse_tool_event`` and forwarded to the
+#       same stream key.
+#     - **Non-tool events** (``document.received``,
+#       ``tool.<name>.completed``, etc.) are
+#       silently skipped.
+#     - **Legacy form without ``"tool"`` key** is
+#       also skipped (the router does NOT fall back
+#       to ``parse_tool_event`` for the legacy
+#       form — only the canonical form is parsed).
+#     - **Redis error during ``xadd``** is logged
+#       and the loop continues to the next event
+#       (the dispatcher must not crash because one
+#       event failed to route).
+#     - **Mixed batch** (legacy + canonical +
+#       unrelated) routes the two tool events and
+#       skips the unrelated one.
+#     - **Empty batch** is a no-op.
+#     - **Payload** is the JSON-serialised event
+#       (asserted to be a string containing the
+#       ``event_type`` so the WorkerManager can
+#       ``json.loads`` it on the consumer side).
+#
+#   Net delta: 38% → 100% (26 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
 
