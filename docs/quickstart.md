@@ -189,11 +189,13 @@ asyncio.run(main())
 ```
 
 > **Note:** the legacy `LiteLLMTool` (a direct
-> `await tool.invoke(...)` adapter) is deprecated as
-> of v0.8.0 and will be removed in v0.9.0 (see
-> ADR-043). New code should use `LiteLLMToolWorker`
-> via the `WorkerManager` (or the `ReactiveDispatcher`
-> in production).
+> `await tool.invoke(...)` adapter) was removed in
+> v0.9.0 (per ADR-043); it was the pre-`@tool_worker`
+> path. The canonical entry point is
+> `LiteLLMToolWorker` via the `WorkerManager`
+> (or the `ReactiveDispatcher` in production).
+> Direct call (no manager) is also supported; see
+> [`examples/01_llm_basic.py`](../examples/01_llm_basic.py).
 
 ## 5. Next steps
 

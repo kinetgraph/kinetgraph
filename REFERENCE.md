@@ -153,15 +153,14 @@ the `agents` namespace.
 ### `tools` — vertical tool adapters
 
 - [`kntgraph.agents.tools.llm`](src/kntgraph/agents/tools/llm.py)
-  — `LiteLLMTool`, the unified LLM caller.
-- [`kntgraph.agents.tools.cache`](src/kntgraph/agents/tools/cache/)
-  — `CachingLLMTransport`, `InMemoryCacheStorage`,
-  `RedisCacheAdapter`.
+  — `LiteLLMToolWorker` (canonical LLM worker;
+  `@tool_worker(name="chat_llm")`, runs in the
+  `WorkerManager`'s `ProcessPoolExecutor`). The
+  legacy `LiteLLMTool` was removed in v0.9.0
+  (per [ADR-043](ADRs/ADR-043-LiteLLM-Worker-Migration.md)).
 - [`kntgraph.agents.tools.pii`](src/kntgraph/agents/tools/pii/)
   — `PiiRedactionTool` (3 levels: regex, NER,
   audit batch).
-- [`kntgraph.agents.tools.invoker`](src/kntgraph/agents/tools/invoker/)
-  — `ToolInvoker` re-exports.
 - [`kntgraph.agents.tools.arg_validation`](src/kntgraph/agents/tools/arg_validation.py)
   — `validate_args`, the schema validator.
 
@@ -209,16 +208,20 @@ print(world.agents["a-1"].domain_phase)
 ### Calling a `Tool`
 
 ```python
-from kntgraph.agents.tools import LiteLLMTool
+from kntgraph.agents.tools import LiteLLMToolWorker
 
-tool = LiteLLMTool(default_model="gpt-4o-mini")
-result = await tool.invoke(
-    idempotency_key="k1",
+worker = LiteLLMToolWorker()
+result = await worker.invoke(
     system="You are a helpful assistant.",
     user="What is the capital of France?",
+    idempotency_key="k1",
 )
 if result.is_ok():
-    print(result.unwrap().text)
+    # ``result.ok_value()`` is a dict envelope:
+    # ``text`` / ``model`` / ``usage`` / ``finish_reason`` /
+    # ``cost_usd`` / ``latency_ms``.
+    envelope = result.ok_value()
+    print(envelope["text"])
 ```
 
 ### Using the `Result` type

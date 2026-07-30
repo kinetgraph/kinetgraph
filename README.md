@@ -23,12 +23,12 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 
 [![cc](https://img.shields.io/badge/CC-A%20%282.49%29-brightgreen?style=for-the-badge&logo=radar&logoColor=white)](https://radon.readthedocs.io/)
 [![mi](https://img.shields.io/badge/MI-237_A_0_B_0_C-brightgreen?style=for-the-badge&logo=heartbeat&logoColor=white)](https://radon.readthedocs.io/)
-[![pyright](https://img.shields.io/badge/pyright-51%20errors-orange?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
+[![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
 
 ### Tests
 
-[![coverage](https://img.shields.io/badge/coverage-80.0%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://coverage.readthedocs.io/)
-[![tests](https://img.shields.io/badge/tests-1512%20passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![coverage](https://img.shields.io/badge/coverage-83.0%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://coverage.readthedocs.io/)
+[![tests](https://img.shields.io/badge/tests-1902%20passed-brightgreen?style=for-the-badge&logo=pytest&logoColor=white)](https://docs.pytest.org/)
 
 ### Security
 
@@ -44,13 +44,11 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 > Keep the snapshot in sync with this block when you
 > remove badges or change the gate count.
 
-A full breakdown of the current technical debt (51 pyright
-errors, 0 medium bandit findings, and 11 stale `# type: ignore` comments)
-is in [`DEBT.md`](DEBT.md).
-
-A full breakdown of the current technical debt (67 pyright
-errors, 0 medium bandit findings, and 11 stale `# type: ignore` comments)
-is in [`DEBT.md`](DEBT.md).
+A full breakdown of the current technical debt is in
+[`DEBT.md`](DEBT.md). All pyright errors are resolved
+(0 errors / 1043 warnings; the warning budget is
+tracked separately under §4.2 and is out of scope for
+the strict error budget).
 
 kntgraph is the renamed and unified successor of
 two internal packages (formerly `fmh_backend` and
@@ -141,14 +139,17 @@ The `agents` sub-module ships concrete LLM, cache,
 and PII adapters on top of the framework:
 
 ```python
-from kntgraph.agents.tools import LiteLLMTool
+from kntgraph.agents.tools import LiteLLMToolWorker
 
-tool = LiteLLMTool(default_model="gpt-4o-mini")
-result = await tool.invoke(
-    idempotency_key="k1",
+worker = LiteLLMToolWorker()
+result = await worker.invoke(
     system="You are a helpful assistant.",
     user="What is the capital of France?",
+    idempotency_key="k1",
 )
+# ``result`` is a ``Result[dict, ToolError]``; the dict
+# envelope carries ``text`` / ``model`` / ``usage`` /
+# ``finish_reason`` / ``cost_usd`` / ``latency_ms``.
 ```
 
 ## Run the tests
@@ -204,9 +205,9 @@ kntgraph/
 │   ├── tools/       # Tool Protocol, registry, worker
 │   ├── api/         # Optional HTTP gateway
 │   ├── security/    # Ed25519 signing, principal, ACL
-│   └── agents/      # LLM/cache/PII adapters, roles
-│       ├── roles/   # SemanticRoutingRole, etc.
-│       ├── tools/   # LiteLLMTool, PiiRedactionTool
+│   └── agents/      # LLM/cache/PII adapters, role_systems
+│       ├── role_systems/ # ChatRoleSystem, PlannerRoleSystem, etc.
+│       ├── tools/   # LiteLLMToolWorker, PiiRedactionTool
 │       └── memory/  # Solution extractor/promoter
 ├── tests/
 │   ├── unit/        # No external dependencies
@@ -281,7 +282,7 @@ canonical schema is `Settings` in
   detection in `RedisAPIKeyVerifier` is the only path
   that distinguished JSON from legacy, and that path
   is now closed.
-- `0.9.0` — current release. Drops the legacy
+- `0.9.0` — predecessor release. Drops the legacy
   `LiteLLMTool` / `ToolInvoker` / `kntgraph.agents.roles`
   paths (the canonical path is
   `LiteLLMToolWorker` + the `WorkerManager`, and the
@@ -313,6 +314,7 @@ development setup, the gate that runs in CI, and
 the pull request workflow. Bug reports and
 security disclosures follow
 [SECURITY.md](SECURITY.md).
+
 
 
 
