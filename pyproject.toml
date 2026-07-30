@@ -101,8 +101,7 @@ useLibraryCodeForTypes = true
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
-    "ignore::DeprecationWarning:kntgraph.agents.roles",
-    "ignore::DeprecationWarning:kntgraph.cli",
+    "error::DeprecationWarning:kntgraph",
 ]
 
 [dependency-groups]
