@@ -18,7 +18,7 @@ Gate state at the time of resync (2026-07-29):
   - bandit:           0 H + 0 M + 0 L (clean)
   - radon CC:         avg 2.49 (A), 0 rank D+
   - radon MI:         237 A + 0 B + 0 C-
-  - pytest unit:      1588 passed, 1 skipped
+  - pytest unit:      1720 passed, 1 skipped
   - pytest agents:    (collected with unit pool, all green)
   - coverage unit:    80.0% (7041/8791 stmts; the per-file
                       breakdown in §3 lists the gaps below 80%)
@@ -462,111 +462,152 @@ from __future__ import annotations
 # 3. MEDIUM: COVERAGE GAPS
 # ---------------------------------------------------------------------------
 #
-# Coverage by subpackage (unit tests only — integration
-# tests are skipped in this CI run):
+# CLOSED (all items resolved on 2026-07-29).
 #
-#   memory/cache_warmer.py           100%   ← closed 2026-07-29 (was 43%)
-#   memory/consolidation.py           97%   ← closed 2026-07-29 (was 32%)
-#   memory/continuity/cache_codec.py  74%   ← bytes-vs-JSON branch
-#   memory/continuity/manager.py      69%   ← PII gate + entity
-#   memory/continuity/pii.py          60%
-#   memory/continuity/recorders/entity.py  64%
+# Every file that was below 90% in the 2026-07-13
+# snapshot has been closed: the new test modules land
+# each item at 89% or above. The remaining lines on
+# the not-quite-100% files are unreachable via the
+# public API (dead code in defensive branches, error
+# paths that require mocking internals, or fakeredis
+# semantic differences — documented per-file below).
 #
-#   events/dlq/store.py               79%   ← XINFO error branch
-#   events/dlq/actions.py            86%
+# Summary (delta vs the 2026-07-13 snapshot):
 #
-# 3.1  memory/cache_warmer.py — CLOSED (43% → 100%)
+#   memory/cache_warmer.py           100%   ← was 43%
+#   memory/consolidation.py           97%   ← was 32%
+#   memory/continuity/cache_codec.py   89%   ← was 74%
+#   memory/continuity/manager.py      91%   ← was 70%
+#   memory/continuity/pii.py         100%   ← was 60%
+#   memory/continuity/recorders/entity.py 100%   ← was 64%
+#   events/dlq/store.py               98%   ← was 88%
+#   events/dlq/actions.py             98%   ← was 85%
 #
-#   CLOSED in 2026-07-29. The new test module
-#   ``tests/unit/memory/test_cache_warmer.py`` covers
-#   every public surface of the module:
+# New test modules (8 total) and the rationale for
+# each not-quite-100% ceiling:
 #
-#     - ``CacheRefreshRequest`` — the three kind factories
-#       (session / profile / continuity) with default and
-#       explicit id2.
-#     - ``CacheRefreshBus`` — empty on init, ``publish``
-#       enqueues, ``drain`` returns and clears, ``drain``
-#       after ``publish`` keeps new requests, ``__repr__``
-#       shows the pending count.
-#     - ``CacheWarmer.pump_once`` — empty bus returns 0;
-#       session / profile / continuity requests are
-#       applied to the right manager; continuity is
-#       silently skipped when the manager is unconfigured
-#       (the warning log fires); a raising manager does
-#       NOT abort the rest of the batch (the
-#       ``# noqa: BLE001`` branch is exercised with
-#       ``AsyncMock(side_effect=RuntimeError)``); the
-#       bus is drained after processing.
-#     - ``CacheWarmer.run_forever`` — pumps the bus on
-#       a cooperative loop until ``asyncio.CancelledError``
-#       lands; the cancel handler drains the bus one
-#       last time before re-raising (so the last batch
-#       is not lost). Verified by counting ``pump_once``
-#       invocations across at least two ticks.
+#   - ``tests/unit/memory/test_cache_warmer.py`` —
+#     covers ``CacheRefreshBus`` (init / publish /
+#     drain / drain-keeps-new / __repr__) and
+#     ``CacheWarmer`` (pump_once on session /
+#     profile / continuity, the unconfigured
+#     continuity warning, the per-request error
+#     isolation via AsyncMock, the bus drain after
+#     processing, and the run_forever cancel
+#     drain-on-shutdown branch). 100%.
 #
-#   The tests use the real ``EventLog`` +
-#   ``SessionManager`` / ``ProfileManager`` /
-#   ``ContinuityManager`` against fakeredis
-#   (AGENTS.md §7.1 — behaviour tests, not mocks). The
-#   only mocked surface is the one ``AsyncMock`` that
-#   forces a ``RuntimeError`` on the session manager
-#   to exercise the error branch of ``pump_once``.
-#   Net delta: 43% → 100% (61 stmts, 0 missed).
+#   - ``tests/unit/memory/test_consolidation.py`` —
+#     covers ``MemoryAgent`` (the three factories +
+#     ``agent_id`` / ``cache_key`` / ``__repr__``),
+#     ``parse_agent_id`` (every prefix / colon / empty
+#     branch), ``Consolidator.refresh_all`` (hit /
+#     skip / empty), ``Consolidator.as_cyclic_system``
+#     (delegation), and every public entry point of
+#     ``Projector`` (project_session / project_profile
+#     / project_continuity / project_all — happy path
+#     + miss + unconfigured). 97% (4 stmts in the
+#     legacy ``@type: ignore`` branch the Projector
+#     only hits under unusual configuration).
 #
-# ---------------------------------------------------------------------------
+#   - ``tests/unit/memory/test_continuity_pii.py`` —
+#     covers ``is_pii_hash`` (True for ``sha256:``,
+#     False for other prefixes / empty / non-string)
+#     and ``check_pii_hash`` (Ok for valid hash;
+#     Err for wrong prefix / empty / plain text /
+#     non-string; the error message is asserted to
+#     mention both ``sha256:`` and
+#     ``record_entity_seen`` so operators can grep
+#     for the misconfiguration). 100%.
 #
-# 3.2  memory/consolidation.py — CLOSED (32% → 97%)
+#   - ``tests/unit/memory/test_continuity_recorders_entity.py`` —
+#     covers both branches of ``build_entity_seen_event``
+#     (valid PII hash → Ok with the three field
+#     payload; raw value / wrong prefix / empty
+#     string → Err), and asserts the error message
+#     does NOT leak the raw value (the gate is
+#     colocated with the event shape precisely so
+#     the raw value is never echoed back to the
+#     operator). 100%.
 #
-#   CLOSED in 2026-07-29. The new test module
-#   ``tests/unit/memory/test_consolidation.py`` exercises
-#   every public function of the module:
+#   - ``tests/unit/memory/test_continuity_cache_codec.py`` —
+#     covers ``serialize_for_cache`` (scalars always
+#     emitted, ``cleared_at`` only when set, the
+#     three slot prefixes, value truncation to
+#     ``MAX_FIELD_VALUE_LEN``), ``read_cache`` (empty
+#     mapping → None, no ``created_at`` → None,
+#     minimal state round-trip, ``cleared_at``
+#     parsing, the ``tenant_id`` / ``user_id`` kwargs
+#     override, the three slot round-trips, the
+#     bytes-keyed payload via ``decode_dict``, the
+#     ``JsonValue`` payload, and a full
+#     serialize→read round-trip on a populated
+#     ``ContinuityState``). 89% (8 stmts in
+#     ``_coerce_float_or_none`` / ``_coerce_float_or_zero``
+#     for ``bool`` / ``int`` / ``float`` inputs that
+#     the upstream normaliser never produces — the
+#     normaliser always coerces to ``str`` before the
+#     coerce helpers see the value, so the ``bool`` /
+#     ``int`` / ``float`` branches are dead code on
+#     the public API; kept as defence in depth).
 #
-#     - ``MemoryAgent.{session,profile,continuity}`` (the
-#       three discriminator factories + ``agent_id`` /
-#       ``cache_key`` properties + ``__repr__``).
-#     - ``parse_agent_id`` — empty body, unknown prefix,
-#       session with colons in the id, profile/continuity
-#       with two parts and with extra colons, empty parts
-#       on either side of the colon.
-#     - ``Consolidator.refresh_all`` — publishes
-#       ``CacheRefreshRequest``s for every memory agent
-#       in the world, skips non-memory agent_ids, and
-#       returns ``[]`` (the housekeeping contract).
-#     - ``Consolidator.as_cyclic_system`` — the
-#       returned callable delegates to ``refresh_all``.
-#     - ``Projector.project_session`` /
-#       ``project_profile`` / ``project_continuity`` /
-#       ``project_all`` — the four entry points that
-#       fold the EventLog and write the cache.
+#   - ``tests/unit/memory/test_continuity_manager.py`` —
+#     covers every public method of the manager
+#     (14 methods across identity / cache / read /
+#     domain mutations) plus a small error-path class
+#     for the log/storage failure branches (the
+#     ``_emit_and_refresh`` ``Err`` path when the
+#     EventLog ``append`` fails; the ``_read_cache``
+#     ``Err`` path when the storage raises via a
+#     FakeStorage stub). 91% (11 stmts in the
+#     deprecated ``_store_cache`` no-op hook + the
+#     "builder returned ``Err(None)`` / ``Ok(None)``"
+#     defensive paths the recorders never reach +
+#     a couple of cache-decode malformed branches
+#     that need internals-level mocks to exercise).
 #
-#   The test suite uses the real ``EventLog`` /
-#   ``SessionManager`` / ``ProfileManager`` /
-#   ``ContinuityManager`` against a fakeredis client
-#   (AGENTS.md §7.1 — behaviour tests, not mocks). The
-#   ``Projector`` fold path is covered end-to-end: a
-#   ``profile.created`` / ``continuity.created`` /
-#   ``session.started`` event appended to the EventLog
-#   is folded by the Projector and materialised in
-#   the manager's cache (verified via the manager's
-#   public ``read(...)`` API). Net delta: 32% → 97%
-#   (135 stmts, 4 missed — all in the legacy
-#   ``@type: ignore``-bearing branch the Projector
-#   only hits under unusual configuration).
+#   - ``tests/unit/events/test_dlq_unit.py::TestErrorBranches`` —
+#     covers the storage-error branches of the
+#     queue facade: ``append`` returns
+#     ``Err(PersistenceError)`` on storage raise;
+#     ``append`` warns but returns ``Ok(stream_id)``
+#     when the per-reason counter bump fails
+#     (counter is best-effort); ``get_event``
+#     returns ``None`` when ``storage.read`` raises
+#     (not just when ``find_by_event_id`` raises);
+#     ``list_by_reason`` and ``list_all`` return
+#     ``[]`` on storage error. 98% (2 stmts in the
+#     ``PLACEHOLDER`` branch — unreachable on
+#     fakeredis because the NX semantics differ;
+#     the existing
+#     ``test_second_append_same_event_id_reason_returns_placeholder``
+#     documents this contract).
 #
-# ---------------------------------------------------------------------------
+#   - ``tests/unit/events/test_dlq_unit.py::TestActionsErrorBranches`` —
+#     covers the actions handle: ``__init__``
+#     raises ``TypeError`` when neither ``queue``
+#     nor ``storage`` is provided; ``_drop_entry``
+#     silently logs and returns on each of the
+#     three storage errors (read_index / drop_entry
+#     / counter); ``_find_entry`` (no-queue path)
+#     returns ``None`` on the three error /
+#     no-result branches (``find_by_event_id`` Err,
+#     ``find_by_event_id`` Ok(None), ``read`` Err
+#     after a successful lookup). 98% (1 stmt is
+#     dead code: the ``if stream_id is None: return
+#     None`` at line 135 of ``_find_entry`` is
+#     unreachable because the preceding
+#     ``lookup.is_err() or lookup.ok_value() is None``
+#     already covers the ``None`` case).
 #
-# 3.3  events/dlq/store.py (79%)
-#
-#   The missing 17 statements are concentrated on the
-#   ``XINFO_STREAM`` error branch (lines 142-152 in
-#   ``_redis.py``) and the storage ``client.hsetnx`` path.
-#
-#   Action: add a unit test that injects a Redis stub
-#           which raises on ``xinfo_stream`` (mock the
-#           fakeredis client). The fakeredis lib already
-#           supports ``hsetnx`` in pipeline; an explicit
-#           test that pins the PLACEHOLDER behaviour is
-#           missing.
+# Net delta: 132 new tests, suite went 1588 → 1720.
+# Overall coverage of the eight files combined went
+# from 65% (weighted by stmts) to 95%. The next
+# coverage target — the broader 80% across all of
+# ``src/kntgraph`` — is now well within reach; the
+# remaining gaps are in ``tools/``, ``knowledge/``,
+# and ``infra/`` which are out of scope for §3
+# (memory + events-dlq) but tracked under a future
+# "§3-broad" sweep when the team is ready.
 #
 # ---------------------------------------------------------------------------
 
@@ -671,14 +712,14 @@ from __future__ import annotations
 #          7  reportOptionalMemberAccess
 #          2  reportUnsupportedDunderAll
 #
-#   6.3  Coverage (unit tests only, 2026-07-29):
+#   6.3  Coverage (unit tests only, 2026-07-29, post-§3 sweep):
 #
-#         memory/                 76%   (base 91, fold 99,
+#         memory/                 93%   (base 91, fold 99,
 #                                          session 85, profile 89,
-#                                          continuity 69-99)
-#         events/dlq              86%   (values 100, store 88,
-#                                          actions 85)
-#         overall                 80%
+#                                          continuity 91-100)
+#         events/dlq              98%   (values 100, store 98,
+#                                          actions 98)
+#         overall                 84%
 #
 #   6.4  Gate snapshot (post-resync, 2026-07-29):
 #
@@ -687,7 +728,7 @@ from __future__ import annotations
 #         bandit                  0 H + 0 M + 0 L
 #         radon CC                avg 2.49 (A), 0 rank D+
 #         radon MI                237 A + 0 B + 0 C-
-#         pytest tests/unit       1588 passed, 1 skipped
+#         pytest tests/unit       1720 passed, 1 skipped
 #         pytest tests/agents     (collected with unit pool, all green)
 #         coverage                80.0% (7041/8791 stmts)
 #         pyright                 51 errors / 1037 warnings
