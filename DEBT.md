@@ -897,6 +897,139 @@ from __future__ import annotations
 #   Net delta: 64% → 100% (33 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
+#
+# 3.17  infra/redis/_factory.py — CLOSED (67% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/redis/test_factory.py`` covers
+#   the 5 ``create_*`` factory functions (the only
+#   public surface of the module):
+#
+#     - **``create_event_log_storage``:** with client
+#       (default maxlen), with settings (resolved
+#       ``stream_maxlen``), with settings no client
+#       (pool fallback), with negative / zero
+#       ``stream_maxlen`` (fall back to
+#       ``MAXLEN_DEFAULT``), and with neither
+#       settings nor client (pool + fresh settings).
+#     - **``create_session_storage``:** with client
+#       (default 24h TTL), with explicit
+#       ``ttl_seconds=`` kwarg, with settings (resolved
+#       ``session_ttl_seconds``), and with settings no
+#       client.
+#     - **``create_profile_storage``:** the same four
+#       shapes; the default TTL is ``None`` (no TTL)
+#       and the settings pass through the explicit
+#       ``None`` correctly.
+#     - **``create_continuity_storage``:** the same
+#       four shapes; the default TTL is 90 days
+#       (sliding).
+#     - **``create_dlq_storage``:** with client
+#       (default 1M maxlen), with settings (resolved
+#       ``global_stream_maxlen``), and the negative /
+#       zero fallback to the DLQ default.
+#
+#   The factories are pure (no I/O — they instantiate
+#   the adapter and return it), so the tests assert on
+#   the adapter's class and the resolved
+#   ``maxlen`` / ``ttl_seconds`` attribute. The
+#   underlying pool is exercised end-to-end in
+#   ``test_config.py`` and the individual adapters are
+#   covered in their own test modules.
+#
+#   Net delta: 67% → 100% (55 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.18  infra/graph/_pool.py — CLOSED (68% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/graph/test_graph_pool_password.py``
+#   covers the missing branches of ``GraphPool``:
+#
+#     - **``connect`` idempotency:** a second call
+#       returns immediately (no FalkorDB import, no
+#       client construction).
+#     - **``connect`` with explicit password:** the
+#       FalkorDB client is constructed with the
+#       password as the third positional argument.
+#     - **``connect`` without password:** the
+#       password kwarg defaults to ``None`` (the
+#       no-password constructor branch).
+#     - **``_resolve_password`` explicit wins:** the
+#       explicit ``password=`` passed to ``__init__``
+#       is returned first, even when the
+#       ``KNT_FALKORDB_PASSWORD`` env var is set.
+#     - **``_resolve_password`` settings wins:** the
+#       ``Settings.falkordb_password`` field wins over
+#       the env var (settings is the framework's
+#       canonical source; the env var is a fallback
+#       for embed scenarios).
+#     - **``_resolve_password`` env var fallback:**
+#       when neither explicit nor settings is set,
+#       the env var is read.
+#     - **``_resolve_password`` returns ``None``:**
+#       when nothing is set, the method returns
+#       ``None`` (and the connect branch at line 130
+#       uses the no-password constructor).
+#     - **``_resolve_password`` settings import
+#       failure:** the method swallows the
+#       ``Settings`` import failure (the test blocks
+#       the import) and falls back to the env var
+#       (or ``None`` if the env var is unset).
+#
+#   The existing ``test_graph_pool.py`` already covers
+#   the helper (``graph_name_for_tenant``), the
+#   ``__init__`` no-connect contract, the
+#   falkordb-missing path, the ``close`` idempotency,
+#   the ``graph()`` returns a ``GraphAdapter`` path,
+#   and the lazy ``connect()`` trigger.
+#
+#   Net delta: 68% → 100% (47 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
+#
+# 3.19  infra/redis/_auth/_cache.py — CLOSED (77% → 100%)
+#
+#   CLOSED in 2026-07-29. The existing
+#   ``tests/unit/infra/redis/_auth/test_cache.py``
+#   covered the cache hit / miss / TTL / error-
+#   propagation paths. The new tests in the same
+#   module cover the remaining branches:
+#
+#     - **Constructor validation:** ``ttl_s=-1`` and
+#       ``maxsize=-1`` raise ``ValueError`` (the
+#       contract is "the contract is honoured — the
+#       cache refuses to construct with a negative
+#       budget").
+#     - **``ttl_s=0`` disables the cache:** every
+#       ``_is_expired`` call returns ``True``, so
+#       every ``lookup`` hits the storage (the
+#       operator's escape hatch for "no caching").
+#     - **Custom clock:** a ``time_fn`` override is
+#       honoured (the cache uses ``time.monotonic``
+#       by default; tests inject a fake clock to
+#       advance time without ``asyncio.sleep``).
+#     - **LRU eviction:** when the cache exceeds
+#       ``maxsize``, the oldest inserted entry is
+#       evicted (``maxsize=0`` is unbounded).
+#     - **``store`` invalidates the cache:** on
+#       success, the next ``lookup`` is a cache
+#       miss; on failure, the cache entry is
+#       preserved (the contract is "invalidate only
+#       on success" — a transient Redis failure must
+#       not evict a valid cached entry).
+#     - **``delete`` invalidates the cache:** same
+#       contract as ``store`` (invalidate on
+#       success, preserve on failure).
+#     - **``clear``** drops every entry and is
+#       idempotent.
+#     - **``size``** property tracks inserts and
+#       starts at zero.
+#
+#   Net delta: 77% → 100% (64 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
