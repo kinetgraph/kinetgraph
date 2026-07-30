@@ -13,13 +13,19 @@ and have no I/O.
 
 This module is a private implementation detail of
 ``_auth``; the public surface is unchanged.
+
+The pre-ADR-017 ``_legacy_principal`` factory was
+removed in 0.10.0 (ADR-017 §7.3). The plain-string
+fallback in ``RedisAPIKeyVerifier`` is now
+``AuthError(kind="malformed")``; deployments with
+legacy bindings must run
+``scripts/migrate_principals.py --apply`` before
+upgrading.
 """
 
 from __future__ import annotations
 
 import hashlib
-
-from ...security import Principal, Role
 
 
 def _digest(api_key: str) -> str:
@@ -34,31 +40,4 @@ def _decode(raw: bytes) -> str:
     return str(raw)
 
 
-def _legacy_principal(agent_id: str) -> Principal:
-    """
-    Build a Principal from a legacy string binding.
-
-    Heuristic for tenant_id (separator is ``.``, not ``/``,
-    to remain compatible with the agent_id character class
-    enforced by the EventLog trust boundary -- see B2):
-
-      - ``tenant-A.agent-1`` -> ``tenant-A``
-      - ``agent-1`` (no separator) -> ``agent-1``
-        (treat the agent_id itself as the tenant,
-        matching the legacy single-tenant convention)
-
-    The role is fixed to ``agent``. There is no way to
-    infer ``admin`` or ``service`` from a string, so
-    deployments with those roles MUST run
-    ``scripts/migrate_principals.py`` to upgrade the
-    binding table before upgrading to 0.10.0.
-
-    The ``key_id`` is set to ``legacy`` to flag audit
-    logs (so operators can grep for unbound keys).
-    """
-    if not agent_id:
-        raise ValueError("legacy agent_id is empty")
-    return Principal.from_agent_id(agent_id, role=Role.agent, key_id="legacy")
-
-
-__all__ = ["_decode", "_digest", "_legacy_principal"]
+__all__ = ["_decode", "_digest"]

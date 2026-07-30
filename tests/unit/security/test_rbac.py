@@ -362,32 +362,28 @@ class TestToolRegistryACL:
 
 
 # ---------------------------------------------------------------------------
-# Legacy verifier fallback
+# Legacy verifier fallback — REMOVED in 0.10.0 (ADR-017 §7.3).
+# Plain-string bindings are now rejected as
+# ``AuthError(kind="malformed", ...)``. The tests below
+# document the new behaviour (rejection + remediation
+# hint) so a future regression that reintroduces the
+# fallback is caught.
 # ---------------------------------------------------------------------------
 
 
-class TestLegacyVerifierFallback:
-    async def test_legacy_string_yields_agent_principal(self):
-        from kntgraph.api.auth import (
-            _legacy_principal,
-        )
+class TestRejectsLegacyBinding:
+    async def test_redis_verifier_rejects_legacy_string(self):
+        """Plain-string bindings (pre-ADR-017) are
+        rejected as malformed in 0.10.0.
 
-        p = _legacy_principal("tenant-A.agent-1")
-        assert p.role == Role.agent
-        assert p.tenant_id == "tenant-A"
-        assert p.key_id == "legacy"
-        assert p.agent_id == "tenant-A.agent-1"
-
-    async def test_legacy_flat_yields_self_as_tenant(self):
-        from kntgraph.api.auth import _legacy_principal
-
-        p = _legacy_principal("agent-1")
-        assert p.tenant_id == "agent-1"
-
-    async def test_redis_verifier_reads_legacy_string(self):
+        Operators must run
+        ``scripts/migrate_principals.py --apply``
+        to upgrade their binding table before
+        upgrading to 0.10.0.
+        """
         import hashlib
 
-        from kntgraph.api.auth import RedisAPIKeyVerifier
+        from kntgraph.api.auth import AuthError, RedisAPIKeyVerifier
 
         server = fakeredis.FakeServer()
         server.connected = True
@@ -397,11 +393,12 @@ class TestLegacyVerifierFallback:
         await redis_client.set(f"knt:api:keys:{digest}", b"tenant-A.agent-1")
         verifier = RedisAPIKeyVerifier.from_redis(redis_client)
         result = await verifier.verify(api_key)
-        assert result.is_ok()
-        principal = result.ok_value()
-        assert principal.agent_id == "tenant-A.agent-1"
-        assert principal.tenant_id == "tenant-A"
-        assert principal.role == Role.agent
+        assert result.is_err()
+        err = result.err_value()
+        assert isinstance(err, AuthError)
+        assert err.kind == "malformed"
+        assert "JSON" in err.message
+        assert "migrate_principals" in err.message
 
     async def test_redis_verifier_reads_json(self):
         import hashlib

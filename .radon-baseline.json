@@ -847,17 +847,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_helpers.py:function:_decode": {
       "complexity": 2,
-      "lineno": 30,
+      "lineno": 36,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_helpers.py:function:_digest": {
       "complexity": 1,
-      "lineno": 25,
-      "rank": "A"
-    },
-    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_helpers.py:function:_legacy_principal": {
-      "complexity": 2,
-      "lineno": 37,
+      "lineno": 31,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_verifier.py:class:APIKeyVerifier": {
@@ -6402,11 +6397,11 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_helpers.py": {
-      "mi": 73.26901394436774,
+      "mi": 100.0,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/_auth/_verifier.py": {
-      "mi": 78.84319889387956,
+      "mi": 78.69595659049517,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/api/auth/__init__.py": {

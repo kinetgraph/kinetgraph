@@ -636,6 +636,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   multi-tick acceptance tests, and the follow-up
   ADR-045 (TTL-based eviction for orphaned requests).
 
+## [0.10.0] — 2026-07-30
+
+### Removed (Breaking)
+- **`_legacy_principal` fallback in `RedisAPIKeyVerifier`
+  (ADR-017 §7.3).** The pre-ADR-017 plain-string
+  binding format (e.g. `b"tenant-A.agent-1"` stored
+  under `knt:api:keys:<sha256>`) is no longer accepted.
+  Such bindings are now rejected as
+  `AuthError(kind="malformed", message=...)` with a
+  remediation hint pointing to
+  `scripts/migrate_principals.py --apply`.
+
+  **Migration**: operators with pre-ADR-017 plain-string
+  bindings MUST run the migration script before
+  upgrading to 0.10.0:
+
+      # Dry-run (prints what would change; safe)
+      python scripts/migrate_principals.py
+
+      # Apply (writes the JSON Principal form to Redis)
+      python scripts/migrate_principals.py --apply
+
+  The script delegates to `Principal.from_agent_id`
+  for the single-tenant derivation (no duplicated
+  heuristic). Idempotent; running twice is a no-op.
+
+  **Affected code**:
+  - `src/kntgraph/api/_auth/_helpers.py`: `_legacy_principal`
+    removed (only `_digest` / `_decode` remain).
+  - `src/kntgraph/api/_auth/_verifier.py`: fallback
+    replaced by `Err(AuthError("malformed", ...))`.
+  - `src/kntgraph/api/auth/__init__.py`: re-export
+    removed; `__all__` trimmed.
+  - `scripts/migrate_principals.py`: refactored to
+    use `Principal.from_agent_id` as the single
+    source of truth for tenant derivation.
+  - `tests/unit/security/test_rbac.py`: legacy
+    helper tests deleted; new
+    `test_redis_verifier_rejects_legacy_string`
+    documents the new (reject) behaviour.
+
+  **KNT_AUTH_MODE flag**: was never implemented (the
+  flag is aspirational per ADR-017 §2.4 / §7.1; no
+  operator could depend on it). The wire-format
+  detection in `_verifier.py:155-180` is the only
+  path that distinguishes JSON from legacy. Closing
+  this removal also retires that pretense: from 0.10.0
+  onward, "legacy" is unambiguously the wire-format
+  fallback (now removed).
+
 ## [0.8.0] — 2026-07-14
 
 ### Added

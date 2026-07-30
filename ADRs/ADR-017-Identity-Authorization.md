@@ -355,6 +355,32 @@ Cons: still role-only — no per-agent ACL; coarse-grained sharing ("all service
 1. `legacy` is deleted.
 2. `Settings.auth_mode` is removed; the framework is Zero-Trust Level 2 by default.
 
+**Status (2026-07-30, knetgraph v0.10.0)**: phase 3
+delivered. The pre-ADR-017 plain-string binding format
+is no longer accepted by `RedisAPIKeyVerifier`; such
+bindings are now rejected as
+`AuthError(kind="malformed", ...)` with a remediation
+hint pointing to `scripts/migrate_principals.py --apply`.
+
+**Note on the `KNT_AUTH_MODE` flag (§2.4, §7.1, §7.2)**: the flag was never implemented. The legacy-vs-zero-trust distinction was, in practice, a wire-format
+distinction handled by `RedisAPIKeyVerifier` (plain
+string → legacy fallback; JSON → zero-trust parse). The
+phase-1/phase-2 work to add `Settings.auth_mode` was
+abbreviated: phase 3 removes the wire-format fallback
+directly, retiring the distinction by closing the
+legacy path. The `Settings.auth_mode` lines above
+(`§2.4`, `§7.1` step 2, `§7.2` step 1) are aspirational
+and remain in the ADR as a historical record only;
+operators never had a runtime knob to flip.
+
+**Migration**:
+  - `scripts/migrate_principals.py` (refactored in
+    0.10.0 to use `Principal.from_agent_id` as the
+    single source of truth for tenant derivation).
+  - `Principal.from_agent_id(agent_id, *, role, key_id)`
+    in `src/kntgraph/security/principal.py` is the
+    canonical factory.
+
 ---
 
 ## 8. References

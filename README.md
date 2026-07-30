@@ -261,6 +261,18 @@ canonical schema is `Settings` in
 
 ## Project status
 
+- `0.10.0` — breaking: removes the `_legacy_principal`
+  fallback in the API key verifier (ADR-017 §7.3).
+  Plain-string bindings (pre-ADR-017) are now rejected
+  as `AuthError(kind="malformed", ...)`. Operators with
+  legacy bindings MUST run
+  `scripts/migrate_principals.py --apply` before
+  upgrading (the script is idempotent and safe to
+  dry-run). The KNT_AUTH_MODE flag that ADR-017 §2.4
+  promised was never implemented; the wire-format
+  detection in `RedisAPIKeyVerifier` is the only path
+  that distinguished JSON from legacy, and that path
+  is now closed.
 - `0.9.0` — current release. Drops the legacy
   `LiteLLMTool` / `ToolInvoker` / `kntgraph.agents.roles`
   paths (the canonical path is

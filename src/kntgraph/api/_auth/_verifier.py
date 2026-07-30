@@ -37,7 +37,7 @@ from ...core.result import Err, Ok, Result
 from ...infra.redis._auth import APIKeyStorage, RedisAPIKeyStorage
 from ...security import Principal
 from ._errors import AuthError
-from ._helpers import _decode, _digest, _legacy_principal
+from ._helpers import _decode, _digest
 
 
 logger = structlog.get_logger()
@@ -113,9 +113,13 @@ class RedisAPIKeyVerifier:
             binding is corrupt (neither valid JSON
             nor a legacy string).
 
-        The legacy string path is preserved for the
+        The legacy string path was preserved for the
         0.9.x migration window and removed in 0.10.0
-        (ADR-017 §7).
+        (ADR-017 §7.3). Plain-string bindings (pre-ADR-017)
+        are now rejected as ``AuthError(kind="malformed")``;
+        operators must run ``scripts/migrate_principals.py
+        --apply`` to upgrade their binding table before
+        upgrading to 0.10.0.
         """
         if not api_key:
             return Err(
@@ -176,8 +180,17 @@ class RedisAPIKeyVerifier:
                     )
                 )
 
-        # Legacy fallback: plain agent_id string.
-        return Ok(_legacy_principal(decoded))
+        # Pre-ADR-017 plain-string bindings are no longer
+        # accepted. Operators must run
+        # ``scripts/migrate_principals.py --apply`` to
+        # upgrade the binding table.
+        return Err(
+            AuthError(
+                "malformed",
+                "API key binding is not valid JSON (legacy plain-string bindings "
+                "are no longer supported; run scripts/migrate_principals.py)",
+            )
+        )
 
 
 __all__ = ["APIKeyVerifier", "RedisAPIKeyVerifier"]
