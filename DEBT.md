@@ -824,6 +824,49 @@ from __future__ import annotations
 #   no untested lines on the public API.
 #
 # ---------------------------------------------------------------------------
+#
+# 3.15  infra/checkpoint.py — CLOSED (42% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/test_checkpoint.py`` covers the
+#   full public surface of ``CheckpointStore`` (5
+#   methods + their storage-error + invalid-payload
+#   paths) and the ``ReactiveCheckpoint`` dataclass
+#   (``to_dict`` / ``from_dict`` round-trip +
+#   ``state_hash`` optional + frozen).
+#
+#     - **``load``:** returns ``None`` on storage miss;
+#       returns ``None`` and logs
+#       ``storage_error`` on storage ``Err``; returns
+#       ``None`` and logs ``invalid_payload`` on
+#       malformed dict (missing ``last_event_id``); the
+#       happy round-trip is asserted against a
+#       ``ReactiveCheckpoint`` built by the test.
+#     - **``save``:** delegates to the storage with
+#       ``checkpoint.to_dict()``; logs ``storage_error``
+#       on storage ``Err`` (the error does NOT raise
+#       out of ``save`` — the dispatcher continues).
+#     - **``clear``:** delegates to the storage; logs
+#       ``storage_error`` on ``Err``.
+#     - **``load_all``:** returns the empty dict on
+#       storage miss; returns ``None`` for any
+#       per-entry decode error (the invalid entries
+#       are skipped with a ``skipped_invalid`` log);
+#       returns ``{}`` on storage ``Err`` (the
+#       dispatcher enumerates whatever survived the
+#       partial load).
+#     - **``clear_all``:** delegates to the storage;
+#       logs ``storage_error`` on ``Err``.
+#
+#   The structlog/caplog bridge is exercised via an
+#   autouse fixture that reconfigures structlog to
+#   write through the stdlib ``logging`` tree (so the
+#   emitted records flow into pytest's ``caplog``);
+#   the original config is restored on teardown.
+#
+#   Net delta: 42% → 100% (64 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
