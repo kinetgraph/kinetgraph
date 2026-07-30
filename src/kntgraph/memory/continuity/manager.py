@@ -447,15 +447,6 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         """Encode a ContinuityState to a Hash mapping for ``HSET``."""
         return serialize_for_cache(state)
 
-    def _store_cache(
-        self,
-        key: str,
-        payload: object,
-        ttl: Optional[int],
-    ) -> None:
-        """Deprecated hook — the storage layer handles writes now."""
-        return None
-
     # ------------------------------------------------------------------ base hooks (fold)
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]

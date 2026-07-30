@@ -51,12 +51,6 @@ __all__ = [
 ]
 
 
-# ``R`` and ``P`` are kept as the legacy type variables
-# so existing imports (`from kntgraph.agents.tools.protocol
-# import R, P`) continue to work.
-from kntgraph.tools.protocol import R, P  # noqa: E402, F401
-
-
 # ---------------------------------------------------------------------------
 # Request / Response event types (legacy, vertical-specific)
 # ---------------------------------------------------------------------------

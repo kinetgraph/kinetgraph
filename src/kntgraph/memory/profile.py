@@ -359,15 +359,6 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
             mapping[f"pref:{k}"] = str(v)
         return mapping
 
-    def _store_cache(
-        self,
-        key: str,
-        payload: object,
-        ttl: Optional[int],
-    ) -> None:
-        """Deprecated hook — the storage layer handles writes now."""
-        return None
-
     # ------------------------------------------------------------------ base hooks (fold)
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
