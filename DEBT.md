@@ -465,7 +465,7 @@ from __future__ import annotations
 # Coverage by subpackage (unit tests only — integration
 # tests are skipped in this CI run):
 #
-#   memory/cache_warmer.py            43%   ← weakest in memory
+#   memory/cache_warmer.py           100%   ← closed 2026-07-29 (was 43%)
 #   memory/consolidation.py           97%   ← closed 2026-07-29 (was 32%)
 #   memory/continuity/cache_codec.py  74%   ← bytes-vs-JSON branch
 #   memory/continuity/manager.py      69%   ← PII gate + entity
@@ -475,17 +475,43 @@ from __future__ import annotations
 #   events/dlq/store.py               79%   ← XINFO error branch
 #   events/dlq/actions.py            86%
 #
-# 3.1  memory/cache_warmer.py (43%)
+# 3.1  memory/cache_warmer.py — CLOSED (43% → 100%)
 #
-#   The CacheWarmer consumes a Redis pubsub channel that
-#   needs a real Redis (or a pubsub-capable fakeredis) to
-#   exercise the hot path. The current unit tests mock
-#   the bus.
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/memory/test_cache_warmer.py`` covers
+#   every public surface of the module:
 #
-#   Action: add an integration test in
-#           ``tests/integration/memory/test_cache_warmer.py``
-#           that uses fakeredis-pubsub. The infrastructure
-#           already exists (see ``conftest.py::real_redis``).
+#     - ``CacheRefreshRequest`` — the three kind factories
+#       (session / profile / continuity) with default and
+#       explicit id2.
+#     - ``CacheRefreshBus`` — empty on init, ``publish``
+#       enqueues, ``drain`` returns and clears, ``drain``
+#       after ``publish`` keeps new requests, ``__repr__``
+#       shows the pending count.
+#     - ``CacheWarmer.pump_once`` — empty bus returns 0;
+#       session / profile / continuity requests are
+#       applied to the right manager; continuity is
+#       silently skipped when the manager is unconfigured
+#       (the warning log fires); a raising manager does
+#       NOT abort the rest of the batch (the
+#       ``# noqa: BLE001`` branch is exercised with
+#       ``AsyncMock(side_effect=RuntimeError)``); the
+#       bus is drained after processing.
+#     - ``CacheWarmer.run_forever`` — pumps the bus on
+#       a cooperative loop until ``asyncio.CancelledError``
+#       lands; the cancel handler drains the bus one
+#       last time before re-raising (so the last batch
+#       is not lost). Verified by counting ``pump_once``
+#       invocations across at least two ticks.
+#
+#   The tests use the real ``EventLog`` +
+#   ``SessionManager`` / ``ProfileManager`` /
+#   ``ContinuityManager`` against fakeredis
+#   (AGENTS.md §7.1 — behaviour tests, not mocks). The
+#   only mocked surface is the one ``AsyncMock`` that
+#   forces a ``RuntimeError`` on the session manager
+#   to exercise the error branch of ``pump_once``.
+#   Net delta: 43% → 100% (61 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
 #
