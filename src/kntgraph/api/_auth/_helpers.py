@@ -51,7 +51,7 @@ def _legacy_principal(agent_id: str) -> Principal:
     infer ``admin`` or ``service`` from a string, so
     deployments with those roles MUST run
     ``scripts/migrate_principals.py`` to upgrade the
-    binding table before upgrading to 0.9.0.
+    binding table before upgrading to 0.10.0.
 
     The ``key_id`` is set to ``legacy`` to flag audit
     logs (so operators can grep for unbound keys).

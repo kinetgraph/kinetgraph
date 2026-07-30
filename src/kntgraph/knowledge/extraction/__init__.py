@@ -45,9 +45,11 @@ The output of an extractor is consumed by:
     ``Problem.tags_json`` from the tool event payload.
     The Solution tier path; see ADR-010 §2.5 and §3.
 
-  - The ``SemanticRoutingRole`` in
-    :mod:`kntgraph.agents.roles.semantic_router` for intent
-    dispatch (ADR-013).
+  - The ECS-shaped ``SemanticRoutingRoleSystem`` (in
+    :mod:`kntgraph.agents.role_systems`) for intent
+    dispatch (ADR-013). The legacy
+    ``kntgraph.agents.roles`` package and its
+    ``SemanticRoutingRole`` were removed in v0.9.0.
 
 The Protocol is intentionally minimal. The same Protocol
 is used across tiers so that an application can plug a
