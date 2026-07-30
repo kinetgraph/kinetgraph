@@ -182,7 +182,8 @@ class LiteLLMTransportAdapter(LLMTransport):
     FalkorDBGraphAdapter, OllamaEmbeddingAdapter).
 
     Most callers should NOT construct this directly —
-    use ``LLMClient`` (the facade) which holds a
+    the canonical entry point is ``LiteLLMToolWorker``
+    (``@tool_worker(name="chat_llm")``), which holds a
     reference to a low-level adapter and delegates
     every call.
 
