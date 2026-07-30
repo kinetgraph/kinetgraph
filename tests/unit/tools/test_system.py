@@ -115,3 +115,21 @@ def test_tool_aware_system_unknown_request():
     assert system.is_pending(view, "unknown") is False
     assert system.get_request(view, "unknown") is None
     assert system.get_completion(view, "unknown") is None
+
+
+def test_request_tool_without_correlation_raises():
+    """Per ADR-037, ``request_tool`` must receive a
+    non-None ``correlation``; the call raises
+    ``TypeError`` otherwise (the framework's contract
+    is fail-fast on the missing flow id)."""
+    system = ToolAwareSystem()
+    import pytest
+
+    with pytest.raises(TypeError, match="correlation"):
+        system.request_tool(
+            agent_id="a-1",
+            tool_name="math_doubler",
+            params={"x": 2},
+            causation_id=str(uuid.uuid4()),
+            correlation=None,  # type: ignore[arg-type]
+        )

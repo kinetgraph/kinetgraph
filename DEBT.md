@@ -790,6 +790,40 @@ from __future__ import annotations
 #   Net delta: 89% → 100% (65 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
+#
+# 3.12  tools/schema.py — CLOSED (94% → 100%)
+# 3.13  tools/system.py — CLOSED (96% → 100%)
+# 3.14  tools/worker.py — CLOSED (98% → 100%)
+#
+#   CLOSED in 2026-07-29. The three files are pure
+#   framework primitives (no Redis, no asyncio, no
+#   external state) and the 5 missed lines across the
+#   three were defensive branches reachable only via
+#   malformed inputs:
+#
+#     - ``schema.py`` (94% → 100%): the ``format`` field
+#       on a property is dropped to ``None`` if it is
+#       not a string (the field is otherwise valid).
+#       ``compute_schema_version`` falls back to an
+#       empty ``required`` array when ``schema.required``
+#       is a non-list, and to an empty ``properties``
+#       dict when ``schema.properties`` is a non-dict
+#       (the contract is "fall back to the safe
+#       default" so the cache key stays deterministic).
+#     - ``system.py`` (96% → 100%): per ADR-037,
+#       ``ToolAwareSystem.request_tool`` raises
+#       ``TypeError`` when ``correlation`` is ``None``
+#       (fail-fast on the missing flow id).
+#     - ``worker.py`` (98% → 100%): the
+#       ``@tool_worker`` decorator rejects an
+#       ``invoke`` whose ``idempotency_key`` parameter
+#       is positional-only (the Worker's
+#       ``invoke(**kwargs)`` call would never bind it).
+#
+#   Net delta: 5 new tests; the three files now have
+#   no untested lines on the public API.
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
