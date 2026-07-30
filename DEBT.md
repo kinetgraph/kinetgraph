@@ -867,6 +867,36 @@ from __future__ import annotations
 #   Net delta: 42% → 100% (64 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
+#
+# 3.16  infra/redis/_codec.py — CLOSED (64% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/infra/redis/test_codec.py`` covers the
+#   three pure boundary codecs:
+#
+#     - **``decode_value``:** ``None`` unchanged;
+#       ``bytes`` decoded as UTF-8 (including the empty
+#       ``b""`` → ``""`` edge case and a multi-byte
+#       unicode round-trip); ``str`` passes through.
+#     - **``decode_dict``:** bytes / str / mixed keys
+#       and values all coerce correctly; a ``None``
+#       value coerces to ``""`` (the "Redis returned
+#       no value" sentinel); a ``None`` key is skipped
+#       (Redis never returns ``None`` keys but the
+#       codec is defensive); an empty dict returns
+#       empty; a unicode value round-trips.
+#     - **``decode_int_dict``:** bytes / str / int
+#       values all coerce to ``int``; a ``None`` value
+#       falls back to ``0`` (the "missing" sentinel);
+#       an unparseable value (str or bytes) falls
+#       back to ``0`` (the codec is defensive — a
+#       malformed integer must not crash the call
+#       site); an empty dict returns empty; a
+#       ``None`` key is skipped; mixed keys work.
+#
+#   Net delta: 64% → 100% (33 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
