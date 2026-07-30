@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Optional
+from typing import Optional, cast
 
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...resilience import CircuitBreaker
@@ -67,7 +67,7 @@ async def dispatch_redis_call(
         breaker_result = await circuit_breaker.call(redis_call)
         if breaker_result.is_err():
             return Err(PersistenceError(f"circuit_open:{breaker_result.err_value()}"))
-        return Ok(breaker_result.ok_value())
+        return Ok(cast(bytes, breaker_result.ok_value()))
 
     from ...resilience import with_timeout_and_retry
 
@@ -79,7 +79,7 @@ async def dispatch_redis_call(
                 timeout_seconds=append_timeout_seconds,
                 backoff=backoff,
             )
-            return Ok(stream_id)
+            return Ok(cast(bytes, stream_id))
         except (
             asyncio.TimeoutError,
             ConnectionError,

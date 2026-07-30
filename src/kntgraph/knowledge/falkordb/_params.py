@@ -15,13 +15,14 @@ guideline.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
 from ...core.event import Event
 from ...core.tool_event import ToolEventKind
 
 
 def _agent_node_params(
-    agent_id: str, events: list[Event], *, tenant_id: str
+    agent_id: str, events: Sequence[Event], *, tenant_id: str
 ) -> dict[str, str]:
     """
     Build the params dict consumed by ``MERGE (a:Agent ...)``.

@@ -42,7 +42,7 @@ from typing import TYPE_CHECKING, Optional
 from kntgraph.core.result import ToolError
 from kntgraph.infra.config import fresh_settings
 from kntgraph.knowledge.extraction.argument._coerce import coerce
-from kntgraph.knowledge.extraction.argument._finder import FieldFinder
+from kntgraph.knowledge.extraction.argument._finder import FieldFinder, FieldValue
 from kntgraph.knowledge.extraction.base import (
     ArgExtraction,
     ArgumentExtractor,
@@ -142,7 +142,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
     def _collect_results(
         self,
         fields: list[FieldSpec],
-        results: list[object],
+        results: list[tuple[FieldValue, float] | BaseException | None],
         tool_name: str,
         version: str,
     ) -> ArgExtraction:

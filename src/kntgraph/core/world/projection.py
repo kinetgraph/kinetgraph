@@ -160,7 +160,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
             last_event_at=event.timestamp,
         )
     # "domain"
-    new_components = _extract_components_from_event(event)
+    new_components: dict[Any, Any] = dict(_extract_components_from_event(event))
     # Preserve derived components (tool slots,
     # memory components) from the previous view.
     # See :data:`_DERIVED_COMPONENT_KEYS` and
@@ -169,7 +169,6 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         k: v for k, v in prev.components.items() if _is_derived_component_key(k)
     }
     if preserved:
-        new_components = dict(new_components)
         new_components.update(preserved)
     return AgentView(
         agent_id=event.agent_id,

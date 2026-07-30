@@ -35,6 +35,7 @@ the §3.1 500-L guideline. The helpers depend on
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Optional, cast, Any
 
 from kntgraph.core.event import Event
@@ -129,7 +130,11 @@ def _overlay_tool_projection(
             new_views = dict(world.views)
         new_views[agent_id] = tool_view
         new_storage = new_storage.clone_with_entity(
-            agent_id, cast(dict[str, Any], dict(tool_view.components))
+            agent_id,
+            cast(
+                "Mapping[str | type[Any], Any]",
+                dict(tool_view.components),
+            ),
         )
     if new_views is None:
         return world

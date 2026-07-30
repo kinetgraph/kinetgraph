@@ -40,6 +40,7 @@ from ._protocol import (
     DEFAULT_PARAPHRASE_MULTILINGUAL_MODEL,
     EmbeddingTimeoutError,
     OllamaClient,
+    OllamaEmbeddingResponse,
 )
 
 
@@ -211,7 +212,7 @@ class OllamaEmbeddingAdapter:
             raise TypeError(f"text must be str, got {type(text).__name__}")
         client = self._get_client()
 
-        def _call() -> dict:
+        def _call() -> OllamaEmbeddingResponse:
             return client.embeddings(model=self._model, prompt=text)
 
         async with self._client_lock:
@@ -263,7 +264,7 @@ class OllamaEmbeddingAdapter:
 
     @staticmethod
     def _extract_vector(
-        response: "dict[str, object] | _OllamaResponse",
+        response: "dict[str, object] | _OllamaResponse | OllamaEmbeddingResponse",
     ) -> list[float]:
         """
         Pull the embedding vector out of the Ollama response.
