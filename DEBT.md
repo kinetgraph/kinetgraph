@@ -745,6 +745,51 @@ from __future__ import annotations
 #   Net delta: 38% → 100% (26 stmts, 0 missed).
 #
 # ---------------------------------------------------------------------------
+#
+# 3.11  tools/registry.py — CLOSED (89% → 100%)
+#
+#   CLOSED in 2026-07-29. The new test module
+#   ``tests/unit/tools/test_registry.py`` covers the
+#   full public surface of ``ToolRegistry`` plus the
+#   private ``_schema_to_json`` helper. The
+#   ``list_descriptors`` method is also covered (the
+#   existing ``test_list_descriptors.py`` covers the
+#   schema round-trip + the unserialisable branch).
+#
+#     - **``__init__``:** the two internal dicts
+#       (``_tools`` + ``_acls``) start empty.
+#     - **``register``:** default ACL is assigned
+#       when none is passed; custom ACL is honoured;
+#       ``register_with_acl`` is the convenience
+#       wrapper; duplicate name raises ``ValueError``
+#       (and the registry's internal state is NOT
+#       mutated by the failed second call — the
+#       original ACL is preserved).
+#     - **``set_acl``:** replaces the ACL on an
+#       already-registered tool; raises ``KeyError``
+#       for an unknown tool.
+#     - **``acl_for``:** returns the ACL for a
+#       registered tool, or ``None`` for an unknown
+#       one.
+#     - **``unregister``:** removes the tool and the
+#       ACL; unknown tool is a silent no-op.
+#     - **Introspection (``get`` / ``names`` /
+#       ``tools`` / ``__contains__`` / ``__len__``):**
+#       every accessor and dunder is exercised in the
+#       happy and the unknown paths.
+#     - **``_schema_to_json``:** ``None`` schema →
+#       ``"{}"``; valid dict → round-trip; a non-
+#       serialisable object (whose ``__repr__`` raises)
+#       → ``None`` (logged); an object whose ``__repr__``
+#       returns the ``<...object at 0x...>`` pattern
+#       → ``None`` (logged); a payload that
+#       ``json.dumps`` accepts but ``json.loads`` rejects
+#       → ``None`` (logged — reached by monkey-patching
+#       ``json.dumps`` to return a non-JSON string).
+#
+#   Net delta: 89% → 100% (65 stmts, 0 missed).
+#
+# ---------------------------------------------------------------------------
 
 # 4. LOW: TOOLING
 # ---------------------------------------------------------------------------
