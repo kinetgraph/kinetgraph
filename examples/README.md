@@ -30,6 +30,7 @@ directly with `python` or via `uv run`.
 | 07 | `07_caching_transport.py`             | `CachingLLMTransport` for at-most-once LLM calls                                                   | `agents`             |
 | 08 | `08_falkordb_projection.py`           | FalkorDB projection of the Document subgraph + `vector_search`                                    | core                 |
 | 09 | `09_knowledge_consolidation.py`       | `SolutionExtractor` + PII gate + hybrid retrieval (ADR-010)                                       | core                 |
+| 09b | `09b_solution_lookup_zta.py`         | Zero Token Architecture: `RuleBasedChatSystem` + `SolutionLookupSystem` (ADR-049)                  | core + `agents`      |
 | 10 | `10_http_intent_router.py`            | External HTTP gateway: `tool.{name}.requested` via REST + API key (ADR-012)                       | core                 |
 | 11 | `11_tool_invoker.py`                  | `ToolInvoker` consuming `tool.{name}.requested` from EventLog, dispatching to `LiteLLMTool`     | core + `agents`      |
 | 12 | `12_semantic_routing.py`              | `SemanticRoutingRole` (M1) + M2 hook + 4 scenarios (routed/extracted, routed/empty, …)            | core + `agents`      |

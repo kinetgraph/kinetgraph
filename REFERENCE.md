@@ -106,7 +106,15 @@ the `agents` namespace.
   class), `BaseSettings`, helpers.
 - [`kntgraph.infra.redis`](src/kntgraph/infra/redis/)
   — `RedisLike` Protocol, factory functions,
-  world-checkpoint store.
+  world-checkpoint store. The
+  [`_memory` sub-package](src/kntgraph/infra/redis/_memory/)
+  ships the four short-memory adapters
+  (`RedisSessionStorage` / `RedisProfileStorage` /
+  `RedisContinuityStorage` / `RedisSolutionStore`).
+  `RedisSolutionStore` (v0.10.0, ADR-049) is the
+  read-side cache for the Solution tier; wire format
+  is one Hash per tool
+  (`knt:solution:<tool_name>`).
 - [`kntgraph.infra.hashing`](src/kntgraph/infra/hashing.py)
   — `short_hash` (SHA-256 truncated to 16 hex
   chars).
@@ -170,6 +178,28 @@ the `agents` namespace.
   — `SolutionExtractorSystem`,
   `SolutionPromoterSystem`, the Solution tier
   (ADR-010, ADR-034).
+- [`kntgraph.agents.memory.solution_lookup`](src/kntgraph/agents/memory/solution_lookup.py)
+  — `SolutionLookupSystem`, the read-side cache
+  (ZTA principle 3; ADR-049). Synthesises
+  `tool.<name>.completed` events from a
+  `SolutionStoreLike` adapter — `InMemorySolutionStore`
+  (tests / `09b` example) or `RedisSolutionStore`
+  (production; ships in v0.10.0).
+
+### `role_systems` — chat / planner / summarizer / personalised + ZTA
+
+- [`kntgraph.agents.role_systems`](src/kntgraph/agents/role_systems/)
+  — `ChatRoleSystem` / `PlannerRoleSystem` /
+  `SummarizerRoleSystem` / `PersonalizedRoleSystem`
+  (ADR-039 + ADR-043 + ADR-044; the canonical
+  ECS-shaped replacements for the deprecated
+  `agents/roles/` synchronous Roles removed in
+  v0.9.0).
+- `RuleBasedChatSystem` + `ChatRule` — the
+  deterministic, no-LLM chat path (ZTA principle 2;
+  ADR-049). Stack BEFORE `ChatRoleSystem` in the
+  dispatcher to short-circuit `user.intent` events
+  with per-tenant rules.
 
 ### `config` — agents-level config
 
@@ -274,5 +304,8 @@ release ships).
   run.
 - [Architecture](docs/architecture.md) — the
   three pillars.
+- [Zero Token Architecture](docs/zta.md) —
+  `RuleBasedChatSystem` + `SolutionLookupSystem`
+  (ADR-049).
 - [ADRs](ADRs/) — the full list of architecture
   decisions.

@@ -66,21 +66,20 @@ Migration cheat-sheet:
     # Emit a ``user.intent`` event; the system handles
     # the rest. The ``chat.reply.generated`` event lands
     # in a later tick with the typed ``ChatReply`` payload.
+
+ADR-049 adds :class:`RuleBasedChatSystem`, the no-LLM
+path that short-circuits ``user.intent`` events with
+deterministic responses (Zero Token Architecture).
 """
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
-
 from pydantic import BaseModel
 
 from kntgraph.core.components.memory import SessionComponent
-from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.result import Err, Ok, Result, ToolError
-from kntgraph.core.world import World
-from kntgraph.tools.system import ToolAwareSystem
+from kntgraph.core.result import Ok, Result, ToolError
 
+from ._base import _BaseRoleSystem
 from ._prompts import (
     CHAT_SYSTEM_PROMPT,
     PLANNER_SYSTEM_PROMPT,
@@ -90,22 +89,22 @@ from ._prompts import (
     Summary,
     build_personalized_system_prompt,
     format_chat_history,
-    parse_role_output,
 )
+from ._rule_based import ChatRule, RuleBasedChatSystem
 
 
 __all__ = [
     "ChatRoleSystem",
+    "ChatRule",
     "PlannerRoleSystem",
+    "RuleBasedChatSystem",
     "SummarizerRoleSystem",
     "PersonalizedRoleSystem",
 ]
 
 
 # Domain event types emitted by the role systems when the
-# LLM reply has been parsed into a typed model. The
-# frameworks' downstream systems (e.g. the
-# ``session_recorder`` tool) can subscribe to these.
+# LLM reply has been parsed into a typed model.
 EVENT_TYPE_CHAT_REPLY_GENERATED = "chat.reply.generated"
 EVENT_TYPE_PLAN_GENERATED = "plan.generated"
 EVENT_TYPE_SUMMARY_GENERATED = "summary.generated"
@@ -119,299 +118,6 @@ EVENT_TYPE_SUMMARY_REQUEST = "summary.request"
 EVENT_TYPE_PERSONALIZED_REQUEST = "personalized.request"
 
 
-class _BaseRoleSystem(ToolAwareSystem):
-    """
-    Shared machinery for the role systems.
-
-    A role system has two phases:
-
-      1. **Request phase**: a new domain event lands
-         (``user.intent`` / ``plan.request`` / etc.). The
-         system emits a ``tool.chat_llm.requested`` event
-         with the role's prompt.
-
-      2. **Completion phase**: the LLM responds (in a
-         later tick). The system parses the JSON reply
-         into the role's typed output and emits the
-         domain event (``chat.reply.generated`` etc.).
-
-    The system tracks per-(agent_id, request_event_id) state
-    to correlate the completion back to the request
-    (the completion's ``causation_id`` is the request's
-    ``event_id``; the framework's tool-call overlay
-    accumulates both across ticks — see ADR-044).
-
-    The system REUSES the legacy role's
-    ``SYSTEM_PROMPT`` and input-formatting helpers so
-    the prompt engineering lives in one place.
-    """
-
-    TOOL_NAME = "chat_llm"
-    REQUEST_EVENT_TYPE: str = ""
-    GENERATED_EVENT_TYPE: str = ""
-    OUTPUT_MODEL: type[BaseModel] = BaseModel
-
-    def __init__(self) -> None:
-        # ``request_event_id`` -> user message (or
-        # task / text) that triggered the request.
-        # Recovered at completion time because the
-        # ``user.intent`` component on the view is
-        # replaced by the ``tool.chat_llm.completed``
-        # event's payload (last-event-wins; the
-        # default domain projection is documented in
-        # ``projection._apply_event``).
-        self._pending_inputs: dict[str, str] = {}
-        # ``request_event_id`` -> the ``agent_id`` the
-        # request was emitted for (so the completion
-        # phase emits the generated event on the same
-        # agent).
-        self._pending_agents: dict[str, str] = {}
-        # The ``last_event_id`` per agent; used to detect
-        # a new domain event landing in this tick.
-        self._last_seen_event_id: dict[str, str] = {}
-
-    # -- request phase --
-
-    def _build_system_prompt(self) -> str:
-        """Override in subclasses to add persona / locale."""
-        return ""
-
-    def _build_user_prompt(
-        self, view, session: SessionComponent | None, new_input: str
-    ) -> str:
-        """Override in subclasses to format the input.
-
-        The default implementation just returns the raw
-        ``new_input`` (suitable for the planner /
-        summarizer roles, which do not need a session
-        transcript). The chat role overrides this to
-        format the full message history.
-        """
-        return new_input
-
-    def _is_request_event(self, view, event_id: str | None) -> bool:
-        """True if the last folded event on the view is
-        a domain event this role system reacts to.
-
-        The default rule: the ``view.components`` map
-        has a key matching the role's request event
-        type (last-event-wins). Subclasses can override
-        for richer semantics.
-        """
-        if event_id is None:
-            return False
-        if not self.REQUEST_EVENT_TYPE:
-            return False
-        # The default rule is "the request event type
-        # is a key in the view's components" — true
-        # when the user.intent (or equivalent) was
-        # the last domain event folded in this tick.
-        # If a tool event landed in the same batch,
-        # the components map has a different key
-        # (e.g. ``tool.chat_llm.requested``); in that
-        # case the request phase is a no-op (the
-        # completion phase handles the response).
-        return self.REQUEST_EVENT_TYPE in view.components
-
-    def _read_new_input(self, view) -> str:
-        """Read the new user input from the view.
-
-        Default: the ``REQUEST_EVENT_TYPE`` component
-        on the view. Subclasses can override for richer
-        extraction (e.g. ``view.components[REQUEST_EVENT_TYPE]["message"]``).
-        """
-        data = view.components.get(self.REQUEST_EVENT_TYPE, {})
-        if isinstance(data, dict):
-            # Common shapes: ``{"message": "..."}``,
-            # ``{"task": "..."}``, ``{"text": "..."}``.
-            for k in ("message", "task", "text", "input"):
-                v = data.get(k)
-                if isinstance(v, str):
-                    return v
-            return str(data)
-        return ""
-
-    # -- completion phase --
-
-    def _parse_completion(self, text: str) -> Result[BaseModel, ToolError]:
-        """Parse the LLM's JSON reply into the role's
-        typed output model. Returns ``Err(ToolError)`` on
-        parse failure (so the system can emit a
-        ``<role>.generation_failed`` event downstream).
-        """
-        try:
-            return Ok(parse_role_output(text, self.OUTPUT_MODEL))
-        except Exception as e:
-            return Err(ToolError(f"{self.GENERATED_EVENT_TYPE}_parse_error: {e}"))
-
-    # -- WorldSystem --
-
-    def __call__(self, world: World) -> list[Event]:
-        events: list[Event] = []
-        for agent_id, view in world.views.items():
-            if not isinstance(view.components, dict):
-                continue
-            last_eid = view.last_event_id
-            is_new_event = self._is_new_event(agent_id, last_eid)
-
-            session = view.components.get(SessionComponent)
-            if session is None and self.REQUEST_EVENT_TYPE == EVENT_TYPE_USER_INTENT:
-                # The chat role requires a session.
-                continue
-
-            if is_new_event and self._is_request_event(view, last_eid):
-                request_event = self._build_request_event(agent_id, view, session)
-                if request_event is not None:
-                    events.append(request_event)
-                continue
-
-            events.extend(self._consume_pending_completions(agent_id, view))
-        return events
-
-    # -- internals --
-
-    def _is_new_event(self, agent_id: str, last_eid: Any) -> bool:
-        """True when ``last_eid`` differs from the last
-        event_id the system saw for this agent. Updates
-        the seen map as a side effect (the caller's loop
-        relies on the ``is_new_event`` flag to decide
-        whether to fire the request phase)."""
-        previous = self._last_seen_event_id.get(agent_id)
-        is_new = previous != last_eid
-        if is_new and last_eid:
-            self._last_seen_event_id[agent_id] = last_eid
-        return is_new
-
-    def _build_request_event(
-        self,
-        agent_id: str,
-        view,
-        session: SessionComponent | None,
-    ) -> Event | None:
-        """Build the ``tool.chat_llm.requested`` event for
-        a new request. Returns ``None`` if the input is
-        empty (the system skips an empty request)."""
-        new_input = self._read_new_input(view)
-        if not new_input:
-            return None
-        return self._emit_request(agent_id, view, session, new_input)
-
-    def _consume_pending_completions(self, agent_id: str, view) -> list[Event]:
-        """Walk the view's completions, pop the ones we
-        emitted, and return the downstream events
-        (success or parse-failure). The completion that
-        was emitted by another system stays in
-        ``_pending_inputs`` / ``_pending_agents`` and is
-        handled by its own role system."""
-        events: list[Event] = []
-        for rid, comp in self._consume_completion(view):
-            pending_input = self._pending_inputs.pop(rid, None)
-            pending_agent = self._pending_agents.pop(rid, agent_id)
-            if pending_input is None:
-                continue
-            events.append(
-                self._build_completion_event(rid, comp, pending_input, pending_agent)
-            )
-        return events
-
-    def _build_completion_event(
-        self,
-        rid: str,
-        comp: Any,
-        pending_input: str,
-        pending_agent: str,
-    ) -> Event:
-        """Build the domain event for a single completion:
-        either the success event (with the typed output)
-        or the ``.failed`` variant (with the parse
-        error), so downstream systems can react
-        uniformly to both shapes."""
-        parsed = self._parse_completion((comp.result or {}).get("text", ""))
-        if parsed.is_err():
-            return Event.create(
-                event_type=f"{self.GENERATED_EVENT_TYPE}.failed",
-                agent_id=pending_agent,
-                event_class="domain",
-                data={
-                    "request_event_id": rid,
-                    "error": str(parsed.err_value_or_raise()),
-                },
-                causation_id=UUID(rid),
-                correlation=CorrelationContext.new(),
-            )
-        return Event.create(
-            event_type=self.GENERATED_EVENT_TYPE,
-            agent_id=pending_agent,
-            event_class="domain",
-            data={
-                "request_event_id": rid,
-                "output": parsed.unwrap().model_dump(),
-                "input": pending_input,
-            },
-            causation_id=UUID(rid),
-            correlation=CorrelationContext.new(),
-        )
-
-    # -- internals (existing) --
-
-    def _emit_request(
-        self,
-        agent_id: str,
-        view,
-        session: SessionComponent | None,
-        new_input: str,
-    ) -> Event | None:
-        """Emit the ``tool.chat_llm.requested`` event.
-
-        Captures the new input and the agent_id so the
-        completion phase can recover them. Returns the
-        event (or ``None`` if the input is empty).
-        """
-        user_prompt = self._build_user_prompt(view, session, new_input)
-        system = self._build_system_prompt()
-        # Build the correlation. We use the last folded
-        # event_id as the correlation_id so the
-        # completion can be joined to the request.
-        last_eid = view.last_event_id
-        correlation = CorrelationContext(correlation_id=UUID(str(last_eid)))
-        e = self.request_tool(
-            agent_id=agent_id,
-            tool_name=self.TOOL_NAME,
-            params={
-                "system": system,
-                "user": user_prompt,
-            },
-            causation_id=str(last_eid),
-            correlation=correlation,
-        )
-        self._pending_inputs[str(e.event_id)] = new_input
-        self._pending_agents[str(e.event_id)] = agent_id
-        return e
-
-    def _consume_completion(self, view) -> list[tuple[str, Any]]:
-        """Find chat_llm completions on the view that
-        were emitted by THIS system.
-
-        A completion is "ours" if the
-        ``request_event_id`` is in
-        ``self._pending_agents``. The framework's
-        tool-call overlay accumulates both requests and
-        completions across ticks (ADR-044), so a
-        completion that landed in a previous tick is
-        still on the view.
-        """
-        tool_completions = view.components.get("tool_completions", {})
-        if not isinstance(tool_completions, dict):
-            return []
-        out: list[tuple[str, Any]] = []
-        for rid, comp in tool_completions.items():
-            if comp.status != "completed":
-                continue
-            if rid in self._pending_agents:
-                out.append((rid, comp))
-        return out
-
-
 # ---------------------------------------------------------------------------
 # ChatRoleSystem
 # ---------------------------------------------------------------------------
@@ -420,27 +126,6 @@ class _BaseRoleSystem(ToolAwareSystem):
 class ChatRoleSystem(_BaseRoleSystem):
     """
     ECS-shaped ``ChatRole`` (ADR-039 + ADR-043 + ADR-044).
-
-    The system reads the ``SessionComponent`` from the
-    ``AgentView`` and emits a ``tool.chat_llm.requested``
-    event with the role's ``SYSTEM_PROMPT`` and the
-    formatted transcript. When the LLM response arrives
-    in a subsequent tick, the system parses the JSON
-    reply into a ``ChatReply`` and emits a
-    ``chat.reply.generated`` event with the typed
-    output.
-
-    Usage:
-
-        system = ChatRoleSystem(persona="...")
-        dispatcher = ReactiveDispatcher(
-            log=log,
-            systems=[system],
-            ...
-        )
-        # Emit ``user.intent`` events; the system handles
-        # the rest. ``chat.reply.generated`` events
-        # land in later ticks.
     """
 
     REQUEST_EVENT_TYPE = EVENT_TYPE_USER_INTENT
@@ -478,13 +163,6 @@ class ChatRoleSystem(_BaseRoleSystem):
 class PlannerRoleSystem(_BaseRoleSystem):
     """
     ECS-shaped ``PlannerRole``.
-
-    The system reacts to ``plan.request`` events. The
-    event payload is ``{"task": "..."}``; the system
-    emits a ``tool.chat_llm.requested`` event and parses
-    the LLM's response into a ``Plan`` when the
-    completion lands. The typed output is emitted as
-    ``plan.generated``.
     """
 
     REQUEST_EVENT_TYPE = EVENT_TYPE_PLAN_REQUEST
@@ -497,14 +175,6 @@ class PlannerRoleSystem(_BaseRoleSystem):
     def _build_system_prompt(self) -> str:
         return PLANNER_SYSTEM_PROMPT
 
-    def _read_new_input(self, view) -> str:
-        # ``plan.request`` carries the task in
-        # ``data["task"]``. The default ``_read_new_input``
-        # returns the first string-valued key it finds
-        # (``message`` / ``task`` / ``text`` / ``input``);
-        # ``task`` matches.
-        return super()._read_new_input(view)
-
 
 # ---------------------------------------------------------------------------
 # SummarizerRoleSystem
@@ -514,13 +184,6 @@ class PlannerRoleSystem(_BaseRoleSystem):
 class SummarizerRoleSystem(_BaseRoleSystem):
     """
     ECS-shaped ``SummarizerRole``.
-
-    The system reacts to ``summary.request`` events. The
-    event payload is ``{"text": "..."}``; the system
-    emits a ``tool.chat_llm.requested`` event and parses
-    the LLM's response into a ``Summary`` when the
-    completion lands. The typed output is emitted as
-    ``summary.generated``.
     """
 
     REQUEST_EVENT_TYPE = EVENT_TYPE_SUMMARY_REQUEST
@@ -533,9 +196,6 @@ class SummarizerRoleSystem(_BaseRoleSystem):
     def _build_system_prompt(self) -> str:
         return SUMMARIZER_SYSTEM_PROMPT
 
-    def _read_new_input(self, view) -> str:
-        return super()._read_new_input(view)
-
 
 # ---------------------------------------------------------------------------
 # PersonalizedRoleSystem
@@ -545,41 +205,19 @@ class SummarizerRoleSystem(_BaseRoleSystem):
 class PersonalizedRoleSystem(_BaseRoleSystem):
     """
     ECS-shaped ``PersonalizedRole``.
-
-    The system reacts to ``personalized.request`` events.
-    The event payload is ``{"input": "..."}`` (or
-    ``{"task": "..."}``); the system emits a
-    ``tool.chat_llm.requested`` event and the LLM's
-    response is emitted as ``personalized.reply.generated``
-    with the raw text payload (the role is free-form; the
-    legacy role does not parse a JSON output).
     """
 
     REQUEST_EVENT_TYPE = EVENT_TYPE_PERSONALIZED_REQUEST
     GENERATED_EVENT_TYPE = EVENT_TYPE_PERSONALIZED_REPLY_GENERATED
-    # The legacy role returns raw text. We wrap
-    # the text in a tiny model so the system's
-    # output is uniform.
     OUTPUT_MODEL = BaseModel
 
     def __init__(self) -> None:
         super().__init__()
 
     def _build_system_prompt(self) -> str:
-        # The system prompt is profile-driven; the
-        # default (no profile) is a generic
-        # personalised-role prompt. A future hook
-        # can read the ``ProfileComponent`` from the
-        # view and pass ``preferences`` here.
         return build_personalized_system_prompt(preferences={})
 
-    def _read_new_input(self, view) -> str:
-        return super()._read_new_input(view)
-
     def _parse_completion(self, text: str) -> Result[BaseModel, ToolError]:
-        # The legacy role returns raw text. We wrap
-        # the text in a tiny model so the system's
-        # output is uniform.
         class _TextReply(BaseModel):
             text: str
 

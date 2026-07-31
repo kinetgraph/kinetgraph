@@ -686,6 +686,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   onward, "legacy" is unambiguously the wire-format
   fallback (now removed).
 
+### Added
+- **Zero Token Architecture support (ADR-049).**
+  Two new ECS-shaped systems compose with the
+  `ReactiveDispatcher` to short-circuit LLM calls
+  when deterministic answers are available.
+  - `RuleBasedChatSystem`
+    (`src/kntgraph/agents/role_systems/_rule_based.py`):
+    matches per-tenant rules (`tenant_id`,
+    `persona_pattern`, `message_pattern`, `response`,
+    `priority`) against `user.intent` events and emits
+    `chat.reply.generated` directly. Wire format is
+    identical to `ChatRoleSystem` (the LLM path), so
+    downstream consumers cannot tell the difference.
+    Rules can be loaded from YAML via
+    `register_from_yaml` (sample at
+    `examples/_data/zta_rules.yaml`).
+  - `SolutionLookupSystem`
+    (`src/kntgraph/agents/memory/solution_lookup.py`):
+    read-side cache for the Solution tier (ADR-010).
+    Walks the world's `tool_requests` slot; on a
+    `(tool_name, params_fingerprint)` hit with
+    `confidence >= min_confidence` and a tool in the
+    allowlist, synthesises a `tool.<name>.completed`
+    event with the cached payload. Pluggable via the
+    `SolutionStoreLike` Protocol — two shipped
+    implementations: `InMemorySolutionStore` (tests
+    + example `09b`) and `RedisSolutionStore`
+    (production, this release).
+  - `RedisSolutionStore`
+    (`src/kntgraph/infra/redis/_memory/_solution.py`):
+    Hash-backed Redis adapter for the Solution cache.
+    One Hash per tool (`knt:solution:<tool_name>`);
+    field = `params_fingerprint`; value = JSON
+    `CachedSolution`. Built-in TTL knob
+    (`Settings.solution_ttl_seconds`). Fail-open on
+    Redis errors (the read side degrades to a miss so
+    the LLM fallback takes over). Factory:
+    `create_solution_storage(...)`. Reaches
+    `settings.solution_ttl_seconds` (default `None` =
+    no TTL; Solutions are explicitly invalidated by
+    the operator).
+- **ReactiveDispatcher drain fix (ADR-049 §2.1)**: the
+  dispatcher now invokes every registered system on
+  every tick when a system has unconsumed
+  ``_pending_results`` (the lookup system's contract
+  is "the next ``__call__`` returns the queued
+  completions from the previous tick's
+  ``run_pending_lookups``"). Without this fix the
+  synthetic completion never landed in the EventLog
+  on idle ticks. Regression test:
+  `tests/unit/runner/test_reactive_dispatcher_drain.py`.
+- **Role systems refactor**: `_BaseRoleSystem` +
+  `_emit_chat_completion` extracted to
+  `src/kntgraph/agents/role_systems/_base.py` so the
+  rule-based and LLM paths can share the request /
+  completion wire format without circular imports.
+- **`docs/zta.md`** maps the four ZTA principles to
+  kntgraph components and walks the hybrid dispatcher
+  pattern.
+- **`examples/09b_solution_lookup_zta.py`** is the
+  end-to-end reference (in-memory store): rule-based
+  hit, two solution cache hits, and one miss. No LLM
+  is called.
+- **`examples/09c_solution_lookup_zta_redis.py`** is
+  the Redis-backed variant. Seeds the
+  `RedisSolutionStore` with two Solutions and walks
+  the same dispatcher path; surfaces the
+  `tool.<name>.completed` events AND the operator-
+  side cache audit (`iter_keys` / `read_all`).
+
+### Changed
+- **CLI command consistency (ADR-050).** Three
+  mechanical improvements to the `knt` CLI:
+  - `init` is now a sub-Typer with a `project` sub-
+    command (`knt init project <name>`). The
+    pre-ADR-050 flat form (`knt init <name>`) is
+    removed in this cycle (no deprecation shim —
+    see ADR-050 "Deprecation note"). The full
+    surface is uniform: every top-level command is
+    a namespace (`init project`, `new <artifact>`,
+    `keys generate`).
+  - `--routing-mode` is a Typer `Enum` (`external` /
+    `autonomous` / `collaborate`). The imperative
+    `valid_modes` set + hand-written error message
+    are gone; Typer auto-lists the valid choices in
+    `--help` and rejects unknown values.
+  - `_templates.render_template(name, ctx)` helper
+    in `src/kntgraph/cli/_templates.py`. Replaces
+    7 sites where `Environment(loader=...)` was
+    instantiated per command. I/O stays at the
+    call site (the helper is pure).
+
+### Removed (Breaking)
+- **`knt init <name>` flat form.** The pre-ADR-050
+  command shape is removed. Use
+  `knt init project <name>` instead. The
+  `README.md` and `docs/cli_guide.md` examples are
+  updated. Typer prints `No such command 'foo'`
+  when the old form is used. The change is the
+  deliberate outcome of ADR-050 §"Deprecation note"
+  (the shim was cut from scope because the
+  Typer/sub-Typer interaction does not allow a
+  flat command and a sub-Typer to share the same
+  name).
+
 ## [0.8.0] — 2026-07-14
 
 ### Added

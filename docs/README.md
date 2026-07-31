@@ -56,6 +56,10 @@ historical records).
   dimension.
 - [Dead Letter Queue](dead_letter_queue.md) —
   failure replay path.
+- [Zero Token Architecture (ZTA)](zta.md) —
+  `RuleBasedChatSystem` + `SolutionLookupSystem`
+  (ADR-049): software handlers before LLM, read-side
+  cache, hybrid dispatcher stack.
 
 ## Architecture decisions
 

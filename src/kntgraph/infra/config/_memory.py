@@ -6,7 +6,8 @@
 Memory-tier sub-config (mixin).
 
 Holds TTL knobs for the three short-term memory
-managers (ADR-014 §2.1). Each default reflects the
+managers (ADR-014 §2.1) and the Solution cache
+(ADR-010 / ADR-049). Each default reflects the
 lifecycle of the data:
 
   - Session: short-lived (24h) — the conversation
@@ -16,6 +17,9 @@ lifecycle of the data:
     explicit ``profile.updated`` events.
   - Continuity: sliding 90 days — recent usage
     patterns. Renewed on every ``record_*`` write.
+  - Solution: no TTL — Solutions are explicitly
+    promoted / invalidated by the operator; an
+    operator-set TTL would surprise the audit trail.
 
 Operators can override per-deployment. ``None``
 (or 0) means "no TTL" — the key persists until
@@ -32,8 +36,9 @@ from kntgraph.infra.config._base import BaseSettings
 
 
 class MemorySettingsMixin(BaseSettings):
-    """TTL knobs for Session, Profile, and Continuity."""
+    """TTL knobs for Session, Profile, Continuity, and Solution."""
 
     session_ttl_seconds: int = Field(default=24 * 60 * 60)
     profile_ttl_seconds: Optional[int] = Field(default=None)
     continuity_ttl_seconds: int = Field(default=90 * 24 * 60 * 60)
+    solution_ttl_seconds: Optional[int] = Field(default=None)

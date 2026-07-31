@@ -173,10 +173,10 @@ Install the framework with the `[cli]` extra and initialize a new project:
 uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
 
 # 2. Scaffold a new application with the HTTP Gateway included
-knt init my_platform --use-intent-http
+knt init project my_platform --use-intent-http
 
 # or generate an intent-routing scaffold with an explicit mode
-knt init my_platform --routing-mode external
+knt init project my_platform --routing-mode external
 # supported values: external, autonomous, collaborate
 # external: routes intents from outside the agent boundary
 # autonomous: lets the agent resolve intents internally
@@ -243,6 +243,9 @@ canonical schema is `Settings` in
 - [Architecture](docs/architecture.md) — the
   three pillars (ECS, event sourcing,
   resilience) and how the pieces fit together.
+- [Zero Token Architecture](docs/zta.md) —
+  software handlers before LLM, read-side cache,
+  hybrid dispatcher stack (ADR-049).
 - [API Reference](REFERENCE.md) — the public
   API map, env-var table, and common patterns.
 - [CLI Guide](docs/cli_guide.md) — walkthrough on scaffolding projects, contexts, systems, tools, and agents with the CLI.
@@ -267,6 +270,8 @@ canonical schema is `Settings` in
 | [ADR-035](ADRs/ADR-035-sharding-and-dispatcher-coordination-for-horizontal-scaling.md) | Sharding and Dispatcher Coordination for Horizontal Scaling | Proposed (Under Review) |
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
+| [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
+| [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
 
 ## Project status
 
@@ -281,7 +286,24 @@ canonical schema is `Settings` in
   promised was never implemented; the wire-format
   detection in `RedisAPIKeyVerifier` is the only path
   that distinguished JSON from legacy, and that path
-  is now closed.
+  is now closed. Adds Zero Token Architecture support
+  (ADR-049): `RuleBasedChatSystem` short-circuits
+  `user.intent` events with deterministic replies and
+  `SolutionLookupSystem` synthesises cached
+  `tool.<name>.completed` events. The lookup system
+  ships with two `SolutionStoreLike` adapters:
+  `InMemorySolutionStore` (tests / `09b` example)
+  and `RedisSolutionStore` (production; one Hash per
+  tool with the canonical
+  `knt:solution:<tool_name>` layout). Also fixes the
+  dispatcher's drain contract so a synthetic
+  completion queued by `run_pending_lookups`
+  actually lands in the EventLog on the next tick.
+  See [`docs/zta.md`](docs/zta.md),
+  [`examples/09b_solution_lookup_zta.py`](examples/09b_solution_lookup_zta.py)
+  (in-memory) and
+  [`examples/09c_solution_lookup_zta_redis.py`](examples/09c_solution_lookup_zta_redis.py)
+  (Redis).
 - `0.9.0` — predecessor release. Drops the legacy
   `LiteLLMTool` / `ToolInvoker` / `kntgraph.agents.roles`
   paths (the canonical path is

@@ -395,3 +395,211 @@ def test_personalized_role_system_emits_personalized_reply_generated():
     assert len(events) == 1
     assert events[0].event_type == EVENT_TYPE_PERSONALIZED_REPLY_GENERATED
     assert events[0].data["output"]["text"] == "Free-form reply text"
+
+
+# ---------------------------------------------------------------------------
+# RuleBasedChatSystem (ADR-049 — ZTA-friendly no-LLM path)
+# ---------------------------------------------------------------------------
+
+
+def _make_session_event_with_tenant(
+    tenant_id: str = "tenant-A",
+) -> Event:
+    """Build a minimal session event with a tenant_id
+    payload so the rule system can match on tenant_id.
+    The default fold projects the session into the
+    ``SessionComponent``."""
+    from datetime import datetime, timezone
+
+    return Event.create(
+        event_type="session.started",
+        agent_id=SESSION_AGENT_ID,
+        event_class="lifecycle",
+        correlation=_ctx(),
+        data={
+            "session_id": "s-1",
+            "user_id": "u-1",
+            "tenant_id": tenant_id,
+            "started_at": datetime.now(tz=timezone.utc).isoformat(),
+            "metadata": {},
+        },
+    )
+
+
+def test_rule_based_chat_emits_deterministic_reply_on_match():
+    """A rule whose ``tenant_id`` and ``message_pattern``
+    match produces a ``chat.reply.generated`` event
+    directly (no ``tool.chat_llm.requested``)."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    rule = ChatRule(
+        tenant_id="tenant-A",
+        persona_pattern="*",
+        message_pattern="refund",
+        response="Please contact billing.",
+    )
+    system = RuleBasedChatSystem(rules=[rule])
+    world = _fold(
+        World.empty(),
+        [
+            _make_session_event_with_tenant("tenant-A"),
+            _make_intent_event("How do I get a refund?"),
+        ],
+    )
+    events = system(world)
+    assert len(events) == 1
+    completion = events[0]
+    assert completion.event_type == "chat.reply.generated"
+    assert completion.data["output"]["reply"] == "Please contact billing."
+    # No LLM request emitted; the rule path short-circuits.
+    assert all(e.event_type != "tool.chat_llm.requested" for e in events)
+
+
+def test_rule_based_chat_returns_empty_on_miss():
+    """When no rule matches, the system returns ``[]``
+    so the next system in the dispatcher's list
+    handles the LLM fallback."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    rule = ChatRule(
+        tenant_id="tenant-A",
+        persona_pattern="*",
+        message_pattern="refund",
+        response="Please contact billing.",
+    )
+    system = RuleBasedChatSystem(rules=[rule])
+    world = _fold(
+        World.empty(),
+        [
+            _make_session_event_with_tenant("tenant-A"),
+            _make_intent_event("What is the meaning of life?"),
+        ],
+    )
+    events = system(world)
+    assert events == []
+
+
+def test_rule_based_chat_tenant_id_filter():
+    """A rule scoped to ``tenant-A`` does NOT match a
+    ``tenant-B`` request (even if the message
+    matches)."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    rule = ChatRule(
+        tenant_id="tenant-A",
+        persona_pattern="*",
+        message_pattern="refund",
+        response="tenant-A-only",
+    )
+    system = RuleBasedChatSystem(rules=[rule])
+    world = _fold(
+        World.empty(),
+        [
+            _make_session_event_with_tenant("tenant-B"),
+            _make_intent_event("refund please"),
+        ],
+    )
+    events = system(world)
+    assert events == []
+
+
+def test_rule_based_chat_wildcard_tenant_matches_all():
+    """A rule with ``tenant_id="*"`` matches every
+    tenant."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    rule = ChatRule(
+        tenant_id="*",
+        persona_pattern="*",
+        message_pattern="hello",
+        response="Hi!",
+    )
+    system = RuleBasedChatSystem(rules=[rule])
+    for tenant in ("tenant-A", "tenant-B", "tenant-C"):
+        world = _fold(
+            World.empty(),
+            [
+                _make_session_event_with_tenant(tenant),
+                _make_intent_event("hello"),
+            ],
+        )
+        events = system(world)
+        assert len(events) == 1
+        assert events[0].data["output"]["reply"] == "Hi!"
+
+
+def test_rule_based_chat_priority_picks_higher_match():
+    """When multiple rules match, the higher-priority
+    rule wins."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    low = ChatRule(
+        tenant_id="*",
+        persona_pattern="*",
+        message_pattern="refund",
+        response="low priority",
+        priority=0,
+    )
+    high = ChatRule(
+        tenant_id="*",
+        persona_pattern="*",
+        message_pattern="refund",
+        response="high priority",
+        priority=10,
+    )
+    system = RuleBasedChatSystem(rules=[low, high])
+    world = _fold(
+        World.empty(),
+        [
+            _make_session_event_with_tenant("tenant-A"),
+            _make_intent_event("refund please"),
+        ],
+    )
+    events = system(world)
+    assert len(events) == 1
+    assert events[0].data["output"]["reply"] == "high priority"
+
+
+def test_rule_based_chat_register_rule_at_runtime():
+    """Operators can add rules after construction."""
+    from kntgraph.agents.role_systems import (
+        ChatRule,
+        RuleBasedChatSystem,
+    )
+
+    system = RuleBasedChatSystem()
+    world = _fold(
+        World.empty(),
+        [
+            _make_session_event_with_tenant("tenant-A"),
+            _make_intent_event("hello"),
+        ],
+    )
+    # No rule yet: miss.
+    assert system(world) == []
+    # Register a rule: hit on the next pump.
+    system.register_rule(
+        ChatRule(
+            tenant_id="tenant-A",
+            message_pattern="hello",
+            response="Hi!",
+        )
+    )
+    events = system(world)
+    assert len(events) == 1
+    assert events[0].data["output"]["reply"] == "Hi!"

@@ -47,12 +47,18 @@ from ._factory import (
     create_event_log_storage,
     create_profile_storage,
     create_session_storage,
+    create_solution_storage,
 )
 from ._memory import (
     RedisContinuityStorage,
     RedisProfileStorage,
     RedisSessionStorage,
+    RedisSolutionStore,
+    SOLUTION_KEY_PREFIX,
     ShortMemoryStorage,
+    SolutionStoreDecodeError,
+    SolutionStoreError,
+    SolutionStoreSerializationError,
 )
 from ._pool import RedisPool, create_redis_pool
 
@@ -68,8 +74,13 @@ __all__ = [
     "RedisSessionStorage",
     "RedisProfileStorage",
     "RedisContinuityStorage",
+    "RedisSolutionStore",
     "DLQStorage",
     "RedisDLQStorage",
+    "SOLUTION_KEY_PREFIX",
+    "SolutionStoreDecodeError",
+    "SolutionStoreError",
+    "SolutionStoreSerializationError",
     # Errors
     "RedisAdapterError",
     "RedisUnavailableError",
@@ -94,5 +105,6 @@ __all__ = [
     "create_session_storage",
     "create_profile_storage",
     "create_continuity_storage",
+    "create_solution_storage",
     "create_dlq_storage",
 ]
