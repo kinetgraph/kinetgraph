@@ -29,7 +29,7 @@ pip install "kntgraph[cli,api]"
 The first step is to bootstrap our repository. The `init` command generates the standard directory structure, dependency files, and the main entry point.
 
 ```bash
-uv run knt init weather_platform --use-intent-http --routing-mode external
+uv run knt init project weather_platform --use-intent-http --routing-mode external
 ```
 
 ### What did this do?
@@ -345,7 +345,7 @@ You have successfully used the `knt` CLI to build a scalable, production-ready M
 
 | Command | Description |
 |---|---|
-| `knt init <name>` | Bootstraps a new repository (`--use-intent-http` for FastAPI). |
+| `knt init project <name>` | Bootstraps a new repository (`--use-intent-http` for FastAPI). |
 | `knt new context <name>` | Creates a Bounded Context structure and its `dispatcher.py`. |
 | `knt new system <context>.<name>` | Scaffolds a pure `WorldSystem`. |
 | `knt new component <context>.<name>` | Scaffolds a pure ECS Dataclass. |

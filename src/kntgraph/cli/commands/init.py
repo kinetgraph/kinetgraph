@@ -6,16 +6,17 @@
 kntgraph.cli.commands.init -- ``knt init project <name>`` (ADR-050).
 
 After the v0.10.0 cleanup, ``init`` is a sub-Typer with
-a single ``project`` sub-command. The pre-ADR-050 flat
-form (``knt init <name>``) still works for one minor
-cycle (deprecation warning printed) and is removed in
-v0.11.0.
+a single ``project`` sub-command. The pre-ADR-050
+flat form (``knt init <name>``) was removed without
+a deprecation shim (see ADR-050 §"Deprecation note" for
+the rationale -- the Typer / sub-Typer interaction does
+not allow a flat command and a sub-Typer to share the
+same name without one swallowing the other).
 """
 
 from __future__ import annotations
 
 import os
-import warnings
 from enum import Enum
 from pathlib import Path
 
@@ -58,10 +59,9 @@ def _do_init(
     use_intent_http: bool,
     routing_mode: RoutingMode,
 ) -> None:
-    """The actual scaffold logic. Shared between the
-    sub-Typer entry point and the deprecated flat-form
-    shim (so the two surfaces cannot drift).
-    """
+    """The actual scaffold logic. The single entry
+    point keeps the surface flat (no shim, no
+    delegation)."""
     base_dir = Path(os.getcwd()) / project_name
 
     if base_dir.exists():
@@ -149,58 +149,8 @@ def project(
     )
 
 
-# ---------------------------------------------------------------------------
-# Deprecated flat form (ADR-050 §3 "Deprecation policy").
-#
-# ``knt init <name>`` (without the ``project`` sub-command)
-# still works in v0.10.0 and prints a DeprecationWarning
-# pointing operators at the new form. The flat form is
-# removed in v0.11.0 (one minor cycle window per
-# AGENTS.md §2).
-#
-# Implemented as a standalone function that the parent
-# ``main.py`` registers as a sub-command named ``init``
-# (no, that would collide with the sub-Typer — see
-# main.py for the bridge).
-# ---------------------------------------------------------------------------
-
-
-def deprecated_flat_init(
-    ctx: typer.Context,
-    project_name: str = typer.Argument(
-        ..., help="Name of the Kinetgraph project to create"
-    ),
-    use_intent_http: bool = typer.Option(False, "--use-intent-http", hidden=True),
-    routing_mode: RoutingMode = typer.Option(
-        RoutingMode.external,
-        "--routing-mode",
-        case_sensitive=False,
-        hidden=True,
-    ),
-) -> None:
-    """Deprecated alias for ``knt init project``.
-
-    Prints a DeprecationWarning and delegates to
-    :func:`_do_init`. Scheduled for removal in
-    v0.11.0.
-    """
-    warnings.warn(
-        "`knt init <name>` is deprecated; use "
-        "`knt init project <name>` instead. "
-        "The flat form is removed in v0.11.0.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    _do_init(
-        project_name=project_name,
-        use_intent_http=use_intent_http,
-        routing_mode=routing_mode,
-    )
-
-
 __all__ = [
     "RoutingMode",
     "app",
-    "deprecated_flat_init",
     "project",
 ]

@@ -173,10 +173,10 @@ Install the framework with the `[cli]` extra and initialize a new project:
 uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
 
 # 2. Scaffold a new application with the HTTP Gateway included
-knt init my_platform --use-intent-http
+knt init project my_platform --use-intent-http
 
 # or generate an intent-routing scaffold with an explicit mode
-knt init my_platform --routing-mode external
+knt init project my_platform --routing-mode external
 # supported values: external, autonomous, collaborate
 # external: routes intents from outside the agent boundary
 # autonomous: lets the agent resolve intents internally

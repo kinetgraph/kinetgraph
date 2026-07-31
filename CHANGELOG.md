@@ -778,6 +778,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     instantiated per command. I/O stays at the
     call site (the helper is pure).
 
+### Removed (Breaking)
+- **`knt init <name>` flat form.** The pre-ADR-050
+  command shape is removed. Use
+  `knt init project <name>` instead. The
+  `README.md` and `docs/cli_guide.md` examples are
+  updated. Typer prints `No such command 'foo'`
+  when the old form is used. The change is the
+  deliberate outcome of ADR-050 §"Deprecation note"
+  (the shim was cut from scope because the
+  Typer/sub-Typer interaction does not allow a
+  flat command and a sub-Typer to share the same
+  name).
+
 ## [0.8.0] — 2026-07-14
 
 ### Added
