@@ -229,6 +229,48 @@ class ReactiveDispatcher:
         """
         self._tracked_agents.add(agent_id)
 
+    def _has_unconsumed_work(self) -> bool:
+        """
+        True when at least one registered system has
+        unconsumed work from a prior async drain.
+
+        The lookup system (``SolutionLookupSystem``)
+        queues synthetic completions in
+        ``_pending_results`` on ``run_pending_lookups``;
+        the next ``__call__`` is the one that surfaces
+        them. Without this check, an idle tick
+        (no new events in the log) would skip the
+        systems and the queued completion would
+        never be appended to the EventLog.
+
+        Duck-typed: any system with a non-empty
+        ``_pending_results`` list is considered to
+        have unconsumed work. This matches the
+        :class:`SolutionLookupSystem` contract
+        (ADR-049 §2.1) and any future
+        ``WorldSystem`` that follows the same
+        sync-pump / async-drain shape.
+        """
+        for system in self._systems:
+            pending = getattr(system, "_pending_results", None)
+            if pending:
+                return True
+        return False
+
+    def _should_run_systems_on_idle_tick(self) -> bool:
+        """True when an idle tick (no new events) still
+        needs to invoke the systems. Two reasons:
+
+        - ``tool_ttls`` is set: the TTL sweeper may
+          have orphan requests to evict.
+        - some system has unconsumed ``_pending_results``
+          (the lookup system contract, ADR-049).
+
+        Pulled out of ``_dispatch_for_agent`` so the
+        per-agent path stays flat (CC ≤ 5).
+        """
+        return self._tool_ttls is not None or self._has_unconsumed_work()
+
     async def dispatch_once(self) -> int:
         """
         Polls the log once for new events and dispatches them.
@@ -273,14 +315,17 @@ class ReactiveDispatcher:
             agent_id, ckpt.last_stream_id
         )
         if not new_events:
-            if self._tool_ttls is None:
+            if not self._should_run_systems_on_idle_tick():
                 return 0
             # No new events from the log; still run
             # the systems (the TTL sweeper may have
-            # orphan requests to evict). The fold
-            # is a no-op; the cursor is not advanced
-            # (we did not consume any new stream
-            # entries).
+            # orphan requests to evict, or a
+            # ``WorldSystem`` may have queued work
+            # from a prior async drain that has not
+            # yet been surfaced -- ADR-049). The
+            # fold is a no-op; the cursor is not
+            # advanced (we did not consume any new
+            # stream entries).
             await self._run_systems_and_persist(
                 agent_id=agent_id,
                 world=ckpt.world,

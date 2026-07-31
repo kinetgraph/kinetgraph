@@ -12,6 +12,7 @@ Settings-driven. The framework's recommended entry points:
   - :func:`create_session_storage`       — Session tier (JSON)
   - :func:`create_profile_storage`       — Profile tier (Hash)
   - :func:`create_continuity_storage`    — Continuity tier (Hash, sliding TTL)
+  - :func:`create_solution_storage`      — Solution tier (Hash, ADR-010 / ADR-049)
   - :func:`create_dlq_storage`           — Dead-letter queue storage
 
 When ``client=`` is passed, factories do not touch
@@ -31,6 +32,7 @@ from ._memory import (
     RedisContinuityStorage,
     RedisProfileStorage,
     RedisSessionStorage,
+    RedisSolutionStore,
     ShortMemoryStorage,
 )
 from ._pool import RedisPool
@@ -197,10 +199,35 @@ def create_dlq_storage(
     )
 
 
+def create_solution_storage(
+    settings: Settings | None = None,
+    *,
+    client: RedisLike | None = None,
+    ttl_seconds: int | None = None,
+) -> RedisSolutionStore:
+    """Build the Solution tier storage (Hash cache, ADR-010 / ADR-049).
+
+    ``ttl_seconds`` defaults to
+    ``Settings.solution_ttl_seconds`` (None = no TTL;
+    Solutions are explicitly invalidated by the operator).
+    """
+    if ttl_seconds is None:
+        if settings is None:
+            from kntgraph.infra.config import fresh_settings
+
+            settings = fresh_settings()
+        ttl_seconds = settings.solution_ttl_seconds
+    return RedisSolutionStore(
+        client=_resolve_client(settings, client),
+        ttl_seconds=ttl_seconds,
+    )
+
+
 __all__ = [
     "create_continuity_storage",
     "create_dlq_storage",
     "create_event_log_storage",
     "create_profile_storage",
     "create_session_storage",
+    "create_solution_storage",
 ]

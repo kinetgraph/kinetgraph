@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Example rule table for ``RuleBasedChatSystem`` (ADR-049).
+#
+# Loaded at boot with::
+#
+#     system = RuleBasedChatSystem()
+#     system.register_from_yaml("examples/_data/zta_rules.yaml")
+#
+# Each rule is matched against ``(tenant_id, persona, message)``:
+#
+#   - ``tenant_id``        — exact match; ``"*"`` matches any tenant.
+#   - ``persona_pattern``  — ``fnmatch`` glob; ``"*"`` matches any persona.
+#   - ``message_pattern``  — substring match (case insensitive by default).
+#   - ``response``         — the deterministic reply to emit.
+#   - ``priority``         — used to break ties when multiple rules match
+#                            (higher wins).
+
+rules:
+  - tenant_id: "*"
+    persona_pattern: "*"
+    message_pattern: "hours"
+    response: "Mon-Fri, 9-18 UTC."
+    priority: 10
+
+  - tenant_id: "tenant-A"
+    persona_pattern: "support-*"
+    message_pattern: "refund"
+    response: "Please contact billing@tenant-A.example."
+    priority: 20
+
+  - tenant_id: "tenant-A"
+    persona_pattern: "*"
+    message_pattern: "refund"
+    response: "See our refund policy at tenant-A.example/refunds."
+    priority: 0
+
+  - tenant_id: "*"
+    persona_pattern: "*"
+    message_pattern: "hello"
+    response: "Hello! How can I help?"
+    priority: 0

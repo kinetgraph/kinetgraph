@@ -114,7 +114,7 @@ class RedisLike(Protocol):
     async def hlen(self, key: str) -> int: ...
     def hscan_iter(
         self,
-        key: str,
+        name: str,
         match: str | None = None,
         count: int | None = None,
     ) -> AsyncIterator: ...
