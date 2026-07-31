@@ -16,7 +16,7 @@ def test_knt_new_agent(tmp_path: Path):
     try:
         os.chdir(tmp_path)
         # 1. Initialize a project
-        init_result = runner.invoke(app, ["init", "my_app"])
+        init_result = runner.invoke(app, ["init", "project", "my_app"])
         assert init_result.exit_code == 0
 
         # 2. cd into the project

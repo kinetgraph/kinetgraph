@@ -271,6 +271,7 @@ canonical schema is `Settings` in
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
+| [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
 
 ## Project status
 

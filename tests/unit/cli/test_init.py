@@ -15,7 +15,7 @@ def test_knt_init_scaffolds_project(tmp_path: Path):
     current_dir = os.getcwd()
     try:
         os.chdir(tmp_path)
-        result = runner.invoke(app, ["init", "my_project"])
+        result = runner.invoke(app, ["init", "project", "my_project"])
     finally:
         os.chdir(current_dir)
 
@@ -42,7 +42,9 @@ def test_knt_init_with_http(tmp_path: Path):
     current_dir = os.getcwd()
     try:
         os.chdir(tmp_path)
-        result = runner.invoke(app, ["init", "my_app_http", "--use-intent-http"])
+        result = runner.invoke(
+            app, ["init", "project", "my_app_http", "--use-intent-http"]
+        )
 
         assert result.exit_code == 0
         assert "Success" in result.stdout
@@ -72,7 +74,8 @@ def test_knt_init_with_external_routing_mode(tmp_path: Path):
     try:
         os.chdir(tmp_path)
         result = runner.invoke(
-            app, ["init", "my_app_external", "--routing-mode", "external"]
+            app,
+            ["init", "project", "my_app_external", "--routing-mode", "external"],
         )
     finally:
         os.chdir(current_dir)
@@ -95,7 +98,8 @@ def test_knt_init_with_collaborate_routing_mode(tmp_path: Path):
     try:
         os.chdir(tmp_path)
         result = runner.invoke(
-            app, ["init", "my_app_collab", "--routing-mode", "collaborate"]
+            app,
+            ["init", "project", "my_app_collab", "--routing-mode", "collaborate"],
         )
     finally:
         os.chdir(current_dir)
@@ -122,10 +126,13 @@ def test_knt_init_rejects_invalid_routing_mode(tmp_path: Path):
     try:
         os.chdir(tmp_path)
         result = runner.invoke(
-            app, ["init", "my_app_invalid", "--routing-mode", "invalid"]
+            app,
+            ["init", "project", "my_app_invalid", "--routing-mode", "invalid"],
         )
     finally:
         os.chdir(current_dir)
 
+    # Typer's enum validation rejects the value with a
+    # non-zero exit code. The exact message is
+    # upstream-defined; we just assert the rejection.
     assert result.exit_code != 0
-    assert "invalid routing mode" in result.stdout.lower()

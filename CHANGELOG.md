@@ -756,6 +756,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tool.<name>.completed` events AND the operator-
   side cache audit (`iter_keys` / `read_all`).
 
+### Changed
+- **CLI command consistency (ADR-050).** Three
+  mechanical improvements to the `knt` CLI:
+  - `init` is now a sub-Typer with a `project` sub-
+    command (`knt init project <name>`). The
+    pre-ADR-050 flat form (`knt init <name>`) is
+    removed in this cycle (no deprecation shim —
+    see ADR-050 "Deprecation note"). The full
+    surface is uniform: every top-level command is
+    a namespace (`init project`, `new <artifact>`,
+    `keys generate`).
+  - `--routing-mode` is a Typer `Enum` (`external` /
+    `autonomous` / `collaborate`). The imperative
+    `valid_modes` set + hand-written error message
+    are gone; Typer auto-lists the valid choices in
+    `--help` and rejects unknown values.
+  - `_templates.render_template(name, ctx)` helper
+    in `src/kntgraph/cli/_templates.py`. Replaces
+    7 sites where `Environment(loader=...)` was
+    instantiated per command. I/O stays at the
+    call site (the helper is pure).
+
 ## [0.8.0] — 2026-07-14
 
 ### Added
