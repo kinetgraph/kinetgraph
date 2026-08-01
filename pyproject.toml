@@ -4,7 +4,11 @@
 
 [project]
 name = "kntgraph"
-version = "0.10.0"
+# Version is derived from the latest matching git
+# tag (PEP 440, ``vX.Y.Z`` scheme) by setuptools_scm
+# at install time. The tag is the version; do not
+# edit ``version = "..."`` here (ADR-051).
+dynamic = ["version"]
 description = "Pure ECS agent framework: event-sourced via Redis Streams, semantic routing via GLiNER2, tool re-use via the Solution tier (ADR-010). Sub-package `agents` ships concrete LLM/cache/PII adapters over the framework."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,7 +21,7 @@ dependencies = [
     "result>=0.17",
     "structlog>=26.1.0",
     "tenacity>=9.1.4",
-] 
+]
 
 [project.scripts]
 knt = "kntgraph.cli.main:app"
@@ -60,7 +64,7 @@ all-runtime = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools_scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
@@ -125,3 +129,26 @@ dev = [
 
 [tool.radon]
 exclude_paths = ["tests", "examples", ".venv", "htmlcov", "docs"]
+
+# ADR-051: derive ``__version__`` from the latest
+# annotated git tag at install time. The
+# ``write_to`` file is generated and gitignored
+# (see ``.gitignore``). Tag scheme is ``vX.Y.Z``
+# (PEP 440, no prefix beyond ``v``); the default
+# setuptools_scm regex is ``v?(\d+...`` so both
+# ``v0.10.0`` and ``0.10.0`` would match, but the
+# project tags consistently use the ``v`` prefix.
+#
+# Note: when the local checkout has commits past
+# the latest tag, setuptools_scm infers
+# ``X.Y.Z.devN+g<sha>`` (e.g.
+# ``0.10.1.dev0+gc0adc4211``). That is the correct
+# behaviour — the working tree is *ahead* of
+# ``v0.10.0`` and the ``devN`` suffix says so. The
+# bump script (PR 2 of this ADR) is the only path
+# that creates a new tag; once the next tag is
+# pushed, the suffix disappears and the version
+# stabilises at the new tag.
+[tool.setuptools_scm]
+write_to = "src/kntgraph/_version.py"
+tag_regex = "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"

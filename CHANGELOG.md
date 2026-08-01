@@ -786,6 +786,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   updated. Typer prints `No such command 'foo'`
   when the old form is used. The change is the
   deliberate outcome of ADR-050 §"Deprecation note"
+
+### Added (ADR-051, PR 1 + PR 2)
+- **Release versioning via git tags + `setuptools_scm`**
+  (ADR-051). The project's version is now the
+  **git tag** (``vX.Y.Z``, PEP 440). The
+  `pyproject.toml::version` field is removed; the
+  ``[project]`` table has ``dynamic = ["version"]``
+  and the ``[tool.setuptools_scm]`` table writes
+  ``src/kntgraph/_version.py`` at install time.
+  ``kntgraph.__version__`` is exposed from the
+  generated file (with a ``"0.0.0+unknown"``
+  fallback for source installs without
+  ``setuptools_scm``).
+- **CI step `check_version` (10th gate).** Fails
+  the build when the installed version is older
+  than the latest tag. Run ``uv sync`` to refresh
+  after a new tag.
+- **CI step `bump_dry_run` (11th gate).** Asserts
+  the bump-version logic is sane by computing
+  (but not creating) the next major version.
+- **``scripts/bump_version.py``**. Reads the
+  current tag, computes the next version per
+  ``--level {major,minor,patch}``, and creates
+  the tag locally with ``git tag -a vX.Y.Z -m
+  "Release vX.Y.Z"``. Idempotent (refuses to
+  recreate an existing tag). ``--dry-run`` mode
+  prints the next version without touching the
+  git history.
+- **Retroactive tags** for ``v0.7.0``, ``v0.8.0``,
+  ``v0.10.0`` so ``git log v0.8.0..v0.10.0`` and
+  ``uv sync`` work as expected before the next
+  release. The ``0.9.0`` release was never
+  documented in ``CHANGELOG.md`` and has no tag.
+- **``CONTRIBUTING.md::Release checklist``** is
+  the canonical 6-step ritual for cutting a
+  release. PyPI publishing remains out of scope
+  (ADR-052).
+- **``.github/workflows/release.yml`** automates
+  the release: ``workflow_dispatch`` with a
+  ``level`` input (major / minor / patch); the
+  workflow runs ``bump_version.py`` (dry-run
+  first as a guard), ``changelog_release.py``
+  (moves `[Unreleased]` to a dated section),
+  commits, pushes the tag, and opens the GitHub
+  Release with the dated section as the body.
+  Manual trigger only (no auto-on-PR); the
+  operator retains control of the release
+  cadence.
+- **``scripts/update_version_badge.py``** keeps
+  the README version badge in sync with
+  ``kntgraph.__version__`` (derived from the
+  git tag). The badge is a shields.io image
+  with the format
+  ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``;
+  the ``+g<sha>`` and ``.devN`` suffixes that
+  ``setuptools_scm`` adds when the working tree
+  is past the latest tag are stripped so the
+  badge always shows a clean semver triple.
   (the shim was cut from scope because the
   Typer/sub-Typer interaction does not allow a
   flat command and a sub-Typer to share the same

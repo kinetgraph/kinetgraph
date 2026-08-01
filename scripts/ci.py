@@ -143,6 +143,18 @@ def step_reuse() -> Step:
     ``$ROOT`` = the kntgraph/ root) so the tool
     only scans the kntgraph/ tree, not the parent
     monorepo.
+
+    This step runs **after** the tests step
+    (ADR-051 §2.7) so the
+    ``tests/scripts/conftest.py`` fixture has
+    written ``.license`` sidecars for every
+    ``__pycache__/*.pyc`` pytest generated. REUSE
+    3.3's SPDX-expression parser cannot match
+    ``**/__pycache__/**`` via a glob annotation;
+    the sidecar is the project-standard workaround
+    (the project deliberately does not run a
+    sidecar generator as a pre-step; the test
+    fixture is the source of truth).
     """
     return Step(
         "license (REUSE 3.3)",
@@ -190,6 +202,7 @@ def step_tests() -> Step:
             "pytest",
             "tests/unit/",
             "tests/agents/unit/",
+            "tests/scripts/",
             "-q",
         ),
     )
@@ -207,6 +220,67 @@ def step_bandit() -> Step:
             "-q",
             "--severity-level",
             "medium",
+        ),
+    )
+
+
+def step_check_version() -> Step:
+    """ADR-051: assert the installed
+    ``kntgraph.__version__`` is at or past the
+    latest git tag.
+
+    The script fails when the install is older
+    than the latest tag (the "stale install"
+    case). The script accepts the ``devN+g<sha>``
+    form as "in sync" (the working tree is
+    correctly ahead of the tag, and the suffix
+    proves the install was rebuilt after the
+    commits).
+
+    Runs after the Python environment is set up
+    (so ``_version.py`` exists) and before the
+    test step (so a drift does not cause a
+    misleading test failure).
+
+    See ``scripts/check_version.py``.
+    """
+    return Step(
+        "check_version (ADR-051)",
+        (
+            "uv",
+            "run",
+            "python",
+            "scripts/check_version.py",
+        ),
+    )
+
+
+def step_bump_dry_run() -> Step:
+    """ADR-051: assert the bump-version logic is
+    sane by computing (but not creating) the
+    next major tag.
+
+    The script prints the current and next
+    versions and exits 0 without touching the
+    git history. CI's only job is to assert
+    ``current: X.Y.Z`` and ``next:    A.B.C`` are
+    well-formed; a deeper assertion is the
+    unit test suite (``tests/scripts/test_bump_version.py``).
+
+    Runs after ``check_version`` so the version
+    is known to be in sync with the tag (the
+    bump reads the same tag).
+    """
+    return Step(
+        "bump-dry-run (ADR-051)",
+        (
+            "uv",
+            "run",
+            "python",
+            "scripts/bump_version.py",
+            "--level",
+            "major",
+            "--dry-run",
         ),
     )
 
@@ -417,9 +491,19 @@ ALL_STEPS: dict[str, Step] = {
     "complexity": Step(
         "complexity (radon cc/mi)", ("_inline_gate_complexity_",)
     ),  # placeholder
-    "reuse": step_reuse(),
     "pyright": Step("type-check (pyright)", ("_inline_gate_pyright_",)),  # placeholder
+    "check_version": step_check_version(),
+    "bump_dry_run": step_bump_dry_run(),
     "tests": step_tests(),
+    # REUSE runs **after** tests so the
+    # ``tests/scripts/conftest.py`` fixture has had
+    # a chance to write ``.license`` sidecars for
+    # the ``__pycache__/*.pyc`` files pytest
+    # generates. (REUSE 3.3's SPDX-expression
+    # parser cannot match ``**/__pycache__/**`` via
+    # a glob annotation; the sidecar is the
+    # project-standard workaround.)
+    "reuse": step_reuse(),
     "bandit": step_bandit(),
     "audit": step_audit(),
 }
