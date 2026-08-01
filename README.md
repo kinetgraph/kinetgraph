@@ -274,7 +274,7 @@ canonical schema is `Settings` in
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
 | [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
 | [ADR-051](ADRs/ADR-051-Release-Versioning-via-Git-Tags.md) | Release versioning via git tags + `setuptools_scm` | Accepted (v0.10.0; PyPI publishing deferred to ADR-052) |
-| [ADR-052](ADRs/ADR-052-PyPI-Publishing.md) | PyPI publishing via Trusted Publishing (PEP 740) | Proposed (awaiting operator registration on PyPI) |
+| [ADR-052](ADRs/ADR-052-PyPI-Publishing.md) | PyPI publishing via Trusted Publishing (PEP 740) | Proposed (workflow split: `release.yml` cuts the tag, `publish.yml` builds + uploads; 13 contract tests enforce the split) |
 
 ## Project status
 

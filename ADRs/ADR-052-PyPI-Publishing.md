@@ -175,46 +175,128 @@ the operator decides). Older releases
 they are git tags only. PyPI is "the latest
 release plus history from there".
 
-### 2.3 Workflow integration: the ``release.yml`` gets a final step
+### 2.3 Workflow split: ``release.yml`` and ``publish.yml`` are two workflows
 
-The existing release workflow (ADR-051 PR 4) has
-8 steps. This ADR adds a 9th step after the
-``gh release create`` step:
+**Decision (revisited during implementation).**
+The original draft of this ADR added a single
+``publish: yes|no`` input to ``release.yml`` and
+treated the publish step as a final tail of the
+release flow. **During implementation we split
+the workflows.** The reason is structural, not
+aesthetic: PyPI's Trusted Publisher binding is
+per-workflow, and the two responsibilities (cut a
+tag vs. upload a wheel) have different blast
+radii, different re-rodability, and different
+human-gate policies.
 
-```yaml
-- name: Publish to PyPI (Trusted Publishing)
-  if: ${{ inputs.publish == 'yes' }}
-  uses: pypa/gh-action-pypi-publish@release/v1
-  with:
-    packages-dir: dist/
-    # The OIDC token is auto-issued by GitHub
-    # when the workflow has the
-    # ``id-token: write`` permission.
-```
+The split:
 
-The new input is added to the
-``workflow_dispatch`` block:
+| Workflow | Trigger | Steps | Trust boundary |
+|---|---|---|---|
+| ``release.yml`` (existing, ADR-051 PR 4) | ``workflow_dispatch`` with ``level: {major,minor,patch}`` + optional ``date`` | checkout → setup-python → setup-uv → ``uv sync`` → ``bump_version.py --dry-run`` → compute new version → ``changelog_release.py`` → ``bump_version.py`` (create tag) → commit CHANGELOG → push tag → ``gh release create`` | Manual trigger (operator approval = the dispatch action itself) |
+| ``publish.yml`` (new, this ADR) | ``workflow_dispatch`` with ``tag: vX.Y.Z`` | checkout (at the tag) → setup-python → setup-uv → ``uv sync`` → sanity check (``__version__`` starts with the tag) → ``uv build --wheel`` → ``twine check`` → ``pypa/gh-action-pypi-publish`` | GitHub ``pypi`` Environment with "required reviewers" protection rule |
+
+The two workflows are **decoupled** in three
+senses:
+
+1. **PyPI binding is per-workflow.** PyPI's
+   "Trusted Publisher" config is bound to a
+   single workflow name. If ``release.yml``
+   also published, the ``pypi`` Environment
+   approval rule would gate the **whole** release
+   (including the tag cut). A failed publish
+   would orphan the tag. With the split, the
+   ``pypi`` rule is on the workflow whose only
+   job is publishing.
+2. **Re-rodability.** A failed publish (network
+   blip, transient PyPI error) is recoverable by
+   re-running ``publish.yml`` with the same tag.
+   The tag is not re-created; the wheel is
+   re-built from the same source; the OIDC
+   token is fresh. With a single workflow, a
+   failed publish means the tag was already
+   pushed and the wheel was already built --
+   re-running creates a second tag (or fails
+   because the first one exists) and rebuilds
+   the wheel from a possibly-mutated checkout.
+3. **Operator control.** The operator who cuts a
+   tag is not the same as the operator who
+   publishes. The release may need a maintainer
+   with merge access; the publish may need a
+   release manager with PyPI registration access.
+   Decoupling lets the two concerns be
+   owned by different people.
+
+The PyPI registration form (when the operator
+registers ``kntgraph`` as a Trusted Publisher)
+binds to ``.github/workflows/publish.yml``
+(workflow file path, **not** the workflow name
+"publish"). That is the canonical binding.
+
+The ``publish.yml`` workflow accepts a single
+input:
 
 ```yaml
 inputs:
-  publish:
-    description: "Publish to PyPI"
+  tag:
+    description: "The git tag to publish (e.g. v0.11.0). Must exist on the remote."
     required: true
-    type: choice
-    options:
-      - yes
-      - no
-    default: "yes"
+    type: string
 ```
 
-Default is "yes" so the operator does not have
-to set it on every release; the option exists
-for the case "I want to cut a release tag but not
-publish to PyPI yet" (e.g., the PyPI registration
-is pending, or the version is tagged for
-internal use only).
+The ``tag`` input is a string (not an enum) so
+the workflow can re-publish a hotfix version
+(e.g. ``v0.10.1``) that is **not** in the
+canonical ``level: major|minor|patch`` set. The
+release workflow is for cutting **next** versions;
+the publish workflow is for uploading **any**
+tag that already exists on the remote.
 
-### 2.4 Trust boundary: a GitHub Environment named ``pypi``
+The publish workflow has a safety guard before
+the PyPI action:
+
+```yaml
+- name: Sanity check: tag exists and version is set
+  run: |
+      uv run python -c "
+      import kntgraph
+      import sys
+      expected = '${{ inputs.tag }}'.lstrip('v')
+      got = kntgraph.__version__
+      if not got.startswith(expected):
+          sys.exit(
+              f'Version mismatch: expected {expected}*, '
+              f'got {got!r}. The tag may be wrong or '
+              f'setuptools_scm failed to derive the version.'
+          )
+      "
+```
+
+This catches the case "operator typed the wrong
+tag" or "the checkout did not include the tag"
+without contacting PyPI. A failed sanity check
+short-circuits the publish; the operator
+re-runs with the correct tag.
+
+### 2.4 (was 2.3) ``release.yml`` does not change
+
+The ``release.yml`` workflow (ADR-051 PR 4) is
+**unchanged** by this ADR. The original
+ADR-052 draft said "release.yml gets a final
+step"; the implementation decision (the
+workflow split) made that step unnecessary.
+The release workflow ends with
+``gh release create``; that is its job.
+
+The release workflow has ``permissions:
+contents: write`` (for tag push + release
+create) but **not** ``id-token: write`` (it
+does not need the OIDC token). The
+``pypi`` Environment is **not** declared on
+``release.yml``; the manual trigger is the
+human gate.
+
+### 2.5 (was 2.4) Trust boundary: a GitHub Environment named ``pypi``
 
 Trusted Publishing requires a **GitHub
 Environment** with a protection rule. The
@@ -222,54 +304,52 @@ environment is a named bucket in the repo
 settings (``Settings -> Environments ->
 ``pypi``); the rule says "deployments to this
 environment require approval from
-``@kntgraph/maintainers``".
+``@knetgraph/maintainers``".
 
-The release workflow declares:
+The publish workflow declares:
 
 ```yaml
 jobs:
-  cut-release:
+  publish-pypi:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: write
-      id-token: write  # required for Trusted Publishing
+      contents: read   # checkout the repo at the tag
+      id-token: write  # OIDC token for Trusted Publishing
 ```
 
 The ``environment: pypi`` + the protection rule
 mean: a malicious PR cannot trigger the
-``release.yml`` workflow and exfiltrate the
-OIDC token (the token is only issued for jobs
-in the ``pypi`` environment, and that environment
-requires maintainer approval to deploy to).
+publish workflow and exfiltrate the OIDC
+token. The token is only issued for jobs in
+the ``pypi`` environment, and that environment
+requires maintainer approval to deploy to.
 
 This is a **defence-in-depth** measure. The OIDC
 token is short-lived and tightly scoped; the
 environment rule adds a human-in-the-loop
 gate. Both are recommended by [PyPI's
-docs](https://docs.pypi.org/trusted-publishers/adding-a-publisher/).
+docs](https://docs.pypi.org/trusted-publishers/).
 
-### 2.5 What is built into the wheel
+### 2.6 (was 2.5) What is built into the wheel
 
 The ``[tool.setuptools_scm]`` config in
 ``pyproject.toml`` (ADR-051 PR 1) already produces
 a wheel with the correct version
 (``kntgraph-0.10.0-py3-none-any.whl``). The
-release workflow needs to build the wheel
-**before** publishing:
+publish workflow builds the wheel from the
+checked-out tag:
 
 ```yaml
 - name: Build the wheel
-  run: |
-    uv build --wheel
-    # The wheel lands in ``dist/``.
+  run: uv build --wheel
 ```
 
 The ``pypa/gh-action-pypi-publish`` reads
 ``dist/`` by default (``packages-dir: dist/``).
 No change to the source layout is required.
 
-### 2.6 Out of scope (explicit)
+### 2.7 (was 2.6) Out of scope (explicit)
 
 - **No release notes from ``CHANGELOG.md``** on
   PyPI. PyPI's "long description" field is the
@@ -278,7 +358,7 @@ No change to the source layout is required.
   The release workflow already opens the GitHub
   Release with the CHANGELOG section; the PyPI
   long description is a separate concern (and
-  likely a simpler choice — the README's "what is
+  likely a simpler choice -- the README's "what is
   kntgraph" section, not the version-by-version
   history).
 - **No automatic ``-dev``/``-rc`` tags** on
@@ -299,6 +379,12 @@ No change to the source layout is required.
   the operator adds a second publish step with
   a different ``repository_url``. Out of scope
   today; flagged in §5.
+- **No chained ``workflow_run`` trigger** from
+  ``release.yml`` to ``publish.yml``. The two
+  workflows are decoupled; the operator
+  triggers them independently. The PyPI
+  Environment approval rule is the human gate;
+  automating the chain would skip it.
 
 ## 3. Consequences
 
@@ -374,12 +460,13 @@ No change to the source layout is required.
   (5 minutes; one-off). The workflow's
   ``environment: pypi`` reference is the only
   code change required.
-- **The release workflow gets one more step**
-  (build the wheel) and one more input
-  (``publish: yes|no``). The total workflow
-  grows from 11 steps to 12; the operator's
-  mental model grows by one decision ("publish
-  to PyPI or not?").
+- **The release process grows by one workflow**
+  (``publish.yml``). The operator's mental model
+  grows by one command: after cutting the tag
+  with ``release.yml``, they trigger
+  ``publish.yml`` to upload to PyPI. The two
+  are decoupled; either can run without the
+  other.
 - **PyPI is irreversible in one direction.** A
   release can be yank''d (hidden from ``pip
   install`` by default) but cannot be deleted.
@@ -391,41 +478,52 @@ No change to the source layout is required.
 The migration is 1 PR. Each step is **independently
 mergeable** and **independently revertable**.
 
-### PR 1 — PyPI publish workflow (~1 day)
+### PR 1 — PyPI publish workflow (split from release.yml) (~1 day)
 
 1. **Operator** (not in the repo) registers
    ``kntgraph`` on PyPI as a Trusted Publisher
    (the GitHub repo ``kinetgraph/kinetgraph``,
-   workflow ``.github/workflows/release.yml``,
-   environment ``pypi``). The PyPI web UI
-   prompts for these values; the operator copies
-   them from the workflow YAML.
+   workflow file ``.github/workflows/publish.yml``
+   -- **not** ``release.yml`` --, environment
+   ``pypi``). The PyPI web UI prompts for these
+   values; the operator copies them from the
+   workflow YAML.
 2. **Operator** creates the ``pypi`` GitHub
    Environment (``Settings -> Environments ->
    New environment -> ``pypi````). Adds a
    protection rule: "Required reviewers: any
    user in the ``@kinetgraph/maintainers`` team".
 3. **Code** in this PR:
-   - Add the ``publish`` input to
-     ``release.yml``.
-   - Add the ``environment: pypi`` + the
-     ``id-token: write`` permission to the
-     ``cut-release`` job.
-   - Add the "Build the wheel" step.
-   - Add the "Publish to PyPI" step (the
-     ``pypa/gh-action-pypi-publish`` action).
-4. **Test**: the operator runs the workflow with
-   ``publish: no`` (the default for a dry-run)
-   to verify the wheel builds correctly. Then a
-   second run with ``publish: yes`` to verify
-   the publish step works.
+   - New ``.github/workflows/publish.yml``
+     (the workflow described in §2.3-2.6).
+   - **No change** to ``release.yml`` (it was
+     already separated from the publish step in
+     the implementation decision).
+4. **Test**: 13 contract tests in
+   ``tests/scripts/test_workflow_split.py``
+   enforce the split (the ``release.yml``
+   workflow contains no PyPI action; the
+   ``publish.yml`` workflow contains no tag-cut
+   step; the two workflows are disjoint in
+   responsibilities).
 5. **First release**: the operator cuts a
-   release (e.g. ``v0.11.0``) via the workflow.
-   PyPI receives the wheel; the project has a
-   public install path.
+   release (``gh workflow run release.yml -f
+   level=minor``); PyPI receives no upload yet.
+   Then a second workflow run (``gh workflow run
+   publish.yml -f tag=v0.11.0``) uploads the
+   wheel. The project has a public install path.
 6. **Docs**: ``README.md::Installation`` updates
    from "clone the repo" to
    ``pip install kntgraph``.
+
+### Total time
+
+~1 day of operator work (PyPI registration +
+GitHub Environment setup + first release cut +
+first publish).
+~2 hours of code (the workflow is mechanical;
+the 13 contract tests are the durable part of
+this PR).
 
 ### Total time
 
@@ -439,21 +537,25 @@ guard).
 
 - [ ] ``kntgraph`` is registered on PyPI as a
       Trusted Publisher (the GitHub repo
-      ``kinetgraph/kinetgraph``, workflow
-      ``.github/workflows/release.yml``,
+      ``kinetgraph/kinetgraph``, workflow file
+      ``.github/workflows/publish.yml``,
       environment ``pypi``).
 - [ ] The ``pypi`` GitHub Environment exists with
       a "required reviewers" protection rule.
-- [ ] ``release.yml`` accepts a ``publish`` input
-      (``yes|no``); the publish step is gated on
-      the input.
-- [ ] ``release.yml`` builds the wheel before the
-      publish step (the
-      ``pypa/gh-action-pypi-publish`` action reads
-      ``dist/``).
+- [ ] ``.github/workflows/publish.yml`` accepts a
+      ``tag`` input (the git tag to publish);
+      the workflow builds the wheel from the tag
+      and uploads via
+      ``pypa/gh-action-pypi-publish``.
+- [ ] ``.github/workflows/release.yml`` does
+      **not** contain the PyPI publish step (the
+      split is enforced by the 13 contract tests
+      in ``tests/scripts/test_workflow_split.py``).
 - [ ] The first PyPI release is cut via the
-      workflow (``gh workflow run release.yml -f
-      level=minor -f publish=yes``); the wheel
+      two-workflow flow (``gh workflow run
+      release.yml -f level=minor`` for the tag,
+      then ``gh workflow run publish.yml -f
+      tag=v0.11.0`` for the upload); the wheel
       lands on PyPI within a few minutes.
 - [ ] ``pip install kntgraph`` works on a fresh
       environment (e.g. a CI runner that does not
@@ -465,8 +567,8 @@ guard).
       install path.
 - [ ] CI green: 11/11 gates (the existing 11
       gates; PyPI is **not** a CI gate — the
-      publish step is in the release workflow, not
-      in ``scripts/ci.py``).
+      publish step is in the ``publish.yml``
+      workflow, not in ``scripts/ci.py``).
 
 ## 6. References
 
