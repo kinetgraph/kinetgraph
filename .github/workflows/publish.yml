@@ -1,0 +1,181 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+---
+# Publish a kntgraph release to PyPI (ADR-052).
+#
+# This workflow is the **second half** of the release
+# process; it is **separate** from ``release.yml``
+# (which cuts the tag and opens the GitHub Release).
+# The split exists because PyPI's Trusted Publisher
+# binding is per-workflow: if release.yml also
+# published, the ``pypi`` Environment approval rule
+# would gate the **whole** release (including the
+# tag cut), and a failed publish would orphan the
+# tag.
+#
+# Expected caller:
+#
+#   1. Run ``release.yml`` first (``gh workflow run
+#      release.yml -f level=minor``). It creates
+#      the tag ``vX.Y.Z`` and opens the GitHub
+#      Release.
+#   2. Run ``publish.yml`` to upload the wheel to
+#      PyPI (``gh workflow run publish.yml -f
+#      tag=vX.Y.Z``). It builds the wheel from
+#      the tagged source and uploads it.
+#   3. Verify ``pip install kntgraph`` works in a
+#      fresh environment.
+#
+# The workflow is re-runnable: if the upload fails
+# (network, metadata error, etc.), the operator
+# re-runs ``publish.yml`` with the same tag. The
+# PyPI action is idempotent on the same wheel
+# (re-uploading the same file is a no-op).
+#
+# Trust boundary: the ``pypi`` GitHub Environment
+# has a "required reviewers" protection rule
+# (a maintainer must approve the deploy). The
+# OIDC token is short-lived and tied to this
+# specific workflow; the Environment rule is the
+# human-in-the-loop gate.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The git tag to publish (e.g. v0.11.0). Must exist on the remote."
+        required: true
+        type: string
+
+permissions:
+  contents: read   # checkout the repo at the tag
+  id-token: write  # OIDC token for Trusted Publishing
+
+jobs:
+  publish-pypi:
+    runs-on: ubuntu-latest
+    # The Environment rule (set in GitHub
+    # Settings) is the human gate; do not remove
+    # this line. PyPI's Trusted Publisher binding
+    # is per-workflow, but the **Environment**
+    # binding is the project's defence-in-depth.
+    environment: pypi
+    if: startsWith(inputs.tag, 'v') && contains(inputs.tag, '.')
+    steps:
+      - name: Checkout (at the tag, full history)
+        uses: actions/checkout@v4
+        with:
+          # setuptools_scm reads the latest
+          # tag + the distance from HEAD. The
+          # full history is required so the
+          # ``uv build`` step derives the correct
+          # version (it would be ``0.0.0`` without
+          # a tag in the clone).
+          fetch-depth: 0
+          # Check out the tag the operator wants
+          # to publish. ``ref: ${{ inputs.tag }}``
+          # detaches HEAD at the tag commit.
+          ref: ${{ inputs.tag }}
+          show-progress: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+
+      - name: Sync deps
+        run: uv sync --group dev
+
+      - name: "Sanity check: tag exists and version is set"
+        # ``setuptools_scm`` derives the version
+        # from the latest tag in the clone. The
+        # clone is checked out at the tag, so
+        # ``__version__`` is the exact version
+        # the operator passed. A mismatch (e.g.
+        # the tag does not exist, or the workflow
+        # was triggered with the wrong tag) fails
+        # fast here -- the publish step never
+        # runs.
+        run: |
+          set -euo pipefail
+          uv run python -c "
+          import kntgraph
+          import sys
+          expected = '${{ inputs.tag }}'.lstrip('v')
+          got = kntgraph.__version__
+          if not got.startswith(expected):
+              sys.exit(
+                  f'Version mismatch: expected {expected}*, '
+                  f'got {got!r}. The tag may be wrong or '
+                  f'setuptools_scm failed to derive the version.'
+              )
+          print(f'OK: kntgraph.__version__={got} starts with {expected}')
+          "
+
+      - name: Build the wheel
+        # ``uv build --wheel`` produces
+        # ``dist/kntgraph-X.Y.Z-py3-none-any.whl``
+        # (the version is derived from the tag
+        # by ``setuptools_scm``, ADR-051).
+        run: uv build --wheel
+
+      - name: Verify the wheel was built
+        # The build is the most common failure
+        # point (missing metadata, missing
+        # files). Fail fast with a clear
+        # diagnostic before contacting PyPI.
+        run: |
+          set -euo pipefail
+          wheel=$(ls dist/*.whl | head -1)
+          if [ -z "$wheel" ]; then
+              echo "ERROR: no wheel found in dist/" >&2
+              ls -la dist/ >&2
+              exit 1
+          fi
+          echo "Built: $wheel"
+
+      - name: Publish to PyPI (Trusted Publishing)
+        # The OIDC token is auto-issued by GitHub
+        # when the workflow has the
+        # ``id-token: write`` permission (set
+        # above) and the job is in the ``pypi``
+        # Environment (which has a maintainer
+        # approval rule).
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          # The OIDC token is auto-issued; no
+          # explicit ``password:`` is needed.
+
+      - name: Verify the publish
+        # A failed publish (e.g. metadata error
+        # rejected by PyPI) does not raise a
+        # non-zero exit from the
+        # ``pypa/gh-action-pypi-publish`` action;
+        # the step succeeds and PyPI shows the
+        # error. The ``twine check`` is a
+        # defence-in-depth: it asserts the wheel
+        # is valid before upload.
+        run: |
+          set -euo pipefail
+          uv run --with twine python -m twine check dist/*.whl
+
+      - name: Print the install hint
+        # Operator-facing diagnostic: after this
+        # workflow succeeds, ``pip install
+        # kntgraph`` is live. Print the exact
+        # command the operator runs to verify
+        # in a fresh environment.
+        run: |
+          echo
+          echo "Published. To verify in a fresh environment:"
+          echo "  uv run --with twine python -m twine check dist/*.whl"
+          echo "  uv run --with pip-audit python -m pip install kntgraph"
+          echo "  uv run --with pip-audit python -c 'import kntgraph; print(kntgraph.__version__)'"

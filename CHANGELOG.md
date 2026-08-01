@@ -864,18 +864,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (``kntgraph``, currently unregistered on
   PyPI); first release (no retroactive
   publishing — the next release is the first
-  PyPI release); workflow integration (a final
-  ``Publish to PyPI`` step in
-  ``.github/workflows/release.yml``, gated by a
-  new ``publish`` input); trust boundary (a
-  GitHub Environment named ``pypi`` with a
-  "required reviewers" protection rule); wheel
-  build (the existing
-  ``[tool.setuptools_scm]`` config produces
-  ``dist/kntgraph-X.Y.Z-py3-none-any.whl``
-  unchanged). Implementation is a 1-day PR
-  after the operator registers the Trusted
-  Publisher relationship on PyPI.
+  PyPI release); workflow split (the original
+  draft had a single ``release.yml`` with a
+  ``publish: yes|no`` input; the implementation
+  decision was to split into two workflows
+  because PyPI's Trusted Publisher binding is
+  per-workflow and the two responsibilities have
+  different blast radii and re-rodability).
+  - ``.github/workflows/release.yml`` cuts the
+    tag and opens the GitHub Release
+    (unchanged from ADR-051 PR 4).
+  - ``.github/workflows/publish.yml`` is the
+    new workflow: ``workflow_dispatch`` with a
+    ``tag`` input; the operator passes an
+    existing tag (``v0.11.0``); the workflow
+    builds the wheel from the checked-out tag,
+    sanity-checks ``__version__`` against the
+    tag, runs ``uv build --wheel``, and uploads
+    via ``pypa/gh-action-pypi-publish``. The
+    ``pypi`` GitHub Environment (with
+    "required reviewers") is the human gate.
+  - 13 contract tests in
+    ``tests/scripts/test_workflow_split.py``
+    enforce the split (``release.yml`` contains
+    no PyPI action; ``publish.yml`` contains no
+    tag-cut step; the two workflows are
+    disjoint).
   (the shim was cut from scope because the
   Typer/sub-Typer interaction does not allow a
   flat command and a sub-Typer to share the same
