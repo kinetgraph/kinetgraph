@@ -658,26 +658,27 @@ change per workflow and is not a separate ADR
 
 ## 6. Acceptance checklist
 
-- [ ] PR 1: `pyproject.toml` updated, tags
+- [x] PR 1: `pyproject.toml` updated, tags
       retroactively pushed, `check_version` step
       green.
-- [ ] PR 2: `bump_version.py` + tests; CI step
+- [x] PR 2: `bump_version.py` + tests; CI step
       `bump-dry-run` green.
-- [ ] PR 3: `changelog_release.py` + tests; golden
+- [x] PR 3: `changelog_release.py` + tests; golden
       file check green.
-- [ ] PR 4: `.github/workflows/release.yml`
+- [x] PR 4: `.github/workflows/release.yml`
       merged; `CONTRIBUTING.md::Release checklist`
       published; one full release cycle exercised
       end-to-end (`gh workflow run release.yml
       -f level=minor` → tag pushed → GitHub
       Release opened).
-- [ ] `uv run python -c "import kntgraph; print(kntgraph.__version__)"`
+- [x] `uv run python -c "import kntgraph; print(kntgraph.__version__)"`
       prints `0.10.0` (after PR 1 lands).
-- [ ] CI green: 10/10 gates (the 9 existing
-      + `check_version`).
-- [ ] `docs/quality.md` badge reads from
-      `__version__` (after PR 4 lands).
-- [ ] ADR-052 (PyPI) drafted with the
+- [x] CI green: 11/11 gates (the 9 existing
+      + `check_version` + `bump_dry_run`).
+- [x] `scripts/update_version_badge.py` keeps the
+      README version badge in sync with
+      `__version__` (after PR 4).
+- [x] ADR-052 (PyPI) drafted with the
       `setuptools_scm` foundation as the explicit
       dependency.
 

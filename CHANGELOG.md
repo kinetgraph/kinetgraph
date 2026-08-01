@@ -823,6 +823,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the canonical 6-step ritual for cutting a
   release. PyPI publishing remains out of scope
   (ADR-052).
+- **``.github/workflows/release.yml`** automates
+  the release: ``workflow_dispatch`` with a
+  ``level`` input (major / minor / patch); the
+  workflow runs ``bump_version.py`` (dry-run
+  first as a guard), ``changelog_release.py``
+  (moves `[Unreleased]` to a dated section),
+  commits, pushes the tag, and opens the GitHub
+  Release with the dated section as the body.
+  Manual trigger only (no auto-on-PR); the
+  operator retains control of the release
+  cadence.
+- **``scripts/update_version_badge.py``** keeps
+  the README version badge in sync with
+  ``kntgraph.__version__`` (derived from the
+  git tag). The badge is a shields.io image
+  with the format
+  ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``;
+  the ``+g<sha>`` and ``.devN`` suffixes that
+  ``setuptools_scm`` adds when the working tree
+  is past the latest tag are stripped so the
+  badge always shows a clean semver triple.
   (the shim was cut from scope because the
   Typer/sub-Typer interaction does not allow a
   flat command and a sub-Typer to share the same

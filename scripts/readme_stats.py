@@ -68,6 +68,43 @@ def _tests_loc() -> int:
     return out
 
 
+def _version_badge() -> str:
+    """Render the README version badge from
+    ``kntgraph.__version__``.
+
+    The badge is a standard shields.io image with
+    the format
+    ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``.
+
+    The version is the **base** of
+    ``kntgraph.__version__`` (e.g. ``0.10.0``); the
+    ``+g<sha>`` and ``.devN`` suffixes that
+    ``setuptools_scm`` adds when the working tree
+    is past the latest tag are stripped so the
+    badge always shows a clean semver triple.
+
+    When ``__version__`` is the ``"0.0.0+unknown"``
+    fallback (no ``_version.py`` generated, e.g.
+    a source install without ``setuptools_scm``),
+    the badge is empty (returns ``""``). The
+    README's badges block omits the version line
+    in that case.
+    """
+    try:
+        import kntgraph
+    except ImportError:
+        return ""
+    raw = getattr(kntgraph, "__version__", "")
+    if not raw or raw == "0.0.0+unknown":
+        return ""
+    # Drop the local / pre-release segments so
+    # the badge is always ``X.Y.Z``.
+    from packaging.version import Version
+
+    base = Version(raw).base_version
+    return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
+
+
 def _pytest_count() -> int:
     """Return the number of unit tests collected by pytest.
 

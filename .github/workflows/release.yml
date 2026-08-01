@@ -1,0 +1,182 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+---
+# Cut a kntgraph release (ADR-051).
+#
+# This workflow is the automation half of the release
+# checklist in ``CONTRIBUTING.md``. It runs on manual
+# trigger (``workflow_dispatch``) with a single
+# ``level`` input. The expected caller:
+#
+#   1. Update ``CHANGELOG.md`` ``[Unreleased]`` section
+#      locally and commit.
+#   2. Open the GitHub Actions page, "Run workflow",
+#      select ``level`` (major / minor / patch).
+#   3. The workflow:
+#      a. Bumps the version locally (dry-run first
+#         as a guard).
+#      b. Runs ``changelog_release.py`` to move the
+#         ``[Unreleased]`` block to a dated section.
+#      c. Commits the changelog + the new tag.
+#      d. Pushes the tag (``vX.Y.Z``).
+#      e. Opens a GitHub Release with the dated
+#         section as the body.
+#
+# PyPI publishing is **not** part of this workflow
+# (ADR-052 is a separate decision; the project
+# currently installs via ``git+https://...``).
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: "Version bump level"
+        required: true
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+      date:
+        description: "Changelog date stamp (YYYY-MM-DD); defaults to today"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write  # create tag, push tag, open release
+
+jobs:
+  cut-release:
+    runs-on: ubuntu-latest
+    # Only the main branch can cut releases. Tags
+    # on feature branches would be confusing and
+    # would require the workflow to know which
+    # branch's CHANGELOG to read.
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout (full history for setuptools_scm)
+        uses: actions/checkout@v4
+        with:
+          # setuptools_scm reads the latest
+          # tag + the distance from HEAD. The full
+          # history is required for the workflow's
+          # ``bump_version.py`` step (``git describe
+           # --tags --abbrev=0``) too.
+          fetch-depth: 0
+          # GPG signing is irrelevant for the
+          # release tag (``-a`` annotated tag, no
+          # GPG); disable to avoid CI failures on
+          # hosts without a configured key.
+          show-progress: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "latest"
+
+      - name: Sync deps
+        run: uv sync --group dev
+
+      - name: Bump version (dry-run guard)
+        # Run the dry-run **first** as a CI guard:
+        # if the bump logic is broken (e.g. a
+        # refactor to ``bump_version.py`` introduced
+        # a regression), the workflow fails before
+        # touching the git history. The unit tests
+        # in ``tests/scripts/test_bump_version.py``
+        # are the primary guard; this is a
+        # defence-in-depth.
+        run: |
+          uv run python scripts/bump_version.py \
+              --level "${{ inputs.level }}" \
+              --dry-run
+
+      - name: Compute new version
+        # Parse the dry-run output to extract the
+        # new version (so subsequent steps do not
+        # hard-code it). The dry-run output is the
+        # only place the version is canonical.
+        id: bump
+        run: |
+          set -euo pipefail
+          output=$(uv run python scripts/bump_version.py \
+              --level "${{ inputs.level }}" \
+              --dry-run)
+          echo "$output"
+          new_version=$(echo "$output" | \
+              sed -n 's/^next:[[:space:]]*//p')
+          new_tag=$(echo "$output" | \
+              sed -n 's/^tag:[[:space:]]*//p')
+          echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+          echo "new_tag=$new_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite CHANGELOG
+        # The ``changelog_release.py`` script
+        # moves the ``[Unreleased]`` block to a
+        # dated section. The date defaults to
+        # today; the workflow input lets the
+        # operator override (for back-dating a
+        # release that was delayed).
+        run: |
+          date_arg=""
+          if [ -n "${{ inputs.date }}" ]; then
+              date_arg="--date ${{ inputs.date }}"
+          fi
+          uv run python scripts/changelog_release.py \
+              --new-version "${{ steps.bump.outputs.new_version }}" \
+              $date_arg
+
+      - name: Bump version (create the tag)
+        # Now that the changelog is rewritten and
+        # the next version is known, create the
+        # tag. The script refuses to recreate an
+        # existing tag (idempotency guard).
+        run: |
+          uv run python scripts/bump_version.py \
+              --level "${{ inputs.level }}"
+
+      - name: Commit the CHANGELOG update
+        # The tag points at HEAD; the CHANGELOG
+        # update must land **before** the tag, so
+        # ``git describe`` from the new tag reports
+        # the new version (not the previous one).
+        # The bump script is git-history-free; the
+        # commit is the operator's responsibility
+        # (this workflow automates it).
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit \
+              -m "chore(release): v${{ steps.bump.outputs.new_version }}" \
+              -m "ADR-051 release automation." \
+              -m "Tag: ${{ steps.bump.outputs.new_tag }}"
+
+      - name: Push the tag
+        run: |
+          git push origin \
+              "${{ steps.bump.outputs.new_tag }}"
+
+      - name: Open the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body=$(awk '
+              /^## \[${{ steps.bump.outputs.new_version }}\]/ { found=1 }
+              found { print }
+              /^## \[/ && !/^## \[${{ steps.bump.outputs.new_version }}\]/ && NR>1 && found { exit }
+          ' CHANGELOG.md)
+          gh release create \
+              "${{ steps.bump.outputs.new_tag }}" \
+              --title "v${{ steps.bump.outputs.new_version }}" \
+              --notes "$body" \
+              --verify-tag
