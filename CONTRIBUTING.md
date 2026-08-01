@@ -221,7 +221,15 @@ the drift on the next run.
 2. **Update `CHANGELOG.md`**. Move the
    `[Unreleased]` section to a dated
    `## [X.Y.Z] — YYYY-MM-DD` block. Add a fresh
-   empty `## [Unreleased]` section above.
+   empty `## [Unreleased]` section above. The
+   `scripts/changelog_release.py` script does
+   this rewriting atomically (run it **before**
+   the bump so the new version is known):
+   ```bash
+   uv run python scripts/changelog_release.py \
+       --new-version 0.11.0 \
+       --date 2026-08-01
+   ```
 3. **Bump the version locally** (dry-run first):
    ```bash
    uv run python scripts/bump_version.py --level <major|minor|patch> --dry-run
