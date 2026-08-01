@@ -183,7 +183,7 @@ When adding a new feature:
    logical change. Reference the ADR when
    applicable (`feat(agents): ... (ADR-013)`).
 3. **Run the gate locally**:
-   `uv run scripts/ci.py`. All 8 steps must
+   `uv run scripts/ci.py`. All 11 steps must
    pass.
 4. **Open a PR** against `main`. CI will run
    the same gate; PRs that fail any step are
@@ -198,13 +198,76 @@ When adding a new feature:
 Use the GitHub issue tracker. Include:
 
 - A minimal reproduction (script or snippet).
-- The output of `uv run --package kntgraph
-  python -c "import kntgraph; print(kntgraph.__version__)"`
-  (or the version you ran).
+- The output of `uv run python -c "import
+  kntgraph; print(kntgraph.__version__)"` (the
+  version derives from the git tag, ADR-051).
 - The Python version (`python --version`).
 - The OS and architecture.
 - The relevant log output (use `structlog`
   JSON output if possible).
+
+## Release checklist (ADR-051)
+
+The project's version is the **git tag**, not a
+field in `pyproject.toml`. A release is a 6-step
+ritual; skip the discipline and the CI will catch
+the drift on the next run.
+
+1. **Confirm CI is green**:
+   `KNT_REDIS_FAKE=1 uv run scripts/ci.py`. All 11
+   steps must pass (the new `check_version` and
+   `bump_dry_run` steps are the version-specific
+   gates).
+2. **Update `CHANGELOG.md`**. Move the
+   `[Unreleased]` section to a dated
+   `## [X.Y.Z] — YYYY-MM-DD` block. Add a fresh
+   empty `## [Unreleased]` section above.
+3. **Bump the version locally** (dry-run first):
+   ```bash
+   uv run python scripts/bump_version.py --level <major|minor|patch> --dry-run
+   uv run python scripts/bump_version.py --level <major|minor|patch>
+   ```
+   The script creates the tag locally (e.g.
+   `v0.11.0`); it does **not** push. The level
+   follows [PEP 440](https://peps.python.org/pep-0440/):
+   - **major**: incompatible API change
+   - **minor**: backward-compatible feature
+   - **patch**: backward-compatible bug fix
+4. **Refresh the install** so `__version__`
+   picks up the new tag:
+   ```bash
+   uv sync --group dev
+   uv run python -c "import kntgraph; print(kntgraph.__version__)"
+   ```
+   The output should be `X.Y.Z` (no `devN`).
+5. **Push the tag** (this is the only step that
+   touches the remote — AGENTS.md §11.3
+   forbids agent-driven pushes, so the operator
+   does it):
+   ```bash
+   git push origin vX.Y.Z
+   ```
+6. **Open a GitHub Release** at
+   `https://github.com/kinetgraph/kntgraph/releases/new`,
+   pick the new tag, paste the corresponding
+   `## [X.Y.Z]` block from `CHANGELOG.md` as the
+   body, and publish.
+
+If the CI's `check_version` step fails after a
+release, the install cache is stale — run
+`uv sync` and re-run.
+
+If the operator needs to **delete a tag** (e.g.
+a release was cut prematurely), use
+`git tag -d vX.Y.Z` locally and
+`git push origin :refs/tags/vX.Y.Z` to remove it
+from the remote. The next `uv sync` will install
+the previous tag's version.
+
+PyPI publishing is **not** part of this checklist
+(ADR-052 is a separate decision; the project
+currently installs via `git+https://...` or
+copy-paste).
 
 ## Security vulnerabilities
 

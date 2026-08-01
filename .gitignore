@@ -226,3 +226,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# setuptools_scm (ADR-051): version file is generated
+# at install time from the git tag; do not commit.
+src/kntgraph/_version.py

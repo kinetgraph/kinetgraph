@@ -272,6 +272,7 @@ canonical schema is `Settings` in
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
 | [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
+| [ADR-051](ADRs/ADR-051-Release-Versioning-via-Git-Tags.md) | Release versioning via git tags + `setuptools_scm` | Accepted (v0.10.0; PyPI publishing deferred to ADR-052) |
 
 ## Project status
 
@@ -302,8 +303,19 @@ canonical schema is `Settings` in
   See [`docs/zta.md`](docs/zta.md),
   [`examples/09b_solution_lookup_zta.py`](examples/09b_solution_lookup_zta.py)
   (in-memory) and
-  [`examples/09c_solution_lookup_zta_redis.py`](examples/09c_solution_lookup_zta_redis.py)
-  (Redis).
+   [`examples/09c_solution_lookup_zta_redis.py`](examples/09c_solution_lookup_zta_redis.py)
+  (Redis). Also adds **release versioning via git
+  tags** (ADR-051): the project version is now
+  derived from the git tag by `setuptools_scm`
+  (no more `pyproject.toml::version`); the new
+  CI gates `check_version` and `bump_dry_run`
+  catch drift before a release ships; the
+  `CONTRIBUTING.md::Release checklist` is the
+  6-step ritual for cutting a release. Retroactive
+  tags for `v0.7.0`, `v0.8.0`, `v0.10.0` are
+  pushed so `git log v0.8.0..v0.10.0` and
+  `uv sync` work today. PyPI publishing is
+  deferred to ADR-052.
 - `0.9.0` — predecessor release. Drops the legacy
   `LiteLLMTool` / `ToolInvoker` / `kntgraph.agents.roles`
   paths (the canonical path is
