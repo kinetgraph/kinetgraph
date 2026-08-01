@@ -680,7 +680,11 @@ change per workflow and is not a separate ADR
       `__version__` (after PR 4).
 - [x] ADR-052 (PyPI) drafted with the
       `setuptools_scm` foundation as the explicit
-      dependency.
+      dependency. Status: Proposed (awaiting
+      operator registration of the Trusted
+      Publisher relationship on PyPI; the
+      first release is the first PyPI release,
+      not retroactive).
 
 ## 7. References
 

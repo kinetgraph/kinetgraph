@@ -839,11 +839,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ``kntgraph.__version__`` (derived from the
   git tag). The badge is a shields.io image
   with the format
-  ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``;
+  ``![Version](https://img.shields.io/badge/version-X.Y-Z-blue)``;
   the ``+g<sha>`` and ``.devN`` suffixes that
   ``setuptools_scm`` adds when the working tree
   is past the latest tag are stripped so the
   badge always shows a clean semver triple.
+
+### Fixed
+- **``scripts/quality_report.py`` reads the
+  version from ``kntgraph.__version__``** (the
+  ADR-051 source of truth), not from
+  ``pyproject.toml::version`` (which was removed
+  in ADR-051 PR 1). The new ``get_version()``
+  helper reads the live import; the new
+  ``_format_version_for_report()`` strips the
+  ``.devN+g<sha>`` suffix so the
+  ``docs/quality.md`` header shows a clean
+  ``X.Y.Z``. 4 new tests cover the contract.
+
+### Added (ADR-052, draft)
+- **ADR-052: PyPI publishing via Trusted
+  Publishing (PEP 740).** Drafted (Status:
+  Proposed). The ADR covers: package name
+  (``kntgraph``, currently unregistered on
+  PyPI); first release (no retroactive
+  publishing — the next release is the first
+  PyPI release); workflow integration (a final
+  ``Publish to PyPI`` step in
+  ``.github/workflows/release.yml``, gated by a
+  new ``publish`` input); trust boundary (a
+  GitHub Environment named ``pypi`` with a
+  "required reviewers" protection rule); wheel
+  build (the existing
+  ``[tool.setuptools_scm]`` config produces
+  ``dist/kntgraph-X.Y.Z-py3-none-any.whl``
+  unchanged). Implementation is a 1-day PR
+  after the operator registers the Trusted
+  Publisher relationship on PyPI.
   (the shim was cut from scope because the
   Typer/sub-Typer interaction does not allow a
   flat command and a sub-Typer to share the same

@@ -557,8 +557,53 @@ GATES = {
 }
 
 
+def get_version() -> str:
+    """Return the installed ``kntgraph.__version__``.
+
+    The version is derived from the git tag by
+    ``setuptools_scm`` (ADR-051). The helper returns
+    the **raw** value (which may carry a
+    ``.devN+g<sha>`` suffix when the working tree
+    is past the latest tag). The caller is
+    responsible for stripping the devN suffix
+    before rendering user-facing strings (the
+    README badge and the report header).
+    """
+    import kntgraph
+
+    return getattr(kntgraph, "__version__", "0.0.0+unknown")
+
+
+def _format_version_for_report(raw: str) -> str:
+    """Return the user-facing version: the **base**
+    of ``raw`` (no ``.devN``, no ``+g<sha>``). The
+    ``0.0.0+unknown`` fallback is returned verbatim
+    (the developer should know the install is
+    mis-configured).
+    """
+    if not raw or raw == "0.0.0+unknown":
+        return raw or "0.0.0+unknown"
+    from packaging.version import InvalidVersion, Version
+
+    try:
+        return Version(raw).base_version
+    except InvalidVersion:
+        # Should not happen (the install is
+        # already validated by ``setuptools_scm``),
+        # but fall back to the raw value rather
+        # than crash.
+        return raw
+
+
 def render_markdown(report: dict) -> str:
     g = report["gates"]
+    # ADR-051: the project version is the git
+    # tag. The report header includes the
+    # user-facing base (no devN / +g<sha>) so the
+    # README badge and the quality snapshot stay
+    # in sync with the tag.
+    raw_version = report.get("version", "")
+    report_version = _format_version_for_report(raw_version)
     lines = [
         "<!--",
         "SPDX-FileCopyrightText: 2026 kinetgraph",
@@ -571,6 +616,7 @@ def render_markdown(report: dict) -> str:
         "",
         "# Quality report",
         "",
+        f"Version: {report_version}",
         f"Generated: {report['generated_at']}",
         f"Total duration: {report['total_duration_s']}s",
         "",
@@ -732,6 +778,13 @@ def main(argv: list[str] | None = None) -> int:
 
     report: dict = dict(existing) if existing else {"gates": {}}
     report["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # ADR-051: the project version is the git tag.
+    # We capture the **raw** ``__version__`` here
+    # (which may carry a ``.devN+g<sha>`` suffix
+    # when the working tree is past the latest
+    # tag); ``render_markdown`` strips the suffix
+    # before rendering the user-facing header.
+    report["version"] = get_version()
     report.setdefault("gates", {})
     for name in selected:
         print(f"running gate: {name} ...", file=sys.stderr, flush=True)
