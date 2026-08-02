@@ -64,6 +64,68 @@ jobs:
     environment: pypi
     if: startsWith(inputs.tag, 'v') && contains(inputs.tag, '.')
     steps:
+      - name: "Pre-check: tag exists on origin"
+        # Tag-existence guard. Run **before**
+        # the checkout so a missing tag fails
+        # with a clear diagnostic instead of
+        # cascading into a misleading
+        # ``setuptools_scm -> 0.0.0`` mismatch
+        # in the sanity check (which would look
+        # like a build problem when the real
+        # issue is "the operator forgot to run
+        # release.yml first").
+        #
+        # Without this guard, the path
+        # ``gh workflow run publish.yml -f tag=v0.11.0``
+        # when ``v0.11.0`` doesn't exist on the
+        # remote would:
+        #   1. checkout the default branch at
+        #      HEAD (because ``ref: v0.11.0``
+        #      fails to resolve, but
+        #      ``actions/checkout@v4`` does **not**
+        #      fail the step on a missing ref --
+        #      it falls back to the branch).
+        #   2. ``setuptools_scm`` derives the
+        #      version from HEAD (the last valid
+        #      tag, e.g. ``v0.10.0`` plus
+        #      post-tag commits).
+        #   3. The sanity check's
+        #      ``startswith(expected)`` fails
+        #      with a confusing "Version
+        #      mismatch" message.
+        #
+        # The pre-check makes the failure mode
+        # obvious: "the tag is not on the
+        # remote; run release.yml first".
+        run: |
+          set -euo pipefail
+          # ``git ls-remote`` reads the
+          # repository's refs without a
+          # checkout, so this works even
+          # before the ``actions/checkout`` step.
+          # We need the tag's ``object`` type
+          # (``tag`` for annotated, ``commit``
+          # for lightweight) so the grep pattern
+          # is permissive.
+          ref="refs/tags/${{ inputs.tag }}"
+          if ! git ls-remote \
+              --exit-code \
+              --refs \
+              https://github.com/kinetgraph/kinetgraph.git \
+              "$ref" \
+              > /tmp/tag-ref.txt; then
+              echo "ERROR: tag '${{ inputs.tag }}' " \
+                   "is not on the remote." >&2
+              echo "Run 'gh workflow run release.yml " \
+                   "-f level=<major|minor|patch>' " \
+                   "first to create the tag, then " \
+                   "re-run 'gh workflow run " \
+                   "publish.yml -f tag=${{ inputs.tag }}'." >&2
+              exit 1
+          fi
+          echo "OK: tag '${{ inputs.tag }}' exists on origin."
+          cat /tmp/tag-ref.txt
+
       - name: Checkout (at the tag, full history)
         uses: actions/checkout@v4
         with:
