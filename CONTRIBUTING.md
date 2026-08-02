@@ -272,10 +272,15 @@ a release was cut prematurely), use
 from the remote. The next `uv sync` will install
 the previous tag's version.
 
-PyPI publishing is **not** part of this checklist
-(ADR-052 is a separate decision; the project
-currently installs via `git+https://...` or
-copy-paste).
+PyPI publishing is a separate workflow
+([`docs/pypi_publishing_runbook.md`](docs/pypi_publishing_runbook.md)).
+The release workflow above only **cuts the tag**
+and opens the GitHub Release; the publish
+workflow (`publish.yml`) ships the wheel to PyPI
+in a separate run (the split is mandated by
+ADR-052, whose rationale is the per-workflow
+Trusted Publisher binding + the `pypi`
+Environment's human-gate policy).
 
 ## Security vulnerabilities
 
