@@ -90,7 +90,13 @@ def test_knt_init_with_external_routing_mode(tmp_path: Path):
     ).is_file()
     main_content = (project_dir / "src" / "my_app_external" / "main.py").read_text()
     assert "IntentResolutionSystem" in main_content
-    assert "routing_mode" in main_content
+    # The template records the routing mode choice in the
+    # generated ``main.py`` so the operator can audit it
+    # at code-review time. The literal takes the form
+    # ``--routing-mode=<value>`` (CLI flag) or
+    # ``routing_mode=<value>`` (Python kwarg).
+    assert "routing-mode" in main_content
+    assert "external" in main_content
 
 
 def test_knt_init_with_collaborate_routing_mode(tmp_path: Path):

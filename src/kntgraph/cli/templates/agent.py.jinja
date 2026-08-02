@@ -1,29 +1,52 @@
-{# SPDX-FileCopyrightText: 2026 kinetgraph
-   SPDX-License-Identifier: Apache-2.0 #}
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
 
-from kntgraph.security.authorization import CapabilityPolicy
-from kntgraph.stream.event_log import EventLog
+from typing import Any
 
 # Import your Systems and Tools here
-# from ..systems.example_system import example_system
-# from ..tools.example_tool import ExampleTool
+# from ..systems.{{ agent_name }} import get_{{ agent_name }}_systems
+# from ..tools.{{ tool_name }} import {{ tool_name }}
 
-def build_{{ agent_name }}_policy() -> CapabilityPolicy:
-    """
-    Define the Level 2 Security Policy for this agent.
-    Which events is it allowed to emit?
-    """
-    return CapabilityPolicy(
-        allowed_events=["{{ context_name }}.*"],
-        denied_events=[],
-    )
+# ------------------------------------------------------------------
+# Event allow-list (documentation only)
+# ------------------------------------------------------------------
+# The historical ``CapabilityPolicy`` decorator class (per-agent
+# allow-list of events) was removed in v0.9.0 (ADR-039). The
+# new architecture enforces access control at the
+# ``ToolRegistry`` level via the ``ToolACL`` Protocol: every
+# tool invocation is gated by an ``agent_id``-keyed ACL that the
+# framework reads from the ``tools.acl`` configuration. The
+# agent-level "what events may this agent emit" declaration below
+# is **documentation only** -- it is not enforced by the
+# framework. Keep the event list accurate so static analysis
+# (and human reviewers) can verify that the agent's emitted
+# events are within the contract.
+#
+# If you need a runtime-enforced allow-list, wire it into the
+# ``ReactiveDispatcher`` via a custom system that filters the
+# emitted events before they reach the EventLog. The
+# docs/security/authorization.md page covers the recipe.
+_ALLOWED_EVENTS: list[str] = [
+    "{{ context_name }}.*",
+    "tool.*",
+]
 
-def get_{{ agent_name }}_systems() -> list:
+
+def get_{{ agent_name }}_allowed_events() -> list[str]:
+    """Return the event namespace this agent is contracted to
+    emit. Documentation only; not enforced by the framework.
+    """
+    return _ALLOWED_EVENTS
+
+
+def get_{{ agent_name }}_systems() -> list[Any]:
     """Return the pure WorldSystems for this agent."""
     # return [example_system]
     return []
 
-def get_{{ agent_name }}_tools() -> list:
+
+def get_{{ agent_name }}_tools() -> list[Any]:
     """Return the impure Tools for this agent."""
     # return [ExampleTool()]
     return []

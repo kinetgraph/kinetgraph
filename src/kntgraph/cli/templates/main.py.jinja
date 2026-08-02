@@ -1,11 +1,15 @@
-{# SPDX-FileCopyrightText: 2026 kinetgraph
-   SPDX-License-Identifier: Apache-2.0 #}
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
 
 {% if use_intent_http %}
+"""HTTP gateway entry point (FastAPI + IntentRouter)."""
+
 import asyncio
 import logging
-import uvicorn
 from contextlib import asynccontextmanager
+
+import uvicorn
 
 from kntgraph.api import create_app
 from kntgraph.api.auth import RedisAPIKeyVerifier
@@ -16,57 +20,67 @@ from kntgraph.infra.redis._pool import create_redis_pool
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.manager import WorkerManager
 
-# from src.contexts.sales.dispatcher import build_sales_dispatcher
+# Replace with the context's dispatcher factory.
+# from src.{{ project_name }}.contexts.sales.dispatcher import build_sales_dispatcher
 
-# 1. Global variables for background components
+# 1. Global variables for background components (the lifespan
+#    task scheduler reads them at startup).
 worker_manager = None
 # sales_dispatcher = None
+
 
 @asynccontextmanager
 async def lifespan(app):
     global worker_manager
     # global sales_dispatcher
-    print("\n[Lifespan] Starting Background Dispatchers and Workers...")
-    
-    # Start the event loops in the background
+    logging.info("[Lifespan] Starting Background Dispatchers and Workers...")
     worker_task = asyncio.create_task(worker_manager.start())
     # sales_task = asyncio.create_task(sales_dispatcher.start())
-    
-    yield
-    
-    print("\n[Lifespan] Stopping Background components...")
-    # await sales_dispatcher.stop()
-    await worker_manager.stop()
+    try:
+        yield
+    finally:
+        logging.info("[Lifespan] Stopping Background components...")
+        # await sales_dispatcher.stop()
+        await worker_manager.stop()
+
 
 def build_monolith():
     global worker_manager
     # global sales_dispatcher
-    
+
     redis = create_redis_pool().client
     log = EventLog(RedisEventLogAdapter(client=redis))
-    
+
     tool_router = ToolRouter(redis)
     worker_manager = WorkerManager(redis=redis, event_log=log)
-    
-    # Initialize Context Dispatchers
+
+    # Wire context dispatchers here. The ``log``, ``redis`` and
+    # ``tool_router`` are passed to the ``ReactiveDispatcher``
+    # constructor so the dispatcher can route tool invocations
+    # through the worker pool without re-reading the Redis pool.
     # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
-    
-    # Configure API Gateway (Intent Router)
+
+    # Configure the API Gateway (Intent Router).
     registry = ToolRegistry()
     verifier = RedisAPIKeyVerifier(redis)
-    
+
     app = create_app(log=log, registry=registry, verifier=verifier)
     app.router.lifespan_context = lifespan
     return app
 
+
 app = build_monolith()
+
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 {% else %}
+"""Background-only entry point (no HTTP gateway)."""
+
 import asyncio
 import logging
+
 from kntgraph.runner import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
@@ -79,52 +93,7 @@ from {{ project_name }}.routing.policy import IntentPolicy
 from {{ project_name }}.routing.resolution import IntentResolutionSystem
 from {{ project_name }}.routing.adapters.{{ routing_mode }} import build_adapter
 
-# Example imports for your Context Dispatchers
-# from src.contexts.sales.dispatcher import build_sales_dispatcher
-# from src.contexts.logistics.dispatcher import build_logistics_dispatcher
-
-async def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    print("Starting {{ project_name }} Modular Monolith...")
-
-    redis = create_redis_pool().client
-    log = EventLog(RedisEventLogAdapter(client=redis))
-
-    # 1. Initialize the ToolRouter (Fan-out for impure tools)
-    tool_router = ToolRouter(redis)
-
-    # 2. Initialize the WorkerManager (Execution pool for tools)
-    worker_manager = WorkerManager(redis=redis, event_log=log)
-
-    # 3. Initialize the routing core
-    policy = IntentPolicy()
-    resolution_system = IntentResolutionSystem(policy=policy)
-    adapter = build_adapter(routing_mode="{{ routing_mode }}")
-
-    # Example: Register impure tools here
-    # from src.contexts.sales.tools.payment_api import PaymentApiTool
-    # worker_manager.register(PaymentApiTool)
-
-    # 3. Initialize Context Dispatchers (The pure brains)
-    # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
-    # logistics_dispatcher = build_logistics_dispatcher(log, redis, tool_router)
-
-    try:
-        print("\n[Orchestrator] Starting Event Loops...")
-        print("Routing mode:", "{{ routing_mode }}")
-        # 4. Start everything concurrently in the same asyncio Event Loop
-        await asyncio.gather(
-            worker_manager.start(),
-            # sales_dispatcher.start(),
-            # logistics_dispatcher.start()
-        )
-    finally:
-        print("\n[Orchestrator] Stopping components...")
-        # await sales_dispatcher.stop()
-        # await logistics_dispatcher.stop()
-        await worker_manager.stop()
-        await redis.aclose()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+# The CLI was invoked with ``--routing-mode={{ routing_mode }}``.
+# The adapter module (above) is the only file that changes
+# between modes; the rest of the routing machinery is shared.
 {% endif %}

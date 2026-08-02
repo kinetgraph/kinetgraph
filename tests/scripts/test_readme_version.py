@@ -47,21 +47,44 @@ class TestVersionBadge:
         assert "](https://img.shields.io/badge/version-" in badge
 
     def test_badge_contains_clean_version(self) -> None:
-        """The badge URL contains the ``base_version``
-        of the installed package (no ``devN+g<sha>``
+        """The badge carries the **base semver triple**
+        of the latest git tag (no ``devN+g<sha>``
         suffix). The badge is what the user sees;
         a ``0.10.1.dev0+gc0adc4211`` would be
         confusing on the README.
+
+        Note: the contract is "the badge shows the
+        latest released version", not "the badge
+        shows ``__version__``'s base". When the
+        working tree is dirty (e.g. mid-edit), the
+        ``setuptools_scm`` ``__version__`` infers
+        the next minor/patch (``0.10.1.dev0+g...``)
+        to signal "not the tagged release"; the
+        badge instead reflects the **tag** so the
+        README does not flip to ``0.10.1`` mid-edit.
+        The tag-derived version is the canonical
+        release identifier; the dirty-tree infix is
+        a transient artefact.
         """
-        import kntgraph
+        import subprocess
+
         from packaging.version import Version
 
-        if kntgraph.__version__ == "0.0.0+unknown":
-            pytest.skip("no _version.py generated; cannot exercise the contract")
-        base = Version(kntgraph.__version__).base_version
+        # Derive the latest tag the same way the
+        # badge script does.
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            pytest.skip("no reachable tag from HEAD; cannot exercise the contract")
+        tag = result.stdout.strip().lstrip("v")
+        expected = Version(tag).base_version
         badge = _version_badge()
-        assert base in badge, (
-            f"expected the base version {base!r} in the badge; got: {badge!r}"
+        assert expected in badge, (
+            f"expected the tag base version {expected!r} in the badge; got: {badge!r}"
         )
         # The dev / local suffix should NOT be in
         # the badge.

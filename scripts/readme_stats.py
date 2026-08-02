@@ -76,20 +76,58 @@ def _version_badge() -> str:
     the format
     ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``.
 
-    The version is the **base** of
-    ``kntgraph.__version__`` (e.g. ``0.10.0``); the
-    ``+g<sha>`` and ``.devN`` suffixes that
-    ``setuptools_scm`` adds when the working tree
-    is past the latest tag are stripped so the
-    badge always shows a clean semver triple.
+    The version is the **base of the latest tag**
+    (e.g. ``0.10.0``); the ``+g<sha>`` and ``.devN``
+    suffixes that ``setuptools_scm`` adds when the
+    working tree is past the latest tag are stripped
+    so the badge always shows a clean semver triple
+    matching the canonical release version.
 
-    When ``__version__`` is the ``"0.0.0+unknown"``
-    fallback (no ``_version.py`` generated, e.g.
-    a source install without ``setuptools_scm``),
-    the badge is empty (returns ``""``). The
-    README's badges block omits the version line
-    in that case.
+    Edge case: when the working tree is **dirty**
+    (uncommitted changes), ``setuptools_scm`` infers
+    the next minor/patch as ``0.10.1.dev0+g...`` to
+    signal "not the tagged release". The
+    ``Version.base_version`` of that string is
+    ``0.10.1`` -- which is wrong for the badge (the
+    release is still ``0.10.0``). The fix is to
+    prefer the last clean tag:
+
+    1. Try ``git describe --tags --abbrev=0`` (the
+       last tag reachable from HEAD, **without**
+       ``--dirty``, which means "tag of the current
+       commit").
+
+    2. If that succeeds, parse the tag and use it.
+
+    3. Otherwise (no tag, e.g. a fresh clone), fall
+       back to ``__version__``'s ``base_version``.
     """
+    try:
+        # Prefer the clean tag -- "what is the
+        # version this commit corresponds to".
+        # ``git describe --tags --abbrev=0`` returns
+        # ``v0.11.0`` when HEAD is the v0.11.0 tag
+        # commit itself, and ``v0.11.0`` when HEAD
+        # is past the tag (the closest tag is the
+        # answer regardless of distance).
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            cwd=ROOT,
+        )
+        if result.returncode == 0:
+            tag = result.stdout.strip()
+            # Strip the ``v`` prefix and any
+            # non-semver suffix.
+            from packaging.version import Version
+
+            base = Version(tag.lstrip("v")).base_version
+            return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    # Fallback: parse ``__version__``.
     try:
         import kntgraph
     except ImportError:
@@ -97,8 +135,6 @@ def _version_badge() -> str:
     raw = getattr(kntgraph, "__version__", "")
     if not raw or raw == "0.0.0+unknown":
         return ""
-    # Drop the local / pre-release segments so
-    # the badge is always ``X.Y.Z``.
     from packaging.version import Version
 
     base = Version(raw).base_version

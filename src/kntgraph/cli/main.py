@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import typer
 
-from kntgraph.cli.commands import init, keys, new
+from kntgraph.cli.commands import init, keys, new, upgrade
 
 
 app = typer.Typer(
@@ -36,6 +36,7 @@ def main_callback() -> None:
 app.add_typer(init.app, name="init")
 app.add_typer(new.app, name="new")
 app.add_typer(keys.app, name="keys")
+app.add_typer(upgrade.app, name="upgrade")
 
 
 @app.callback()

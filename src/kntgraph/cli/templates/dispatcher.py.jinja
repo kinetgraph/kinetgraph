@@ -1,49 +1,112 @@
-{# SPDX-FileCopyrightText: 2026 kinetgraph
-   SPDX-License-Identifier: Apache-2.0 #}
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
 
-from kntgraph.runner import ReactiveDispatcher
+from kntgraph.runner import ReactiveDispatcher, Runner
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.registry import ToolRegistry
 
-# Import all systems and tools from your context's agents here.
+# Import Systems and Tools from your context's agents here.
 # For example:
 # from .agents.checkout_agent import get_checkout_agent_systems, get_checkout_agent_tools
+# from .agents.checkout_supervisor_agent import get_checkout_supervisor_agent_systems
 
-def build_{{ context_name }}_dispatcher(log: EventLog) -> ReactiveDispatcher:
+
+def build_{{ context_name }}_dispatcher(
+    log: EventLog,
+    redis = None,
+    tool_router = None,
+) -> ReactiveDispatcher:
     """
     Orchestrates the ReactiveDispatcher for the entire '{{ context_name }}' context.
     Aggregates pure WorldSystems and impure Tools from all its Agents.
+
+    The ``log``, ``redis`` (optional) and ``tool_router`` (optional)
+    are threaded through to the dispatcher so tool invocations
+    can route through the worker pool without re-reading the
+    Redis pool. Both are optional; the dispatcher only requires
+    ``log`` (the dispatcher will instantiate its own Redis
+    pool internally when ``redis`` is None).
     """
 
     # 1. Aggregate Tools
     # tools = get_checkout_agent_tools() + ...
     tools = []
 
-    # 2. Register tools (per the ``ToolRegistry`` contract;
-    # the legacy ``IntentResolutionSystem`` ACL gate was
-    # removed in v0.9.0; per-tool ACL is enforced by
-    # the ``ToolACL`` at the ``ToolRegistry`` level).
+    # 2. Register tools (per the ``ToolRegistry`` contract; the
+    # legacy ``IntentResolutionSystem`` ACL gate was removed in
+    # v0.9.0; per-tool ACL is enforced by the ``ToolACL`` at the
+    # ``ToolRegistry`` level).
     registry = ToolRegistry()
     for tool in tools:
         registry.register(tool)
 
-    # 3. Aggregate Systems. The legacy
-    # ``IntentResolutionSystem`` (kntgraph.agents.roles)
-    # was removed in v0.9.0 (ADR-039). The new
-    # architecture wires per-role ``WorldSystem``
+    # 3. Aggregate Systems. The legacy ``IntentResolutionSystem``
+    # (kntgraph.agents.roles) was removed in v0.9.0 (ADR-039).
+    # The new architecture wires per-role ``WorldSystem``
     # instances (e.g. ``ChatRoleSystem`` /
-    # ``PlannerRoleSystem`` from
-    # ``kntgraph.agents.role_systems``) directly into
-    # the dispatcher; the systems themselves emit
-    # ``tool.<name>.requested`` events that the
-    # ``WorkerManager`` orchestrates.
+    # ``PlannerRoleSystem`` from ``kntgraph.agents.role_systems``)
+    # directly into the dispatcher; the systems themselves emit
+    # ``tool.<name>.requested`` events that the ``WorkerManager``
+    # orchestrates.
     # systems = get_checkout_agent_systems() + ...
     systems = []
 
-    # 4. Create the dispatcher
+    # 4. Create the dispatcher.
     dispatcher = ReactiveDispatcher(
         log=log,
         systems=systems,
+        redis=redis,
+        tool_router=tool_router,
     )
 
     return dispatcher
+
+
+{% if with_supervisor %}
+def build_{{ context_name }}_supervisor_runner(
+    log: EventLog,
+    tick_interval: float = 1.0,
+) -> Runner:
+    """
+    Builds the cyclic Runner for the '{{ context_name }}' context.
+
+    The Runner hosts the **supervisor** systems that observe
+    long-running state (e.g. timeouts, retries) and re-emit
+    corrective events. The ReactiveDispatcher handles the
+    happy-path latency-sensitive flow; the Runner handles the
+    SLA-guaranteed reconciliation flow.
+
+    The two are independent: the supervisor can run without the
+    dispatcher (test scenario) and the dispatcher can run without
+    the supervisor (read-only replay). The two-layer pattern is
+    "ADR-004" in the SDK (cyclic processes for retries).
+    """
+    # supervisor_systems = get_checkout_supervisor_agent_systems()
+    supervisor_systems = []
+    return Runner(
+        log=log,
+        cyclic_systems=supervisor_systems,
+        tick_interval=tick_interval,
+    )
+
+
+def build_{{ context_name }}_dispatcher_with_supervisor(
+    log: EventLog,
+    redis = None,
+    tool_router = None,
+    tick_interval: float = 1.0,
+) -> tuple[ReactiveDispatcher, Runner]:
+    """
+    Convenience helper: build the dispatcher and the supervisor
+    together (the canonical "two-layer" wiring). Returns the
+    dispatcher first, the runner second.
+    """
+    dispatcher = build_{{ context_name }}_dispatcher(
+        log=log, redis=redis, tool_router=tool_router,
+    )
+    supervisor = build_{{ context_name }}_supervisor_runner(
+        log=log, tick_interval=tick_interval,
+    )
+    return dispatcher, supervisor
+{% endif %}

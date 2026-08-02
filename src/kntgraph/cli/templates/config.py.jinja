@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""Application settings for the ``{{ project_name }}`` service.
+
+Read from environment variables (12-factor) and the local
+``.env`` file (when present). Backed by Pydantic v2
+``BaseSettings`` (the framework's canonical ``Settings``
+class is in ``kntgraph.infra.config``; this module extends
+it with project-specific knobs).
+
+Conventions:
+
+- Field names use ``UPPER_SNAKE_CASE`` (matches the env var).
+- Defaults are **`dev` defaults** that work locally without
+  configuration. Operators must override ``KNT_ENV=prod``
+  before deploying.
+- The canonical prefix is ``KNT_`` (set by the framework's
+  base ``Settings``; this module inherits it).
+- Required secrets MUST have a default of ``""`` so the
+  import succeeds in tests; enforcement happens at the
+  factory (``{{ project_name }}.core.config.settings``)
+  exit point.
+"""
+
+from __future__ import annotations
+
+from kntgraph.infra.config import Settings as _FrameworkSettings
+
+
+class Settings(_FrameworkSettings):
+    """Service bindings + project-specific knobs.
+
+    Inherits the framework's ``env_prefix="KNT_"`` (e.g.
+    ``KNT_REDIS_URL``), ``KNT_FALKORDB_PASSWORD``, etc., and
+    adds the project-specific fields below.
+    """
+
+    # ---- Service bindings -------------------------------------------------
+
+    BO_PORT: int = 8000
+
+    # ---- Ingress stream ---------------------------------------------------
+
+    # The Redis Stream the NestJS backend writes to. The
+    # consumer in ``consumer.py`` reads from this key.
+    INGRESS_STREAM: str = "{{ project_name }}_stream"
+
+    # The egress stream the reconciler / e2e flows write
+    # to. The framework's tools use this key as their
+    # publish target.
+    EGRESS_STREAM: str = "{{ project_name }}_egress_stream"
+
+    # Default tenant for ingress messages that omit
+    # ``tenant_id``. The consumer's fallback chain is:
+    #   payload.tenant_id -> settings.BACKEND_DEFAULT_TENANT
+    # The framework's deprecated ``"default-tenant"``
+    # string literal is intentionally NOT used here --
+    # operators must set this explicitly.
+    BACKEND_DEFAULT_TENANT: str = ""
+
+    # ---- Cyclic Supervisor ------------------------------------------------
+
+    # How often the supervisor tick runs (seconds). The
+    # Runner uses this as the ``tick_interval`` argument.
+    ONBOARDING_SUPERVISOR_TICK_SECONDS: float = 1.0
+
+    # Maximum retry attempts before the supervisor escalates
+    # the case to a manual review. ``0`` disables escalation
+    # (the supervisor re-emits forever).
+    ONBOARDING_SUPERVISOR_MAX_RETRIES: int = 3
+
+    # ---- Module exports ---------------------------------------------------
+
+    model_config = {
+        # ``env_file=".env"`` Pydantic native; the framework
+        # base already sets this. We re-declare to keep the
+        # contract explicit here.
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
+
+
+# Module-level singleton. Importers should always use
+# ``from {{ project_name }}.core.config import settings``
+# rather than instantiating ``Settings()`` directly; the
+# singleton is the single source of truth.
+settings = Settings()
+
+
+__all__ = ["Settings", "settings"]

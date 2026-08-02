@@ -243,8 +243,8 @@ _install_projection_shim()
 # ``ProcessPoolExecutor``, so the dispatcher's event
 # loop is not blocked while the LLM responds. The
 # default model is read from ``LLMConfig.from_env``
-# (or the ``FMH_LLM_DEFAULT_MODEL`` env var). Set
-# ``FMH_LLM_DEFAULT_MODEL=ollama/qwen3.5:4b`` to
+# (or the ``KNT_LLM_DEFAULT_MODEL`` env var). Set
+# ``KNT_LLM_DEFAULT_MODEL=ollama/qwen3.5:4b`` to
 # run against a local Ollama instance.
 #
 # For CI environments without an LLM, the commented

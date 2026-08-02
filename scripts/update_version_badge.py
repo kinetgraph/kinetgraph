@@ -40,10 +40,12 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from readme_stats import _version_badge  # noqa: E402
 
 # Match the existing version badge line. The
-# ``.*?`` is non-greedy so the regex matches the
-# whole line up to the first ``)``.
+# badge format is
+# ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``
+# so the regex is ``!\[Version\]`` (escaping the
+# square brackets around the alt text).
 _VERSION_BADGE_RE = re.compile(
-    r"^\[!\[\s*Version\s*\]\(https://img\.shields\.io/"
+    r"^!\[Version\]\(https://img\.shields\.io/"
     r"badge/version-[^)]+\)\s*$",
     re.MULTILINE,
 )

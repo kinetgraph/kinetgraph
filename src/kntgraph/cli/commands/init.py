@@ -104,6 +104,20 @@ def _do_init(
     )
     (src_dir / "main.py").write_text(render_template("main.py.jinja", context))
 
+    # The HTTP-gateway scaffold emits two extra files
+    # (ADR-053): the Redis Streams consumer for
+    # non-HTTP ingress and the Pydantic Settings module.
+    # Both are required for the HTTP path because the
+    # consumer reads the Settings' BACKEND_DEFAULT_TENANT
+    # and INGRESS_STREAM values.
+    if use_intent_http:
+        (src_dir / "consumer.py").write_text(
+            render_template("consumer.py.jinja", context)
+        )
+        (src_dir / "core" / "config.py").write_text(
+            render_template("config.py.jinja", context)
+        )
+
     # routing modules
     if not use_intent_http:
         routing_files = {

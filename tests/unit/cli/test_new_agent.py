@@ -37,12 +37,29 @@ def test_knt_new_agent(tmp_path: Path):
         assert expected_file.is_file()
 
         # 5. Assert the content looks like an Agent config
+        # (ADR-053: the historical ``CapabilityPolicy`` decorator
+        # class was removed in v0.9.0 / ADR-039; the new template
+        # emits a documentation-only event allow-list instead).
         content = expected_file.read_text()
-        assert "CapabilityPolicy" in content
-        assert "build_checkout_agent_policy" in content
+        assert "get_checkout_agent_allowed_events" in content
         assert "get_checkout_agent_systems" in content
         assert "get_checkout_agent_tools" in content
-        assert "ReactiveDispatcher" not in content  # Removed dispatcher logic
+        # The CapabilityPolicy class is gone (it never existed
+        # in the framework); the comment that documents the
+        # historical removal is fine.
+        assert (
+            "from kntgraph.security.authorization import CapabilityPolicy"
+            not in content
+        )
+        # The agent file does NOT import or instantiate the
+        # ``ReactiveDispatcher`` (the dispatcher is wired in
+        # ``<context>/dispatcher.py``, not in the agent file).
+        # The word may appear in the docstring (the runtime-
+        # enforced allow-list recipe mentions it), but the
+        # **import** must not be present.
+        assert "from kntgraph.runner import ReactiveDispatcher" not in content
+        assert "ReactiveDispatcher(" not in content
+        assert "ReactiveDispatcher =" not in content
 
     finally:
         os.chdir(current_dir)

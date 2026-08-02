@@ -75,7 +75,7 @@ def test_litellm_worker_init_loads_default_config():
     environment. With a fresh process and the test
     env (``LLMConfig.from_env``), the worker has a
     default model. The exact value depends on the
-    test env (``FMH_LLM_DEFAULT_MODEL``); we just
+    test env (``KNT_LLM_DEFAULT_MODEL``); we just
     assert the worker constructed without error.
     """
     worker = LiteLLMToolWorker()

@@ -274,19 +274,19 @@ Highlights:
 
 | Env var                    | Default                        | Purpose                          |
 | -------------------------- | ------------------------------ | -------------------------------- |
-| `FMH_REDIS_URL`            | `redis://localhost:6379`       | EventLog + checkpoint backing    |
-| `FMH_FALKORDB_HOST`        | `localhost`                    | Graph DB host                    |
-| `FMH_FALKORDB_PORT`        | `16379`                        | Graph DB port                    |
-| `FMH_FALKORDB_PASSWORD`    | (empty)                        | Graph DB password (prod-required) |
-| `FMH_STREAM_MAXLEN`        | `100_000`                      | Per-tenant Redis Stream MAXLEN   |
-| `FMH_GLOBAL_STREAM_MAXLEN` | `1_000_000`                    | Global Redis Stream MAXLEN       |
-| `FMH_TICK_INTERVAL`        | `1.0`                          | ReactiveDispatcher poll interval (s) |
-| `FMH_LLM_DEFAULT_MODEL`    | (settings-dependent)           | LLM model (provider/model format) |
-| `FMH_LLM_TIMEOUT`          | `30.0`                         | LLM call timeout (s)              |
-| `FMH_LLM_MAX_COST_USD_PER_REQUEST` | `1.0`                  | Per-request cost cap (USD)       |
-| `FMH_CIRCUIT_BREAKER_THRESHOLD` | `5`                          | Failures before opening breaker  |
-| `FMH_RETRY_MAX_ATTEMPTS`   | `3`                            | Retry attempts on transient failure |
-| `FMH_ENV`                  | `dev`                          | Set to `prod` to enable stricter validation |
+| `KNT_REDIS_URL`            | `redis://localhost:6379`       | EventLog + checkpoint backing    |
+| `KNT_FALKORDB_HOST`        | `localhost`                    | Graph DB host                    |
+| `KNT_FALKORDB_PORT`        | `16379`                        | Graph DB port                    |
+| `KNT_FALKORDB_PASSWORD`    | (empty)                        | Graph DB password (prod-required) |
+| `KNT_STREAM_MAXLEN`        | `100_000`                      | Per-tenant Redis Stream MAXLEN   |
+| `KNT_GLOBAL_STREAM_MAXLEN` | `1_000_000`                    | Global Redis Stream MAXLEN       |
+| `KNT_TICK_INTERVAL`        | `1.0`                          | ReactiveDispatcher poll interval (s) |
+| `KNT_LLM_DEFAULT_MODEL`    | (settings-dependent)           | LLM model (provider/model format) |
+| `KNT_LLM_TIMEOUT`          | `30.0`                         | LLM call timeout (s)              |
+| `KNT_LLM_MAX_COST_USD_PER_REQUEST` | `1.0`                  | Per-request cost cap (USD)       |
+| `KNT_CIRCUIT_BREAKER_THRESHOLD` | `5`                          | Failures before opening breaker  |
+| `KNT_RETRY_MAX_ATTEMPTS`   | `3`                            | Retry attempts on transient failure |
+| `KNT_ENV`                  | `dev`                          | Set to `prod` to enable stricter validation |
 
 ## Versioning
 
