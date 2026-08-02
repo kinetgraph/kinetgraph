@@ -1,27 +1,56 @@
-{# SPDX-FileCopyrightText: 2026 kinetgraph
-   SPDX-License-Identifier: Apache-2.0 #}
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
 
 import asyncio
 from typing import Any
+
 from kntgraph.core.result import Ok, Result, ToolError
 from kntgraph.tools.worker import tool_worker
 
-@tool_worker(name="{{ tool_name }}", description="Description for {{ camel_case_name }}.")
+
+@tool_worker(
+    name="{{ tool_name }}",
+    description="Description for {{ camel_case_name }}.",
+)
 class {{ camel_case_name }}:
     """
     An impure tool that performs I/O or side effects.
+
+    Tools are dispatched by the ``WorkerManager``; each
+    invocation runs in a worker process. The framework
+    enforces idempotency via the ``idempotency_key``
+    argument -- the orchestrator dedupes retries on the
+    same key.
+
+    Per AGENTS.md §6.1 (typed errors) and ADR-047 §2.4.1,
+    the return type is ``Result[dict[str, Any], ToolError]``
+    (NOT ``Exception``); the original exception is preserved
+    as ``__cause__`` on the ``ToolError`` for diagnostics.
+    The framework's ``WorkerManager`` logs the ``__cause__``
+    at the call site.
     """
 
     async def invoke(
         self,
-        # Define your input parameters here
+        # Replace with the tool's input parameters.
         # param1: str,
         *,
-        idempotency_key: str
+        idempotency_key: str,
     ) -> Result[dict[str, Any], ToolError]:
-        
-        # Simulate I/O or perform actual side-effect
+        # Simulate I/O or perform the actual side-effect.
         await asyncio.sleep(0.1)
-        
-        # Return the structured result
+
+        # On success, return Ok with a structured payload.
+        # On failure, wrap the exception in a ToolError:
+        #
+        #     try:
+        #         ...
+        #     except Exception as exc:
+        #         return Err(ToolError(
+        #             code="<machine-readable-code>",
+        #             message="<human-readable description>",
+        #             retryable=False,
+        #             cause=exc,
+        #         ))
         return Ok({"status": "success"})

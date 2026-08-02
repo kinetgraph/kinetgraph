@@ -1,0 +1,378 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""Redis Streams intent consumer for the ``{{ context_name }}`` context.
+
+This module is the **ingestion seam** between external producers
+(NestJS backend, third-party services, batch jobs) and the
+``EventLog``. It bridges:
+
+  - Redis Streams message format
+    (raw ``{key: bytes -> value: bytes}``) into
+  - a typed ``Event`` whose ``payload`` is the canonical
+    domain event
+  - via the ``{{ event_factory }}`` factory imported below.
+
+The consumer is **3 responsibilities, 3 classes**:
+
+  - ``{{ class_prefix }}StreamConsumer``   -- the long-poll
+    loop. Owns the Redis group, the consumer name, and the
+    stop signal.
+  - ``_IngressPayload``                   -- the Pydantic-
+    validated payload (reject -> DLQ on validation error).
+  - ``_IngressContext``                   -- the assembly
+    point. Takes the parsed payload, builds ``Principal``,
+    ``CorrelationContext`` and the ``Event`` instance.
+
+The split mirrors the production-ready pattern in the
+backoffice: parsing is infallible-or-DLQ, context-building
+is operational, and the consumer loop is the long-poll
+shim. Each is independently testable.
+
+ADR-002 (Replay-Puro): the consumer is the **only** path
+that writes to the EventLog from outside the system;
+replay bypasses it entirely.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from typing import Any, Callable
+from uuid import UUID, uuid4
+
+import redis.asyncio as redis_async
+from redis.exceptions import ResponseError
+from pydantic import BaseModel, Field
+
+from kntgraph.core.event import CorrelationContext
+from kntgraph.core.event.correlation import correlation_middleware
+from kntgraph.security import Principal, Role
+from kntgraph.security.principal import principal_ctx
+from kntgraph.stream.event_log import EventLog
+
+logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# 1. Ingress payload (Pydantic, validated at the boundary)
+# ------------------------------------------------------------------
+
+
+class _IngressPayload(BaseModel):
+    """Pydantic schema for the inbound message. The schema
+    enforces the contract with the **producer** (NestJS
+    backend, third-party, batch job). A mismatch raises
+    ``ValidationError`` which the consumer catches and
+    routes to the DLQ.
+
+    The ``correlation_id`` and ``tenant_id`` are **optional
+    on the wire**: the producer MAY supply them. If the
+    producer omits them, the consumer falls back to the
+    framework defaults (correlation_id`` is auto-generated;
+    ``tenant_id`` is read from the consumer's settings
+    via the ``default_tenant_id`` config). Never default
+    to ``"default-tenant"`` silently -- that is a
+    cross-tenant data leak waiting to happen.
+    """
+
+    # The schema inherits from the canonical event payload
+    # in the events/ package. The factory below knows the
+    # exact shape; here we type only the fields the
+    # consumer plumbing needs to know about.
+    correlation_id: str | None = None
+    tenant_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+# ------------------------------------------------------------------
+# 2. Ingress context (assembler)
+# ------------------------------------------------------------------
+
+
+class _IngressContext:
+    """One-shot builder for the (Principal, CorrelationContext,
+    Event) triple. Splitting it out of the consumer loop keeps
+    the loop small (CC <= 5) and gives the assembly logic its
+    own test surface.
+    """
+
+    def __init__(
+        self,
+        *,
+        event_factory: Callable[..., Any],
+        default_tenant_id: str,
+        agent_id: str = "system-gateway",
+    ) -> None:
+        self._event_factory = event_factory
+        self._default_tenant_id = default_tenant_id
+        self._agent_id = agent_id
+
+    def build(
+        self,
+        payload: _IngressPayload,
+        message_id: bytes,
+    ) -> tuple[Principal, CorrelationContext, Any]:
+        """Build the (Principal, CorrelationContext, Event) triple.
+
+        Raises ``KeyError`` when ``payload`` does not contain the
+        ``onboarding_id`` (or whatever the factory's required
+        field is). The consumer catches this and routes to DLQ.
+        """
+        tenant_id = payload.tenant_id or self._default_tenant_id
+        correlation_id = (
+            UUID(payload.correlation_id)
+            if payload.correlation_id
+            else uuid4()
+        )
+
+        principal = Principal(
+            agent_id=self._agent_id,
+            role=Role.agent,
+            tenant_id=tenant_id,
+            key_id="redis-streams-gateway",
+        )
+        correlation = CorrelationContext.new(correlation_id=correlation_id)
+
+        # The event factory (``{{ event_factory }}``) is the
+        # canonical builder. The consumer does not know the
+        # event's wire shape; the factory does.
+        event = self._event_factory(
+            agent_id=payload.payload["onboarding_id"],
+            data=payload.payload,
+            correlation=correlation,
+        )
+        return principal, correlation, event
+
+
+# ------------------------------------------------------------------
+# 3. The consumer (long-poll loop)
+# ------------------------------------------------------------------
+
+
+class {{ class_prefix }}StreamConsumer:
+    """Long-poll consumer for the ``{{ context_name }}`` context.
+
+    Reads from a single Redis Stream (``stream_key``), parses
+    each message into an ``_IngressPayload``, validates against
+    the schema, builds the (Principal, CorrelationContext,
+    Event) triple, and appends to the EventLog. Failures fall
+    into two buckets:
+
+    - **Permanent** (parse / validation / factory): the message
+      is forwarded to the DLQ (``<stream_key>:dlq``) and ACKed
+      on the source stream (no re-delivery).
+    - **Transient** (Redis connection, EventLog timeout): the
+      exception propagates and the consumer sleeps; the
+      message is **not** ACKed and will be re-delivered on the
+      next poll.
+    """
+
+    def __init__(
+        self,
+        *,
+        redis_client: redis_async.Redis,
+        event_log: EventLog,
+        stream_key: str,
+        event_factory: Callable[..., Any],
+        consumer_group: str = "{{ context_name }}_group",
+        consumer_name: str = "consumer-1",
+        default_tenant_id: str = "default",
+        poll_count: int = 10,
+        poll_block_ms: int = 1000,
+        retry_backoff_seconds: float = 2.0,
+    ) -> None:
+        self._redis = redis_client
+        self._log = event_log
+        self._stream_key = stream_key
+        self._consumer_group = consumer_group
+        self._consumer_name = consumer_name
+        self._poll_count = poll_count
+        self._poll_block_ms = poll_block_ms
+        self._retry_backoff_seconds = retry_backoff_seconds
+
+        self._ingress = _IngressContext(
+            event_factory=event_factory,
+            default_tenant_id=default_tenant_id,
+        )
+
+        self._is_running = False
+        self._stop_event = asyncio.Event()
+
+    async def start(self) -> None:
+        """Run the long-poll loop until ``stop()`` is called."""
+        logger.info(
+            "Starting intent consumer on stream %r (group=%r)",
+            self._stream_key, self._consumer_group,
+        )
+        self._is_running = True
+        self._stop_event.clear()
+
+        # Create the consumer group if it does not exist.
+        # ``xgroup_create`` returns BUSYGROUP when the group
+        # already exists; we treat that as a no-op and let
+        # other errors propagate.
+        try:
+            await self._redis.xgroup_create(
+                self._stream_key,
+                self._consumer_group,
+                id="0",
+                mkstream=True,
+            )
+        except ResponseError as e:
+            if "BUSYGROUP" not in str(e):
+                raise
+
+        while self._is_running:
+            try:
+                response = await self._redis.xreadgroup(
+                    groupname=self._consumer_group,
+                    consumername=self._consumer_name,
+                    streams={self._stream_key: ">"},
+                    count=self._poll_count,
+                    block=self._poll_block_ms,
+                )
+                if not response:
+                    continue
+                for _stream, messages in response:
+                    for msg_id, raw_payload in messages:
+                        await self._process_message(msg_id, raw_payload)
+            except asyncio.CancelledError:
+                # Cooperative shutdown: the lifespan teardown
+                # cancelled the task; exit cleanly.
+                break
+            except Exception as exc:
+                logger.exception(
+                    "Transient error in consumer loop: %s",
+                    exc,
+                )
+                await asyncio.sleep(self._retry_backoff_seconds)
+
+    async def stop(self) -> None:
+        """Signal the loop to exit at the next iteration."""
+        logger.info("Stopping intent consumer cleanly")
+        self._is_running = False
+        self._stop_event.set()
+
+    async def _process_message(
+        self,
+        message_id: bytes,
+        raw_payload: dict[bytes, bytes],
+    ) -> None:
+        """Process one message. Routes to DLQ on permanent failures."""
+        try:
+            payload = self._parse_payload(raw_payload)
+        except _PermanentIngressError as exc:
+            logger.error(
+                "Permanent parse failure on %s: %s",
+                message_id.decode(errors="replace"),
+                exc,
+            )
+            await self._send_to_dlq(message_id, raw_payload, str(exc))
+            await self._redis.xack(
+                self._stream_key, self._consumer_group, message_id,
+            )
+            return
+
+        try:
+            principal, correlation, event = self._ingress.build(payload, message_id)
+        except (KeyError, ValueError) as exc:
+            logger.error(
+                "Permanent factory failure on %s: %s",
+                message_id.decode(errors="replace"),
+                exc,
+            )
+            await self._send_to_dlq(message_id, raw_payload, str(exc))
+            await self._redis.xack(
+                self._stream_key, self._consumer_group, message_id,
+            )
+            return
+
+        # Persist under the producer's principal. Open the
+        # `principal_ctx` so downstream EventLog appends carry
+        # the L2 identity.
+        token = principal_ctx.set(principal)
+        try:
+            await self._log.append(event)
+        finally:
+            principal_ctx.reset(token)
+
+        # ACK only after the EventLog.append returns. A
+        # crash between append and ack leaves the message
+        # in the PEL; the next poll re-delivers it. The
+        # EventLog's own idempotency (dedup_keys on
+        # event_id) guarantees the second delivery is a
+        # no-op.
+        await self._redis.xack(
+            self._stream_key, self._consumer_group, message_id,
+        )
+
+    @staticmethod
+    def _parse_payload(
+        raw_payload: dict[bytes, bytes],
+    ) -> _IngressPayload:
+        """Decode the raw stream payload into a typed
+        ``_IngressPayload``."""
+        decoded = {
+            k.decode("utf-8"): v.decode("utf-8")
+            for k, v in raw_payload.items()
+        }
+        # The producer may nest the domain payload under
+        # ``payload`` (recommended: keeps the envelope flat
+        # at the schema layer). If absent, the entire
+        # decoded dict is the payload.
+        if "payload" in decoded:
+            try:
+                payload_value = json.loads(decoded["payload"])
+            except json.JSONDecodeError as exc:
+                raise _PermanentIngressError(
+                    f"payload is not valid JSON: {exc}"
+                ) from exc
+            decoded["payload"] = payload_value
+        try:
+            return _IngressPayload.model_validate(decoded)
+        except Exception as exc:
+            # Pydantic's ValidationError is a subclass of
+            # ValueError; we re-raise as a permanent
+            # ingress error so the consumer routes to DLQ.
+            raise _PermanentIngressError(
+                f"payload schema validation failed: {exc}"
+            ) from exc
+
+    async def _send_to_dlq(
+        self,
+        message_id: bytes,
+        raw_payload: dict[bytes, bytes],
+        error_msg: str,
+    ) -> None:
+        """Forward a permanent-failure message to the DLQ."""
+        dlq_key = f"{self._stream_key}:dlq"
+        dlq_payload: dict[str, Any] = {
+            "original_message_id": message_id.decode(errors="replace"),
+            "error": error_msg,
+        }
+        for k, v in raw_payload.items():
+            dlq_payload[f"raw_{k.decode('utf-8')}"] = v.decode("utf-8")
+        try:
+            await self._redis.xadd(
+                dlq_key,
+                dlq_payload,
+                maxlen=1000,
+                approximate=True,  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            logger.critical(
+                "Failed to forward %s to DLQ: %s",
+                message_id.decode(errors="replace"),
+                exc,
+            )
+
+
+class _PermanentIngressError(Exception):
+    """Raised when the inbound message is malformed in a way
+    that retrying cannot fix (parse error, schema mismatch,
+    missing factory field). The consumer routes the message
+    to the DLQ and ACKs it on the source stream.
+    """

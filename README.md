@@ -285,6 +285,7 @@ canonical schema is `Settings` in
 | [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
 | [ADR-051](ADRs/ADR-051-Release-Versioning-via-Git-Tags.md) | Release versioning via git tags + `setuptools_scm` | Accepted (v0.10.0) |
 | [ADR-052](ADRs/ADR-052-PyPI-Publishing.md) | PyPI publishing via Trusted Publishing (PEP 740) | Accepted (v0.11.0; first PyPI release cut via the two-workflow flow: `release.yml` then `publish.yml`) |
+| [ADR-053](ADRs/ADR-053-CLI-Boilerplate-Generation-v2.md) | CLI Boilerplate Generation v2 (in-template rendering, `knt upgrade` workflow) | Accepted (v0.11.0; 23-test render suite enforces the framework's symbol contracts; the `knt upgrade check` mode is the CI-quality drift detector) |
 
 ### ADRs Proposed in discussion
 

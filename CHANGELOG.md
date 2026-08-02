@@ -67,6 +67,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `invalid-publisher`, duplicate uploads, wheel
   build failures, and the "release without
   publish" orphan risk.
+- **CLI Boilerplate Generation v2 (ADR-053):** the
+  `knt` CLI's templates are now aligned with the
+  framework's current contracts. The historical
+  `agent.py.jinja` template referenced the
+  never-implemented `CapabilityPolicy` class; the
+  `event.py.jinja` template imported
+  `correlation_middleware` from the historical
+  `core.correlation` path; the `tool.py.jinja`
+  template emitted the pre-ADR-047 return type
+  `Result[dict, Exception]`. All these are fixed.
+  New templates: `consumer.py.jinja` (3-responsibility
+  Redis Streams consumer pattern) and
+  `config.py.jinja` (Pydantic Settings subclass
+  inheriting the framework's `KNT_` env prefix).
+  The `dispatcher.py.jinja` template now threads
+  `redis` and `tool_router` through the
+  `ReactiveDispatcher` constructor and supports a
+  `with_supervisor` flag for the two-layer
+  (Reactive + Cyclic) wiring. The `main.py.jinja`
+  template likewise threads the two arguments
+  through the dispatcher factory placeholder.
+  All templates replace the Jinja
+  `{# #}` SPDX comment (which was stripped at render
+  time, defeating the REUSE 3.3 lint gate) with
+  Python `#` comments (the header survives the
+  render).
+- **`knt upgrade` regeneration workflow (ADR-053):**
+  the new sub-command has three modes
+  (`check` / `apply <path>` / `apply-all [--force]`)
+  that re-render the boilerplate against the current
+  templates. The `check` mode is content-based
+  (renders the template against the discovered
+  context and `difflib.unified_diff`s the result).
+  The `apply-all` mode respects local edits
+  (skips files with drift + local modifications
+  unless `--force` is passed). The `--check`
+  mode is the canonical CI gate for "did the
+  operator's framework version drift the
+  boilerplate".
 
 ### Fixed
 - **`scripts/update_version_badge.py` regex bug
