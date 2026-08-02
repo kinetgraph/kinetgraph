@@ -107,6 +107,72 @@ class TestReleaseWorkflow:
             "the workflow has the permission)."
         )
 
+    def test_release_sets_git_identity_before_tag(self) -> None:
+        # ``bump_version.py`` runs ``git tag -a vX.Y.Z``,
+        # which requires a committer identity. The
+        # GitHub Actions runner does not ship with
+        # ``user.name``/``user.email`` configured by
+        # default, so the tag step fails with
+        # ``empty ident name`` unless the workflow
+        # sets them **before** the tag is created.
+        #
+        # We assert the ordering at the line level
+        # (matching the step declarations, not the
+        # comment prose) so the assertion survives
+        # comment rewrites.
+        text = RELEASE_YML.read_text()
+        lines = text.splitlines()
+
+        # The ``bump_version.py`` invocation is a
+        # multi-line ``run:`` block (``uv run python
+        # scripts/bump_version.py \`` followed by
+        # ``--level ...`` and ``--dry-run`` /
+        # ``--level ...`` on the next lines). We
+        # match the **start** of the invocation
+        # (the line that contains ``scripts/bump_version.py`)
+        # AND inspect the continuation lines to
+        # determine whether it is a dry-run.
+        cfg_idx = None
+        tag_idx = None
+        for i, line in enumerate(lines, start=1):
+            if cfg_idx is None and line.strip().startswith(
+                "git config user.name"
+            ):
+                cfg_idx = i
+            if (
+                tag_idx is None
+                and "scripts/bump_version.py" in line
+            ):
+                # Join the next 2 lines to catch the
+                # ``--dry-run`` flag on the continuation.
+                # The dry-run step has 4 lines of
+                # ``run:`` body; the real tag step has
+                # 3 lines.
+                tail = "\n".join(lines[i : i + 4])
+                if "--dry-run" not in tail:
+                    tag_idx = i
+        assert cfg_idx is not None, (
+            "release.yml must run ``git config "
+            "user.name`` (and user.email) before "
+            "the tag step; ``git tag -a`` refuses "
+            "to run without a committer identity."
+        )
+        assert tag_idx is not None, (
+            "release.yml must run ``bump_version.py`` "
+            "(the non-dry-run invocation) somewhere; "
+            "the test is sanity-checking the file."
+        )
+        assert cfg_idx < tag_idx, (
+            "The ``git config user.name`` step must "
+            "run **before** the "
+            "``bump_version.py`` (non-dry-run) step; "
+            "otherwise the tag fails with "
+            "``empty ident name not allowed``. The "
+            "config line must move out of the "
+            "post-tag CHANGELOG commit step and "
+            "into a step that precedes the tag."
+        )
+
 
 class TestPublishWorkflow:
     """The publish workflow (``publish.yml``) builds

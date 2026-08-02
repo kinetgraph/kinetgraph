@@ -134,11 +134,43 @@ jobs:
               --new-version "${{ steps.bump.outputs.new_version }}" \
               $date_arg
 
+      - name: Set git committer identity
+        # ``bump_version.py`` runs ``git tag -a
+        # vX.Y.Z`` (an annotated tag), which
+        # requires a committer identity. The
+        # GitHub Actions runner **does not** ship
+        # with ``user.name``/``user.email``
+        # configured by default, so the tag
+        # step fails with ``empty ident name``
+        # unless we set them here **before** the
+        # tag is created.
+        #
+        # We use the bot's noreply identity (same
+        # as the CHANGELOG commit step below) so
+        # the tag and the commit share an author.
+        # ``GIT_AUTHOR_*`` and ``GIT_COMMITTER_*``
+        # are set as env vars too (belt-and-braces
+        # -- some git subcommands honour the env
+        # var instead of the config scope).
+        env:
+          GIT_AUTHOR_NAME: "github-actions[bot]"
+          GIT_AUTHOR_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+          GIT_COMMITTER_NAME: "github-actions[bot]"
+          GIT_COMMITTER_EMAIL: "41898282+github-actions[bot]@users.noreply.github.com"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Bump version (create the tag)
         # Now that the changelog is rewritten and
         # the next version is known, create the
         # tag. The script refuses to recreate an
         # existing tag (idempotency guard).
+        #
+        # The committer identity is set in the
+        # previous step (annotated tags fail
+        # without it).
         run: |
           uv run python scripts/bump_version.py \
               --level "${{ inputs.level }}"
