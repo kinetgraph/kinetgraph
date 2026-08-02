@@ -11,7 +11,21 @@ name = "kntgraph"
 dynamic = ["version"]
 description = "Pure ECS agent framework: event-sourced via Redis Streams, semantic routing via GLiNER2, tool re-use via the Solution tier (ADR-010). Sub-package `agents` ships concrete LLM/cache/PII adapters over the framework."
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.12"
+classifiers = [
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+] 
 dependencies = [
     "deal>=4.24",
     "immutables>=0.21",
@@ -64,7 +78,12 @@ all-runtime = [
 ]
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools_scm>=8.0"]
+# PEP 639 (``license = "Apache-2.0"``) needs
+# setuptools >= 77. Bump the floor from 61 so a
+# fresh env (uv, pip from PyPI) installs a setuptools
+# version that understands the project metadata
+# field. ADR-052 (PyPI publish) depends on this.
+requires = ["setuptools>=77", "wheel", "setuptools_scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

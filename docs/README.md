@@ -61,6 +61,13 @@ historical records).
   (ADR-049): software handlers before LLM, read-side
   cache, hybrid dispatcher stack.
 
+## Release process
+
+- [PyPI publishing runbook](pypi_publishing_runbook.md) —
+  operator-side setup (PyPI Trusted Publisher,
+  GitHub `pypi` Environment) + per-release
+  `gh workflow run` flow (ADR-052).
+
 ## Architecture decisions
 
 The full list of ADRs is in the
