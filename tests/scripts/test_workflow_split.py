@@ -195,6 +195,85 @@ class TestPublishWorkflow:
             "tag)."
         )
 
+    def test_publish_pre_checks_tag_existence(self, publish_workflow: dict) -> None:
+        # The publish workflow must verify the
+        # tag exists on origin **before** the
+        # checkout step. Without this guard, a
+        # missing tag (operator forgot to run
+        # release.yml first) cascades into:
+        #   1. ``actions/checkout@v4`` falls back
+        #      to the default branch (it does
+        #      **not** fail on a missing ref).
+        #   2. ``setuptools_scm`` derives a
+        #      version from HEAD, which is
+        #      either ``0.0.0`` (no tags in
+        #      clone) or the previous tag's
+        #      version with a ``.devN`` suffix.
+        #   3. The sanity check's
+        #      ``startswith(expected)`` fails
+        #      with a misleading "Version
+        #      mismatch" message that looks like
+        #      a build problem.
+        #
+        # The pre-check turns the failure mode
+        # into a clear "tag is not on the
+        # remote; run release.yml first"
+        # diagnostic at the very first step.
+        text = PUBLISH_YML.read_text()
+        assert "git ls-remote" in text, (
+            "publish.yml must include a pre-check "
+            "that the tag exists on origin (e.g. "
+            "``git ls-remote --refs origin "
+            "refs/tags/${{ inputs.tag }}``); "
+            "without this, a missing tag fails "
+            "with a misleading 'Version mismatch' "
+            "diagnostic in the sanity check."
+        )
+
+    def test_publish_pre_check_runs_before_checkout(
+        self, publish_workflow: dict
+    ) -> None:
+        # The pre-check must come **before** the
+        # ``actions/checkout`` step. The whole
+        # point is to fail fast before the
+        # checkout can fool ``setuptools_scm``
+        # into a misleading ``0.0.0`` derivation.
+        #
+        # We compare line numbers (not raw file
+        # offsets) because the workflow file
+        # mentions ``actions/checkout@v4`` in
+        # comments as well as in the ``uses:``
+        # line; using line numbers avoids
+        # matching the comment.
+        text = PUBLISH_YML.read_text()
+        lines = text.splitlines()
+        pre_check_line = None
+        checkout_line = None
+        for i, line in enumerate(lines, start=1):
+            if pre_check_line is None and "git ls-remote" in line:
+                pre_check_line = i
+            if checkout_line is None and line.strip().startswith(
+                "uses: actions/checkout@v4"
+            ):
+                checkout_line = i
+        assert pre_check_line is not None, (
+            "publish.yml must contain a pre-check "
+            "step that runs ``git ls-remote`` (see "
+            "test_publish_pre_checks_tag_existence)."
+        )
+        assert checkout_line is not None, (
+            "publish.yml must contain a checkout "
+            "step (sanity)."
+        )
+        assert pre_check_line < checkout_line, (
+            "The pre-check step must run **before** "
+            "the checkout step; otherwise a missing "
+            "tag falls back to the default branch "
+            "and the sanity check sees a stale "
+            "version. The whole point of the "
+            "pre-check is fast failure."
+        )
+
 
 class TestSplitContract:
     """End-to-end: the two workflows together

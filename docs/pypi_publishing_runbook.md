@@ -247,15 +247,46 @@ ADR-051 §3.3 for the canonical fix).
 
 ## 4. Failure modes (and what to do)
 
-### 4.1 The sanity check fails (`Version mismatch: expected ...`)
+### 4.1 The pre-check fails (`tag 'vX.Y.Z' is not on the remote`)
+
+The publish workflow's first step is a
+`git ls-remote` against
+`https://github.com/kinetgraph/kinetgraph.git`
+looking for `refs/tags/${{ inputs.tag }}`. If it
+returns no match, the workflow fails **before**
+the checkout step. The diagnostic is:
+
+> `ERROR: tag 'vX.Y.Z' is not on the remote. Run
+> 'gh workflow run release.yml -f
+> level=<major|minor|patch>' first to create the
+> tag, then re-run 'gh workflow run publish.yml
+> -f tag=vX.Y.Z'.`
+
+What to do:
+
+1. **Verify the tag does not exist locally:**
+   `git ls-remote --tags
+   https://github.com/kinetgraph/kinetgraph.git
+   | grep vX.Y.Z` shows nothing.
+2. **Run `release.yml` first** to create the
+   tag (see §3.1). Wait for the run to finish
+   (the GitHub Release is the signal).
+3. **Verify the tag now exists:** re-run the
+   `git ls-remote` command. The output should
+   show `refs/tags/vX.Y.Z`.
+4. **Re-run `publish.yml`** with the same
+   `tag=vX.Y.Z` input.
+
+### 4.2 The sanity check fails (`Version mismatch: expected ...`)
 
 The operator typed the wrong tag, or the
 checked-out tag is older than the version
 `setuptools_scm` derived. Do **not** try to
 re-run with the same input; investigate first:
 
-- Check the tag exists:
-  `git ls-remote --tags origin v0.11.0`.
+- Confirm the pre-check in §4.1 passed (the
+  tag exists on the remote). If it didn't,
+  §4.1 is the actual problem.
 - Check the workflow's checkout step succeeded
   at the right commit (the run log shows
   `HEAD = ...`).
@@ -263,12 +294,11 @@ re-run with the same input; investigate first:
   the source tree is stale — `uv lock --upgrade`
   in the workflow is not the fix; the issue is
   that the tag points to a commit whose
-  `[tool.setuptools_scm] section` in
-  `pyproject.toml` differs from the current
-  `main`. This ADR does not cover that scenario
-  (it would be a follow-up ADR).
+  `[tool.setuptools_scm]` configuration differs
+  from the current `main`. This ADR does not
+  cover that scenario (it would be a follow-up).
 
-### 4.2 The PyPI action fails with `invalid-publisher`
+### 4.3 The PyPI action fails with `invalid-publisher`
 
 The Trusted Publisher binding in
 [pypi.org/manage/account/publishing/](https://pypi.org/manage/account/publishing/)
@@ -284,7 +314,7 @@ usual culprits:
 Re-open the form and correct; the next run
 succeeds.
 
-### 4.3 The PyPI action fails with `File already exists`
+### 4.4 The PyPI action fails with `File already exists`
 
 You tried to re-upload the **same version** of
 the wheel. PyPI refuses duplicates by default
@@ -305,7 +335,7 @@ the same source, e.g. with corrected metadata),
 yank the previous release from the PyPI web UI
 and re-publish the same tag.
 
-### 4.4 The wheel build fails (`uv build --wheel` errors)
+### 4.5 The wheel build fails (`uv build --wheel` errors)
 
 The source tree does not build a wheel. The
 workflow's `verify the wheel was built` step
@@ -323,7 +353,7 @@ first:
   `pyproject.toml` mistake. Same fix — hotfix
   tag.
 
-### 4.5 The GitHub Release was created but PyPI shows nothing
+### 4.6 The GitHub Release was created but PyPI shows nothing
 
 The two workflows are decoupled (this is the
 point of the split). The GitHub Release
@@ -339,9 +369,9 @@ there" risk in ADR-052 §3.2 is mitigated by
 this runbook: §3.3 verifies in a fresh
 environment, which makes the mismatch visible
 within minutes. The follow-up is the same as
-§4.4 (hotfix tag once the root cause is fixed).
+§4.5 (hotfix tag once the root cause is fixed).
 
-### 4.6 A malicious PR triggers `publish.yml`
+### 4.7 A malicious PR triggers `publish.yml`
 
 The `publish.yml` workflow is
 `workflow_dispatch`-only (manual trigger); a PR
@@ -399,7 +429,7 @@ Use this as a one-time punch list at the end of
       and uploads via
       `pypa/gh-action-pypi-publish`.
 - [ ] `release.yml` does not contain the PyPI
-      publish step (the 13 contract tests in
+      publish step (the 15 contract tests in
       `tests/scripts/test_workflow_split.py`
       enforce this; they pass in CI).
 - [ ] The first PyPI release is cut via
