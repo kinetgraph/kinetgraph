@@ -24,8 +24,7 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 [![cc](https://img.shields.io/badge/CC-A%20%282.49%29-brightgreen?style=for-the-badge&logo=radar&logoColor=white)](https://radon.readthedocs.io/)
 [![mi](https://img.shields.io/badge/MI-237_A_0_B_0_C-brightgreen?style=for-the-badge&logo=heartbeat&logoColor=white)](https://radon.readthedocs.io/)
 [![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
-![Version](https://img.shields.io/badge/version-0.10.1-blue)
-
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 ### Tests
 
 [![coverage](https://img.shields.io/badge/coverage-83.0%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://coverage.readthedocs.io/)
@@ -89,24 +88,39 @@ needed to build autonomous, replayable agents:
 
 ## Install
 
-Currently, `kntgraph` is not published to PyPI. You can install it directly from GitHub:
+Install from PyPI:
 
 ```bash
-uv add git+https://github.com/kinetgraph/kinetgraph.git
+uv add kntgraph
+```
+
+The version is the git tag (`v0.11.0` → `0.11.0`),
+discoverable on PyPI:
+
+```bash
+pip show kntgraph
+# Version: 0.11.0
+# License: Apache-2.0
 ```
 
 Optional extras (install only what you need):
 
 ```bash
-uv add "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"      # CLI Boilerplate Generator (ADR-038)
-uv add "kntgraph[falkordb]@git+https://github.com/kinetgraph/kinetgraph.git" # graph projection + Cypher
-uv add "kntgraph[ollama]@git+https://github.com/kinetgraph/kinetgraph.git"   # local LLM / embeddings
-uv add "kntgraph[gliner]@git+https://github.com/kinetgraph/kinetgraph.git"   # NER-based PII redaction
-uv add "kntgraph[api]@git+https://github.com/kinetgraph/kinetgraph.git"      # HTTP gateway (FastAPI)
-uv add "kntgraph[crypto]@git+https://github.com/kinetgraph/kinetgraph.git"   # Ed25519 event signing
-uv add "kntgraph[llm]@git+https://github.com/kinetgraph/kinetgraph.git"      # LiteLLM adapter
-uv add "kntgraph[all-runtime]@git+https://github.com/kinetgraph/kinetgraph.git" # everything above
+uv add "kntgraph[cli]"          # CLI Boilerplate Generator (ADR-038)
+uv add "kntgraph[falkordb]"     # graph projection + Cypher
+uv add "kntgraph[ollama]"       # local LLM / embeddings
+uv add "kntgraph[gliner]"       # NER-based PII redaction
+uv add "kntgraph[api]"          # HTTP gateway (FastAPI)
+uv add "kntgraph[crypto]"       # Ed25519 event signing
+uv add "kntgraph[llm]"          # LiteLLM adapter
+uv add "kntgraph[all-runtime]"  # everything above
 ```
+
+> To install the unreleased `main` (between tagged
+> releases), pin to the GitHub repo:
+> `uv add "kntgraph @ git+https://github.com/kinetgraph/kinetgraph.git"`.
+> The tagged releases on PyPI are the canonical,
+> supported install path.
 
 ## Hello world
 
@@ -171,7 +185,7 @@ Install the framework with the `[cli]` extra and initialize a new project:
 
 ```bash
 # 1. Install Kinetgraph with the CLI extra globally or in your venv
-uv pip install "kntgraph[cli]@git+https://github.com/kinetgraph/kinetgraph.git"
+uv add "kntgraph[cli]"
 
 # 2. Scaffold a new application with the HTTP Gateway included
 knt init project my_platform --use-intent-http
@@ -221,19 +235,19 @@ kntgraph/
 
 ## Configuration
 
-All settings live under the `FMH_` env-var prefix
+All settings live under the `KNT_` env-var prefix
 and are loaded via Pydantic v2 `BaseSettings`. The
 canonical schema is `Settings` in
 `kntgraph.infra.config`. Highlights:
 
 | Env var                       | Default                          |
 | ----------------------------- | -------------------------------- |
-| `FMH_REDIS_URL`               | `redis://localhost:6379`         |
-| `FMH_FALKORDB_HOST`           | `localhost`                      |
-| `FMH_FALKORDB_PORT`           | `16379`                          |
-| `FMH_STREAM_MAXLEN`           | `100_000`                        |
-| `FMH_TICK_INTERVAL`           | `1.0` (seconds)                  |
-| `FMH_ENV`                     | `dev` (set to `prod` in deploy)  |
+| `KNT_REDIS_URL`               | `redis://localhost:6379`         |
+| `KNT_FALKORDB_HOST`           | `localhost`                      |
+| `KNT_FALKORDB_PORT`           | `16379`                          |
+| `KNT_STREAM_MAXLEN`           | `100_000`                        |
+| `KNT_TICK_INTERVAL`           | `1.0` (seconds)                  |
+| `KNT_ENV`                     | `dev` (set to `prod` in deploy)  |
 
 ## Documentation
 
@@ -264,6 +278,14 @@ canonical schema is `Settings` in
 | [ADR-046](ADRs/ADR-046-CLI-Intent-Routing-Scaffold.md) | CLI Scaffold for Intent Routing Modes | Accepted (Implemented) |
 | [ADR-047](ADRs/ADR-047-Tool-Adapter-Pattern.md) | Standardizing Tool Construction via Adapters | Draft (sync `ToolWorker` stable; §6 follow-ups open) |
 
+### ADRs Accepted in v0.10.0 / v0.11.0 (closed in this cycle)
+
+| ADR | Título | Status |
+| --- | ------ | ------ |
+| [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
+| [ADR-051](ADRs/ADR-051-Release-Versioning-via-Git-Tags.md) | Release versioning via git tags + `setuptools_scm` | Accepted (v0.10.0) |
+| [ADR-052](ADRs/ADR-052-PyPI-Publishing.md) | PyPI publishing via Trusted Publishing (PEP 740) | Accepted (v0.11.0; first PyPI release cut via the two-workflow flow: `release.yml` then `publish.yml`) |
+
 ### ADRs Proposed in discussion
 
 | ADR | Título | Status |
@@ -272,12 +294,39 @@ canonical schema is `Settings` in
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
-| [ADR-050](ADRs/ADR-050-CLI-Command-Consistency.md) | CLI command consistency (sub-Typer, Typer Enum, template helper) | Accepted (v0.10.0) |
-| [ADR-051](ADRs/ADR-051-Release-Versioning-via-Git-Tags.md) | Release versioning via git tags + `setuptools_scm` | Accepted (v0.10.0; PyPI publishing deferred to ADR-052) |
-| [ADR-052](ADRs/ADR-052-PyPI-Publishing.md) | PyPI publishing via Trusted Publishing (PEP 740) | Proposed (workflow split: `release.yml` cuts the tag, `publish.yml` builds + uploads; 16 contract tests enforce the split) |
 
 ## Project status
 
+- `0.11.0` — first PyPI release. Shipping
+  `pip install kntgraph` as the canonical install
+  path (ADR-052). The release process is now
+  two workflows: `release.yml` cuts the git tag
+  + opens the GitHub Release; `publish.yml`
+  builds the wheel from the tag and uploads to
+  PyPI via Trusted Publishing (PEP 740). The
+  `pypi` GitHub Environment is the human-in-
+  the-loop gate. The publish workflow also
+  enforces a `git ls-remote` pre-check (the tag
+  must exist on the remote before the checkout
+  can fool `setuptools_scm` into a misleading
+  `0.0.0` derivation) and a `git config` step
+  in `release.yml` resolves the `empty ident
+  name` failure from the GitHub Actions runner.
+  `pyproject.toml` now declares PEP 639
+  `license = "Apache-2.0"` (the `License ::
+  OSI Approved :: Apache Software License`
+  classifier is rejected by setuptools ≥ 77
+  when the `license =` field is set) plus 11
+  canonical PyPI classifiers; `[build-system]
+  ::requires` is bumped to `setuptools>=77` to
+  make the PEP 639 floor explicit. 16 contract
+  tests in `tests/scripts/test_workflow_split.py`
+  enforce the split. The PyPI project page is
+  live at
+  <https://pypi.org/project/kntgraph/>
+  (license `Apache-2.0`, version `0.11.0`).
+  Operator runbook at
+  [`docs/pypi_publishing_runbook.md`](docs/pypi_publishing_runbook.md).
 - `0.10.0` — breaking: removes the `_legacy_principal`
   fallback in the API key verifier (ADR-017 §7.3).
   Plain-string bindings (pre-ADR-017) are now rejected

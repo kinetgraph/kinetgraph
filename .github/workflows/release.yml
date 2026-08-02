@@ -134,6 +134,27 @@ jobs:
               --new-version "${{ steps.bump.outputs.new_version }}" \
               $date_arg
 
+      - name: Commit the CHANGELOG update
+        # The tag points at HEAD; the CHANGELOG
+        # update must land **before** the tag, so
+        # ``git describe`` from the new tag reports
+        # the new version (not the previous one) and
+        # ``git show vX.Y.Z:CHANGELOG.md`` shows the
+        # dated section (not the previous release).
+        #
+        # The bump script is git-history-free; the
+        # commit is the operator's responsibility
+        # (this workflow automates it).
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+              "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit \
+              -m "chore(release): v${{ steps.bump.outputs.new_version }}" \
+              -m "ADR-051 release automation." \
+              -m "Tag: ${{ steps.bump.outputs.new_tag }}"
+
       - name: Set git committer identity
         # ``bump_version.py`` runs ``git tag -a
         # vX.Y.Z`` (an annotated tag), which
@@ -145,9 +166,19 @@ jobs:
         # unless we set them here **before** the
         # tag is created.
         #
+        # The step is placed **after** the
+        # CHANGELOG commit so the tag is created
+        # at HEAD **with** the CHANGELOG
+        # update included (the previous
+        # workflow ordering created the tag at
+        # the commit **before** the CHANGELOG
+        # commit, so ``git show vX.Y.Z:
+        # CHANGELOG.md`` showed the previous
+        # release's chronology).
+        #
         # We use the bot's noreply identity (same
-        # as the CHANGELOG commit step below) so
-        # the tag and the commit share an author.
+        # as the CHANGELOG commit step) so the
+        # tag and the commit share an author.
         # ``GIT_AUTHOR_*`` and ``GIT_COMMITTER_*``
         # are set as env vars too (belt-and-braces
         # -- some git subcommands honour the env
@@ -163,35 +194,19 @@ jobs:
               "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version (create the tag)
-        # Now that the changelog is rewritten and
-        # the next version is known, create the
-        # tag. The script refuses to recreate an
-        # existing tag (idempotency guard).
+        # Now that the CHANGELOG is committed and
+        # the committer identity is configured,
+        # create the tag. The script refuses to
+        # recreate an existing tag (idempotency
+        # guard).
         #
-        # The committer identity is set in the
-        # previous step (annotated tags fail
-        # without it).
+        # The tag is created at HEAD **after** the
+        # CHANGELOG commit, so
+        # ``git show vX.Y.Z:CHANGELOG.md`` shows
+        # the new dated section.
         run: |
           uv run python scripts/bump_version.py \
               --level "${{ inputs.level }}"
-
-      - name: Commit the CHANGELOG update
-        # The tag points at HEAD; the CHANGELOG
-        # update must land **before** the tag, so
-        # ``git describe`` from the new tag reports
-        # the new version (not the previous one).
-        # The bump script is git-history-free; the
-        # commit is the operator's responsibility
-        # (this workflow automates it).
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email \
-              "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit \
-              -m "chore(release): v${{ steps.bump.outputs.new_version }}" \
-              -m "ADR-051 release automation." \
-              -m "Tag: ${{ steps.bump.outputs.new_tag }}"
 
       - name: Push the tag
         run: |

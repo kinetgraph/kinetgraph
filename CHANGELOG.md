@@ -16,7 +16,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Tool-Adapter Pattern — `HttpClientLike` Protocol (ADR-047, DEBT §2.24):** the
+- *(placeholder for the next release; copy entries from
+  the previous `[Unreleased]` block as you land them.)*
+
+## [0.11.0] — 2026-08-02
+
+### Added
+- **PyPI publishing via Trusted Publishing (ADR-052,
+  Accepted):** the v0.11.0 release is the first
+  distribution on PyPI at
+  <https://pypi.org/project/kntgraph/>. The release
+  workflow is split into two (`release.yml` cuts the
+  tag + opens the GitHub Release; `publish.yml`
+  builds the wheel from the tag and uploads to PyPI
+  via `pypa/gh-action-pypi-publish` with an OIDC
+  short-lived token). The `pypi` GitHub Environment
+  is the human-in-the-loop gate; the publish
+  workflow fails fast with a clear diagnostic if the
+  tag is missing on the remote (`git ls-remote`
+  pre-check). 17 contract tests in
+  `tests/scripts/test_workflow_split.py` enforce the
+  split (release.yml contains no PyPI action;
+  publish.yml contains no tag-cut step; the
+  committer identity is set before the
+  `bump_version.py` tag step; the CHANGELOG commit
+  lands before the tag so `git show vX.Y.Z:
+  CHANGELOG.md` shows the dated section, not the
+  previous release).
+- **PEP 639 license metadata (+ `setuptools>=77`
+  floor):** `pyproject.toml` now declares
+  `license = "Apache-2.0"` (the modern
+  `License-Expression` form, replacing the
+  `License :: OSI Approved :: Apache Software
+  License` classifier which setuptools ≥ 77
+  rejects when the `license =` field is set). 11
+  canonical PyPI classifiers are added (Operating
+  System, Intended Audience, Programming Language,
+  Topic, Typing). The `[build-system]::requires`
+  floor is bumped from `setuptools>=61.0` to
+  `setuptools>=77` to make the PEP 639 minimum
+  explicit.
+- **Operator runbook
+  (`docs/pypi_publishing_runbook.md`):** the
+  one-time setup (PyPI Trusted Publisher + GitHub
+  `pypi` Environment) and the per-release
+  `gh workflow run` flow are documented with the
+  exact PyPI form fields and the exact `gh`
+  commands. Failure-mode runbook (§4) covers the
+  pre-check failure, the sanity-check mismatch,
+  `invalid-publisher`, duplicate uploads, wheel
+  build failures, and the "release without
+  publish" orphan risk.
+
+### Fixed
+- **`scripts/update_version_badge.py` regex bug
+  (caught by v0.11.0):** the regex was
+  `^\[!\[\s*Version\s*\]` (looking for `[![Version]`
+  with TWO opening brackets). The actual badge is
+  `![Version]...` (ONE opening bracket). The bug
+  meant the existing badge was never matched, so the
+  script silently **appended** a new badge instead of
+  **replacing** the old one. Fixed to
+  `^!\[Version\]` (the canonical markdown image
+  alt-text escape).
+- **`scripts/readme_stats.py::_version_badge()`
+  followed the latest tag, not the dev
+  `__version__`:** when the working tree is dirty
+  (mid-edit), `setuptools_scm` infers
+  `0.11.1.dev0+g<sha>` to signal "not the tagged
+  release". The badge used to pick `0.10.1`/`0.11.1`
+  (the inferred next minor) instead of the actual
+  `0.11.0` (the latest tag). The badge now derives
+  from `git describe --tags --abbrev=0` (the tag)
+  with a fallback to `__version__` when no tag is
+  reachable. Tests updated to assert the tag-derived
+  version.
+- **`release.yml` ordering: CHANGELOG commit lands
+  before the tag (caught by v0.11.0):** the original
+  ordering ran `bump_version.py` (which creates the
+  annotated tag at HEAD) **before** the
+  `git commit CHANGELOG.md` step, so the tag pointed
+  at the commit **before** the new dated section. The
+  `v0.11.0` tag was therefore created with a
+  CHANGELOG that still showed `[0.10.0]` as the latest
+  entry. The workflow now commits the CHANGELOG,
+  sets the committer identity, and **then** creates
+  the tag (so the tag points at the commit with the
+  new section).
+- **`release.yml` committer identity (caught by
+  v0.11.0):** the GitHub Actions runner does not
+  ship with `user.name`/`user.email` configured by
+  default, so `bump_version.py` failed with
+  `empty ident name not allowed` on the
+  `git tag -a vX.Y.Z` invocation. The fix is a
+  dedicated `Set git committer identity` step with
+  `env: GIT_AUTHOR_*` / `GIT_COMMITTER_*` (belt-and-
+  braces) and `git config user.name`/
+  `user.email` in the `run:` block. The identity is
+  set **before** the tag step (whichever ordering
+  is chosen by the workflow).
+
+### Removed (docs)
+- **`FMH_*` env-var references** (the pre-rename
+  prefix from the `fmh_backend` / `fmh_agents`
+  packages, see ADR-036): all references in the
+  README, `REFERENCE.md`, `SECURITY.md`,
+  `GETTING_STARTED.md`, `examples/05b_session_chat_ecs.py`,
+  `examples/knt-cli/weather_platform/.env.example`,
+  and `tests/agents/unit/tools/test_litellm_worker.py`
+  were replaced with `KNT_*` (the canonical
+  prefix in `infra.config._base.py`). The
+  `FMH_CRYPTO_ENABLED=1` mention in `SECURITY.md`
+  is also gone (the env var never existed in
+  `src/`; the cryptographic event signing is
+  opt-in via `settings.event_signing_enabled`).
+
+### Tool-Adapter Pattern — `HttpClientLike` Protocol (ADR-047, DEBT §2.24):** the
   framework now owns the I/O boundary for async HTTP clients
   (`HttpClientLike` / `HttpResponseLike` in
   `src/kntgraph/infra/http/_client.py`). The
@@ -635,6 +750,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   eviction), the `_apply_event` preservation rule, the
   multi-tick acceptance tests, and the follow-up
   ADR-045 (TTL-based eviction for orphaned requests).
+
 
 ## [0.10.0] — 2026-07-30
 

@@ -60,7 +60,7 @@ fix and a coordinated disclosure plan.
 - Persists checkpoints and solution candidates
   in Redis / FalkorDB.
 - Optionally signs events with Ed25519
-  (`FMH_CRYPTO_ENABLED=1`).
+  (`KNT_CRYPTO_ENABLED=1`).
 
 Out of scope:
 

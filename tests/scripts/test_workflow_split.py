@@ -173,6 +173,77 @@ class TestReleaseWorkflow:
             "into a step that precedes the tag."
         )
 
+    def test_release_commits_changelog_before_tag(self) -> None:
+        # The CHANGELOG commit must land **before**
+        # the ``bump_version.py`` tag step. Otherwise
+        # the tag points at HEAD-without-CHANGELOG
+        # and ``git show vX.Y.Z:CHANGELOG.md`` shows
+        # the previous release's chronology instead
+        # of the new dated section.
+        #
+        # The bug was first observed in v0.11.0:
+        # the release workflow ran ``bump_version.py``
+        # (which tags HEAD) **before** the CHANGELOG
+        # commit, so the tag pointed at the commit
+        # **before** the new section was written.
+        # ``pip install kntgraph`` from the v0.11.0
+        # tag therefore shipped a wheel whose
+        # ``CHANGELOG.md`` "current" entry was
+        # ``[0.10.0]`` (not ``[0.11.0]``).
+        #
+        # The fix is to reorder the workflow so the
+        # CHANGELOG commit is the **last** write
+        # before the tag. The test enforces the
+        # ordering at the line level.
+        text = RELEASE_YML.read_text()
+        lines = text.splitlines()
+        commit_line = None
+        tag_line = None
+        for i, line in enumerate(lines, start=1):
+            # The ``git add CHANGELOG.md`` line is
+            # the unique identifier of the CHANGELOG
+            # commit step. (``git commit`` without
+            # ``CHANGELOG.md`` precedes it in the
+            # same step; the marker is the
+            # ``add`` line.)
+            if (
+                commit_line is None
+                and "git add CHANGELOG.md" in line
+            ):
+                commit_line = i
+            # The tag step is the non-dry-run
+            # ``bump_version.py`` invocation.
+            if (
+                tag_line is None
+                and "scripts/bump_version.py" in line
+            ):
+                tail = "\n".join(lines[i : i + 4])
+                if "--dry-run" not in tail:
+                    tag_line = i
+        assert commit_line is not None, (
+            "release.yml must contain a step that "
+            "runs ``git add CHANGELOG.md``; the "
+            "commit step is the place the dated "
+            "section lands."
+        )
+        assert tag_line is not None, (
+            "release.yml must contain a non-dry-run "
+            "``bump_version.py`` invocation; the "
+            "test is sanity-checking the file."
+        )
+        assert commit_line < tag_line, (
+            "The ``git add CHANGELOG.md`` step must "
+            "run **before** the ``bump_version.py`` "
+            "(non-dry-run) tag step. Otherwise the "
+            "tag points at the commit **before** "
+            "the new dated section, and "
+            "``git show vX.Y.Z:CHANGELOG.md`` shows "
+            "the previous release's chronology. "
+            "This regression was first seen in "
+            "v0.11.0 (the v0.11.0 tag's CHANGELOG "
+            "had no [0.11.0] section)."
+        )
+
 
 class TestPublishWorkflow:
     """The publish workflow (``publish.yml``) builds

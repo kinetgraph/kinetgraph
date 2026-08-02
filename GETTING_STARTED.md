@@ -164,7 +164,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Run with `FMH_REDIS_URL=redis://localhost:6379/0
+Run with `KNT_REDIS_URL=redis://localhost:6379/0
 python my_agent.py`. The dispatcher will:
 1. Bootstrap (read the existing agents in
    Redis).
