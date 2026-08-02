@@ -51,17 +51,15 @@ contract.
 
 from __future__ import annotations
 
-import json
-import sys
-from dataclasses import dataclass
-from pathlib import Path
 import re
+from dataclasses import dataclass
+from typing import Any
+from pathlib import Path
+
 import typer
 from rich.console import Console
 from rich.table import Table
 from jinja2 import Environment, FileSystemLoader
-
-from kntgraph.cli._templates import render_template
 
 
 app = typer.Typer(
@@ -158,7 +156,8 @@ def _discover_package_name() -> str | None:
     if not src_dir.is_dir():
         return None
     packages = [
-        d for d in src_dir.iterdir()
+        d
+        for d in src_dir.iterdir()
         if d.is_dir() and d.name != "__pycache__" and not d.name.startswith(".")
     ]
     if not packages:
@@ -178,7 +177,8 @@ def _discover_context_names() -> list[str]:
     if not contexts_dir.is_dir():
         return []
     return sorted(
-        d.name for d in contexts_dir.iterdir()
+        d.name
+        for d in contexts_dir.iterdir()
         if d.is_dir() and d.name != "__pycache__" and not d.name.startswith(".")
     )
 
@@ -209,7 +209,7 @@ def _discover_artifacts(context_name: str) -> dict[str, list[str]]:
     return artifacts
 
 
-def _base_context(package: str, project_name: str) -> dict[str, str]:
+def _base_context(package: str, project_name: str) -> dict[str, Any]:
     """The minimum context shared by every template."""
     return {
         "project_name": project_name,
@@ -219,7 +219,7 @@ def _base_context(package: str, project_name: str) -> dict[str, str]:
 
 def _render_template(
     template_name: str,
-    context: dict[str, str],
+    context: dict[str, Any],
 ) -> str:
     """Render a template by name with the given context."""
     env = Environment(
@@ -230,114 +230,245 @@ def _render_template(
     return tmpl.render(context)
 
 
-def _resolve_mappings() -> list[tuple[Path, str, dict[str, str]]]:
+def _resolve_mappings() -> list[tuple[Path, str, dict[str, Any]]]:
     """Resolve every boilerplate mapping to a concrete (path, template, ctx)
     triple. Returns the list of files that ``knt upgrade`` can act on.
+
+    The function is a thin orchestrator: it gathers the
+    package-level context (project flags, context names)
+    and dispatches per-mapping to a small helper. Each
+    helper focuses on one mapping shape (project-level /
+    per-context / per-artifact). The CC stays below 10
+    because the branching lives in the per-shape helpers
+    (AGENTS.md §3.2 + DEBT §2.26 ``CC offenders``).
     """
     package = _discover_package_name()
     if package is None:
         return []
     project_name = package  # convention: project name == package name
 
-    # The project-level templates (``main.py.jinja``,
-    # ``consumer.py.jinja``) require the init's
-    # ``use_intent_http`` and ``routing_mode`` flags.
-    # We infer ``use_intent_http`` from the presence of
-    # ``from kntgraph.api import create_app`` in the
-    # existing ``main.py`` (the HTTP path imports it;
-    # the routing-only path does not).
-    main_path = Path("src") / package / "main.py"
-    use_intent_http = False
-    if main_path.exists():
-        use_intent_http = "from kntgraph.api import create_app" in main_path.read_text()
+    init_flags = _infer_init_flags(package)
+    context_names = _discover_context_names()
 
-    # The ``routing_mode`` is harder to recover: the
-    # generated ``main.py`` references the adapter
-    # module by name (``from <package>.routing.adapters.
-    # <mode> import build_adapter``). We parse the
-    # adapter import.
-    routing_mode = "external"
-    if main_path.exists():
-        import re
-        m = re.search(
-            r"routing\.adapters\.(\w+)\s+import",
-            main_path.read_text(),
-        )
-        if m:
-            routing_mode = m.group(1)
-
-    resolved: list[tuple[Path, str, dict[str, str]]] = []
+    resolved: list[tuple[Path, str, dict[str, Any]]] = []
     for mapping in _MAPPING:
         if not mapping.requires_package:
             continue
-        ctx = _base_context(package, project_name)
-        # The project-level templates that depend on the
-        # init's flags share the ``use_intent_http`` /
-        # ``routing_mode`` context.
-        if mapping.template_name in ("main.py.jinja", "consumer.py.jinja"):
-            ctx = {**ctx, "use_intent_http": use_intent_http, "routing_mode": routing_mode}
-        if mapping.requires_context:
-            for context_name in _discover_context_names():
-                ctx_with_c = {**ctx, "context_name": context_name}
-                # For per-artifact templates, list every artifact
-                # that exists. The ``<name>`` placeholder is
-                # the snake_case filename.
-                kind = _template_to_kind(mapping.template_name)
-                if kind is not None:
-                    for artifact in _discover_artifacts(context_name).get(
-                        kind, [],
-                    ):
-                        # The ``agent.py.jinja`` expects ``camel_case_name``
-                        # (the original CamelCase input). The on-disk
-                        # name is ``agent_name`` (snake_case). The
-                        # discoverer doesn't know the original CamelCase
-                        # form -- we synthesise it from the filename.
-                        artifact_ctx = {
-                            **ctx_with_c,
-                            "agent_name": artifact,
-                            "system_name": artifact,
-                            "tool_name": artifact,
-                            "event_name": artifact,
-                            "camel_case_name": _snake_to_camel(artifact),
-                            "event_type": f"{context_name}.{artifact}",
-                            "with_supervisor": _has_supervisor_artifact(
-                                context_name,
-                            ),
-                        }
-                        resolved.append((
-                            Path(
-                                mapping.rendered_path.format(
-                                    package=package,
-                                    context=context_name,
-                                ).replace("<name>", artifact),
-                            ),
-                            mapping.template_name,
-                            artifact_ctx,
-                        ))
-                else:
-                    # Single-file per context (e.g. dispatcher.py).
-                    resolved.append((
-                        Path(
-                            mapping.rendered_path.format(
-                                package=package,
-                                context=context_name,
-                            ),
-                        ),
-                        mapping.template_name,
-                        {
-                            **ctx_with_c,
-                            "with_supervisor": _has_supervisor_artifact(
-                                context_name,
-                            ),
-                        },
-                    ))
-        else:
-            # Project-level files (main.py, consumer.py, config.py).
-            resolved.append((
-                Path(mapping.rendered_path.format(package=package)),
+        resolved.extend(
+            _resolve_mapping(
+                mapping=mapping,
+                package=package,
+                project_name=project_name,
+                init_flags=init_flags,
+                context_names=context_names,
+            )
+        )
+    return resolved
+
+
+def _infer_init_flags(
+    package: str,
+) -> dict[str, Any]:
+    """Infer the ``init.py`` flags from the generated
+    ``main.py``.
+
+    The project-level templates (``main.py.jinja``,
+    ``consumer.py.jinja``) require ``use_intent_http``
+    and ``routing_mode``. The values are recovered
+    heuristically from the existing ``main.py``:
+
+    - ``use_intent_http``: True when the file imports
+      ``from kntgraph.api import create_app`` (the HTTP
+      path imports it; the routing-only path does not).
+    - ``routing_mode``: parsed from the
+      ``routing.adapters.<mode> import`` line. Defaults
+      to ``"external"`` when the snippet is absent
+      (e.g. the HTTP path does not import the adapter).
+    """
+    main_path = Path("src") / package / "main.py"
+    use_intent_http = False
+    routing_mode = "external"
+    if not main_path.exists():
+        return {
+            "use_intent_http": use_intent_http,
+            "routing_mode": routing_mode,
+        }
+    text = main_path.read_text(encoding="utf-8")
+    use_intent_http = "from kntgraph.api import create_app" in text
+    m = re.search(r"routing\.adapters\.(\w+)\s+import", text)
+    if m:
+        routing_mode = m.group(1)
+    return {
+        "use_intent_http": use_intent_http,
+        "routing_mode": routing_mode,
+    }
+
+
+def _resolve_mapping(
+    *,
+    mapping: _BoilerplateMapping,
+    package: str,
+    project_name: str,
+    init_flags: dict[str, Any],
+    context_names: list[str],
+) -> list[tuple[Path, str, dict[str, Any]]]:
+    """Dispatch one mapping to the right per-shape helper.
+
+    The shape is determined by two flags on the mapping:
+
+    - ``requires_context``: per-context (one file per
+      context, e.g. ``dispatcher.py``) or per-artifact
+      (one file per artifact within a context, e.g.
+      ``agents``, ``events``).
+    - ``requires_package`` and ``template_name``:
+      project-level files (e.g. ``main.py``,
+      ``config.py``, ``consumer.py``) share the
+      ``init_flags`` context.
+    """
+    if mapping.requires_context:
+        return _resolve_context_mapping(
+            mapping=mapping,
+            package=package,
+            context_names=context_names,
+            base_ctx=_base_context(package, project_name),
+        )
+    return _resolve_project_mapping(
+        mapping=mapping,
+        package=package,
+        base_ctx=_base_context(package, project_name),
+        init_flags=init_flags,
+    )
+
+
+def _resolve_project_mapping(
+    *,
+    mapping: _BoilerplateMapping,
+    package: str,
+    base_ctx: dict[str, Any],
+    init_flags: dict[str, Any],
+) -> list[tuple[Path, str, dict[str, Any]]]:
+    """Project-level boilerplate (``main.py``,
+    ``consumer.py``, ``config.py``). The ``main.py.jinja``
+    and ``consumer.py.jinja`` templates consume the
+    ``init_flags``; ``config.py.jinja`` does not.
+    """
+    ctx = base_ctx
+    if mapping.template_name in ("main.py.jinja", "consumer.py.jinja"):
+        ctx = {**ctx, **init_flags}
+    return [
+        (
+            Path(mapping.rendered_path.format(package=package)),
+            mapping.template_name,
+            ctx,
+        ),
+    ]
+
+
+def _resolve_context_mapping(
+    *,
+    mapping: _BoilerplateMapping,
+    package: str,
+    context_names: list[str],
+    base_ctx: dict[str, Any],
+) -> list[tuple[Path, str, dict[str, Any]]]:
+    """Per-context boilerplate. For per-artifact templates
+    (``agent.py.jinja``, ``event.py.jinja``, etc.) we
+    emit one entry per existing artifact; for singleton
+    templates (``dispatcher.py.jinja``) we emit one entry
+    per context.
+    """
+    resolved: list[tuple[Path, str, dict[str, Any]]] = []
+    kind = _template_to_kind(mapping.template_name)
+    for context_name in context_names:
+        ctx_with_c = {**base_ctx, "context_name": context_name}
+        if kind is None:
+            resolved.append(
+                _resolve_context_singleton(
+                    mapping=mapping,
+                    package=package,
+                    context_name=context_name,
+                    ctx_with_c=ctx_with_c,
+                ),
+            )
+            continue
+        resolved.extend(
+            _resolve_context_artifacts(
+                mapping=mapping,
+                package=package,
+                context_name=context_name,
+                kind=kind,
+                ctx_with_c=ctx_with_c,
+            )
+        )
+    return resolved
+
+
+def _resolve_context_singleton(
+    *,
+    mapping: _BoilerplateMapping,
+    package: str,
+    context_name: str,
+    ctx_with_c: dict[str, Any],
+) -> tuple[Path, str, dict[str, Any]]:
+    """One entry per context (e.g. ``dispatcher.py``)."""
+    return (
+        Path(
+            mapping.rendered_path.format(
+                package=package,
+                context=context_name,
+            ),
+        ),
+        mapping.template_name,
+        {
+            **ctx_with_c,
+            "with_supervisor": _has_supervisor_artifact(context_name),
+        },
+    )
+
+
+def _resolve_context_artifacts(
+    *,
+    mapping: _BoilerplateMapping,
+    package: str,
+    context_name: str,
+    kind: str,
+    ctx_with_c: dict[str, Any],
+) -> list[tuple[Path, str, dict[str, Any]]]:
+    """One entry per existing artifact inside the context
+    (e.g. every ``agents/<name>.py``, every
+    ``events/<name>.py``). The ``<name>`` placeholder in
+    the mapping's ``rendered_path`` is substituted with
+    the artifact's filename stem.
+    """
+    resolved: list[tuple[Path, str, dict[str, Any]]] = []
+    for artifact in _discover_artifacts(context_name).get(kind, []):
+        # The ``agent.py.jinja`` expects ``camel_case_name``
+        # (the original CamelCase input). The on-disk
+        # name is ``agent_name`` (snake_case). The
+        # discoverer doesn't know the original CamelCase
+        # form -- we synthesise it from the filename.
+        artifact_ctx = {
+            **ctx_with_c,
+            "agent_name": artifact,
+            "system_name": artifact,
+            "tool_name": artifact,
+            "event_name": artifact,
+            "camel_case_name": _snake_to_camel(artifact),
+            "event_type": f"{context_name}.{artifact}",
+            "with_supervisor": _has_supervisor_artifact(context_name),
+        }
+        resolved.append(
+            (
+                Path(
+                    mapping.rendered_path.format(
+                        package=package,
+                        context=context_name,
+                    ).replace("<name>", artifact),
+                ),
                 mapping.template_name,
-                ctx,
-            ))
+                artifact_ctx,
+            ),
+        )
     return resolved
 
 
@@ -451,8 +582,7 @@ def check() -> None:
 def apply(
     target: str = typer.Argument(
         ...,
-        help="Relative path of the file to regenerate, e.g. "
-        "src/myapp/consumer.py",
+        help="Relative path of the file to regenerate, e.g. src/myapp/consumer.py",
     ),
     force: bool = typer.Option(
         False,

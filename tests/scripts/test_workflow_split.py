@@ -135,14 +135,9 @@ class TestReleaseWorkflow:
         cfg_idx = None
         tag_idx = None
         for i, line in enumerate(lines, start=1):
-            if cfg_idx is None and line.strip().startswith(
-                "git config user.name"
-            ):
+            if cfg_idx is None and line.strip().startswith("git config user.name"):
                 cfg_idx = i
-            if (
-                tag_idx is None
-                and "scripts/bump_version.py" in line
-            ):
+            if tag_idx is None and "scripts/bump_version.py" in line:
                 # Join the next 2 lines to catch the
                 # ``--dry-run`` flag on the continuation.
                 # The dry-run step has 4 lines of
@@ -206,17 +201,11 @@ class TestReleaseWorkflow:
             # ``CHANGELOG.md`` precedes it in the
             # same step; the marker is the
             # ``add`` line.)
-            if (
-                commit_line is None
-                and "git add CHANGELOG.md" in line
-            ):
+            if commit_line is None and "git add CHANGELOG.md" in line:
                 commit_line = i
             # The tag step is the non-dry-run
             # ``bump_version.py`` invocation.
-            if (
-                tag_line is None
-                and "scripts/bump_version.py" in line
-            ):
+            if tag_line is None and "scripts/bump_version.py" in line:
                 tail = "\n".join(lines[i : i + 4])
                 if "--dry-run" not in tail:
                     tag_line = i
@@ -399,8 +388,7 @@ class TestPublishWorkflow:
             "test_publish_pre_checks_tag_existence)."
         )
         assert checkout_line is not None, (
-            "publish.yml must contain a checkout "
-            "step (sanity)."
+            "publish.yml must contain a checkout step (sanity)."
         )
         assert pre_check_line < checkout_line, (
             "The pre-check step must run **before** "

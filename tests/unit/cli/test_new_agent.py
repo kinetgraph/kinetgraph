@@ -47,7 +47,10 @@ def test_knt_new_agent(tmp_path: Path):
         # The CapabilityPolicy class is gone (it never existed
         # in the framework); the comment that documents the
         # historical removal is fine.
-        assert "from kntgraph.security.authorization import CapabilityPolicy" not in content
+        assert (
+            "from kntgraph.security.authorization import CapabilityPolicy"
+            not in content
+        )
         # The agent file does NOT import or instantiate the
         # ``ReactiveDispatcher`` (the dispatcher is wired in
         # ``<context>/dispatcher.py``, not in the agent file).

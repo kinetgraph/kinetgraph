@@ -30,9 +30,17 @@ import pytest
 from jinja2 import Environment, FileSystemLoader
 
 
-TEMPLATES_DIR = Path(
-    __file__,
-).resolve().parents[3] / "src" / "kntgraph" / "cli" / "templates"
+TEMPLATES_DIR = (
+    Path(
+        __file__,
+    )
+    .resolve()
+    .parents[3]
+    / "src"
+    / "kntgraph"
+    / "cli"
+    / "templates"
+)
 
 
 def _render(template_name: str, context: dict) -> str:
@@ -227,8 +235,7 @@ def test_event_template_uses_canonical_correlation_path() -> None:
         },
     )
     assert (
-        "from kntgraph.core.event.correlation import correlation_middleware"
-        in rendered
+        "from kntgraph.core.event.correlation import correlation_middleware" in rendered
     )
     # The historical, broken path must not appear.
     assert "from kntgraph.core.correlation" not in rendered
@@ -299,8 +306,7 @@ def test_agent_template_does_not_import_capability_policy() -> None:
     # may still appear in the historical reference comment.
     assert "from kntgraph.security.authorization" not in rendered
     assert (
-        "from kntgraph.security.authorization import CapabilityPolicy"
-        not in rendered
+        "from kntgraph.security.authorization import CapabilityPolicy" not in rendered
     )
 
 
@@ -374,10 +380,6 @@ def test_consumer_template_renders_in_three_responsibilities() -> None:
     # The string ``"default-tenant"`` may appear in
     # *docstrings* (the historical reference) but must
     # not appear as a string literal in executable code.
-    code_lines = [
-        line for line in rendered.splitlines()
-        if not line.strip().startswith("#")
-    ]
     # Test the *callable* fallback: the constructor of
     # ``_IngressContext`` (the cross-tenant fallback
     # owner) must accept ``default_tenant_id`` as a
@@ -402,7 +404,9 @@ def test_config_template_inherits_framework_settings() -> None:
             "package": "my_app",
         },
     )
-    assert "from kntgraph.infra.config import Settings as _FrameworkSettings" in rendered
+    assert (
+        "from kntgraph.infra.config import Settings as _FrameworkSettings" in rendered
+    )
     assert "class Settings(_FrameworkSettings):" in rendered
 
 
@@ -430,9 +434,9 @@ def test_main_template_passes_redis_and_tool_router_to_dispatcher() -> None:
     # (positional args, not keyword args).
     placeholder_call = next(
         (
-            line for line in rendered.splitlines()
-            if "build_sales_dispatcher(" in line
-            and "tool_router" in line
+            line
+            for line in rendered.splitlines()
+            if "build_sales_dispatcher(" in line and "tool_router" in line
         ),
         None,
     )

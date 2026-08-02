@@ -66,7 +66,6 @@ class TestVersionBadge:
         release identifier; the dirty-tree infix is
         a transient artefact.
         """
-        import re
         import subprocess
 
         from packaging.version import Version
@@ -85,8 +84,7 @@ class TestVersionBadge:
         expected = Version(tag).base_version
         badge = _version_badge()
         assert expected in badge, (
-            f"expected the tag base version {expected!r} in the badge; "
-            f"got: {badge!r}"
+            f"expected the tag base version {expected!r} in the badge; got: {badge!r}"
         )
         # The dev / local suffix should NOT be in
         # the badge.
