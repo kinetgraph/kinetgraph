@@ -429,7 +429,7 @@ Use this as a one-time punch list at the end of
       and uploads via
       `pypa/gh-action-pypi-publish`.
 - [ ] `release.yml` does not contain the PyPI
-      publish step (the 15 contract tests in
+      publish step (the 16 contract tests in
       `tests/scripts/test_workflow_split.py`
       enforce this; they pass in CI).
 - [ ] The first PyPI release is cut via

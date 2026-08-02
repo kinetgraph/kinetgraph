@@ -499,15 +499,18 @@ mergeable** and **independently revertable**.
    - **No change** to ``release.yml`` (it was
      already separated from the publish step in
      the implementation decision).
-4. **Test**: 15 contract tests in
+4. **Test**: 16 contract tests in
    ``tests/scripts/test_workflow_split.py``
    enforce the split (the ``release.yml``
    workflow contains no PyPI action; the
    ``publish.yml`` workflow contains no tag-cut
    step; the ``publish.yml`` workflow
    pre-checks the tag exists on origin before
-   the checkout step; the two workflows are
-   disjoint in responsibilities).
+   the checkout step; the ``release.yml``
+   workflow sets the committer identity
+   **before** the ``bump_version.py`` tag step;
+   the two workflows are disjoint in
+   responsibilities).
 5. **First release**: the operator cuts a
    release (``gh workflow run release.yml -f
    level=minor``); PyPI receives no upload yet.
@@ -524,7 +527,7 @@ mergeable** and **independently revertable**.
 GitHub Environment setup + first release cut +
 first publish).
 ~2 hours of code (the workflow is mechanical;
-the 15 contract tests are the durable part of
+the 16 contract tests are the durable part of
 this PR).
 
 ### Total time
@@ -551,7 +554,7 @@ guard).
       ``pypa/gh-action-pypi-publish``.
 - [ ] ``.github/workflows/release.yml`` does
       **not** contain the PyPI publish step (the
-      split is enforced by the 15 contract tests
+      split is enforced by the 16 contract tests
       in ``tests/scripts/test_workflow_split.py``).
 - [ ] The first PyPI release is cut via the
       two-workflow flow (``gh workflow run
