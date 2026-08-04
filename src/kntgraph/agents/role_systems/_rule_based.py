@@ -274,8 +274,14 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         # as the tenant scope in single-tenant
         # deployments).
         new_input = self._read_new_input(view)
-        if not new_input:
-            return []
+        # ``_read_new_input`` only returns ``""`` for
+        # non-dict ``request_data``; the guard at line
+        # 267 above already returns early in that case,
+        # so by the time we reach here ``new_input`` is
+        # always non-empty (a string extracted from the
+        # dict, or ``str(data)`` for a non-empty dict).
+        # No second guard needed — the prior guard
+        # establishes the invariant.
         session = view.components.get(SessionComponent)
         tenant_id = (
             getattr(session, "tenant_id", None) if session is not None else None

@@ -83,7 +83,7 @@ def _run_coverage() -> int:
         *PYTEST_TARGETS,
         "-q",
         "--no-header",
-        f"--cov=src/kntgraph",
+        "--cov=src/kntgraph",
         "--cov-branch",
         f"--cov-report=json:{COVERAGE_JSON}",
     ]
