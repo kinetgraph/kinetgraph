@@ -21,16 +21,17 @@ step to the exclusion of all others. The pre-commit hook
 runs the full set without flags.
 
 Steps (in order):
-    syntax      py_compile on src/**/*.py + tests/**/*.py
-    lint        ruff check on src/
-    format      ruff format --check (zero diffs required)
-    complexity  radon cc/mi hard gates + regression vs .radon-baseline.json
-    reuse       REUSE 3.3 license compliance (480+ files)
-    pyright     static type check
-    tests       pytest unit tests
-    reliability branch coverage on stream + runner + security
-    bandit      security scan
-    audit       pip-audit CVE scan
+    syntax       py_compile on src/**/*.py + tests/**/*.py
+    lint         ruff check on src/
+    format       ruff format --check (zero diffs required)
+    complexity   radon cc/mi hard gates + regression vs .radon-baseline.json
+    reuse        REUSE 3.3 license compliance (480+ files)
+    pyright      static type check
+    tests        pytest unit tests
+    integration  framework integration tests (opt-in via --only integration)
+    reliability  branch coverage on stream + runner + security
+    bandit       security scan
+    audit        pip-audit CVE scan
 
 The complexity gate (ADR-019):
     CC ≤ 10 (radon grade B) per block — hard fail without baseline
@@ -204,6 +205,36 @@ def step_tests() -> Step:
             "tests/unit/",
             "tests/agents/unit/",
             "tests/scripts/",
+            "-q",
+        ),
+    )
+
+
+def step_integration() -> Step:
+    """Framework integration tests against real Redis / FalkorDB / LLM.
+
+    Deliberately runs WITHOUT the ``--cov`` flags: integration
+    coverage is not part of the reliability gate's measurement
+    (the unit suite is the floor for branch coverage and any
+    future MC/DC work). The step is opt-in via ``--only
+    integration``; the main gate (``uv run scripts/ci.py``)
+    still runs only ``step_tests``.
+
+    Requires real infrastructure. With ``KNT_REDIS_FAKE=1`` the
+    suite will exit 5 ("no tests ran") and the step is
+    tolerated by ``_run_step`` (same pattern as the unit
+    suite's exit-5 case for optional-dependency skips).
+    """
+    return Step(
+        "framework integration tests (Redis + FalkorDB + LLM)",
+        (
+            "uv",
+            "run",
+            "pytest",
+            "tests/integration/test_dlq.py",
+            "tests/integration/test_event_log.py",
+            "tests/integration/test_reactive_dispatcher.py",
+            "tests/integration/test_runner.py",
             "-q",
         ),
     )
@@ -496,6 +527,7 @@ ALL_STEPS: dict[str, Step] = {
     "check_version": step_check_version(),
     "bump_dry_run": step_bump_dry_run(),
     "tests": step_tests(),
+    "integration": step_integration(),
     "reliability": Step(
         "reliability (branch coverage on stream + runner + security)",
         ("_inline_gate_reliability_",),
