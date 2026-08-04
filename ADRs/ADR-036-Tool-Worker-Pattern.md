@@ -209,13 +209,23 @@ novo. 54 verde.
    `correlation_middleware.current()`), mas a implementação
    atual sempre gera `correlation_id = eid(event)`. Resultado:
     o `correlation_id` quebra em `tool.<name>.requested` → `tool.<name>.completed`
-    quando o caller não propaga explicitamente via
-    `correlation=continue_from(cause)`. Hoje o framework usa
-    `causation_id` (= `request_event_id`) como join key
-    request↔completion (que funciona). Mas a docstring de
-    `Event.create` (linha 178-185) promete propagação
-    automática, o que está quebrado. **Quem:** quem pegar
+   quando o caller não propaga explicitamente via
+   `correlation=continue_from(cause)`. Hoje o framework usa
+   `causation_id` (= `request_event_id`) como join key
+   request↔completion (que funciona). Mas a docstring de
+   `Event.create` (linha 178-185) promete propagação
+   automática, o que está quebrado. **Quem:** quem pegar
    o ADR-037. **Prazo:** sem urgência (workaround funciona).
+
+6. **Avaliação de executor + transporte registrada em
+   ADR-054** — as alternativas locais
+   (`ThreadPoolExecutor`, `asyncio` puro, subprocess
+   JSON-lines) foram avaliadas e o desenho atual
+   `ProcessPoolExecutor` + Redis Streams foi confirmado;
+   os critérios de aceitação para reabrir a discussão
+   estão em ADR-054 §3.3. **Quem:** ninguém (decisão
+   de não mudar). **Prazo:** N/A. Reabrir apenas quando
+   um dos critérios do ADR-054 §3.3 for atendido.
 
 ### 4.3. Não fazer (decisões de não-arquivamento)
 
