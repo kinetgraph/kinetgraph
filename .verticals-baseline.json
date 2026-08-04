@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "tool": "coverage.py",
+  "metric": "branch_coverage_percent",
+  "scope": "verticals",
+  "overall": {
+    "covered_branches": 1784,
+    "num_branches": 2508
+  },
+  "target_paths": {
+    "src/kntgraph/agents/": {
+      "covered_branches": 288,
+      "num_branches": 438
+    },
+    "src/kntgraph/api/": {
+      "covered_branches": 48,
+      "num_branches": 70
+    },
+    "src/kntgraph/cli/": {
+      "covered_branches": 50,
+      "num_branches": 148
+    },
+    "src/kntgraph/events/": {
+      "covered_branches": 43,
+      "num_branches": 46
+    },
+    "src/kntgraph/knowledge/": {
+      "covered_branches": 187,
+      "num_branches": 302
+    },
+    "src/kntgraph/memory/": {
+      "covered_branches": 219,
+      "num_branches": 286
+    }
+  }
+}
