@@ -21,15 +21,18 @@ step to the exclusion of all others. The pre-commit hook
 runs the full set without flags.
 
 Steps (in order):
-    syntax      py_compile on src/**/*.py + tests/**/*.py
-    lint        ruff check on src/
-    format      ruff format --check (zero diffs required)
-    complexity  radon cc/mi hard gates + regression vs .radon-baseline.json
-    reuse       REUSE 3.3 license compliance (480+ files)
-    pyright     static type check
-    tests       pytest unit tests
-    bandit      security scan
-    audit       pip-audit CVE scan
+    syntax       py_compile on src/**/*.py + tests/**/*.py
+    lint         ruff check on src/
+    format       ruff format --check (zero diffs required)
+    complexity   radon cc/mi hard gates + regression vs .radon-baseline.json
+    reuse        REUSE 3.3 license compliance (480+ files)
+    pyright      static type check
+    tests        pytest unit tests
+    integration  framework integration tests (opt-in via --only integration)
+    reliability  branch coverage on stream + runner + security
+    verticals    branch coverage on agents + api + cli + events + knowledge + memory
+    bandit       security scan
+    audit        pip-audit CVE scan
 
 The complexity gate (ADR-019):
     CC ≤ 10 (radon grade B) per block — hard fail without baseline
@@ -203,6 +206,36 @@ def step_tests() -> Step:
             "tests/unit/",
             "tests/agents/unit/",
             "tests/scripts/",
+            "-q",
+        ),
+    )
+
+
+def step_integration() -> Step:
+    """Framework integration tests against real Redis / FalkorDB / LLM.
+
+    Deliberately runs WITHOUT the ``--cov`` flags: integration
+    coverage is not part of the reliability gate's measurement
+    (the unit suite is the floor for branch coverage and any
+    future MC/DC work). The step is opt-in via ``--only
+    integration``; the main gate (``uv run scripts/ci.py``)
+    still runs only ``step_tests``.
+
+    Requires real infrastructure. With ``KNT_REDIS_FAKE=1`` the
+    suite will exit 5 ("no tests ran") and the step is
+    tolerated by ``_run_step`` (same pattern as the unit
+    suite's exit-5 case for optional-dependency skips).
+    """
+    return Step(
+        "framework integration tests (Redis + FalkorDB + LLM)",
+        (
+            "uv",
+            "run",
+            "pytest",
+            "tests/integration/test_dlq.py",
+            "tests/integration/test_event_log.py",
+            "tests/integration/test_reactive_dispatcher.py",
+            "tests/integration/test_runner.py",
             "-q",
         ),
     )
@@ -495,6 +528,15 @@ ALL_STEPS: dict[str, Step] = {
     "check_version": step_check_version(),
     "bump_dry_run": step_bump_dry_run(),
     "tests": step_tests(),
+    "integration": step_integration(),
+    "reliability": Step(
+        "reliability (branch coverage on stream + runner + security)",
+        ("_inline_gate_reliability_",),
+    ),  # placeholder
+    "verticals": Step(
+        "verticals (branch coverage on agents + api + cli + events + knowledge + memory)",
+        ("_inline_gate_verticals_",),
+    ),  # placeholder
     # REUSE runs **after** tests so the
     # ``tests/scripts/conftest.py`` fixture has had
     # a chance to write ``.license`` sidecars for
@@ -639,6 +681,52 @@ def _pyright_snapshot(
     return by_rule, by_file
 
 
+def gate_reliability() -> bool:
+    """Branch-coverage gate on the safety-critical paths.
+
+    Delegates to ``scripts/reliability_gate.py`` which owns the
+    baseline compare logic. The subprocess contract:
+
+        exit 0 — pass
+        exit 1 — regression vs ``.reliability-baseline.json``
+        exit 2 — hard fail (no baseline and < 100% coverage)
+        exit 3 — no target tests ran (tolerated, like the
+                 ``tests`` step's pytest-exit-5 case)
+    """
+    print("\n>>> reliability (branch coverage)")
+    r = subprocess.run(
+        ("uv", "run", "python", "scripts/reliability_gate.py"),
+        cwd=ROOT,
+        check=False,
+    )
+    if r.returncode == 3:
+        print("  >>> tolerated: no target tests ran; gate is advisory.")
+        return True
+    return r.returncode == 0
+
+
+def gate_verticals() -> bool:
+    """Branch-coverage gate on the vertical packages.
+
+    Parallel to ``gate_reliability``: same subprocess contract
+    (exit 0/1/2/3), different scope (verticals, not framework
+    safety-critical paths), different baseline file
+    (``.verticals-baseline.json``). A failure here is a
+    domain-quality signal belonging to the vertical owner,
+    not a framework MC/DC signal.
+    """
+    print("\n>>> verticals (branch coverage)")
+    r = subprocess.run(
+        ("uv", "run", "python", "scripts/verticals_gate.py"),
+        cwd=ROOT,
+        check=False,
+    )
+    if r.returncode == 3:
+        print("  >>> tolerated: no target tests ran; gate is advisory.")
+        return True
+    return r.returncode == 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="kntgraph quality gates")
     parser.add_argument(
@@ -653,6 +741,16 @@ def main() -> int:
         "--update-pyright-baseline",
         action="store_true",
         help="Update pyright baseline (run scripts/update_pyright_baseline.py)",
+    )
+    parser.add_argument(
+        "--update-reliability-baseline",
+        action="store_true",
+        help="Regenerate .reliability-baseline.json (branch coverage snapshot)",
+    )
+    parser.add_argument(
+        "--update-verticals-baseline",
+        action="store_true",
+        help="Regenerate .verticals-baseline.json (branch coverage snapshot)",
     )
     parser.add_argument(
         "--only",
@@ -671,6 +769,16 @@ def main() -> int:
             ["uv", "run", "python", "scripts/update_pyright_baseline.py"],
             cwd=ROOT,
         )
+    if args.update_reliability_baseline:
+        return subprocess.call(
+            ["uv", "run", "python", "scripts/reliability_gate.py", "--update"],
+            cwd=ROOT,
+        )
+    if args.update_verticals_baseline:
+        return subprocess.call(
+            ["uv", "run", "python", "scripts/verticals_gate.py", "--update"],
+            cwd=ROOT,
+        )
     if args.baseline or args.update_baseline:
         return cmd_baseline()
 
@@ -687,6 +795,14 @@ def main() -> int:
         if name == "pyright":
             if not gate_pyright():
                 failed.append("pyright")
+            continue
+        if name == "reliability":
+            if not gate_reliability():
+                failed.append("reliability")
+            continue
+        if name == "verticals":
+            if not gate_verticals():
+                failed.append("verticals")
             continue
         print(f"\n>>> {name}")
         step = ALL_STEPS[name]
