@@ -127,6 +127,38 @@ filterwarnings = [
     "error::DeprecationWarning:kntgraph",
 ]
 
+# Reliability gate (scripts/ci.py step 10). The
+# gate reads the JSON produced by `pytest --cov
+# --cov-report=json:...` and compares branch
+# coverage + per-file branch coverage to
+# `.reliability-baseline.json`. The
+# `branch = true` flag is what makes coverage.py
+# instrument every `if`/`and`/`or` arm — the
+# branch-coverage metric is the floor for any
+# future MC/DC work. The target paths (stream,
+# runner, security) match the safety-critical
+# subset of `src/kntgraph/` per the type
+# discipline (§1.2): verticals own their
+# semantics and stay out of the structural
+# coverage gate.
+[tool.coverage.run]
+branch = true
+source = ["src/kntgraph"]
+omit = [
+    "src/kntgraph/_version.py",
+    "src/kntgraph/_optional.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",

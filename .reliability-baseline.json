@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "tool": "coverage.py",
+  "metric": "branch_coverage_percent",
+  "overall": {
+    "covered_branches": 1784,
+    "num_branches": 2508
+  },
+  "target_paths": {
+    "src/kntgraph/stream/": {
+      "covered_branches": 43,
+      "num_branches": 66
+    },
+    "src/kntgraph/runner/": {
+      "covered_branches": 71,
+      "num_branches": 102
+    },
+    "src/kntgraph/security/": {
+      "covered_branches": 89,
+      "num_branches": 120
+    }
+  }
+}
