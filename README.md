@@ -24,6 +24,7 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 [![cc](https://img.shields.io/badge/CC-A%20%282.49%29-brightgreen?style=for-the-badge&logo=radar&logoColor=white)](https://radon.readthedocs.io/)
 [![mi](https://img.shields.io/badge/MI-237_A_0_B_0_C-brightgreen?style=for-the-badge&logo=heartbeat&logoColor=white)](https://radon.readthedocs.io/)
 [![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
+[![pypi](https://img.shields.io/badge/pypi-0.11.0-blue?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/kntgraph/)
 ![Version](https://img.shields.io/badge/version-0.11.0-blue)
 ### Tests
 
