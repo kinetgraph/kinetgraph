@@ -296,6 +296,17 @@ canonical schema is `Settings` in
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
 
+> **Design evaluations (decisions not to migrate).**
+> [ADR-054](ADRs/ADR-054-WorkerManager-Transport-Evaluation.md)
+> records the evaluation of executor and transport
+> alternatives for the `WorkerManager` and confirms the
+> current design: `ProcessPoolExecutor` as the function
+> executor, Redis Streams as the per-tool queue. The
+> realistic local alternatives (`ThreadPoolExecutor`,
+> pure `asyncio`, external subprocess JSON-lines
+> workers) are listed in ADR-054 §3.2 with the criteria
+> that would justify a future revisit (ADR-054 §3.3).
+
 ## Project status
 
 - `0.11.0` — first PyPI release. Shipping
