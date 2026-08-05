@@ -229,9 +229,7 @@ class ReactiveDispatcher:
         # is picked up within one or two polls. To opt in to
         # the new behaviour immediately, callers may also
         # ``track_agent`` proactively.
-        self._rediscovery_interval_seconds: float = (
-            rediscovery_interval_seconds
-        )
+        self._rediscovery_interval_seconds: float = rediscovery_interval_seconds
         self._next_rediscovery_at: float = 0.0
         self._bootstrapped: bool = False
         self._running = False
@@ -304,15 +302,10 @@ class ReactiveDispatcher:
         # call also acts as the historical bootstrap. Newcomers
         # are merged into ``_tracked_agents`` idempotently.
         now = time.monotonic()
-        if (
-            not self._bootstrapped
-            or now >= self._next_rediscovery_at
-        ):
+        if not self._bootstrapped or now >= self._next_rediscovery_at:
             await self._bootstrap_agents()
             self._bootstrapped = True
-            self._next_rediscovery_at = (
-                now + self._rediscovery_interval_seconds
-            )
+            self._next_rediscovery_at = now + self._rediscovery_interval_seconds
 
         processed = 0
         for agent_id in list(self._tracked_agents):
