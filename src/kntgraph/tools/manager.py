@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
 from typing import Type
 
@@ -18,35 +19,27 @@ import uuid
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from multiprocessing.context import BaseContext as MpBaseContext
+
     from kntgraph.infra.redis import RedisLike
 
 from kntgraph.core.event import Event
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools._worker_invocation import _invoke_tool_sync
 
 logger = logging.getLogger(__name__)
 
+# ``_invoke_tool_sync`` is re-exported here for the test
+# suite (which historically monkey-patched it on
+# ``kntgraph.tools.manager``) and for any external code
+# that relied on the symbol. The canonical definition
+# lives in ``_worker_invocation`` so the ``spawn`` start
+# method can pickle the callable by reference without
+# pulling the rest of the package into the worker.
+__all__ = ["WorkerManager", "_invoke_tool_sync"]
 
-def _invoke_tool_sync(tool_cls: Type, idempotency_key: str, kwargs: dict) -> dict:
-    """
-    Synchronous wrapper to run the tool in a separate process.
-    We instantiate the tool and run its async invoke method using a local event loop.
-    Returns the Result serialized as a dict to pass back via multiprocessing.
-    """
-    tool_instance = tool_cls()
 
-    # We create a new event loop for this process/invocation
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        result = loop.run_until_complete(
-            tool_instance.invoke(idempotency_key=idempotency_key, **kwargs)
-        )
-        if result.is_ok():
-            return {"status": "ok", "value": result.unwrap()}
-        else:
-            return {"status": "err", "error": str(result.err_value_or_raise())}
-    finally:
-        loop.close()
+_SPAWN_METHOD = "spawn"
 
 
 class WorkerManager:
@@ -72,9 +65,11 @@ class WorkerManager:
 
         self._reaper_interval = reaper_interval
         self._reaper_idle_time = reaper_idle_time
-
         self._tools: dict[str, Type] = {}
         self._pool: ProcessPoolExecutor | None = None
+        # Cached in ``start()``; stored here so tests can
+        # assert on it without re-deriving the default.
+        self._mp_context: "MpBaseContext | None" = None
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -99,7 +94,24 @@ class WorkerManager:
         )
         max_workers = max(2, max_workers)
 
-        self._pool = ProcessPoolExecutor(max_workers=max_workers)
+        # Always use ``spawn`` — container runtimes (and
+        # any process that has imported ``threading`` +
+        # ``ssl`` + ``cryptography`` + ``redis.asyncio``
+        # + ``pydantic`` + ``litellm`` before this point)
+        # corrupt the forked child's ``threading._RLock``
+        # / ``select`` state under the default ``fork``
+        # start method and stall the Redis consumer loop
+        # (``xreadgroup`` never returns). ``spawn`` starts
+        # a fresh interpreter per worker; the cost is a
+        # ~50-200ms import overhead per cold worker, the
+        # gain is a deadlock-free execution path. See
+        # ADRs/ADR-054-WorkerManager-Transport-Evaluation.md
+        # lines 269-273 for the prior art.
+        self._mp_context = multiprocessing.get_context(_SPAWN_METHOD)
+        self._pool = ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=self._mp_context,
+        )
 
         for tool_name in self._tools:
             # Ensure Consumer Group exists

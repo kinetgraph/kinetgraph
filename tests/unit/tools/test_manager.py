@@ -180,6 +180,22 @@ class TestLifecycle:
         finally:
             await manager.stop()
 
+    async def test_start_uses_spawn_context(self, manager):
+        """
+        The pool must be built with a ``spawn`` start method
+        to avoid the fork+threading+openssl deadlock that
+        stalls ``xreadgroup`` in container runtimes
+        (see manager.py:start and ADR-054 lines 269-273).
+        """
+        manager.register(_EchoTool)
+        await manager.start()
+        try:
+            assert manager._pool is not None
+            assert manager._mp_context is not None
+            assert manager._mp_context.get_start_method() == "spawn"
+        finally:
+            await manager.stop()
+
     async def test_start_swallows_busygroup_error(self, manager, redis_mock, caplog):
         redis_mock.xgroup_create = AsyncMock(
             side_effect=Exception("BUSYGROUP already exists")
@@ -358,12 +374,19 @@ class TestProcessMessageHardCrash:
         _, data = _stream_message(request)
 
         # Force ``_invoke_tool_sync`` to raise by
-        # monkeypatching the manager's bound method.
-        # (The ProcessPoolExecutor ``run_in_executor`` path
-        # is hard to mock from the outside; we replace the
-        # bound function with a coroutine that raises —
-        # the manager awaits ``run_in_executor(...)`` which
-        # is itself an awaitable, so patching the
+        # monkeypatching the symbol the manager
+        # imported (``from kntgraph.tools._worker_invocation
+        # import _invoke_tool_sync``); the canonical
+        # implementation now lives in ``_worker_invocation``
+        # but ``manager.py`` re-exports it via its
+        # ``__all__`` so the dispatch path's binding can
+        # still be patched in place. (The
+        # ProcessPoolExecutor ``run_in_executor`` path
+        # is hard to mock from the outside; we replace
+        # the bound function with a coroutine that
+        # raises — the manager awaits
+        # ``run_in_executor(...)`` which is itself an
+        # awaitable, so patching the
         # ``_invoke_tool_sync`` symbol the manager
         # imported is enough for the dispatch path.)
         from kntgraph.tools import manager as mgr_mod
@@ -371,12 +394,13 @@ class TestProcessMessageHardCrash:
         async def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
+        original = mgr_mod._invoke_tool_sync
         mgr_mod._invoke_tool_sync = raise_then_crash
         try:
             redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 5}])
             await manager._process_message("echo", "stream", "1-0", data)
         finally:
-            mgr_mod._invoke_tool_sync = lambda *a, **k: None  # noqa: E731
+            mgr_mod._invoke_tool_sync = original
 
         # After 5 deliveries (>3 retries), a failed event
         # is appended and the message is acked.
@@ -397,12 +421,13 @@ class TestProcessMessageHardCrash:
         async def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
+        original = mgr_mod._invoke_tool_sync
         mgr_mod._invoke_tool_sync = raise_then_crash
         try:
             redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
             await manager._process_message("echo", "stream", "1-0", data)
         finally:
-            mgr_mod._invoke_tool_sync = lambda *a, **k: None  # noqa: E731
+            mgr_mod._invoke_tool_sync = original
 
         # Below the retry budget: no failed event, no ack
         # (the reaper will retry via xautoclaim).
@@ -546,6 +571,7 @@ class TestCustomRetries:
             async def raise_then_crash(*_args, **_kwargs):
                 raise RuntimeError("worker process died")
 
+            original = mgr_mod._invoke_tool_sync
             mgr_mod._invoke_tool_sync = raise_then_crash
             try:
                 redis_mock.xpending_range = AsyncMock(
@@ -553,7 +579,7 @@ class TestCustomRetries:
                 )
                 await manager._process_message("custom", "stream", "1-0", data)
             finally:
-                mgr_mod._invoke_tool_sync = lambda *a, **k: None  # noqa: E731
+                mgr_mod._invoke_tool_sync = original
         finally:
             await manager.stop()
 
