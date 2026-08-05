@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-environment
 description: Use when setting up the local dev environment for kntgraph — running tests, choosing the LLM model, or starting the Redis/FalkorDB/Ollama containers for integration tests. Covers the KNT_REDIS_FAKE env var (fakeredis for unit tests), the KNT_LLM_DEFAULT_MODEL env var (default gpt-4o-mini, local dev ollama/qwen3.5:4b), the docker run commands for Redis/FalkorDB/Ollama, and the build-artifact gitignore set. Trigger keywords: KNT_REDIS_FAKE, KNT_LLM_DEFAULT_MODEL, docker run, redis, falkordb, ollama, qwen3.5, .gitignore, build artifacts, scratch script.

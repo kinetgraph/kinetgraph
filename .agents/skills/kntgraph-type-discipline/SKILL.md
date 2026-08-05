@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-type-discipline
 description: Use when writing or reviewing Python types in kntgraph framework code (src/kntgraph/core/, tools/, infra/, stream/, security/, runner/). Covers the no-Any / no-bare-object rule, the JsonValue union, the framework-never-imports-from-vertical boundary, the Event/Result/JsonValue public types, frozen-dataclass components, and TYPE_CHECKING for type-only imports. Trigger keywords: Any, object, JsonValue, AgentView, Event.data, TYPE_CHECKING, framework import, vertical dependency.

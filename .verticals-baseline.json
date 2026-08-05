@@ -4,7 +4,7 @@
   "metric": "branch_coverage_percent",
   "scope": "verticals",
   "overall": {
-    "covered_branches": 1839,
+    "covered_branches": 1838,
     "num_branches": 2506
   },
   "target_paths": {

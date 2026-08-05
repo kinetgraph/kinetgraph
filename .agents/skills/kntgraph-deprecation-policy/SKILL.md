@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-deprecation-policy
 description: Use when removing a public API, deprecating a class or function, or updating call sites after an API change in the kntgraph codebase. Covers the no-compat-shims rule, the "Deprecation removal" lifecycle (one minor cycle of DeprecationWarning then git rm), removal-target commitments, and the kntgraph.agents.roles precedent. Trigger keywords: deprecate, deprecation, removal target, breaking change, compat shim, kwargs-optional, delete deprecated, git rm.
