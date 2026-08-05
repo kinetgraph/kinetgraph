@@ -40,7 +40,7 @@ import asyncio
 from typing import Any, Type
 
 
-def invoke_tool_sync(
+def _invoke_tool_sync(
     tool_cls: Type, idempotency_key: str, kwargs: dict[str, Any]
 ) -> dict[str, Any]:
     """
@@ -68,6 +68,3 @@ def invoke_tool_sync(
         return {"status": "err", "error": str(result.err_value_or_raise())}
     finally:
         loop.close()
-
-
-_invoke_tool_sync = invoke_tool_sync

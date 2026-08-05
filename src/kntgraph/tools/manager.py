@@ -19,7 +19,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from multiprocessing.context import BaseContext as MpBaseContext
+    from multiprocessing.context import BaseContext
 
     from kntgraph.infra.redis import RedisLike
 
@@ -69,7 +69,7 @@ class WorkerManager:
         self._pool: ProcessPoolExecutor | None = None
         # Cached in ``start()``; stored here so tests can
         # assert on it without re-deriving the default.
-        self._mp_context: "MpBaseContext | None" = None
+        self._mp_context: "BaseContext | None" = None
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
