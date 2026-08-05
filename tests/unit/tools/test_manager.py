@@ -241,6 +241,19 @@ class TestLifecycle:
         await manager.stop()
         assert manager._tasks == []
 
+    async def test_stop_without_start_skips_pool_shutdown(self, manager):
+        """
+        Calling ``stop()`` before ``start()`` must be a
+        no-op for the pool branch (the ``if self._pool``
+        guard at ``manager.py:144``) — exercises the
+        early-return branch that the ``start``→``stop``
+        happy path leaves uncovered.
+        """
+        manager.register(_EchoTool)
+        assert manager._pool is None
+        await manager.stop()
+        assert manager._pool is None
+
 
 # ---------------------------------------------------------------------------
 # _process_message — happy path (Ok result → completed event + ack)
@@ -473,8 +486,71 @@ class TestConsumeLoop:
         # to NOT crash the manager (the asyncio.CancelledError
         # in stop() is the only allowed exit).
 
+    async def test_consume_loop_idle_keeps_polling_until_stop(
+        self, manager, redis_mock
+    ):
+        """
+        Exercises the idle branches of ``_consume_loop``
+        (``xreadgroup`` returning ``[]`` and the loop
+        guard ``while self._running``) — the happy-path
+        test always injects a message, which leaves the
+        ``if not response: continue`` arm uncovered
+        (``manager.py:161``).
+        """
+        manager.register(_EchoTool)
+        # First call returns no messages (idle branch),
+        # then raises CancelledError on the second call
+        # to break the loop cleanly when ``stop()``
+        # interrupts the next ``await``.
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                [],
+                [],
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            for _ in range(20):
+                if redis_mock.xreadgroup.await_count >= 2:
+                    break
+                await asyncio.sleep(0.01)
+            assert redis_mock.xreadgroup.await_count >= 2
+        finally:
+            await manager.stop()
+
 
 class TestReaperLoop:
+    async def test_reaper_loop_swallows_generic_exception(
+        self, manager, redis_mock, caplog
+    ):
+        """
+        Exercises the ``except Exception`` arm of the
+        reaper loop (``manager.py:299-302``) — a generic
+        ``xautoclaim`` failure must be logged and the
+        loop must keep ticking rather than crash the
+        manager. The fixture uses ``reaper_interval=0.01``
+        so the loop ticks hot; we stop early once we see
+        the first awaited ``xautoclaim`` to avoid the
+        tight spin saturating the scheduler.
+        """
+        manager.register(_EchoTool)
+        redis_mock.xautoclaim = AsyncMock(side_effect=Exception("xautoclaim blip"))
+        with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
+            await manager.start()
+            try:
+                # Bounded wait: first exception is enough —
+                # we just need the ``except`` arm to fire.
+                deadline = asyncio.get_event_loop().time() + 2.0
+                while redis_mock.xautoclaim.await_count < 1 and (
+                    asyncio.get_event_loop().time() < deadline
+                ):
+                    await asyncio.sleep(0.01)
+                assert redis_mock.xautoclaim.await_count >= 1
+            finally:
+                await manager.stop()
+        assert "xautoclaim blip" in caplog.text
+
     @pytest.mark.skip(
         reason=(
             "Reaper loop drives a real ``ProcessPoolExecutor`` "

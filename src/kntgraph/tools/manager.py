@@ -159,6 +159,14 @@ class WorkerManager:
                 )
 
                 if not response:
+                    # ``xreadgroup`` returned with no messages. In
+                    # production the upstream ``block=1000`` makes this
+                    # arm rare; under mocks (and any future
+                    # non-blocking xreadgroup path) the loop would
+                    # busy-spin, starving the sibling ``_reaper_loop``
+                    # of the event loop. A zero-second sleep is a
+                    # yield-to-scheduler with no production cost.
+                    await asyncio.sleep(0)
                     continue
 
                 for _, messages in response:
