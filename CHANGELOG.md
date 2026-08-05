@@ -19,6 +19,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(placeholder for the next release; copy entries from
   the previous `[Unreleased]` block as you land them.)*
 
+## [0.11.1] — 2026-08-05
+
+### Fixed
+- **``ReactiveDispatcher`` now discovers agents created
+  after ``start()``.** Previously, ``_bootstrap_agents``
+  ran exactly once on the very first tick and
+  ``_tracked_agents`` was treated as immutable. Any
+  tenant that emitted its first ``EventLog`` event
+  after the dispatcher booted was silently ignored:
+  its events stayed in the log, no fold occurred, and
+  downstream ``WorldSystem`` instances never saw them.
+  The bug surfaced in production for HTTP-driven
+  intake flows where a tenant's first intent lands
+  minutes or hours after the service starts. The
+  dispatcher now re-runs ``_bootstrap_agents()`` every
+  ``rediscovery_interval_seconds`` (configurable kw,
+  default ``5.0``) and merges newcomers into
+  ``_tracked_agents`` idempotently. Regression test
+  in ``tests/unit/runner/test_reactive_dynamic_agents.py``
+  reproduces the failure mode (TDD red → green).
+  Migration: callers that need tighter E2E feedback
+  loops may pass ``rediscovery_interval_seconds=0.2``
+  (the backoffice's monthly_closing dispatcher
+  honours ``KNT_REDISCOVERY_INTERVAL_SECONDS``).
+
 ## [0.11.0] — 2026-08-02
 
 ### Added
