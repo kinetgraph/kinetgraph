@@ -70,6 +70,7 @@ See: ADR-018 — WorldIncremental + WorldSystem.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Callable
 
 from typing import TYPE_CHECKING, Optional
@@ -125,6 +126,7 @@ class ReactiveDispatcher:
         redis: Optional["Redis"] = None,
         tool_router: Optional["ToolRouter"] = None,
         tool_ttls: Optional[ToolCallTTL] = None,
+        rediscovery_interval_seconds: float = 5.0,
     ) -> None:
         """
         Args:
@@ -159,6 +161,20 @@ class ReactiveDispatcher:
                 TTL). Set ``per_tool_ttls`` to tune individual
                 tools (e.g. tight TTL for synchronous helpers,
                 loose TTL for long-running batch tools).
+            rediscovery_interval_seconds: how often the
+                dispatcher re-runs ``EventLog.list_agents()``
+                to pick up brand-new tenants. The first
+                discovery runs in ``start()``/the first tick;
+                this knob bounds the staleness of subsequent
+                ones. Defaults to ``5.0s`` which is the right
+                ballpark for production deployments; tight
+                it (e.g. ``0.05s``) for E2E tests so a
+                newcomer is picked up within one or two polls.
+                Implementation note: the rediscovery is a
+                cheap ``SCAN`` over ``knt:agents:*:events``
+                (or the equivalent ``list_agents()`` thin
+                delegation); the cost is dominated by
+                network round-trips, not Redis CPU.
         """
         self._log = log
         self._systems: list[WorldSystem] = list(systems or [])
@@ -207,9 +223,16 @@ class ReactiveDispatcher:
         # cache is just a hot-path optimisation for ``list(agents)``.
         self._tracked_agents: set[str] = set()
         # Once the initial discovery has run, the dispatcher
-        # only iterates ``_tracked_agents`` (no further SCAN).
-        # New agents that show up at runtime are NOT picked up
-        # automatically. To opt in, call ``track_agent``.
+        # repeats it every ``_rediscovery_interval_seconds``
+        # (configurable; default 5s). Production callers can keep
+        # the default; tests can shrink the value so a newcomer
+        # is picked up within one or two polls. To opt in to
+        # the new behaviour immediately, callers may also
+        # ``track_agent`` proactively.
+        self._rediscovery_interval_seconds: float = (
+            rediscovery_interval_seconds
+        )
+        self._next_rediscovery_at: float = 0.0
         self._bootstrapped: bool = False
         self._running = False
         self._task: Optional[asyncio.Task] = None
@@ -277,9 +300,19 @@ class ReactiveDispatcher:
         Returns the number of new events processed across all
         agents.
         """
-        if not self._bootstrapped:
+        # Periodic rediscovery of brand-new agents. The first
+        # call also acts as the historical bootstrap. Newcomers
+        # are merged into ``_tracked_agents`` idempotently.
+        now = time.monotonic()
+        if (
+            not self._bootstrapped
+            or now >= self._next_rediscovery_at
+        ):
             await self._bootstrap_agents()
             self._bootstrapped = True
+            self._next_rediscovery_at = (
+                now + self._rediscovery_interval_seconds
+            )
 
         processed = 0
         for agent_id in list(self._tracked_agents):
