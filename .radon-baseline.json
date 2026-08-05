@@ -706,7 +706,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_rule_based.py:method:_handle_view": {
-      "complexity": 8,
+      "complexity": 7,
       "lineno": 258,
       "rank": "B"
     },
@@ -717,7 +717,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_rule_based.py:method:_persona_for_view": {
       "complexity": 1,
-      "lineno": 316,
+      "lineno": 322,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_rule_based.py:method:register_from_yaml": {
@@ -1145,10 +1145,25 @@
       "lineno": 96,
       "rank": "A"
     },
-    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/init.py:function:init": {
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/_templates.py:function:render_template": {
+      "complexity": 1,
+      "lineno": 47,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/init.py:class:RoutingMode": {
+      "complexity": 1,
+      "lineno": 37,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/init.py:function:_do_init": {
       "complexity": 7,
-      "lineno": 15,
+      "lineno": 57,
       "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/init.py:function:project": {
+      "complexity": 1,
+      "lineno": 142,
+      "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/keys.py:function:generate": {
       "complexity": 2,
@@ -1195,9 +1210,114 @@
       "lineno": 189,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:class:_BoilerplateMapping": {
+      "complexity": 1,
+      "lineno": 84,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_base_context": {
+      "complexity": 1,
+      "lineno": 212,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_discover_artifacts": {
+      "complexity": 8,
+      "lineno": 186,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_discover_context_names": {
+      "complexity": 8,
+      "lineno": 168,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_discover_package_name": {
+      "complexity": 7,
+      "lineno": 153,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_has_supervisor_artifact": {
+      "complexity": 6,
+      "lineno": 501,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_infer_init_flags": {
+      "complexity": 3,
+      "lineno": 269,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_render_template": {
+      "complexity": 1,
+      "lineno": 220,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_artifacts": {
+      "complexity": 2,
+      "lineno": 429,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_mapping": {
+      "complexity": 3,
+      "lineno": 367,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_singleton": {
+      "complexity": 1,
+      "lineno": 406,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_mapping": {
+      "complexity": 2,
+      "lineno": 307,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_mappings": {
+      "complexity": 4,
+      "lineno": 233,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_resolve_project_mapping": {
+      "complexity": 2,
+      "lineno": 343,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_snake_to_camel": {
+      "complexity": 2,
+      "lineno": 489,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:_template_to_kind": {
+      "complexity": 1,
+      "lineno": 475,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:apply": {
+      "complexity": 7,
+      "lineno": 582,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:apply_all": {
+      "complexity": 6,
+      "lineno": 625,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:check": {
+      "complexity": 7,
+      "lineno": 543,
+      "rank": "B"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py:function:list_templates": {
+      "complexity": 3,
+      "lineno": 521,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/main.py:function:_root_callback": {
+      "complexity": 1,
+      "lineno": 43,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/main.py:function:main_callback": {
       "complexity": 1,
-      "lineno": 17,
+      "lineno": 31,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/_typing.py:class:Dependable": {
@@ -6215,6 +6335,11 @@
       "lineno": 60,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/_worker_invocation.py:function:invoke_tool_sync": {
+      "complexity": 2,
+      "lineno": 43,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/acl.py:class:ToolACL": {
       "complexity": 6,
       "lineno": 46,
@@ -6277,47 +6402,42 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:class:WorkerManager": {
       "complexity": 5,
-      "lineno": 52,
-      "rank": "A"
-    },
-    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:function:_invoke_tool_sync": {
-      "complexity": 2,
-      "lineno": 29,
+      "lineno": 45,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:__init__": {
       "complexity": 1,
-      "lineno": 59,
+      "lineno": 52,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:_consume_loop": {
       "complexity": 7,
-      "lineno": 136,
+      "lineno": 148,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:_process_message": {
       "complexity": 8,
-      "lineno": 164,
+      "lineno": 184,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:_reaper_loop": {
       "complexity": 5,
-      "lineno": 264,
+      "lineno": 284,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:register": {
       "complexity": 2,
-      "lineno": 82,
+      "lineno": 77,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:start": {
       "complexity": 6,
-      "lineno": 88,
+      "lineno": 83,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py:method:stop": {
       "complexity": 3,
-      "lineno": 123,
+      "lineno": 135,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/protocol.py:class:Callable": {
@@ -6500,6 +6620,10 @@
       "mi": 65.77085842951757,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/_version.py": {
+      "mi": 81.98809043290142,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/__init__.py": {
       "mi": 100.0,
       "rank": "A"
@@ -6585,7 +6709,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_rule_based.py": {
-      "mi": 56.70103464954239,
+      "mi": 55.95706846837799,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/tools/__init__.py": {
@@ -6692,12 +6816,16 @@
       "mi": 100.0,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/_templates.py": {
+      "mi": 54.258323960619514,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/__init__.py": {
       "mi": 100.0,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/init.py": {
-      "mi": 66.70269792802694,
+      "mi": 71.48006098073775,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/keys.py": {
@@ -6708,8 +6836,12 @@
       "mi": 45.92919614273031,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/commands/upgrade.py": {
+      "mi": 46.8314886506656,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/cli/main.py": {
-      "mi": 94.30240569922275,
+      "mi": 97.30420984410063,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/__init__.py": {
@@ -7416,6 +7548,10 @@
       "mi": 100.0,
       "rank": "A"
     },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/_worker_invocation.py": {
+      "mi": 100.0,
+      "rank": "A"
+    },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/acl.py": {
       "mi": 69.23469108564362,
       "rank": "A"
@@ -7429,7 +7565,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/manager.py": {
-      "mi": 59.30519368160653,
+      "mi": 62.41986308244332,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/protocol.py": {

@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-style
 description: Use when choosing identifiers, writing docstrings, or commenting kntgraph code. Covers the English-prose rule, the domain-driven identifier convention (English for natural concepts, PT-BR-derived names where the domain uses them: ContinuityManager, CNPJ, PIX), and the SQLite-style documentation discipline (every function and every variable documented, concisely, for people not yet born). Trigger keywords: docstring, comment, identifier, naming convention, prose, English, Portuguese, document variables, SQLite-style documentation.

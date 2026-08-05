@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-file-layout
 description: Use when splitting a kntgraph module that exceeds 500 lines, when naming a private sub-module, or when reviewing the public/private boundary of a kntgraph package. Covers the 500-line guideline, the _private.py prefix convention, the public __init__.py __all__ contract, and the F401 / SLF001 lint expectations. Trigger keywords: 500 lines, split module, sub-module, _private.py, __all__, private module, public API, F401, SLF001.

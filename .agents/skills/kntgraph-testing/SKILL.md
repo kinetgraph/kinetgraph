@@ -1,3 +1,9 @@
+<!--
+SPDX-FileCopyrightText: 2026 kinetgraph
+
+SPDX-License-Identifier: Apache-2.0
+-->
+
 ---
 name: kntgraph-testing
 description: Use when writing or reviewing tests in the kntgraph codebase — choosing between behaviour tests and mock-heavy unit tests, marking async def tests, using KNT_REDIS_FAKE for fakeredis, and meeting the happy-path-plus-one-failure-mode bar for every public function. Covers the real-EventLog / real-World / real-WorkerManager rule, the fakeredis env var, the pytest.mark.asyncio strict-mode requirement, and the per-public-function coverage gate. Trigger keywords: pytest, unit test, integration test, fakeredis, KNT_REDIS_FAKE, asyncio_mode, mock, behaviour test, happy path, failure mode.

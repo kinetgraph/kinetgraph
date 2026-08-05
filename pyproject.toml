@@ -65,7 +65,7 @@ api = [
 # Zero-Trust Level 1 (ADR-016): Ed25519 signatures + RFC 8785
 # JCS canonicalisation
 crypto = [
-    "cryptography>=49.0.0",
+    "cryptography>=50.0.0",
     "canonicaljson>=2.0.0",
 ]
 # LiteLLM is the unified LLM provider used by LiteLLMTool.
@@ -171,7 +171,7 @@ dev = [
     "falkordblite>=0.10.0",
     "fastapi>=0.139.2",
     "httpx2>=2.7.0",
-    "cryptography>=49.0.0",
+    "cryptography>=50.0.0",
     "canonicaljson>=2.0.0",
     "pip-audit>=2.10.1",
     "radon>=6.0.1",
