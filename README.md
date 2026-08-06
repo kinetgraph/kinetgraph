@@ -24,7 +24,7 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 [![cc](https://img.shields.io/badge/CC-A%20%282.49%29-brightgreen?style=for-the-badge&logo=radar&logoColor=white)](https://radon.readthedocs.io/)
 [![mi](https://img.shields.io/badge/MI-237_A_0_B_0_C-brightgreen?style=for-the-badge&logo=heartbeat&logoColor=white)](https://radon.readthedocs.io/)
 [![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
-[![pypi](https://img.shields.io/badge/pypi-0.11.0-blue?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/kntgraph/)
+[![pypi](https://img.shields.io/badge/pypi-0.11.2-blue?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/kntgraph/)
 ### Tests
 
 [![coverage](https://img.shields.io/badge/coverage-83.0%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://coverage.readthedocs.io/)
@@ -82,9 +82,6 @@ needed to build autonomous, replayable agents:
   reusable Solution node in FalkorDB, with
   per-tenant allow-list and man-in-the-loop
   review.
-- **Semantic routing** (ADR-013) — opt-in GLiNER2
-  intent classification and argument extraction
-  in the `agents` sub-module.
 
 ## Install
 
@@ -94,12 +91,12 @@ Install from PyPI:
 uv add kntgraph
 ```
 
-The version is the git tag (`v0.11.0` → `0.11.0`),
+The version is the git tag (`v0.11.2` → `0.11.2`),
 discoverable on PyPI:
 
 ```bash
 pip show kntgraph
-# Version: 0.11.0
+# Version: 0.11.2
 # License: Apache-2.0
 ```
 
@@ -216,18 +213,35 @@ kntgraph/
 │   ├── runner/      # Side effects (Runner, ReactiveDispatcher)
 │   ├── events/      # Dead Letter Queue
 │   ├── resilience/  # Circuit breaker, retry, bulkhead, etc.
-│   ├── infra/       # Config, Redis pool, hashing
-│   ├── tools/       # Tool Protocol, registry, worker
-│   ├── api/         # Optional HTTP gateway
+│   ├── infra/       # Config, Redis pool, hashing, HTTP, graph
+│   │   ├── config/  # Settings (Pydantic v2 BaseSettings)
+│   │   ├── redis/   # Redis pools, _event_log, signature adapters
+│   │   ├── graph/   # GraphPool (FalkorDB)
+│   │   └── http/    # HTTP client adapters
+│   ├── tools/       # Tool Protocol, registry, worker, router
+│   ├── api/         # Optional HTTP gateway (IntentRouter)
 │   ├── security/    # Ed25519 signing, principal, ACL
-│   └── agents/      # LLM/cache/PII adapters, role_systems
-│       ├── role_systems/ # ChatRoleSystem, PlannerRoleSystem, etc.
-│       ├── tools/   # LiteLLMToolWorker, PiiRedactionTool
-│       └── memory/  # Solution extractor/promoter
+│   ├── knowledge/   # Entity/Intent/Argument/Structured extractors
+│   │   ├── extraction/  # Protocol + heuristic + GLiNER2 adapters
+│   │   ├── embedding/   # EmbeddingProvider adapters
+│   │   ├── falkordb/    # FalkorDBClient / GraphClient
+│   │   ├── graphrag/    # GraphRAG retrieval
+│   │   └── graph/       # FalkorDB graph nodes/edges
+│   ├── memory/      # Business-tier memory (solutions, continuity)
+│   ├── agents/      # LLM/cache/PII adapters, role_systems
+│   │   ├── role_systems/  # ChatRoleSystem, PlannerRoleSystem, etc.
+│   │   ├── tools/         # LiteLLMToolWorker, PiiRedactionTool
+│   │   ├── knowledge/     # vertical adapters (re-export shims)
+│   │   ├── memory/        # Solution extractor/promoter
+│   │   └── config/        # Agent-level config
+│   ├── cli/         # `knt` CLI (Typer + Jinja templates)
+│   ├── testing/     # Shared test doubles (FakeLLMTransport, etc.)
+│   └── _optional.py # require_optional for opt-in deps
 ├── tests/
 │   ├── unit/        # No external dependencies
 │   ├── integration/ # Real Redis required
-│   └── agents/      # agents sub-module tests
+│   ├── agents/      # agents sub-module tests
+│   └── scripts/     # CI / release / quality report tests
 ├── ADRs/            # Architecture Decision Records
 ├── docs/            # Public documentation
 └── examples/        # Runnable end-to-end examples
@@ -295,6 +309,7 @@ canonical schema is `Settings` in
 | [ADR-040](ADRs/ADR-040-Messaging-Adapter-Intent-Ingestion.md) | Messaging Adapter for Intent Ingestion | Proposed (Under Discussion) |
 | [ADR-048](ADRs/ADR-048-Visibility-Dashboard.md) | Observability Dashboard and Control Panel API | Proposed |
 | [ADR-049](ADRs/ADR-049-Zero-Token-Architecture.md) | Zero Token Architecture support (RuleBasedChatSystem + SolutionLookupSystem) | Proposed (items 3 + 4 shipped in v0.10.0; Redis adapter shipped; FalkorDB adapter §6 still pending) |
+| [ADR-055](ADRs/ADR-055-GLiNER2-Model-Registry-and-Structured-Extraction.md) | GLiNER2 model registry and structured extraction adapter (`StructuredExtractor` + `StructuredExtractionTool`) | Proposed |
 
 > **Design evaluations (decisions not to migrate).**
 > [ADR-054](ADRs/ADR-054-WorkerManager-Transport-Evaluation.md)
@@ -309,6 +324,27 @@ canonical schema is `Settings` in
 
 ## Project status
 
+- `0.11.2` — patch release. Fixes the
+  `WorkerManager` subprocess spawn-method
+  enforcement (commit `85c8199`, PR #28): every
+  child process now re-applies
+  `multiprocessing.set_start_method("spawn", ...)`
+  so the ProcessPool does not silently inherit the
+  `fork` default in containers / pytest-xdist
+  workers. See ADR-054 for the executor choice
+  this PR consolidates. Tag `v0.11.2` on the
+  default branch.
+- `0.11.1` — patch release. Fixes
+  `ReactiveDispatcher` so it discovers agents
+  created **after** `start()`. Previously
+  `_bootstrap_agents` ran exactly once on the
+  first tick and `_tracked_agents` was treated as
+  immutable; tenants that emitted their first
+  `EventLog` event after boot were silently
+  ignored (commit `5c58d85`, PR #27). The fix
+  reconciles `_tracked_agents` against the live
+  `EventLog` on every tick. Tag `v0.11.1` on the
+  default branch.
 - `0.11.0` — first PyPI release. Shipping
   `pip install kntgraph` as the canonical install
   path (ADR-052). The release process is now
