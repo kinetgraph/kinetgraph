@@ -605,3 +605,197 @@ class TestAlwaysAllowPolicy:
         res = Resource(kind="event", tenant_id="tenant-B/y")
         assert policy.allows(principal=admin, resource=res, action=Action.invoke)
         assert policy.allows(principal=agent, resource=res, action=Action.invoke)
+
+
+# ---------------------------------------------------------------------------
+# Defensive branches in principal.py and the typed policy gate
+# ---------------------------------------------------------------------------
+
+
+class TestRoleComparison:
+    """The ``Role.__lt__`` / ``__le__`` methods return
+    ``NotImplemented`` for non-Role operands so the
+    Python data model can fall back to the right-hand
+    side's comparator. Pinned so a future refactor that
+    raises ``TypeError`` on comparison does not regress
+    this contract.
+    """
+
+    def test_role_lt_with_non_role_returns_not_implemented(self):
+        from kntgraph.security.principal import Role
+
+        # Direct call to the dunder returns
+        # ``NotImplemented``; the branch is pinned.
+        result = Role.admin.__lt__("not-a-role")
+        assert result is NotImplemented
+
+    def test_role_le_with_non_role_returns_not_implemented(self):
+        from kntgraph.security.principal import Role
+
+        result = Role.admin.__le__("not-a-role")
+        assert result is NotImplemented
+
+    def test_role_ordering_works(self):
+        """The happy path: ``Role.service < Role.agent <
+        Role.admin``.
+        """
+        from kntgraph.security.principal import Role
+
+        assert Role.service < Role.agent
+        assert Role.agent < Role.admin
+        assert Role.service <= Role.agent
+        assert Role.admin <= Role.admin
+
+
+class TestPrincipalFromJson:
+    """The ``Principal.from_json`` defensive branches."""
+
+    def test_from_json_rejects_non_dict_payload(self):
+        """The branch ``if not isinstance(payload,
+        dict): raise ValueError``. Pinned so a future
+        refactor does not silently accept a list /
+        string payload (which would raise a
+        ``TypeError`` deep in the field extraction).
+        """
+        with pytest.raises(ValueError, match="dict"):
+            Principal.from_json("not-a-dict")  # type: ignore[arg-type]
+
+    def test_from_json_rejects_list_payload(self):
+        """The same branch as above, exercised via a
+        list (the test_rbac tests already cover the
+        dict case; the list case is the single-arm
+        ``not isinstance`` check).
+        """
+        with pytest.raises(ValueError, match="dict"):
+            Principal.from_json([{"role": "admin"}])  # type: ignore[arg-type]
+
+
+class TestScalarConverter:
+    """The ``_scalar`` / ``_optional_scalar`` helpers
+    in ``principal.py``: the pure functions that strip
+    optional / non-JSON values from a legacy payload.
+    Pinned so a future refactor does not let an
+    unexpected shape (a list, a dict) slip through as
+    a non-empty string.
+    """
+
+    def test_scalar_none_returns_empty_string(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar(None) == ""
+
+    def test_scalar_string_passes_through(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar("hello") == "hello"
+
+    def test_scalar_int_returns_string(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar(42) == "42"
+
+    def test_scalar_float_returns_string(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar(3.14) == "3.14"
+
+    def test_scalar_bool_returns_string(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar(True) == "True"
+
+    def test_scalar_dict_returns_empty_string(self):
+        """The fallback ``return ""`` for non-scalar
+        shapes. Pinned so a future refactor does not
+        ``str(value)`` on a dict (which would produce
+        a structured-repr string).
+        """
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar({"k": "v"}) == ""
+
+    def test_scalar_list_returns_empty_string(self):
+        from kntgraph.security.principal import _scalar
+
+        assert _scalar([1, 2, 3]) == ""
+
+    def test_optional_scalar_none_returns_none(self):
+        from kntgraph.security.principal import _optional_scalar
+
+        assert _optional_scalar(None) is None
+
+    def test_optional_scalar_string_passes_through(self):
+        from kntgraph.security.principal import _optional_scalar
+
+        assert _optional_scalar("hello") == "hello"
+
+
+class TestDefaultPolicyResourceAndRoleChecks:
+    """The deeper branches of ``DefaultPolicy.allows``:
+    the tenant-id-less resource denial AND the
+    tool-invocation ``min_role`` check.
+    """
+
+    def test_resource_without_tenant_id_is_denied(self):
+        """The branch ``if resource.tenant_id is None:
+        return False``: a resource with no tenant is
+        denied by default (admin-only). Pinned so a
+        future refactor does not let tenant-less
+        resources pass through (the admin-only escape
+        is the dedicated admin branch above).
+        """
+        agent = Principal(
+            agent_id="tenant-A/x",
+            role=Role.agent,
+            tenant_id="tenant-A",
+            key_id="k",
+        )
+        res = Resource(kind="event", tenant_id=None)
+        policy = DefaultPolicy()
+        assert not policy.allows(principal=agent, resource=res, action=Action.invoke)
+
+    def test_tool_invocation_requires_min_role(self):
+        """The branch ``if action == Action.invoke and
+        resource.kind == "tool":`` the role-level check
+        on tool invocations. Pinned so a future
+        refactor does not lose the ``min_role`` check
+        for tool-kind resources.
+        """
+        from dataclasses import dataclass
+
+        # A service role attempting to invoke a tool
+        # that requires ``agent`` minimum.
+        service = Principal(
+            agent_id="tenant-A/x",
+            role=Role.service,
+            tenant_id="tenant-A",
+            key_id="k",
+        )
+
+        @dataclass(frozen=True)
+        class _ToolResource:
+            kind: str = "tool"
+            tenant_id: str | None = "tenant-A"
+            min_role: Role = Role.agent
+
+        policy = DefaultPolicy()
+        # The service role is below the required
+        # ``agent`` minimum → denied.
+        assert not policy.allows(
+            principal=service,
+            resource=_ToolResource(),
+            action=Action.invoke,
+        )
+
+        # The same tool with an agent role → allowed.
+        agent = Principal(
+            agent_id="tenant-A/x",
+            role=Role.agent,
+            tenant_id="tenant-A",
+            key_id="k",
+        )
+        assert policy.allows(
+            principal=agent,
+            resource=_ToolResource(),
+            action=Action.invoke,
+        )

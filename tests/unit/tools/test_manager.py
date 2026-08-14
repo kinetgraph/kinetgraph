@@ -765,12 +765,16 @@ class TestObservability:
 
     async def test_heartbeat_surfaces_last_error(self, manager, redis_mock, caplog):
         manager.register(_EchoTool)
+        # Tight cadence + a generous deadline so the
+        # test is robust against scheduler contention
+        # in the full unit suite (the consume loop
+        # only ticks on the heartbeat cadence).
         manager._heartbeat_interval_seconds = 0.05
         redis_mock.xreadgroup = AsyncMock(side_effect=Exception("blip"))
         with caplog.at_level(logging.INFO, logger="kntgraph.tools.manager"):
             await manager.start()
             try:
-                deadline = asyncio.get_event_loop().time() + 1.0
+                deadline = asyncio.get_event_loop().time() + 3.0
                 while (
                     "worker.consume_loop.heartbeat" not in caplog.text
                     and asyncio.get_event_loop().time() < deadline

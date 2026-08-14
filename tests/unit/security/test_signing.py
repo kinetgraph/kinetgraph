@@ -215,6 +215,19 @@ class TestSignatureValidation:
                 sig=_b64(b"\x00" * 64),
             )
 
+    def test_rejects_non_base64_sig(self) -> None:
+        """The mirror branch: ``sig is not valid base64url``.
+        Pinned so a future refactor does not regress the
+        sig-side validation (the pk-side test already
+        exists; the sig-side was uncovered).
+        """
+        with pytest.raises(SignatureError, match="sig is not valid base64url"):
+            Signature(
+                alg="ed25519-v1",
+                pk=_b64(b"\x00" * 32),
+                sig="!!!not-base64!!!",
+            )
+
     def test_default_key_epoch_is_zero(self) -> None:
         sig = Signature(
             alg="ed25519-v1",
@@ -624,3 +637,363 @@ class TestBatchSignatureSmoke:
         # the PR 4 shape change. Real tests live in
         # ``test_batch_signature.py``.
         assert BatchSignature is not None
+
+
+# ---------------------------------------------------------------------------
+# signing._crypto: PEP 562 __getattr__ + require_crypto fail-fast
+# ---------------------------------------------------------------------------
+
+
+class TestSigningCryptoModuleAttributeAccess:
+    """Branch coverage for ``signing._crypto.__getattr__``
+    and ``require_crypto``. The signing module mirrors the
+    keys module's optional-crypto pattern: when
+    ``cryptography`` or ``canonicaljson`` is unavailable,
+    the module globals are ``None`` and ``__getattr__``
+    proxies attribute access. Pinned so a future refactor
+    does not regress the proxy or fail-fast contract.
+    """
+
+    def test_module_getattr_returns_globals_when_name_routed(self) -> None:
+        """The branch ``if name in (...): return
+        globals().get(name)``. Force ``__getattr__``
+        to fire by deleting the attribute from the
+        module dict, then access it to take the
+        if-true path.
+        """
+        from kntgraph.security.signing import _crypto
+
+        saved = _crypto.__dict__.pop("Ed25519PrivateKey", None)
+        try:
+            value = _crypto.Ed25519PrivateKey
+            assert value is None
+        finally:
+            _crypto.Ed25519PrivateKey = saved
+
+    def test_require_crypto_raises_when_unavailable(self, monkeypatch) -> None:
+        """The branch ``if not
+        CRYPTOGRAPHY_AVAILABLE: raise
+        CryptoUnavailableError``. Pinned so the
+        signing path fails fast with a clear error
+        instead of an opaque ``AttributeError`` on
+        a ``None`` import.
+        """
+        from kntgraph.security.signing import _crypto
+
+        monkeypatch.setattr(_crypto, "CRYPTOGRAPHY_AVAILABLE", False)
+        with pytest.raises(SignatureError, match="cryptography>=41.0"):
+            _crypto.require_crypto()
+
+
+# ---------------------------------------------------------------------------
+# signing._types: Signature.__post_init__ + BatchSignature + _scalar
+# ---------------------------------------------------------------------------
+
+
+class TestSignaturePostInitBranches:
+    """Branch coverage for ``Signature.__post_init__``
+    and the private ``_scalar`` helper used by
+    ``Signature.from_dict``. Pinned so a future
+    refactor does not regress the per-algorithm
+    length validation or the JSON-scalar coercion
+    contract.
+    """
+
+    def test_post_init_skips_length_check_for_non_ed25519_alg(
+        self, monkeypatch
+    ) -> None:
+        """The branch ``if self.alg == "ed25519-v1":
+        ... else: ... `` exits the function via the
+        if-false arm when a future algorithm in
+        ``SUPPORTED_ALGORITHMS`` has no per-algorithm
+        length rules. We extend the whitelist with
+        a synthetic v2 alg so the constructor takes
+        that exit.
+        """
+        from kntgraph.security.signing import _types as signing_types
+
+        monkeypatch.setattr(
+            signing_types,
+            "SUPPORTED_ALGORITHMS",
+            signing_types.SUPPORTED_ALGORITHMS | {"ed25519-v2"},
+        )
+        # 32/64 byte pk/sig are valid base64; the alg
+        # is in SUPPORTED; the post_init exits via the
+        # if-false arm at line 98.
+        sig = Signature(
+            alg="ed25519-v2",
+            pk=_b64(b"\x00" * 32),
+            sig=_b64(b"\x00" * 64),
+        )
+        assert sig.alg == "ed25519-v2"
+
+
+class TestBatchSignatureMixedAlgs:
+    """The branch ``if len(algs) > 1: raise
+    SignatureError`` in ``BatchSignature.__post_init__``.
+    With the current whitelist the only per-entry alg
+    is ``ed25519-v1`` so the branch never fires via the
+    public API; this test exercises it via a synthetic
+    whitelist extension.
+    """
+
+    def test_mixed_per_entry_algs_rejected(self, monkeypatch) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        # Add a 2nd alg to the per-entry whitelist so we
+        # can build two entries with distinct algs.
+        monkeypatch.setattr(
+            signing_types,
+            "SUPPORTED_ALGORITHMS",
+            signing_types.SUPPORTED_ALGORITHMS | {"ed25519-v2"},
+        )
+
+        sig_v1 = Signature(
+            alg="ed25519-v1",
+            pk=_b64(b"\x00" * 32),
+            sig=_b64(b"\x00" * 64),
+        )
+        sig_v2 = Signature(
+            alg="ed25519-v2",
+            pk=_b64(b"\x00" * 32),
+            sig=_b64(b"\x00" * 64),
+        )
+        e = _make_event()
+
+        from kntgraph.security import BatchEntry
+
+        with pytest.raises(SignatureError, match="mixes per-entry algorithms"):
+            signing_types.BatchSignature(
+                alg="concat-v1",
+                signatures=(
+                    BatchEntry(signature=sig_v1, event=e, public_key=None),
+                    BatchEntry(signature=sig_v2, event=e, public_key=None),
+                ),
+            )
+
+
+class TestScalarCoercion:
+    """The ``_scalar`` helper used by
+    ``Signature.from_dict``. Pinned so a future
+    refactor does not regress the JSON-value-to-string
+    coercion contract.
+    """
+
+    def test_scalar_none_returns_empty_string(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar(None) == ""
+
+    def test_scalar_str_returns_unchanged(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar("hello") == "hello"
+
+    def test_scalar_int_returns_str(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar(42) == "42"
+
+    def test_scalar_float_returns_str(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar(3.14) == "3.14"
+
+    def test_scalar_bool_returns_str(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar(True) == "True"
+
+    def test_scalar_non_scalar_returns_empty_string(self) -> None:
+        from kntgraph.security.signing import _types as signing_types
+
+        assert signing_types._scalar({"nested": "dict"}) == ""
+        assert signing_types._scalar([1, 2, 3]) == ""
+
+
+# ---------------------------------------------------------------------------
+# verify_event: crypto-unavailable guard + non-verifying public key
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyEventBranches:
+    """Branch coverage for the early-exit guards in
+    ``verify_event``. Pinned so a future refactor
+    does not regress the fail-closed contract.
+    """
+
+    def test_verify_returns_false_when_crypto_unavailable(
+        self, monkeypatch, event: _StubEvent, keypair
+    ) -> None:
+        """The branch ``if not
+        CRYPTOGRAPHY_AVAILABLE: return False`` in
+        ``verify_event``. Even a correctly signed
+        event must fail closed when the optional
+        crypto extra is missing — a silent
+        success would be a security regression.
+        """
+        priv, pub = keypair
+        from kntgraph.core.event import (
+            CorrelationContext,
+            Event,
+        )
+
+        real_event = Event.create(
+            event_type=event.event_type,
+            agent_id=event.agent_id,
+            event_class="domain",
+            data=dict(event.data),
+            correlation=CorrelationContext(
+                correlation_id=event.correlation.correlation_id,
+                causation_id=None,
+                span_id=event.correlation.span_id,
+            ),
+        )
+        signed = sign_event(real_event, priv)
+        # Patch on the consumer module (``_verify``
+        # imports the name directly into its namespace).
+        from kntgraph.security.signing import _verify
+
+        monkeypatch.setattr(_verify, "CRYPTOGRAPHY_AVAILABLE", False)
+        assert verify_event(signed, pub) is False
+
+    def test_verify_returns_false_when_pub_lacks_verify(
+        self, monkeypatch, event: _StubEvent, keypair
+    ) -> None:
+        """The branch ``if not hasattr(raw_pub,
+        "verify"): return False``. A public-key
+        wrapper that does not expose ``verify``
+        (e.g. a stub-only environment) cannot be
+        used for verification.
+        """
+        priv, _ = keypair
+        from kntgraph.core.event import (
+            CorrelationContext,
+            Event,
+        )
+
+        real_event = Event.create(
+            event_type=event.event_type,
+            agent_id=event.agent_id,
+            event_class="domain",
+            data=dict(event.data),
+            correlation=CorrelationContext(
+                correlation_id=event.correlation.correlation_id,
+                causation_id=None,
+                span_id=event.correlation.span_id,
+            ),
+        )
+        signed = sign_event(real_event, priv)
+
+        # A bare object with no ``verify`` attribute —
+        # the ``_crypto_verify`` helper rejects it
+        # via the ``hasattr`` guard.
+        class _NoVerify:
+            pass
+
+        bad_pub = _NoVerify()
+        assert verify_event(signed, bad_pub) is False
+
+    def test_verify_returns_false_when_is_revoked_raises(
+        self, monkeypatch, event: _StubEvent, keypair
+    ) -> None:
+        """The branch ``except Exception: return True``
+        in ``_is_revoked``: the registry raises on
+        lookup, the verifier treats the entry as
+        revoked (fail-closed). Pinned so a future
+        refactor does not silently accept an entry
+        the registry cannot introspect.
+        """
+        priv, pub = keypair
+        from kntgraph.core.event import (
+            CorrelationContext,
+            Event,
+        )
+
+        real_event = Event.create(
+            event_type=event.event_type,
+            agent_id=event.agent_id,
+            event_class="domain",
+            data=dict(event.data),
+            correlation=CorrelationContext(
+                correlation_id=event.correlation.correlation_id,
+                causation_id=None,
+                span_id=event.correlation.span_id,
+            ),
+        )
+        signed = sign_event(real_event, priv)
+
+        class _BoomRegistry:
+            def is_revoked(self, agent_id, epoch):
+                raise RuntimeError("registry down")
+
+        is_valid = verify_event(signed, pub, key_registry=_BoomRegistry())
+        assert is_valid is False
+
+    def test_crypto_verify_returns_false_when_canonical_bytes_fails(
+        self, monkeypatch, event: _StubEvent, keypair
+    ) -> None:
+        """The branch ``except Exception: return False``
+        in ``_crypto_verify`` when ``canonical_event_bytes``
+        raises. Pinned so a future refactor does not
+        propagate an opaque canonicalisation error as
+        a 500.
+        """
+        priv, pub = keypair
+        from kntgraph.core.event import (
+            CorrelationContext,
+            Event,
+        )
+
+        real_event = Event.create(
+            event_type=event.event_type,
+            agent_id=event.agent_id,
+            event_class="domain",
+            data=dict(event.data),
+            correlation=CorrelationContext(
+                correlation_id=event.correlation.correlation_id,
+                causation_id=None,
+                span_id=event.correlation.span_id,
+            ),
+        )
+        signed = sign_event(real_event, priv)
+
+        # Patch the canonicalisation helper to raise.
+        import kntgraph.security.signing._verify as _verify_mod
+
+        def _boom(_event):
+            raise RuntimeError("canonicaljson unavailable")
+
+        monkeypatch.setattr(_verify_mod, "canonical_event_bytes", _boom)
+        assert verify_event(signed, pub) is False
+
+    def test_crypto_verify_returns_false_when_sig_base64_invalid(
+        self, monkeypatch, event: _StubEvent, keypair
+    ) -> None:
+        """The branch ``except Exception: return False``
+        when the per-event signature's base64 fails to
+        decode. Pinned so the verifier never raises.
+        """
+        priv, pub = keypair
+        from kntgraph.core.event import (
+            CorrelationContext,
+            Event,
+        )
+
+        real_event = Event.create(
+            event_type=event.event_type,
+            agent_id=event.agent_id,
+            event_class="domain",
+            data=dict(event.data),
+            correlation=CorrelationContext(
+                correlation_id=event.correlation.correlation_id,
+                causation_id=None,
+                span_id=event.correlation.span_id,
+            ),
+        )
+        signed = sign_event(real_event, priv)
+        # Bypass the ``__post_init__`` base64 validation
+        # with ``object.__setattr__`` (the dataclass is
+        # frozen; normal assignment raises).
+        object.__setattr__(signed.signature, "sig", "!!!not-base64!!!")
+        assert verify_event(signed, pub) is False

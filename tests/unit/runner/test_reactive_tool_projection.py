@@ -367,3 +367,74 @@ class TestOverlayToolProjection:
         # remains in flight, exactly as the
         # dispatcher would see it.
         assert view.components["tool_completions"] == {}
+
+
+class TestOverlayLazyViewAllocation:
+    """The branch in ``_overlay_tool_projection`` that
+    defers allocating a new ``views`` dict until the
+    first agent needs a new view (ADR-044 §2.4 fast
+    path). Pinned so a future refactor that allocates
+    eagerly does not regress the per-batch allocation
+    cost.
+    """
+
+    def test_no_tool_events_returns_original_world(self) -> None:
+        """The ``if not tool_views:`` early-return:
+        when the batch has no tool events, the
+        projection returns the world unchanged (no
+        allocation). Pinned so the lazy-allocation
+        short-circuit stays closed on the no-op path.
+        """
+        from kntgraph.core.storage import ArchetypeStorage
+        from kntgraph.core.world.view import AgentView
+        from kntgraph.core.world.world import World
+
+        view = AgentView(agent_id="a-1", components={})
+        world = World(tick=0, storage=ArchetypeStorage(), views={"a-1": view})
+        # Domain events (no tool.*).
+        events = [_event(event_type="user.intent", agent_id="a-1")]
+        result = _overlay_tool_projection(world, events)
+        # The world is the same object (no allocation).
+        assert result is world
+
+    def test_first_mismatch_allocates_new_views_dict(self) -> None:
+        """The branch ``if new_views is None: new_views =
+        dict(world.views)``: the lazy init fires on the
+        first agent whose tool_view differs from the
+        existing view. Pinned so a future refactor
+        that allocates eagerly does not regress the
+        per-batch allocation cost.
+        """
+        from kntgraph.core.storage import ArchetypeStorage
+        from kntgraph.core.world.view import AgentView
+        from kntgraph.core.world.world import World
+
+        # Build a world with one agent whose view is
+        # the same object ``tool_views`` will return
+        # (so the pass-through branch fires for it).
+        # Inject a SECOND agent for whom the projection
+        # builds a new view.
+        sentinel_view = AgentView(agent_id="a-1", components={})
+        world = World(
+            tick=0,
+            storage=ArchetypeStorage(),
+            views={"a-1": sentinel_view},
+        )
+        # Two tool events: a-1 (pass-through) and a-2
+        # (new view). The lazy init fires on a-2; the
+        # ``if new_views is None:`` False branch fires
+        # on a-1 (but actually a-1 is the FIRST in the
+        # dict iteration so it would init first).
+        # Reorder: a-2 first so the second iteration
+        # hits the ``new_views is None: False`` arm.
+        events = [
+            _event(event_type="tool.requested", agent_id="a-2"),
+            _event(event_type="tool.requested", agent_id="a-1"),
+        ]
+        result = _overlay_tool_projection(world, events)
+        # The lazy init fired: new_views was created
+        # and now contains both agents. The result is a
+        # NEW World object (not the same instance).
+        assert result is not world
+        assert "a-1" in result.views
+        assert "a-2" in result.views

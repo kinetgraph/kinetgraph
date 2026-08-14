@@ -353,3 +353,155 @@ class TestBatchAgility:
         object.__setattr__(bs, "signatures", (entry,))
         # verify_aggregate_concat returns False for unknown alg.
         assert verify_aggregate_concat(bs) is False
+
+
+# ---------------------------------------------------------------------------
+# verify_aggregate_concat: per-entry failure paths
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyAggregatePerEntryBranches:
+    """Branch coverage for the per-entry guards in
+    ``verify_aggregate_concat``. Pinned so a future
+    refactor does not regress the all-or-nothing
+    semantics (one bad entry invalidates the batch)
+    or the structural guards (unknown per-entry alg,
+    missing ``verify`` method on the supplied key).
+    """
+
+    def test_returns_false_when_crypto_unavailable(
+        self, monkeypatch, signed_event
+    ) -> None:
+        """The branch ``if not
+        CRYPTOGRAPHY_AVAILABLE: return False``.
+        Even a fully signed batch must fail closed
+        when the optional crypto extra is missing.
+        """
+        signed, pub = signed_event
+        batch = aggregate_concat([(signed.signature, signed, pub)])
+        # Patch on the consumer module (``_aggregate``
+        # imports the name directly into its namespace).
+        from kntgraph.security.signing import _aggregate
+
+        monkeypatch.setattr(_aggregate, "CRYPTOGRAPHY_AVAILABLE", False)
+        assert verify_aggregate_concat(batch) is False
+
+    def test_returns_false_for_entry_with_unknown_sig_alg(
+        self, monkeypatch, signed_event
+    ) -> None:
+        """The branch ``if sig.alg not in
+        SUPPORTED_ALGORITHMS: return False`` in
+        ``_verify_entry``. We extend the whitelist
+        with a 2nd alg so the entry can be built
+        with a non-whitelisted per-entry alg that
+        bypasses ``Signature.__post_init__``.
+        """
+        signed, _ = signed_event
+        # Add a synthetic alg to SUPPORTED_ALGORITHMS so
+        # the BatchSignature constructor accepts the
+        # entry (its per-entry alg is "ed25519-v2",
+        # which is in the extended whitelist, so the
+        # BatchSignature constructor's "all entries
+        # must share an alg" check still passes — they
+        # all share "ed25519-v2"). The per-entry guard
+        # at line 81 then rejects it because
+        # SUPPORTED_ALGORITHMS no longer contains it
+        # when the verifier checks (we restore later).
+        from kntgraph.security.signing import _types as signing_types
+
+        # Save and shrink the whitelist so the entry alg
+        # is "supported at construction time" (via the
+        # bypass) but rejected at verify time.
+        saved = signing_types.SUPPORTED_ALGORITHMS
+        signing_types.SUPPORTED_ALGORITHMS = frozenset({"ed25519-v2"})
+        try:
+            sig_v2 = Signature(
+                alg="ed25519-v2",
+                pk=_b64(b"\x00" * 32),
+                sig=_b64(b"\x00" * 64),
+            )
+            entry = BatchEntry(signature=sig_v2, event=signed, public_key=None)
+            bs = BatchSignature(alg="concat-v1", signatures=(entry,))
+            # Now restore the real whitelist so the
+            # verifier's ``SUPPORTED_ALGORITHMS``
+            # check rejects the synthetic alg.
+            signing_types.SUPPORTED_ALGORITHMS = saved
+            assert verify_aggregate_concat(bs) is False
+        finally:
+            signing_types.SUPPORTED_ALGORITHMS = saved
+
+    def test_returns_false_when_public_key_lacks_verify(self, signed_event) -> None:
+        """The branch ``if not hasattr(raw_pub,
+        "verify"): return False``. A public-key
+        object that does not expose ``verify``
+        cannot be used for batch verification.
+        """
+        signed, _ = signed_event
+
+        # A bare object with no ``verify`` attribute.
+        class _NoVerify:
+            pass
+
+        bad_pub = _NoVerify()
+        batch = aggregate_concat([(signed.signature, signed, bad_pub)])
+        assert verify_aggregate_concat(batch) is False
+
+    def test_rejects_signature_with_unsupported_algorithm(self, signed_event) -> None:
+        """The branch ``if sig.alg not in
+        SUPPORTED_ALGORITHMS: return False``: a per-entry
+        signature with an unknown algorithm is rejected
+        silently. Pinned so a future refactor does not
+        silently accept malformed signatures.
+        """
+        signed, pub = signed_event
+        # ``Signature`` is a frozen dataclass; bypass
+        # the ``__post_init__`` whitelist with
+        # ``object.__setattr__`` to inject a bad alg.
+        bad_sig = Signature(
+            alg="ed25519-v1",
+            pk=_b64(b"\x00" * 32),
+            sig=_b64(b"\x00" * 64),
+        )
+        object.__setattr__(bad_sig, "alg", "future-alg-not-yet")
+        batch = aggregate_concat([(bad_sig, signed, pub)])
+        assert verify_aggregate_concat(batch) is False
+
+    def test_rejects_signature_with_invalid_base64(self, signed_event) -> None:
+        """The branch ``except Exception: return False``
+        when the per-entry signature's base64 is
+        corrupted. Pinned so a future refactor does not
+        surface the base64 decode error as a 500.
+        """
+        signed, pub = signed_event
+        bad_sig = Signature(
+            alg="ed25519-v1",
+            pk=_b64(b"\x00" * 32),
+            sig=_b64(b"\x00" * 64),
+        )
+        # Bypass the ``__post_init__`` base64 validation.
+        object.__setattr__(bad_sig, "sig", "!!!not-base64!!!")
+        batch = aggregate_concat([(bad_sig, signed, pub)])
+        assert verify_aggregate_concat(batch) is False
+
+    def test_revoked_registry_treated_as_revoke(self, signed_event) -> None:
+        """The branch ``except Exception: return True``
+        in ``_is_revoked``: the registry raises on
+        lookup, the verifier treats the entry as
+        revoked (fail-closed). Pinned so a future
+        refactor does not silently accept entries the
+        registry cannot introspect.
+        """
+        from kntgraph.security.signing._aggregate import (
+            _is_revoked,
+        )
+
+        signed, _ = signed_event
+
+        class _BoomRegistry:
+            def is_revoked(self, agent_id, epoch):
+                raise RuntimeError("registry down")
+
+        assert (
+            _is_revoked(signed.signature, event=signed, key_registry=_BoomRegistry())
+            is True
+        )

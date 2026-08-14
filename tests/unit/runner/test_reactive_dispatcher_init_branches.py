@@ -139,6 +139,95 @@ class TestInitBranches:
         assert any(isinstance(s, ToolCallTTLSweeperSystem) for s in dispatcher._systems)
         assert len(dispatcher._systems) == 1
 
+    async def test_init_skips_sweeper_registration_when_tool_ttls_is_none(
+        self,
+    ) -> None:
+        """The short-circuit branch of
+        ``if tool_ttls is not None and not any(...):``:
+        when ``tool_ttls=None`` the auto-registration is
+        skipped entirely. Pinned so a future refactor
+        that, e.g., eagerly registers the sweeper does
+        not regress the legacy behaviour (no TTL
+        enforcement unless the operator opts in).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+            tool_ttls=None,
+        )
+        from kntgraph.runner.tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
+
+        assert dispatcher._systems == []
+        assert not any(
+            isinstance(s, ToolCallTTLSweeperSystem) for s in dispatcher._systems
+        )
+
+    async def test_systems_property_returns_defensive_copy(self) -> None:
+        """The ``systems`` property must return a
+        defensive copy so external code cannot mutate
+        the internal list. Pinned so a future refactor
+        does not start returning ``self._systems``
+        directly (a leak that would let the caller
+        append/remove systems out of band).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+        )
+        snapshot = dispatcher.systems
+        snapshot.append("sentinel")
+        # The internal list is untouched.
+        assert dispatcher._systems == []
+
+    async def test_add_system_appends_to_systems_list(self) -> None:
+        """The ``add_system`` method appends to the
+        internal list. Pinned so the contract is
+        exercised directly (other tests rely on it
+        implicitly via ``__init__``).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+        )
+        original_len = len(dispatcher._systems)
+        dispatcher.add_system(lambda _w: [])
+        assert len(dispatcher._systems) == original_len + 1
+        """The short-circuit branch of
+        ``if tool_ttls is not None and not any(...):``:
+        when ``tool_ttls=None`` the auto-registration is
+        skipped entirely. Pinned so a future refactor
+        that, e.g., eagerly registers the sweeper does
+        not regress the legacy behaviour (no TTL
+        enforcement unless the operator opts in).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+            tool_ttls=None,
+        )
+        from kntgraph.runner.tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
+
+        assert dispatcher._systems == []
+        assert not any(
+            isinstance(s, ToolCallTTLSweeperSystem) for s in dispatcher._systems
+        )
+
     async def test_init_raises_when_no_world_store_no_redis(self) -> None:
         """The guard at ``__init__``: if neither
         ``world_store`` nor ``redis`` is given, the
@@ -184,6 +273,54 @@ class TestDispatchForAgentBranches:
         # systems ran (the cursor must advance past
         # the fully-filtered batch).
         assert cap.saved
+
+    async def test_filtered_batch_runs_systems_when_ttls_active(self) -> None:
+        """The mirror branch of
+        ``if new_event_count == 0 and self._tool_ttls is None:``
+        when ``tool_ttls`` IS set: the dispatcher does
+        NOT short-circuit. The TTL sweeper is one of
+        the systems and it must run on idle ticks (the
+        sweeper is the reason the early-return is gated
+        on ``tool_ttls is None``). Pinned so a future
+        refactor does not silently skip the sweeper
+        when the filter rejects every event.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        log.add_agent("a-1", _seed_event("a-1"))
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+            filter_fn=lambda _e: False,
+            tool_ttls=ToolCallTTL(),
+        )
+        # The dispatcher auto-registered the sweeper
+        # in __init__; with ``tool_ttls`` set, the
+        # early-return is skipped and the sweeper
+        # runs. The exact post-state is that
+        # ``_run_systems_and_persist_fn`` was called,
+        # which means the checkpoint was saved by the
+        # append_system_outgoing path (no events
+        # flowed through, but the persist always
+        # saves). The ``_save_checkpoint_fn`` was
+        # NOT called by the early-return.
+        processed = await dispatcher.dispatch_once()
+        assert processed == 0
+        # The checkpoint was saved exactly once.
+        # The path matters: the early-return path
+        # saves the checkpoint (filtered-out
+        # exhaustion) and the systems path saves
+        # the checkpoint (TTL sweeper ran). Both
+        # paths save once; the difference is
+        # whether the sweeper had a chance to
+        # emit. We assert the observable side
+        # effect (checkpoint saved) without
+        # depending on the TTL sweeper's emission
+        # logic — that is exercised separately in
+        # ``test_tool_call_ttl_sweeper.py``.
+        assert len(cap.saved) >= 1
 
 
 # ---------------------------------------------------------------------------

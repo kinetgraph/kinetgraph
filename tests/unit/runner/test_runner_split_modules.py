@@ -169,6 +169,48 @@ class TestFoldWithSystems:
         result = fold_with_systems(dispatcher, world, [_seed_event("a-1")])
         assert result is world
 
+    async def test_tool_completion_triggers_re_fold(self) -> None:
+        """The branch where ``system_events`` contains
+        a ``tool.*.completed`` event: the loop folds
+        each event into the World and the overlay
+        returns a new World with the tool-call
+        slot evicted. Pinned so the orphan-request
+        GC path (ADR-045) is exercised end-to-end.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        world = World.empty()
+        completion = _seed_event("a-1", "tool.echo.completed")
+        result = fold_with_systems(dispatcher, world, [completion])
+        # The overlay did something (the returned World
+        # is a new object), and the world view carries
+        # the completion's data.
+        assert result is not world
+
+    async def test_filter_surviving_events_without_tool_events(self) -> None:
+        """The branch ``if new_event_count > 0 and
+        _has_tool_events(new_events)``: when the filter
+        accepts events but none are ``tool.*``, the
+        overlay is skipped. Pinned so a future refactor
+        does not start running the overlay on
+        non-tool batches (allocation cost).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        # Filter accepts (so count > 0); events are
+        # domain, not tool.*
+        dispatcher._filter = lambda _e: True
+        events = [_seed_event("a-1", "user.intent")]
+        world, count = fold_with_filter(dispatcher, World.empty(), events)
+        assert count == 1
+        # The World was created (the fold ran) but
+        # the overlay did not (no tool events).
+        assert "a-1" in world.views
+
 
 # ---------------------------------------------------------------------------
 # _systems_runner.append_system_outgoing
@@ -229,6 +271,35 @@ class TestAppendSystemOutgoing:
         await append_system_outgoing(dispatcher, World.empty(), "a-1")
         assert router.route_batch.await_args.args[0] == [emitted]
 
+    async def test_system_returning_empty_list_is_skipped(self) -> None:
+        """The branch ``if out: outgoing.extend(out)``
+        when the system returns an empty list. Pinned
+        so a future refactor does not treat a
+        zero-event system as an error.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        dispatcher._systems = [lambda _w: []]
+        await append_system_outgoing(dispatcher, World.empty(), "a-1")
+        # The log was NOT appended (no events).
+        assert log._cap.appended == []
+
+    async def test_no_systems_means_no_append(self) -> None:
+        """The branch ``if outgoing: append_batch(...)``
+        when no system is registered. Pinned so the
+        dispatcher short-circuits cleanly on an empty
+        systems list.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        dispatcher._systems = []
+        await append_system_outgoing(dispatcher, World.empty(), "a-1")
+        assert log._cap.appended == []
+
 
 # ---------------------------------------------------------------------------
 # _systems_runner.run_systems_and_persist
@@ -268,6 +339,29 @@ class TestRunSystemsAndPersist:
         # ``new_event_count == 0`` short-circuits the
         # router call even when one is wired in.
         assert cap.saved
+
+    async def test_silent_systems_skip_fold_with_systems(self) -> None:
+        """The branch ``if system_events:`` when the
+        systems produced no events: ``fold_with_systems``
+        is skipped (no orphan-request GC to run). Pinned
+        so a future refactor does not call the fold
+        helper unconditionally (the overlay would do
+        a no-op pass but at the cost of allocating a
+        new World).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        dispatcher._systems = [lambda _w: []]  # silent system
+        new_events = [_seed_event("a-1", "new.evt")]
+        await run_systems_and_persist(
+            dispatcher, "a-1", World.empty(), "1-0", 1, new_events
+        )
+        # The checkpoint was saved (always); the
+        # systems were run; nothing was appended.
+        assert cap.saved
+        assert log._cap.appended == []
 
 
 # ---------------------------------------------------------------------------
