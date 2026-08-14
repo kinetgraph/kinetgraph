@@ -123,6 +123,17 @@ useLibraryCodeForTypes = true
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    # The stress suite under ``tests/stress/``
+    # requires real Redis on ``localhost:6379``
+    # and runs the ``ProcessPoolExecutor``;
+    # the marker is informational and the
+    # autouse conftest in ``tests/stress/``
+    # ``pytest.skip``s when the connection
+    # fails. Registered here so the unknown-
+    # marker warning does not fire.
+    "stress: 5 agents x 3 tools x 5 seconds concurrent load",
+]
 filterwarnings = [
     "error::DeprecationWarning:kntgraph",
 ]
