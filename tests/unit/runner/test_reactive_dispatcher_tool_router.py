@@ -30,6 +30,7 @@ from uuid import uuid4
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.runner._systems_runner import append_system_outgoing
 from kntgraph.runner.reactive import ReactiveDispatcher
 
 
@@ -119,7 +120,7 @@ async def test_no_router_does_not_attempt_fan_out() -> None:
     )
 
     assert dispatcher._tool_router is None
-    await dispatcher._append_system_outgoing(world=None, agent_id="a-1")  # type: ignore[arg-type]
+    await append_system_outgoing(dispatcher, world=None, agent_id="a-1")  # type: ignore[arg-type]
 
     assert capture.order == []
     assert log.appended == []
@@ -144,7 +145,7 @@ async def test_router_receives_batch_after_append() -> None:
         tool_router=router,  # type: ignore[arg-type]
     )
 
-    await dispatcher._append_system_outgoing(world=None, agent_id="a-1")  # type: ignore[arg-type]
+    await append_system_outgoing(dispatcher, world=None, agent_id="a-1")  # type: ignore[arg-type]
 
     # append happened first, then route.
     assert capture.order == [
@@ -176,7 +177,7 @@ async def test_router_only_sees_tool_requested_when_only_those_emit() -> None:
         tool_router=router,  # type: ignore[arg-type]
     )
 
-    await dispatcher._append_system_outgoing(world=None, agent_id="a-1")  # type: ignore[arg-type]
+    await append_system_outgoing(dispatcher, world=None, agent_id="a-1")  # type: ignore[arg-type]
 
     # Append happened; router was called with the same batch
     # (ToolRouter.route_batch internally filters tool.requested).

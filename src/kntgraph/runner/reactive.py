@@ -79,16 +79,23 @@ import structlog
 
 from ..core.event import Event
 from ..core.system import WorldSystem
-from ..core.world import World
 from ..core.world.components import ToolCallTTL
-from ..infra.world_checkpoint import (
-    IncrementalWorldStore,
-    WorldCheckpoint,
-)
+from ..infra.world_checkpoint import IncrementalWorldStore
 from ..stream.event_log import EventLog
-from .reactive_tool_projection import (
-    _has_tool_events,
-    _overlay_tool_projection,
+from ._checkpoint_io import (
+    bootstrap_agents as _bootstrap_agents_fn,
+)
+from ._checkpoint_io import (
+    fetch_new_events as _fetch_new_events_fn,
+)
+from ._checkpoint_io import (
+    save_checkpoint as _save_checkpoint_fn,
+)
+from ._folding import (
+    fold_with_filter as _fold_with_filter_fn,
+)
+from ._systems_runner import (
+    run_systems_and_persist as _run_systems_and_persist_fn,
 )
 from .tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
 
@@ -127,6 +134,7 @@ class ReactiveDispatcher:
         tool_router: Optional["ToolRouter"] = None,
         tool_ttls: Optional[ToolCallTTL] = None,
         rediscovery_interval_seconds: float = 5.0,
+        heartbeat_interval_seconds: float = 30.0,
     ) -> None:
         """
         Args:
@@ -175,6 +183,16 @@ class ReactiveDispatcher:
                 (or the equivalent ``list_agents()`` thin
                 delegation); the cost is dominated by
                 network round-trips, not Redis CPU.
+            heartbeat_interval_seconds: how often the
+                dispatcher's background loop emits a
+                structured heartbeat log line carrying
+                the running event counter, the time
+                since the last successful tick, and the
+                last error string (if any). Defaults to
+                30s; tests may tighten it (e.g. 0.05s)
+                so the heartbeat is observable inside a
+                single test body. Set to a non-positive
+                number to disable the heartbeat.
         """
         self._log = log
         self._systems: list[WorldSystem] = list(systems or [])
@@ -234,6 +252,23 @@ class ReactiveDispatcher:
         self._bootstrapped: bool = False
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        # Observability surface (ADR-style): counters and timestamps
+        # that ``_loop`` turns into a periodic heartbeat log entry.
+        # Without this, a "loop silently stuck on the same exception"
+        # or "loop iterating but processing nothing" failure mode is
+        # indistinguishable from healthy operation in the logs.
+        self._events_processed_total: int = 0
+        self._last_activity_at: float = time.monotonic()
+        self._last_heartbeat_at: float = 0.0
+        # Last exception text observed by ``_loop``; the heartbeat
+        # surfaces it so a "loop keeps raising the same error"
+        # failure mode is distinguishable from "loop is healthy".
+        self._last_loop_error: Optional[str] = None
+        # How often the loop emits a heartbeat log line. The default
+        # is 30 seconds — short enough that an operator looking at
+        # tail -f sees liveness, long enough that the log volume is
+        # negligible under steady-state load.
+        self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
 
     @property
     def systems(self) -> list[WorldSystem]:
@@ -303,13 +338,19 @@ class ReactiveDispatcher:
         # are merged into ``_tracked_agents`` idempotently.
         now = time.monotonic()
         if not self._bootstrapped or now >= self._next_rediscovery_at:
-            await self._bootstrap_agents()
+            await _bootstrap_agents_fn(self)
             self._bootstrapped = True
             self._next_rediscovery_at = now + self._rediscovery_interval_seconds
 
         processed = 0
         for agent_id in list(self._tracked_agents):
             processed += await self._dispatch_for_agent(agent_id)
+        # Observability: refresh the activity timestamp on every
+        # successful tick (even if processed == 0, the tick ran;
+        # the heartbeat distinguishes "loop is alive but idle" from
+        # "loop is stuck").
+        self._last_activity_at = time.monotonic()
+        self._events_processed_total += processed
         return processed
 
     async def _dispatch_for_agent(self, agent_id: str) -> int:
@@ -337,8 +378,8 @@ class ReactiveDispatcher:
         sees the same ``last_stream_id``).
         """
         ckpt = await self._world_store.load(agent_id)
-        new_events, new_last_stream_id = await self._fetch_new_events(
-            agent_id, ckpt.last_stream_id
+        new_events, new_last_stream_id = await _fetch_new_events_fn(
+            self, agent_id, ckpt.last_stream_id
         )
         if not new_events:
             if not self._should_run_systems_on_idle_tick():
@@ -352,7 +393,8 @@ class ReactiveDispatcher:
             # fold is a no-op; the cursor is not
             # advanced (we did not consume any new
             # stream entries).
-            await self._run_systems_and_persist(
+            await _run_systems_and_persist_fn(
+                self,
                 agent_id=agent_id,
                 world=ckpt.world,
                 last_stream_id=ckpt.last_stream_id,
@@ -361,283 +403,18 @@ class ReactiveDispatcher:
             )
             return 0
 
-        world, new_event_count = self._fold_with_filter(ckpt.world, new_events)
+        world, new_event_count = _fold_with_filter_fn(self, ckpt.world, new_events)
         if new_event_count == 0 and self._tool_ttls is None:
             # If all events were filtered out, and no TTL sweeper is active,
             # we don't need to run systems. We still save the checkpoint so
             # the cursor advances past the filtered events.
-            await self._save_checkpoint(agent_id, world, new_last_stream_id)
+            await _save_checkpoint_fn(self, agent_id, world, new_last_stream_id)
             return 0
 
-        await self._run_systems_and_persist(
-            agent_id, world, new_last_stream_id, new_event_count, new_events
+        await _run_systems_and_persist_fn(
+            self, agent_id, world, new_last_stream_id, new_event_count, new_events
         )
         return new_event_count
-
-    def _fold_with_filter(
-        self,
-        world: "World",
-        new_events: list[Event],
-    ) -> tuple["World", int]:
-        """Fold every new event into the World and count
-        the ones that survive ``_filter`` (i.e. should be
-        surfaced to systems).
-
-        Folding happens regardless of the filter result
-        so the World stays consistent with the full
-        stream history; skipping a fold would desync it.
-
-        After the base fold, if the batch contains any
-        ``tool.*`` event (``tool.requested``,
-        ``tool.<name>.<suffix>``, ``tool.completed``,
-        ``tool.failed``) the ``overlay_tool_calls``
-        projection is applied on top of the post-fold
-        World so systems that use ``ToolAwareSystem``
-        see the materialised ``tool_requests`` and
-        ``tool_completions`` slots (ADR-036 §2.3).
-
-        The overlay is base-projection-free: it reuses
-        the views the incremental ``with_event`` loop
-        already produced, so the cost is one extra pass
-        over the batch (no second fold).
-
-        The overlay is configured with the dispatcher's
-        ``tool_ttls`` (ADR-045); the overlay sets
-        ``expires_at`` on each new request. The TTL
-        itself is **enforced** by the
-        :class:`ToolCallTTLSweeperSystem` (registered
-        with the dispatcher; emits
-        ``tool.<name>.failed`` events for stale
-        requests). The orphan-request eviction is
-        handled by :meth:`_fold_with_systems`, a
-        second overlay pass over the system-emitted
-        events (DEBT §2.21 follow-up; closes the
-        memory leak documented in ADR-045).
-        """
-        new_event_count = 0
-        for event in new_events:
-            world = world.with_event(event)
-            if self._filter is not None and not self._filter(event):
-                continue
-            new_event_count += 1
-        if new_event_count > 0 and _has_tool_events(new_events):
-            world = _overlay_tool_projection(
-                world,
-                new_events,
-                tool_ttls=self._tool_ttls,
-                post_systems=False,
-            )
-        return world, new_event_count
-
-    def _fold_with_systems(
-        self,
-        world: "World",
-        system_events: list[Event],
-    ) -> "World":
-        """Re-fold the World with the events emitted by
-        the systems in the same tick (ADR-045 Slot GC;
-        DEBT §2.21 follow-up).
-
-        The :class:`ToolCallTTLSweeperSystem` emits
-        ``tool.<name>.failed`` events for stale
-        requests. The first overlay pass
-        (in :meth:`_fold_with_filter`) did not see
-        these events because they did not exist yet
-        (the systems run AFTER the overlay). Without
-        this second pass, the stale request stays in
-        the ``tool_requests`` slot forever (the
-        completion-driven eviction rule in
-        ``overlay_tool_calls`` only fires when the
-        matching ``failed`` event lands in a next
-        tick's batch, but the sweeper emits it in the
-        CURRENT tick and it is never folded into the
-        slot until then).
-
-        The second pass folds the system events into
-        the World and re-applies the overlay with
-        ``new_events=system_events`` so the
-        completion-driven eviction rule
-        (``request in existing_completions`` ->
-        ``pop``) removes the orphan request in the
-        SAME tick. The overlay is pure, so the
-        second pass is deterministic and idempotent
-        (the stale request is gone in the new
-        World; a stale ``tool.<name>.failed`` is
-        itself the completion the rule looks for).
-
-        No-op when ``system_events`` contains no
-        ``tool.*`` event: the ``_has_tool_events``
-        pre-check is the same fast path as in
-        :meth:`_fold_with_filter` (ADR-044 §2.4
-        "no allocation for non-tool batches"). A
-        non-tool batch pays zero for this second
-        pass; the same World object is returned.
-        """
-        if not _has_tool_events(system_events):
-            return world
-        new_world = world
-        for event in system_events:
-            new_world = new_world.with_event(event)
-        return _overlay_tool_projection(
-            new_world,
-            system_events,
-            tool_ttls=self._tool_ttls,
-            post_systems=True,
-        )
-
-    async def _run_systems_and_persist(
-        self,
-        agent_id: str,
-        world: "World",
-        last_stream_id: str,
-        new_event_count: int,
-        new_events: list[Event],
-    ) -> None:
-        """Run the systems, append the resulting events,
-        re-fold the World with the emitted events (the
-        ADR-045 Slot GC step), and persist the
-        checkpoint.
-
-        Durability ordering: append before save. The
-        crash window between append and save is closed
-        by the EventLog dedupe on the next dispatch.
-
-        The systems are run on the post-fold World
-        (which already has the tool-call overlay
-        applied). Their emitted events are appended
-        to the EventLog AND used to update the World
-        via :meth:`_fold_with_systems` so the
-        completion-driven eviction rule in
-        ``overlay_tool_calls`` removes any orphan
-        request whose TTL was just enforced by the
-        :class:`ToolCallTTLSweeperSystem`. The
-        resulting World is the one persisted to the
-        checkpoint (the next tick's fold starts from
-        a clean slot).
-
-        The systems run on EVERY tick, even when
-        ``new_event_count == 0``. The
-        :class:`ToolCallTTLSweeperSystem` is the
-        primary motivation: an orphan request sits in
-        the slot until its TTL expires, which may
-        happen several ticks after the request was
-        emitted; the dispatcher must run the sweeper
-        on those ticks even if the EventLog has no
-        new events for the agent. The ``dispatch_once``
-        short-circuit on ``not new_events`` (line
-        261) only skips the full pipeline when the
-        log has nothing to fold AND the per-agent
-        store is the source of truth; for the
-        in-process ``_run_systems_and_persist`` path
-        used here, the systems must always run.
-
-        The ``new_event_count > 0`` guard is replaced
-        by a check on the EventLog/router side only
-        (the router fan-out happens once per batch;
-        the system pipeline is decoupled from the
-        per-batch new-event count).
-        """
-        if new_event_count > 0 and self._tool_router is not None:
-            await self._tool_router.route_batch(new_events)
-        system_events = await self._append_system_outgoing(
-            world, agent_id, return_events=True
-        )
-        if system_events:
-            world = self._fold_with_systems(world, system_events)
-        await self._save_checkpoint(agent_id, world, last_stream_id)
-
-    async def _append_system_outgoing(
-        self,
-        world: "World",
-        agent_id: str,
-        *,
-        return_events: bool = False,
-    ) -> list[Event] | None:
-        """Invoke every system with the post-fold World
-        and append the resulting events to the log.
-
-        Systems do NOT receive the triggering event --
-        they inspect the World via ``query_agents``.
-
-        If a ``ToolRouter`` is wired in, every emitted
-        ``tool.requested`` event is fanned out to the
-        global tool queue right after the EventLog
-        commit (ADR-036 §2.5). The EventLog append
-        happens first so the agent's history is the
-        source of truth; the router copy is a best-
-        effort transport to the worker pool.
-
-        ``return_events``: when ``True`` (the
-        :meth:`_run_systems_and_persist` path), the
-        emitted events are returned to the caller so
-        the World can be re-folded with them
-        (ADR-045 Slot GC; see
-        :meth:`_fold_with_systems`). When ``False``
-        (the legacy / test path), the events are
-        appended to the log and discarded. The
-        default is ``False`` to preserve the public
-        contract for the existing tool-router tests.
-        """
-        outgoing: list[Event] = []
-        for system in self._systems:
-            out = system(world)
-            if not isinstance(out, list):
-                out = await out
-            if out:
-                outgoing.extend(out)
-        if outgoing:
-            await self._log.append_batch(outgoing)
-            if self._tool_router is not None:
-                await self._tool_router.route_batch(outgoing)
-        if return_events:
-            return outgoing
-        return None
-
-    async def _save_checkpoint(
-        self, agent_id: str, world: "World", last_stream_id: str
-    ) -> None:
-        """Persist the World checkpoint.
-
-        Always called, even when ``new_event_count == 0``,
-        so the cursor advances past fully-filtered
-        batches.
-        """
-        await self._world_store.save(
-            agent_id,
-            WorldCheckpoint(
-                world=world,
-                last_stream_id=last_stream_id,
-            ),
-        )
-
-    async def _bootstrap_agents(self) -> None:
-        """
-        Initial discovery of agents. Called once on the first
-        dispatch. After bootstrap, the dispatcher iterates only
-        ``self._tracked_agents``.
-
-        Iteration 5 (ADR-019): uses ``EventLog.list_agents``
-        (the public delegation added in this iteration)
-        instead of the legacy private ``_list_agent_ids``.
-        The dispatcher no longer reaches through
-        ``self._log._redis`` to enumerate agents.
-        """
-        agent_ids = await self._log.list_agents()
-        for aid in agent_ids:
-            self._tracked_agents.add(aid)
-
-    async def _fetch_new_events(
-        self, agent_id: str, cursor: str
-    ) -> tuple[list[Event], str]:
-        """
-        Read events for one agent STRICTLY AFTER ``cursor``.
-
-        Returns parsed ``Event`` objects. Iteration 5
-        (ADR-019): uses the public ``EventLog.read_after_cursor``
-        instead of the legacy ``self._log._redis.xrange(...)``
-        direct access.
-        """
-        return await self._log.read_after_cursor(agent_id, cursor)
 
     async def start(self) -> None:
         if self._running:
@@ -662,12 +439,45 @@ class ReactiveDispatcher:
         logger.info("reactive.stop")
 
     async def _loop(self) -> None:
+        # Carries the last error string on the instance so the
+        # heartbeat line tells the operator the loop is in a
+        # "consistently failing" state across many ticks (not just
+        # the most recent one). Reset on the first successful tick.
+        self._last_loop_error: Optional[str] = None
         while self._running:
             try:
                 await self.dispatch_once()
+                self._last_loop_error = None
             except Exception as e:
-                logger.error("reactive.loop.error", error=str(e))
+                # ``exc_info=True`` routes the full traceback to the
+                # log handler. Without it, the operator sees only
+                # ``error=str(e)`` and cannot distinguish a transient
+                # connection blip from a deterministic crash on the
+                # same code path.
+                logger.error("reactive.loop.error", error=str(e), exc_info=True)
+                self._last_loop_error = repr(e)
+            self._maybe_emit_heartbeat()
             await asyncio.sleep(self._interval)
+
+    def _maybe_emit_heartbeat(self) -> None:
+        """Emit a structured liveness line on the cadence
+        ``_heartbeat_interval_seconds``. Disabled when the
+        interval is non-positive (tests that don't want log
+        noise; production callers should leave the default).
+        """
+        if self._heartbeat_interval_seconds <= 0:
+            return
+        now = time.monotonic()
+        if now - self._last_heartbeat_at < self._heartbeat_interval_seconds:
+            return
+        self._last_heartbeat_at = now
+        logger.info(
+            "reactive.loop.heartbeat",
+            events_processed_total=self._events_processed_total,
+            idle_seconds=now - self._last_activity_at,
+            tracked_agents=len(self._tracked_agents),
+            last_error=self._last_loop_error,
+        )
 
 
 __all__ = ["ReactiveDispatcher"]

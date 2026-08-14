@@ -54,6 +54,32 @@ from kntgraph.tools import WorkerManager, tool_worker
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def _route_structlog_through_stdlib(caplog):
+    """Reconfigure structlog so its output flows through
+    the stdlib ``logging`` tree (which pytest's ``caplog``
+    captures). The fixture restores the original config
+    on teardown. Needed because ``WorkerManager`` now
+    uses ``structlog.get_logger`` (was stdlib); without
+    this routing, ``caplog.at_level("ERROR",
+    logger="kntgraph.tools.manager")`` would not see the
+    new log calls.
+    """
+    import structlog
+
+    caplog.set_level(logging.ERROR, logger="kntgraph.tools.manager")
+    structlog.configure(
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+    )
+    yield
+    structlog.reset_defaults()
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -404,7 +430,7 @@ class TestProcessMessageHardCrash:
         # imported is enough for the dispatch path.)
         from kntgraph.tools import manager as mgr_mod
 
-        async def raise_then_crash(*_args, **_kwargs):
+        def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
         original = mgr_mod._invoke_tool_sync
@@ -431,7 +457,7 @@ class TestProcessMessageHardCrash:
 
         from kntgraph.tools import manager as mgr_mod
 
-        async def raise_then_crash(*_args, **_kwargs):
+        def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
         original = mgr_mod._invoke_tool_sync
@@ -644,7 +670,7 @@ class TestCustomRetries:
 
             from kntgraph.tools import manager as mgr_mod
 
-            async def raise_then_crash(*_args, **_kwargs):
+            def raise_then_crash(*_args, **_kwargs):
                 raise RuntimeError("worker process died")
 
             original = mgr_mod._invoke_tool_sync
@@ -661,4 +687,125 @@ class TestCustomRetries:
 
         # Retries=1 → 2 deliveries triggers DLQ
         event_log_mock.append.assert_awaited_once()
+        redis_mock.xack.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Observability (heartbeat + exc_info + message counters)
+# ---------------------------------------------------------------------------
+
+
+class TestObservability:
+    """The dispatcher/worker "parou sem aviso" failure mode is
+    indistinguishable from a healthy idle loop without the
+    heartbeat line. These tests pin the observability contract:
+
+      - heartbeat is emitted on the configured cadence
+      - heartbeat carries the running counters
+      - the heartbeat reports ``last_error`` while the loop
+        is in a "consistently failing" state and clears it on
+        the next successful read
+      - every ``logger.error`` call carries ``exc_info=True``
+        so the operator sees a traceback, not just ``str(e)``
+    """
+
+    async def test_heartbeat_emitted_with_counters(self, manager, redis_mock, caplog):
+        manager.register(_EchoTool)
+        # Tight heartbeat so the line fires inside the test
+        # body without slowing the suite.
+        manager._heartbeat_interval_seconds = 0.05
+        # ``manager._messages_processed_total`` is bumped by
+        # the Ok branch; the consume loop hits the empty
+        # branch (no messages in the mock), so we set the
+        # counter directly to verify the heartbeat carries
+        # the value through.
+        manager._messages_processed_total = 7
+        manager._messages_failed_total = 2
+        with caplog.at_level(logging.INFO, logger="kntgraph.tools.manager"):
+            await manager.start()
+            try:
+                # ``xreadgroup`` returns []; the consume loop
+                # calls ``_maybe_emit_heartbeat`` on every
+                # iteration of the idle branch. Wait for the
+                # next tick after the cadence expires.
+                deadline = asyncio.get_event_loop().time() + 1.0
+                while (
+                    "worker.consume_loop.heartbeat" not in caplog.text
+                    and asyncio.get_event_loop().time() < deadline
+                ):
+                    await asyncio.sleep(0.02)
+            finally:
+                await manager.stop()
+        assert "worker.consume_loop.heartbeat" in caplog.text
+        # Counters in the log line: the heartbeat includes
+        # the running totals so the operator can spot a
+        # stalled pipeline even when no errors fire.
+        # structlog routed through stdlib renders the bound
+        # fields as a dict repr; assert on the dict keys
+        # rather than on ``key=value``.
+        assert "'messages_processed_total': 7" in caplog.text
+        assert "'messages_failed_total': 2" in caplog.text
+
+    async def test_heartbeat_disabled_when_interval_non_positive(
+        self, manager, redis_mock, caplog
+    ):
+        manager.register(_EchoTool)
+        manager._heartbeat_interval_seconds = 0
+        with caplog.at_level(logging.INFO, logger="kntgraph.tools.manager"):
+            await manager.start()
+            try:
+                # Drive several idle iterations so the loop
+                # would have fired a heartbeat if the gate
+                # were open.
+                for _ in range(5):
+                    await asyncio.sleep(0.01)
+            finally:
+                await manager.stop()
+        assert "worker.consume_loop.heartbeat" not in caplog.text
+
+    async def test_heartbeat_surfaces_last_error(self, manager, redis_mock, caplog):
+        manager.register(_EchoTool)
+        # Tight cadence + a generous deadline so the
+        # test is robust against scheduler contention
+        # in the full unit suite (the consume loop
+        # only ticks on the heartbeat cadence).
+        manager._heartbeat_interval_seconds = 0.05
+        redis_mock.xreadgroup = AsyncMock(side_effect=Exception("blip"))
+        with caplog.at_level(logging.INFO, logger="kntgraph.tools.manager"):
+            await manager.start()
+            try:
+                deadline = asyncio.get_event_loop().time() + 3.0
+                while (
+                    "worker.consume_loop.heartbeat" not in caplog.text
+                    and asyncio.get_event_loop().time() < deadline
+                ):
+                    await asyncio.sleep(0.02)
+            finally:
+                await manager.stop()
+        # The heartbeat line carries the last error string
+        # so a "loop keeps raising the same error" failure
+        # mode is visible in the log.
+        assert "worker.consume_loop.heartbeat" in caplog.text
+        assert "'last_error':" in caplog.text
+        assert "blip" in caplog.text
+
+    async def test_payload_parse_error_carries_traceback(
+        self, manager, redis_mock, caplog
+    ):
+        manager.register(_EchoTool)
+        # Replace the payload bytes with invalid JSON so the
+        # ``json.loads`` call in ``_process_message`` raises.
+        data = {b"payload": b"not-json"}
+        with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
+            await manager._process_message("echo", "stream", "1-0", data)
+        # ``worker.payload_parse.error`` is the new structured
+        # event name; the caplog text also picks up the
+        # exc_info traceback when structlog is routed through
+        # stdlib.
+        assert "worker.payload_parse.error" in caplog.text
+        # The ``_messages_failed_total`` counter is bumped
+        # so the next heartbeat line shows the failure.
+        assert manager._messages_failed_total == 1
+        # The message is still ACKed so the bad payload
+        # does not loop forever in the PEL.
         redis_mock.xack.assert_awaited_once()

@@ -44,12 +44,12 @@ SAMPLE_PAYLOAD = {
 
 
 class TestRedisCheckpointStorage:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._checkpoint import RedisCheckpointStorage
 
         assert RedisCheckpointStorage is not None
 
-    def test_implements_checkpoint_storage(self):
+    async def test_implements_checkpoint_storage(self):
         from kntgraph.infra.redis._checkpoint import (
             CheckpointStorage,
             RedisCheckpointStorage,

@@ -50,6 +50,7 @@ from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallTTL
 from kntgraph.infra.world_checkpoint import WorldCheckpoint
+from kntgraph.runner._systems_runner import run_systems_and_persist
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.runner.tool_call_ttl_sweeper import (
     ToolCallTTLSweeperSystem,
@@ -217,7 +218,8 @@ class TestSlotGCRemovesOrphanRequest:
         # is focused on the GC behaviour (the public
         # ``dispatch_once`` also runs the systems on
         # those ticks; see :meth:`_dispatch_for_agent`).
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=post_tick_n_world,
             last_stream_id="1-0",
@@ -278,7 +280,8 @@ class TestSlotGCRemovesOrphanRequest:
             tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
             world_store=store,  # type: ignore[arg-type]
         )
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=post_tick_n_world,
             last_stream_id="1-0",
@@ -332,7 +335,8 @@ class TestSlotGCRemovesOrphanRequest:
             redis=AsyncMock(),
             world_store=store,  # type: ignore[arg-type]
         )
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=world,
             last_stream_id="1-0",
@@ -391,7 +395,8 @@ class TestSlotGCIsCheapForNonToolBatches:
                 correlation=_ctx(),
             )
         )
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=world_in,
             last_stream_id="1-0",
@@ -429,7 +434,8 @@ class TestSlotGCIsCheapForNonToolBatches:
             cap=cap,
         )
         world_in = World.empty()
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=world_in,
             last_stream_id="1-0",
@@ -488,7 +494,8 @@ class TestSlotGCRoutesViaRouter:
             world_store=store,  # type: ignore[arg-type]
             tool_router=router,  # type: ignore[arg-type]
         )
-        await dispatcher._run_systems_and_persist(
+        await run_systems_and_persist(
+            dispatcher,
             agent_id="a-1",
             world=world,
             last_stream_id="1-0",

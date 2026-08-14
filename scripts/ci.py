@@ -241,6 +241,42 @@ def step_integration() -> Step:
     )
 
 
+def step_stress() -> Step:
+    """Stress tests for the dispatcher/worker pipeline.
+
+    Runs the ``tests/stress/`` suite, which exercises the
+    ``ReactiveDispatcher`` + ``WorkerManager`` under
+    concurrent load (5 agents, 3 tools, 5 seconds). Like
+    ``step_integration``, this is opt-in via
+    ``--only stress``; the main gate does not run stress
+    by default because:
+
+      - it requires a real Redis on ``localhost:6379``
+        (``fakeredis`` has known bugs in ``xreadgroup`` under
+        concurrency);
+      - it spawns a ``ProcessPoolExecutor`` and runs for
+        ~15 seconds wall clock;
+      - the assertions are not flaky-on-purpose but the
+        timing-sensitive ones (5-second drain) need a
+        non-virtualised CPU.
+
+    The stress suite is also tolerant of an unavailable
+    Redis: ``pytest.skip`` is the right exit, not a
+    failure. ``_run_step`` already tolerates the
+    "no tests ran" exit 5 case.
+    """
+    return Step(
+        "stress tests (Redis + ProcessPoolExecutor)",
+        (
+            "uv",
+            "run",
+            "pytest",
+            "tests/stress/",
+            "-q",
+        ),
+    )
+
+
 def step_bandit() -> Step:
     return Step(
         "security (bandit)",
@@ -529,6 +565,7 @@ ALL_STEPS: dict[str, Step] = {
     "bump_dry_run": step_bump_dry_run(),
     "tests": step_tests(),
     "integration": step_integration(),
+    "stress": step_stress(),
     "reliability": Step(
         "reliability (branch coverage on stream + runner + security)",
         ("_inline_gate_reliability_",),
@@ -587,6 +624,22 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
             "the suite is empty because the optional-dependency "
             "conftest skip fired. Re-run with `uv sync --extra cli` "
             "to enable the CLI tests."
+        )
+        return r.stdout or ""
+    # The stress step is opt-in and tolerant of an
+    # unavailable Redis: the conftest ``pytest.skip``s
+    # every test in that case, so the suite reports
+    # "no tests ran" and exits 5. Same pattern as the
+    # unit suite above.
+    if (
+        step.name == "stress tests (Redis + ProcessPoolExecutor)"
+        and r.returncode == 5
+        and "no tests ran" in (r.stdout or "") + (r.stderr or "")
+    ):
+        print(
+            "  >>> tolerated: pytest exit 5 ('no tests ran') — "
+            "Redis is not reachable on localhost:6379. "
+            "The stress suite is skipped on this environment."
         )
         return r.stdout or ""
     failed.append(step.name)

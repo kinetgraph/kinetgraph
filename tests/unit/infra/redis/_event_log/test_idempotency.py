@@ -34,7 +34,7 @@ def _make_pipeline_mock(stream_id: str = STREAM_ID) -> MagicMock:
 
 
 class TestCheckPhase:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._event_log._idempotency import (
             _check_phase,
             _claim_phase,

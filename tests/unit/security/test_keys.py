@@ -443,6 +443,113 @@ class TestProtocolConformance:
         assert not isinstance(Incomplete(), KeyRegistry)
 
 
+class TestRegistrationWithStubKey:
+    """The branch ``elif isinstance(priv,
+    _StubPrivateKey):`` in the key registry. When the
+    ``cryptography`` package is unavailable, the
+    ``generate_keypair`` helper returns a stub. The
+    registry must register the stub and derive the
+    public key via ``sha256`` (the stub path). Pinned
+    so a future refactor does not regress the stub
+    key registration.
+    """
+
+    def test_register_stub_key_derives_stub_public_key(self) -> None:
+        from kntgraph.security.keys._crypto import _StubPrivateKey
+
+        reg = InMemoryKeyRegistry()
+        stub = _StubPrivateKey(bytes=b"\x00" * 32, algorithm="stub-v0")
+        epoch = reg.register("session-42", stub)
+        assert epoch == KeyEpoch(0)
+        # The epoch is registered; the public key is
+        # recoverable (sha256 of the bytes).
+        pub = reg.public_key("session-42", epoch)
+        assert pub.algorithm == "stub-v0"
+
+
+class TestCryptoModuleAttributeAccess:
+    """PEP 562 ``__getattr__`` on the crypto module
+    proxies the optional ``cryptography`` dependency.
+    Pinned so a future refactor does not regress the
+    attribute-routing contract.
+    """
+
+    def test_module_exposes_ed25519_private_key(self) -> None:
+        from kntgraph.security.keys import _crypto
+
+        # The ``__getattr__`` returns ``globals().get(name)``
+        # for the routed names. When ``cryptography`` is
+        # installed, the global is a real class; when
+        # not, it is ``None`` (the documented fallback).
+        from kntgraph.security.keys._crypto import (
+            CRYPTOGRAPHY_AVAILABLE,
+        )
+
+        priv = _crypto.Ed25519PrivateKey
+        pub = _crypto.Ed25519PublicKey
+        if CRYPTOGRAPHY_AVAILABLE:
+            assert priv is not None
+            assert pub is not None
+        else:
+            assert priv is None
+            assert pub is None
+
+    def test_module_unknown_attribute_raises(self) -> None:
+        """The branch ``raise AttributeError`` for
+        names not in the proxy list. Pinned so a
+        future refactor does not silently swallow
+        typos in the crypto module's attribute
+        namespace.
+        """
+        from kntgraph.security.keys import _crypto
+
+        with pytest.raises(AttributeError, match="unknown_attr"):
+            _ = _crypto.unknown_attr  # type: ignore[attr-defined]
+
+    def test_module_getattr_returns_globals_when_name_routed(self) -> None:
+        """The branch ``if name in (...): return
+        globals().get(name)``: when a routed name is
+        accessed via ``__getattr__`` (i.e. it is not
+        already in the module's ``__dict__``), the
+        proxy returns the current global value
+        (which is ``None`` when ``cryptography`` is
+        unavailable). We force ``__getattr__`` to
+        fire by deleting the attribute from the
+        module dict. Pinned so a future refactor
+        does not silently route to ``None`` instead
+        of the module global.
+        """
+        from kntgraph.security.keys import _crypto
+
+        saved = _crypto.__dict__.pop("Ed25519PrivateKey", None)
+        try:
+            # Now accessing the attribute goes through
+            # the PEP 562 ``__getattr__`` proxy.
+            value = _crypto.Ed25519PrivateKey
+            # ``globals().get(name)`` after del returns
+            # ``None``.
+            assert value is None
+        finally:
+            _crypto.Ed25519PrivateKey = saved
+
+
+class TestRequireCrypto:
+    """Branch coverage for ``require_crypto``: the
+    ``RuntimeError`` raised when the optional
+    ``cryptography`` extra is not installed.
+    Pinned so a future refactor does not silently
+    fall back to a ``None`` ``Ed25519PrivateKey``
+    and surface an opaque ``AttributeError`` later.
+    """
+
+    def test_require_crypto_raises_when_unavailable(self, monkeypatch) -> None:
+        from kntgraph.security.keys import _crypto
+
+        monkeypatch.setattr(_crypto, "CRYPTOGRAPHY_AVAILABLE", False)
+        with pytest.raises(RuntimeError, match="cryptography>=41.0.0"):
+            _crypto.require_crypto()
+
+
 # ---------------------------------------------------------------------------
 # Protocol conformance
 # ---------------------------------------------------------------------------

@@ -285,3 +285,62 @@ class TestSweeperFailsLoudForUnknownTool:
         assert len(events) == 1
         assert events[0].event_type == "tool.x.failed"
         assert events[0].data["tool_name"] == "x"
+
+
+class TestSweeperDefensiveBranches:
+    """The defensive ``isinstance`` checks in the
+    sweeper: a tampered / corrupted world view
+    (whose ``tool_requests`` slot is not a dict, or
+    whose entries are not :class:`ToolCallRequest`)
+    must be skipped, not crash the sweeper. These
+    branches exist precisely because the World is
+    a derived fold and downstream code can install
+    arbitrary component data.
+    """
+
+    def test_non_dict_tool_requests_slots_are_skipped(self) -> None:
+        """The branch ``if not isinstance(tool_requests,
+        dict): continue``. Pinned so a tampered world
+        (where some agent's ``tool_requests`` slot is
+        an unexpected shape, e.g. a list or string)
+        does not crash the sweeper.
+        """
+        from kntgraph.core.storage import ArchetypeStorage
+        from kntgraph.core.world.view import AgentView
+        from kntgraph.core.world.world import World
+
+        view = AgentView(
+            agent_id=AGENT_ID,
+            components={"tool_requests": ["not", "a", "dict"]},
+        )
+        world = World(tick=0, storage=ArchetypeStorage(), views={AGENT_ID: view})
+        now = _ts(100)
+        sweeper = ToolCallTTLSweeperSystem(now=now)
+        events = sweeper(world)
+        assert events == []
+
+    def test_non_toolcallrequest_entries_are_skipped(self) -> None:
+        """The branch ``if not isinstance(req,
+        ToolCallRequest): continue``. Pinned so a
+        tampered world (a view whose ``tool_requests``
+        is a dict of non-``ToolCallRequest`` values)
+        does not crash the sweeper.
+        """
+        from kntgraph.core.storage import ArchetypeStorage
+        from kntgraph.core.world.view import AgentView
+        from kntgraph.core.world.world import World
+
+        view = AgentView(
+            agent_id=AGENT_ID,
+            components={
+                "tool_requests": {
+                    "rid-bad": "not-a-tool-call-request",
+                    "rid-also-bad": 42,
+                },
+            },
+        )
+        world = World(tick=0, storage=ArchetypeStorage(), views={AGENT_ID: view})
+        now = _ts(100)
+        sweeper = ToolCallTTLSweeperSystem(now=now)
+        events = sweeper(world)
+        assert events == []

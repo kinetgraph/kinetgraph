@@ -161,7 +161,7 @@ class TestErrorPropagation:
 
 
 class TestProtocolSatisfaction:
-    def test_satisfies_api_key_storage(self):
+    async def test_satisfies_api_key_storage(self):
         binding = _MockAPIKeyStorage()
         cache = APIKeyCacheAdapter(binding, ttl_s=60.0)
         assert isinstance(cache, APIKeyStorage)
@@ -173,11 +173,11 @@ class TestProtocolSatisfaction:
 
 
 class TestConstructorValidation:
-    def test_negative_ttl_raises(self):
+    async def test_negative_ttl_raises(self):
         with pytest.raises(ValueError, match="ttl_s"):
             APIKeyCacheAdapter(_MockAPIKeyStorage(), ttl_s=-1)
 
-    def test_negative_maxsize_raises(self):
+    async def test_negative_maxsize_raises(self):
         with pytest.raises(ValueError, match="maxsize"):
             APIKeyCacheAdapter(_MockAPIKeyStorage(), maxsize=-1)
 

@@ -120,13 +120,13 @@ class TestStats:
 
 
 class TestValidation:
-    def test_rpm_must_be_positive(self):
+    async def test_rpm_must_be_positive(self):
         with pytest.raises(ValueError):
             RateLimiter(rpm=0)
         with pytest.raises(ValueError):
             RateLimiter(rpm=-1)
 
-    def test_window_s_must_be_positive(self):
+    async def test_window_s_must_be_positive(self):
         with pytest.raises(ValueError):
             RateLimiter(rpm=1, window_s=0)
         with pytest.raises(ValueError):
@@ -134,7 +134,7 @@ class TestValidation:
 
 
 class TestProtocolConformance:
-    def test_implements_protocol(self):
+    async def test_implements_protocol(self):
         """The class advertises ``RateLimiterProtocol``
         so callers can type-hint against the protocol
         and pass an in-memory implementation without

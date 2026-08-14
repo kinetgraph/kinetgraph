@@ -89,32 +89,32 @@ async def _isolate_correlation():
 
 
 class TestIdentity:
-    def test_agent_id_prefix(self):
+    async def test_agent_id_prefix(self):
         assert ContinuityManager.agent_id_prefix == "continuity:"
 
-    def test_agent_id_for(self):
+    async def test_agent_id_for(self):
         assert (
             ContinuityManager.agent_id_for("tenant-a", "user-1")
             == "continuity:tenant-a:user-1"
         )
 
-    def test_cache_key(self):
+    async def test_cache_key(self):
         assert (
             ContinuityManager.cache_key("tenant-a", "user-1")
             == f"{CONTINUITY_KEY_PREFIX}tenant-a:user-1"
         )
 
-    def test_hash_value_uses_sha256_prefix(self):
+    async def test_hash_value_uses_sha256_prefix(self):
         h = ContinuityManager.hash_value("user@example.com")
         assert h.startswith("sha256:")
         assert len(h) > len("sha256:")
 
-    def test_hash_value_deterministic(self):
+    async def test_hash_value_deterministic(self):
         a = ContinuityManager.hash_value("abc")
         b = ContinuityManager.hash_value("abc")
         assert a == b
 
-    def test_hash_value_distinct_for_different_inputs(self):
+    async def test_hash_value_distinct_for_different_inputs(self):
         a = ContinuityManager.hash_value("abc")
         b = ContinuityManager.hash_value("def")
         assert a != b

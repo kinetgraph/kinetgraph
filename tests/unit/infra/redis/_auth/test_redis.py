@@ -40,12 +40,12 @@ def _fake_redis():
 
 
 class TestRedisAPIKeyStorage:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._auth import RedisAPIKeyStorage
 
         assert RedisAPIKeyStorage is not None
 
-    def test_implements_api_key_storage(self):
+    async def test_implements_api_key_storage(self):
         from kntgraph.infra.redis._auth import (
             APIKeyStorage,
             RedisAPIKeyStorage,
