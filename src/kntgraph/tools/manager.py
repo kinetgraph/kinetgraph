@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import multiprocessing
+import time
 from concurrent.futures import ProcessPoolExecutor
 from typing import Type
 
@@ -23,11 +23,13 @@ if TYPE_CHECKING:
 
     from kntgraph.infra.redis import RedisLike
 
+import structlog
+
 from kntgraph.core.event import Event
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -57,6 +59,7 @@ class WorkerManager:
         consumer_name: str = "worker-1",
         reaper_interval: float = 60.0,
         reaper_idle_time: float = 300.0,
+        heartbeat_interval_seconds: float = 30.0,
     ):
         self._redis = redis
         self._event_log = event_log
@@ -73,6 +76,18 @@ class WorkerManager:
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        # Observability surface: the consume loop updates the
+        # counters and timestamps on every message; the heartbeat
+        # log line is emitted by ``_consume_loop`` itself.
+        self._messages_processed_total: int = 0
+        self._messages_failed_total: int = 0
+        self._last_activity_at: float = time.monotonic()
+        self._last_heartbeat_at: float = 0.0
+        self._last_error: str | None = None
+        # Disabled when non-positive. The default mirrors the
+        # dispatcher's so an operator looking at tail -f sees a
+        # liveness line from each component on the same cadence.
+        self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
 
     def register(self, tool_cls: Type) -> None:
         """Register a class decorated with @tool_worker."""
@@ -122,7 +137,13 @@ class WorkerManager:
                 )
             except Exception as e:
                 if "BUSYGROUP" not in str(e):
-                    logger.error(f"Failed to create group for {tool_name}: {e}")
+                    logger.error(
+                        "worker.xgroup_create.failed",
+                        tool=tool_name,
+                        stream_key=stream_key,
+                        error=str(e),
+                        exc_info=True,
+                    )
 
             # Start consumer loop
             task = asyncio.create_task(self._consume_loop(tool_name))
@@ -167,6 +188,7 @@ class WorkerManager:
                     # of the event loop. A zero-second sleep is a
                     # yield-to-scheduler with no production cost.
                     await asyncio.sleep(0)
+                    self._maybe_emit_heartbeat(tool_name)
                     continue
 
                 for _, messages in response:
@@ -174,12 +196,52 @@ class WorkerManager:
                         await self._process_message(
                             tool_name, stream_key, message_id.decode(), message_data
                         )
+                # Refresh liveness on every successful read; the
+                # heartbeat distinguishes "loop idle because the
+                # stream is empty" from "loop stuck because Redis
+                # stopped responding".
+                self._last_activity_at = time.monotonic()
+                self._maybe_emit_heartbeat(tool_name)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Error in consume loop for {tool_name}: {e}")
+                # ``exc_info=True`` routes the full traceback to the
+                # log handler. Without it, an operator who sees the
+                # loop go silent cannot tell whether the consumer
+                # is reconnecting to Redis, choking on a payload
+                # parser, or stuck inside ``_process_message``.
+                logger.error(
+                    "worker.consume_loop.error",
+                    tool=tool_name,
+                    error=str(e),
+                    exc_info=True,
+                )
+                self._last_error = repr(e)
                 await asyncio.sleep(1)
+                self._maybe_emit_heartbeat(tool_name)
+
+    def _maybe_emit_heartbeat(self, tool_name: str) -> None:
+        """Emit a structured liveness line on the cadence
+        ``_heartbeat_interval_seconds``. Disabled when the
+        interval is non-positive. The line carries the message
+        counters, the time since the last successful read, and
+        the last error string (if any).
+        """
+        if self._heartbeat_interval_seconds <= 0:
+            return
+        now = time.monotonic()
+        if now - self._last_heartbeat_at < self._heartbeat_interval_seconds:
+            return
+        self._last_heartbeat_at = now
+        logger.info(
+            "worker.consume_loop.heartbeat",
+            tool=tool_name,
+            messages_processed_total=self._messages_processed_total,
+            messages_failed_total=self._messages_failed_total,
+            idle_seconds=now - self._last_activity_at,
+            last_error=self._last_error,
+        )
 
     async def _process_message(
         self, tool_name: str, stream_key: str, message_id: str, message_data: dict
@@ -192,8 +254,15 @@ class WorkerManager:
             request_event_dict = json.loads(payload_str)
             request_event = Event.from_dict(request_event_dict)
         except Exception as e:
-            logger.error(f"Failed to parse payload for {message_id}: {e}")
+            logger.error(
+                "worker.payload_parse.error",
+                tool=tool_name,
+                message_id=message_id,
+                error=str(e),
+                exc_info=True,
+            )
             await self._redis.xack(stream_key, self._group_name, message_id)
+            self._messages_failed_total += 1
             return
 
         tool_params = (
@@ -236,6 +305,7 @@ class WorkerManager:
                     correlation=request_event.correlation,
                 )
                 await self._event_log.append(completed_evt)
+                self._messages_processed_total += 1
             else:
                 failed_evt = Event.create(
                     event_type=f"tool.{tool_name}.failed",
@@ -246,13 +316,22 @@ class WorkerManager:
                     correlation=request_event.correlation,
                 )
                 await self._event_log.append(failed_evt)
+                self._messages_failed_total += 1
 
             # Acknowledge the message since it was processed (success or explicit failure)
             await self._redis.xack(stream_key, self._group_name, message_id)
 
         except Exception as e:
             # A hard crash (e.g. process died, OOM, exception in invoke outside Result)
-            logger.error(f"Tool execution hard-crashed for {message_id}: {e}")
+            logger.error(
+                "worker.tool.hard_crash",
+                tool=tool_name,
+                message_id=message_id,
+                error=str(e),
+                exc_info=True,
+            )
+            self._messages_failed_total += 1
+            self._last_error = repr(e)
 
             # If the process pool itself broke, we can't do much but we must not XACK.
             # We let the Reaper pick it up via XAUTOCLAIM.
@@ -265,7 +344,11 @@ class WorkerManager:
                 if delivery_count > retries_allowed:
                     # DLQ trigger!
                     logger.error(
-                        f"DLQ triggered for {message_id} after {delivery_count} attempts."
+                        "worker.dlq.triggered",
+                        tool=tool_name,
+                        message_id=message_id,
+                        delivery_count=delivery_count,
+                        retries_allowed=retries_allowed,
                     )
                     failed_evt = Event.create(
                         event_type=f"tool.{tool_name}.failed",
@@ -308,7 +391,9 @@ class WorkerManager:
                     # By claiming, we become the owner. The delivery_count incremented.
                     # We process it immediately.
                     logger.warning(
-                        f"Reclaimed stuck message {message_id.decode()} for {tool_name}"
+                        "worker.reaper.reclaimed",
+                        tool=tool_name,
+                        message_id=message_id.decode(),
                     )
                     # Process message concurrently so reaper isn't blocked
                     asyncio.create_task(
@@ -320,4 +405,10 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"Reaper loop error for {tool_name}: {e}")
+                logger.error(
+                    "worker.reaper.error",
+                    tool=tool_name,
+                    error=str(e),
+                    exc_info=True,
+                )
+                self._last_error = repr(e)

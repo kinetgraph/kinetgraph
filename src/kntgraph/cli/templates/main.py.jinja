@@ -5,7 +5,6 @@
 {% if use_intent_http %}
 """HTTP gateway entry point (FastAPI + IntentRouter)."""
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -34,8 +33,14 @@ async def lifespan(app):
     global worker_manager
     # global sales_dispatcher
     logging.info("[Lifespan] Starting Background Dispatchers and Workers...")
-    worker_task = asyncio.create_task(worker_manager.start())
-    # sales_task = asyncio.create_task(sales_dispatcher.start())
+    # AWAIT ``start()`` so initialization errors (e.g. a failing
+    # ``ProcessPoolExecutor`` spawn, or Redis refusing
+    # ``xgroup_create``) surface in the uvicorn startup log.
+    # Fire-and-forget ``asyncio.create_task`` swallowed those
+    # exceptions inside an orphan task; the process would
+    # stay up with no events flowing and no error in the log.
+    await worker_manager.start()
+    # await sales_dispatcher.start()
     try:
         yield
     finally:

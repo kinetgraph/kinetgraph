@@ -127,6 +127,7 @@ class ReactiveDispatcher:
         tool_router: Optional["ToolRouter"] = None,
         tool_ttls: Optional[ToolCallTTL] = None,
         rediscovery_interval_seconds: float = 5.0,
+        heartbeat_interval_seconds: float = 30.0,
     ) -> None:
         """
         Args:
@@ -175,6 +176,16 @@ class ReactiveDispatcher:
                 (or the equivalent ``list_agents()`` thin
                 delegation); the cost is dominated by
                 network round-trips, not Redis CPU.
+            heartbeat_interval_seconds: how often the
+                dispatcher's background loop emits a
+                structured heartbeat log line carrying
+                the running event counter, the time
+                since the last successful tick, and the
+                last error string (if any). Defaults to
+                30s; tests may tighten it (e.g. 0.05s)
+                so the heartbeat is observable inside a
+                single test body. Set to a non-positive
+                number to disable the heartbeat.
         """
         self._log = log
         self._systems: list[WorldSystem] = list(systems or [])
@@ -234,6 +245,23 @@ class ReactiveDispatcher:
         self._bootstrapped: bool = False
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        # Observability surface (ADR-style): counters and timestamps
+        # that ``_loop`` turns into a periodic heartbeat log entry.
+        # Without this, a "loop silently stuck on the same exception"
+        # or "loop iterating but processing nothing" failure mode is
+        # indistinguishable from healthy operation in the logs.
+        self._events_processed_total: int = 0
+        self._last_activity_at: float = time.monotonic()
+        self._last_heartbeat_at: float = 0.0
+        # Last exception text observed by ``_loop``; the heartbeat
+        # surfaces it so a "loop keeps raising the same error"
+        # failure mode is distinguishable from "loop is healthy".
+        self._last_loop_error: Optional[str] = None
+        # How often the loop emits a heartbeat log line. The default
+        # is 30 seconds — short enough that an operator looking at
+        # tail -f sees liveness, long enough that the log volume is
+        # negligible under steady-state load.
+        self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
 
     @property
     def systems(self) -> list[WorldSystem]:
@@ -310,6 +338,12 @@ class ReactiveDispatcher:
         processed = 0
         for agent_id in list(self._tracked_agents):
             processed += await self._dispatch_for_agent(agent_id)
+        # Observability: refresh the activity timestamp on every
+        # successful tick (even if processed == 0, the tick ran;
+        # the heartbeat distinguishes "loop is alive but idle" from
+        # "loop is stuck").
+        self._last_activity_at = time.monotonic()
+        self._events_processed_total += processed
         return processed
 
     async def _dispatch_for_agent(self, agent_id: str) -> int:
@@ -662,12 +696,45 @@ class ReactiveDispatcher:
         logger.info("reactive.stop")
 
     async def _loop(self) -> None:
+        # Carries the last error string on the instance so the
+        # heartbeat line tells the operator the loop is in a
+        # "consistently failing" state across many ticks (not just
+        # the most recent one). Reset on the first successful tick.
+        self._last_loop_error: Optional[str] = None
         while self._running:
             try:
                 await self.dispatch_once()
+                self._last_loop_error = None
             except Exception as e:
-                logger.error("reactive.loop.error", error=str(e))
+                # ``exc_info=True`` routes the full traceback to the
+                # log handler. Without it, the operator sees only
+                # ``error=str(e)`` and cannot distinguish a transient
+                # connection blip from a deterministic crash on the
+                # same code path.
+                logger.error("reactive.loop.error", error=str(e), exc_info=True)
+                self._last_loop_error = repr(e)
+            self._maybe_emit_heartbeat()
             await asyncio.sleep(self._interval)
+
+    def _maybe_emit_heartbeat(self) -> None:
+        """Emit a structured liveness line on the cadence
+        ``_heartbeat_interval_seconds``. Disabled when the
+        interval is non-positive (tests that don't want log
+        noise; production callers should leave the default).
+        """
+        if self._heartbeat_interval_seconds <= 0:
+            return
+        now = time.monotonic()
+        if now - self._last_heartbeat_at < self._heartbeat_interval_seconds:
+            return
+        self._last_heartbeat_at = now
+        logger.info(
+            "reactive.loop.heartbeat",
+            events_processed_total=self._events_processed_total,
+            idle_seconds=now - self._last_activity_at,
+            tracked_agents=len(self._tracked_agents),
+            last_error=self._last_loop_error,
+        )
 
 
 __all__ = ["ReactiveDispatcher"]

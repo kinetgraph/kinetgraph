@@ -2,7 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
 import uvicorn
 from contextlib import asynccontextmanager
 
@@ -49,9 +48,16 @@ async def lifespan(app):
     global weather_dispatcher
     print("\n[Lifespan] Starting Background Dispatchers and Workers...")
 
-    # Start the event loops in the background
-    asyncio.create_task(worker_manager.start())
-    asyncio.create_task(weather_dispatcher.start())
+    # Start both components and AWAIT their ``start()`` so any
+    # initialization error (e.g. ``ProcessPoolExecutor`` failing
+    # to spawn, Redis refusing ``xgroup_create``) propagates to
+    # the lifespan and surfaces in the uvicorn startup log. The
+    # previous fire-and-forget ``asyncio.create_task`` wrapped
+    # any startup exception inside an orphan task; the process
+    # would stay up with no events flowing and no error in the
+    # log.
+    await worker_manager.start()
+    await weather_dispatcher.start()
 
     yield
 
