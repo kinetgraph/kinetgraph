@@ -287,6 +287,20 @@ class TestCheckpointIO:
         await bootstrap_agents(dispatcher)
         assert dispatcher._tracked_agents == {"a-1", "a-2"}
 
+    async def test_bootstrap_with_empty_log_is_noop(self) -> None:
+        """The branch where ``list_agents`` returns an
+        empty list: the bootstrap loop body never runs
+        (``for aid in agent_ids:`` over an empty
+        sequence). Pinned so the dispatcher's "no
+        tenants yet" path is observed.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        await bootstrap_agents(dispatcher)
+        assert dispatcher._tracked_agents == set()
+
     async def test_fetch_new_events_returns_batch_and_cursor(self) -> None:
         cap = _Captured()
         log = _FakeEventLog(cap)
