@@ -44,7 +44,7 @@ class TestProjectionBranches:
         e1 = _dummy_event("a1")
         e2 = _dummy_event("a2")
         await log.append_batch([e1, e2])
-        
+
         events = await read_all_events(log)
         assert len(events) == 2
         agent_ids = {e.agent_id for e in events}

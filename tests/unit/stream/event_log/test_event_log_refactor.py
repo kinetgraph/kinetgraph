@@ -12,6 +12,8 @@ tenant, signature) + delegation to the injected storage.
 
 from __future__ import annotations
 
+from kntgraph.core.event import Event
+
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 

@@ -66,7 +66,6 @@ import gc
 import hashlib
 import time
 from collections import Counter
-from typing import Any
 from uuid import uuid4
 
 import pytest

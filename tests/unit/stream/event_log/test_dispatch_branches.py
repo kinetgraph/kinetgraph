@@ -22,7 +22,6 @@ does not regress the resilience orchestration.
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -59,7 +58,6 @@ async def test_dispatch_with_circuit_breaker_passes_through_when_closed():
     future refactor does not skip the underlying call
     on a closed breaker.
     """
-    from kntgraph.core.result import Ok
 
     breaker = AsyncMock()
     breaker.call = AsyncMock(return_value=Ok(b"stream-id"))

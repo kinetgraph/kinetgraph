@@ -11,7 +11,7 @@ import fakeredis.aioredis
 import pytest
 
 from kntgraph.core.event import Event, CorrelationContext
-from kntgraph.core.result import Err, Ok
+from kntgraph.core.result import Err
 from kntgraph.core.world import World
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.runner.runner import Runner
@@ -68,7 +68,9 @@ class TestRunnerTickOnceBranches:
 
         runner = Runner(log=log, cyclic_systems=[sys])  # type: ignore
 
-        with patch.object(log, "append_batch", return_value=Err(RuntimeError("Simulated error"))):
+        with patch.object(
+            log, "append_batch", return_value=Err(RuntimeError("Simulated error"))
+        ):
             tick = await runner.tick_once()
             # If append_batch fails, _tick is not incremented
             assert tick == 0

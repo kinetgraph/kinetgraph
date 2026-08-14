@@ -29,7 +29,6 @@ does not exercise by construction:
 
 from __future__ import annotations
 
-import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -37,7 +36,6 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-import structlog
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World

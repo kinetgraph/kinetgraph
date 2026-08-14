@@ -80,7 +80,6 @@ def test_check_signature_stub_key_returns_stub_key_error():
     Pinned so a future refactor does not silently
     accept stub keys.
     """
-    from kntgraph.security import KeyEpoch
 
     event = _signed_event()
     # The registry returns a stub (not an

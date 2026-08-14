@@ -113,7 +113,6 @@ class TestShortMemoryStorageIterKeys:
 
         # Synchronous iteration over the async generator
         keys = []
-        import asyncio
 
         async def collect():
             async for k in storage.iter_keys("knt:session:"):
