@@ -158,7 +158,7 @@ class Principal:
         if self.is_admin():
             return True
         if self.tenant_id is None:
-            return False  # unreachable: enforced by __post_init__
+            return False  # pragma: no cover
         return agent_id == self.tenant_id or agent_id.startswith(self.tenant_id + ".")
 
     def to_json(self) -> dict[str, JsonValue]:
@@ -303,7 +303,7 @@ class Policy(Protocol):
         principal: Principal,
         resource: Resource,
         action: Action,
-    ) -> bool: ...
+    ) -> bool: ...  # pragma: no cover
 
 
 class AlwaysAllowPolicy:
@@ -366,7 +366,7 @@ class DefaultPolicy:
             # cross-tenant (admin-only).
             return False
         if principal.tenant_id is None:
-            return False  # unreachable per Principal.__post_init__
+            return False  # pragma: no cover
         if not principal.owns(resource.tenant_id):
             return False
         # Role-level check for tool invocation.
