@@ -303,7 +303,8 @@ class Policy(Protocol):
         principal: Principal,
         resource: Resource,
         action: Action,
-    ) -> bool: ...  # pragma: no cover
+    ) -> bool:
+        pass  # pragma: no cover
 
 
 class AlwaysAllowPolicy:
