@@ -23,6 +23,7 @@ from uuid import uuid4
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
+from kntgraph.runner._folding import fold_with_filter
 from kntgraph.runner.reactive import ReactiveDispatcher
 
 
@@ -87,7 +88,7 @@ def test_fold_with_tool_requested_materialises_request_slot() -> None:
     d = _dispatcher()
     req = _request_event()
 
-    world, _ = d._fold_with_filter(World.empty(), [req])
+    world, _ = fold_with_filter(d, World.empty(), [req])
 
     view = world.views["a-1"]
     assert "tool_requests" in view.components
@@ -103,7 +104,7 @@ def test_fold_with_completion_materialises_completion_slot() -> None:
     req = _request_event()
     completion = _completion_event(causation_id=req.event_id)
 
-    world, _ = d._fold_with_filter(World.empty(), [req, completion])
+    world, _ = fold_with_filter(d, World.empty(), [req, completion])
 
     view = world.views["a-1"]
     completions = view.components["tool_completions"]
@@ -121,7 +122,7 @@ def test_fold_without_tool_events_does_not_materialise_slots() -> None:
     d = _dispatcher()
     dom = _domain_event()
 
-    world, _ = d._fold_with_filter(World.empty(), [dom])
+    world, _ = fold_with_filter(d, World.empty(), [dom])
 
     view = world.views["a-1"]
     assert "tool_requests" not in view.components
@@ -138,7 +139,7 @@ def test_fold_preserves_tick() -> None:
     req = _request_event()
     dom = _domain_event()
 
-    world, _ = d._fold_with_filter(World.empty(), [dom, req])
+    world, _ = fold_with_filter(d, World.empty(), [dom, req])
 
     # Two ``with_event`` calls -> tick advanced by 2.
     assert world.tick == 2
@@ -154,7 +155,7 @@ def test_fold_passes_through_views_without_tool_events() -> None:
     tool_a = _request_event(agent_id="a-1")
     domain_b = _domain_event(agent_id="a-2")
 
-    world, _ = d._fold_with_filter(World.empty(), [tool_a, domain_b])
+    world, _ = fold_with_filter(d, World.empty(), [tool_a, domain_b])
 
     # Agent a-1 has the tool slot installed.
     assert "tool_requests" in world.views["a-1"].components
