@@ -63,12 +63,12 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestDLQStorageProtocol:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._dlq import DLQStorage
 
         assert DLQStorage is not None
 
-    def test_dlq_storage_lists_required_methods(self):
+    async def test_dlq_storage_lists_required_methods(self):
         from kntgraph.infra.redis._dlq import DLQStorage
 
         for name in (
@@ -87,7 +87,7 @@ class TestDLQStorageProtocol:
 
 
 class TestDLQStorageAppendContract:
-    def test_append_accepts_dict_payload(self):
+    async def test_append_accepts_dict_payload(self):
         from kntgraph.infra.redis._dlq import DLQStorage
 
         storage = MagicMock(spec=DLQStorage)
@@ -99,7 +99,7 @@ class TestDLQStorageAppendContract:
 
 
 class TestDLQStorageReadContract:
-    def test_read_returns_dict_or_none(self):
+    async def test_read_returns_dict_or_none(self):
         from kntgraph.infra.redis._dlq import DLQStorage
 
         storage = MagicMock(spec=DLQStorage)
@@ -123,7 +123,7 @@ class TestNoDirectRedisImportInDLQ:
         "infra/redis/",
     }
 
-    def test_no_redis_asyncio_imports_outside_redis_package(self):
+    async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re
 
         pattern = re.compile(r"^(?:from|import)\s+redis(?:\.asyncio)?")

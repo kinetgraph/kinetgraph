@@ -68,7 +68,7 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestPrincipalInvariants:
-    def test_admin_requires_tenant_id_none(self):
+    async def test_admin_requires_tenant_id_none(self):
         with pytest.raises(ValueError, match="tenant_id=None"):
             Principal(
                 agent_id="root",
@@ -77,7 +77,7 @@ class TestPrincipalInvariants:
                 key_id="k1",
             )
 
-    def test_agent_requires_tenant_id(self):
+    async def test_agent_requires_tenant_id(self):
         with pytest.raises(ValueError, match="tenant_id"):
             Principal(
                 agent_id="x",
@@ -86,7 +86,7 @@ class TestPrincipalInvariants:
                 key_id="k1",
             )
 
-    def test_service_requires_tenant_id(self):
+    async def test_service_requires_tenant_id(self):
         with pytest.raises(ValueError, match="tenant_id"):
             Principal(
                 agent_id="x",
@@ -95,7 +95,7 @@ class TestPrincipalInvariants:
                 key_id="k1",
             )
 
-    def test_empty_agent_id_rejected(self):
+    async def test_empty_agent_id_rejected(self):
         with pytest.raises(ValueError, match="agent_id"):
             Principal(
                 agent_id="",
@@ -104,7 +104,7 @@ class TestPrincipalInvariants:
                 key_id="k1",
             )
 
-    def test_empty_key_id_rejected(self):
+    async def test_empty_key_id_rejected(self):
         with pytest.raises(ValueError, match="key_id"):
             Principal(
                 agent_id="root",
@@ -113,7 +113,7 @@ class TestPrincipalInvariants:
                 key_id="",
             )
 
-    def test_json_roundtrip(self):
+    async def test_json_roundtrip(self):
         p = Principal(
             agent_id="tenant-A.agent-1",
             role=Role.agent,
@@ -124,7 +124,7 @@ class TestPrincipalInvariants:
         p2 = Principal.from_json(payload)
         assert p == p2
 
-    def test_from_json_invalid_role_raises(self):
+    async def test_from_json_invalid_role_raises(self):
         with pytest.raises(ValueError, match="role"):
             Principal.from_json(
                 {
@@ -142,7 +142,7 @@ class TestPrincipalInvariants:
 
 
 class TestPrincipalOwns:
-    def test_admin_owns_everything(self):
+    async def test_admin_owns_everything(self):
         admin = Principal(
             agent_id="root",
             role=Role.admin,
@@ -153,7 +153,7 @@ class TestPrincipalOwns:
         assert admin.owns("tenant-B/x")
         assert admin.owns("any-thing-at-all")
 
-    def test_agent_owns_under_its_tenant(self):
+    async def test_agent_owns_under_its_tenant(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
             role=Role.agent,
@@ -165,7 +165,7 @@ class TestPrincipalOwns:
         assert not agent.owns("tenant-B.agent-1")
         assert not agent.owns("tenant-AX/x")
 
-    def test_service_owns_under_its_tenant(self):
+    async def test_service_owns_under_its_tenant(self):
         svc = Principal(
             agent_id="tenant-A.consolidator",
             role=Role.service,
@@ -182,7 +182,7 @@ class TestPrincipalOwns:
 
 
 class TestDefaultPolicy:
-    def test_admin_cross_tenant_allowed(self):
+    async def test_admin_cross_tenant_allowed(self):
         admin = Principal(
             agent_id="root",
             role=Role.admin,
@@ -193,7 +193,7 @@ class TestDefaultPolicy:
         res = Resource(kind="event", tenant_id="tenant-A.agent-1")
         assert policy.allows(principal=admin, resource=res, action=Action.invoke)
 
-    def test_agent_cross_tenant_denied(self):
+    async def test_agent_cross_tenant_denied(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
             role=Role.agent,
@@ -204,7 +204,7 @@ class TestDefaultPolicy:
         res = Resource(kind="event", tenant_id="tenant-B/x")
         assert not policy.allows(principal=agent, resource=res, action=Action.invoke)
 
-    def test_agent_own_tenant_allowed(self):
+    async def test_agent_own_tenant_allowed(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
             role=Role.agent,
@@ -215,7 +215,7 @@ class TestDefaultPolicy:
         res = Resource(kind="event", tenant_id="tenant-A.agent-2")
         assert policy.allows(principal=agent, resource=res, action=Action.invoke)
 
-    def test_admin_only_action_denied_for_non_admin(self):
+    async def test_admin_only_action_denied_for_non_admin(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
             role=Role.agent,
@@ -228,7 +228,7 @@ class TestDefaultPolicy:
             principal=agent, resource=res, action=Action.administer
         )
 
-    def test_admin_action_allowed_for_admin(self):
+    async def test_admin_action_allowed_for_admin(self):
         admin = Principal(
             agent_id="root",
             role=Role.admin,
@@ -239,7 +239,7 @@ class TestDefaultPolicy:
         res = Resource(kind="admin")
         assert policy.allows(principal=admin, resource=res, action=Action.administer)
 
-    def test_service_blocked_from_admin_tools_via_tool_acl(self):
+    async def test_service_blocked_from_admin_tools_via_tool_acl(self):
         """Tool-level ACL (Scenario B) blocks service
         from admin-only tools. The ``DefaultPolicy``
         alone does NOT see the per-tool ``required_role``
@@ -280,19 +280,19 @@ class TestToolACL:
             key_id="k",
         )
 
-    def test_default_acl_is_agent_role_unpinned(self):
+    async def test_default_acl_is_agent_role_unpinned(self):
         acl = ToolACL()
         assert acl.required_role == Role.agent
         assert acl.tenant_pinned is False
         assert acl.tenant_id is None
 
-    def test_tenant_pinned_requires_tenant_id(self):
+    async def test_tenant_pinned_requires_tenant_id(self):
         with pytest.raises(ValueError, match="tenant_pinned=True"):
             ToolACL(tenant_pinned=True, tenant_id=None)
         with pytest.raises(ValueError, match="tenant_pinned=False"):
             ToolACL(tenant_pinned=False, tenant_id="tenant-A")
 
-    def test_role_check(self):
+    async def test_role_check(self):
         acl = ToolACL(required_role=Role.admin)
         admin = self._principal(Role.admin, None)
         agent = self._principal(Role.agent, "tenant-A")
@@ -300,7 +300,7 @@ class TestToolACL:
         assert acl.check(agent)[0] is False
         assert "role_insufficient" in acl.check(agent)[1]
 
-    def test_tenant_pinned_blocks_cross_tenant(self):
+    async def test_tenant_pinned_blocks_cross_tenant(self):
         acl = ToolACL(tenant_pinned=True, tenant_id="tenant-A")
         admin = self._principal(Role.admin, None)
         owner = self._principal(Role.agent, "tenant-A")
@@ -313,7 +313,7 @@ class TestToolACL:
         assert acl.check(foreigner)[0] is False
         assert "tenant_violation" in acl.check(foreigner)[1]
 
-    def test_service_role_too_low_for_admin_tool(self):
+    async def test_service_role_too_low_for_admin_tool(self):
         acl = ToolACL(required_role=Role.admin)
         svc = self._principal(Role.service, "tenant-A")
         assert acl.check(svc)[0] is False
@@ -334,14 +334,14 @@ class _EchoTool(Tool):
 
 
 class TestToolRegistryACL:
-    def test_default_acl_applied_on_register(self):
+    async def test_default_acl_applied_on_register(self):
         reg = ToolRegistry()
         reg.register(_EchoTool())
         acl = reg.acl_for("echo")
         assert acl is not None
         assert acl.required_role == Role.agent
 
-    def test_custom_acl_applied(self):
+    async def test_custom_acl_applied(self):
         reg = ToolRegistry()
         reg.register(
             _EchoTool(),
@@ -349,13 +349,13 @@ class TestToolRegistryACL:
         )
         assert reg.acl_for("echo").required_role == Role.admin
 
-    def test_set_acl_replaces(self):
+    async def test_set_acl_replaces(self):
         reg = ToolRegistry()
         reg.register(_EchoTool())
         reg.set_acl("echo", ToolACL(required_role=Role.admin))
         assert reg.acl_for("echo").required_role == Role.admin
 
-    def test_set_acl_unknown_tool_raises(self):
+    async def test_set_acl_unknown_tool_raises(self):
         reg = ToolRegistry()
         with pytest.raises(KeyError):
             reg.set_acl("never-registered", ToolACL())
@@ -588,7 +588,7 @@ class TestEventLogTenantViolation:
 
 
 class TestAlwaysAllowPolicy:
-    def test_always_allows(self):
+    async def test_always_allows(self):
         policy = AlwaysAllowPolicy()
         admin = Principal(
             agent_id="root",
@@ -621,7 +621,7 @@ class TestRoleComparison:
     this contract.
     """
 
-    def test_role_lt_with_non_role_returns_not_implemented(self):
+    async def test_role_lt_with_non_role_returns_not_implemented(self):
         from kntgraph.security.principal import Role
 
         # Direct call to the dunder returns
@@ -629,13 +629,13 @@ class TestRoleComparison:
         result = Role.admin.__lt__("not-a-role")
         assert result is NotImplemented
 
-    def test_role_le_with_non_role_returns_not_implemented(self):
+    async def test_role_le_with_non_role_returns_not_implemented(self):
         from kntgraph.security.principal import Role
 
         result = Role.admin.__le__("not-a-role")
         assert result is NotImplemented
 
-    def test_role_ordering_works(self):
+    async def test_role_ordering_works(self):
         """The happy path: ``Role.service < Role.agent <
         Role.admin``.
         """
@@ -650,7 +650,7 @@ class TestRoleComparison:
 class TestPrincipalFromJson:
     """The ``Principal.from_json`` defensive branches."""
 
-    def test_from_json_rejects_non_dict_payload(self):
+    async def test_from_json_rejects_non_dict_payload(self):
         """The branch ``if not isinstance(payload,
         dict): raise ValueError``. Pinned so a future
         refactor does not silently accept a list /
@@ -660,7 +660,7 @@ class TestPrincipalFromJson:
         with pytest.raises(ValueError, match="dict"):
             Principal.from_json("not-a-dict")  # type: ignore[arg-type]
 
-    def test_from_json_rejects_list_payload(self):
+    async def test_from_json_rejects_list_payload(self):
         """The same branch as above, exercised via a
         list (the test_rbac tests already cover the
         dict case; the list case is the single-arm
@@ -679,32 +679,32 @@ class TestScalarConverter:
     a non-empty string.
     """
 
-    def test_scalar_none_returns_empty_string(self):
+    async def test_scalar_none_returns_empty_string(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar(None) == ""
 
-    def test_scalar_string_passes_through(self):
+    async def test_scalar_string_passes_through(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar("hello") == "hello"
 
-    def test_scalar_int_returns_string(self):
+    async def test_scalar_int_returns_string(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar(42) == "42"
 
-    def test_scalar_float_returns_string(self):
+    async def test_scalar_float_returns_string(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar(3.14) == "3.14"
 
-    def test_scalar_bool_returns_string(self):
+    async def test_scalar_bool_returns_string(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar(True) == "True"
 
-    def test_scalar_dict_returns_empty_string(self):
+    async def test_scalar_dict_returns_empty_string(self):
         """The fallback ``return ""`` for non-scalar
         shapes. Pinned so a future refactor does not
         ``str(value)`` on a dict (which would produce
@@ -714,17 +714,17 @@ class TestScalarConverter:
 
         assert _scalar({"k": "v"}) == ""
 
-    def test_scalar_list_returns_empty_string(self):
+    async def test_scalar_list_returns_empty_string(self):
         from kntgraph.security.principal import _scalar
 
         assert _scalar([1, 2, 3]) == ""
 
-    def test_optional_scalar_none_returns_none(self):
+    async def test_optional_scalar_none_returns_none(self):
         from kntgraph.security.principal import _optional_scalar
 
         assert _optional_scalar(None) is None
 
-    def test_optional_scalar_string_passes_through(self):
+    async def test_optional_scalar_string_passes_through(self):
         from kntgraph.security.principal import _optional_scalar
 
         assert _optional_scalar("hello") == "hello"
@@ -736,7 +736,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
     tool-invocation ``min_role`` check.
     """
 
-    def test_resource_without_tenant_id_is_denied(self):
+    async def test_resource_without_tenant_id_is_denied(self):
         """The branch ``if resource.tenant_id is None:
         return False``: a resource with no tenant is
         denied by default (admin-only). Pinned so a
@@ -754,7 +754,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
         policy = DefaultPolicy()
         assert not policy.allows(principal=agent, resource=res, action=Action.invoke)
 
-    def test_tool_invocation_requires_min_role(self):
+    async def test_tool_invocation_requires_min_role(self):
         """The branch ``if action == Action.invoke and
         resource.kind == "tool":`` the role-level check
         on tool invocations. Pinned so a future

@@ -192,7 +192,7 @@ class TestPolling:
 
 
 class TestDefaults:
-    def test_default_poll_interval_is_100ms(self):
+    async def test_default_poll_interval_is_100ms(self):
         """`DEFAULT_POLL_INTERVAL_S` is the
         documented default. Callers (the HTTP
         gateway) used 0.1s before this helper

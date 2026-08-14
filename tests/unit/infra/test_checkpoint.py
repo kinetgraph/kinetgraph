@@ -105,14 +105,14 @@ def checkpoint() -> ReactiveCheckpoint:
 
 
 class TestReactiveCheckpoint:
-    def test_to_dict_round_trip(self, checkpoint: ReactiveCheckpoint) -> None:
+    async def test_to_dict_round_trip(self, checkpoint: ReactiveCheckpoint) -> None:
         data = checkpoint.to_dict()
         assert data["last_event_id"] == str(checkpoint.last_event_id)
         assert data["last_stream_id"] == checkpoint.last_stream_id
         assert data["confirmed_at"] == checkpoint.confirmed_at.isoformat()
         assert data["state_hash"] == "sha256:abc"
 
-    def test_from_dict_round_trip(self, checkpoint: ReactiveCheckpoint) -> None:
+    async def test_from_dict_round_trip(self, checkpoint: ReactiveCheckpoint) -> None:
         data = checkpoint.to_dict()
         restored = ReactiveCheckpoint.from_dict(checkpoint.agent_id, data)
         assert restored.agent_id == checkpoint.agent_id
@@ -121,7 +121,7 @@ class TestReactiveCheckpoint:
         assert restored.confirmed_at == checkpoint.confirmed_at
         assert restored.state_hash == checkpoint.state_hash
 
-    def test_state_hash_optional(self) -> None:
+    async def test_state_hash_optional(self) -> None:
         ck = ReactiveCheckpoint(
             agent_id="agent-1",
             last_event_id=uuid.uuid4(),
@@ -133,7 +133,7 @@ class TestReactiveCheckpoint:
         restored = ReactiveCheckpoint.from_dict(ck.agent_id, ck.to_dict())
         assert restored.state_hash is None
 
-    def test_is_frozen(self, checkpoint: ReactiveCheckpoint) -> None:
+    async def test_is_frozen(self, checkpoint: ReactiveCheckpoint) -> None:
         with pytest.raises(Exception):
             checkpoint.agent_id = "other"  # type: ignore[misc]
 
@@ -306,6 +306,6 @@ class TestClearAll:
 
 
 class TestUtcnow:
-    def test_returns_aware_utc(self) -> None:
+    async def test_returns_aware_utc(self) -> None:
         now = utcnow()
         assert now.tzinfo is timezone.utc

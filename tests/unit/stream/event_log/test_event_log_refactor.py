@@ -50,7 +50,7 @@ def _fake_storage():
 
 
 class TestEventLogConstructor:
-    def test_constructor_takes_storage(self):
+    async def test_constructor_takes_storage(self):
         from kntgraph.stream.event_log.store import EventLog
 
         storage = _fake_storage()

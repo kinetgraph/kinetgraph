@@ -59,12 +59,12 @@ SAMPLE_PAYLOAD = {
 
 
 class TestRedisDLQStorage:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
 
         assert RedisDLQStorage is not None
 
-    def test_implements_dlq_storage(self):
+    async def test_implements_dlq_storage(self):
         from kntgraph.infra.redis._dlq import DLQStorage, RedisDLQStorage
 
         storage = RedisDLQStorage(client=_fake_redis())
@@ -542,7 +542,7 @@ class TestDecodeIntDict:
     """The ``_decode_int_dict`` helper filters out
     ``None`` keys and unparseable values."""
 
-    def test_skips_none_keys(self):
+    async def test_skips_none_keys(self):
         from kntgraph.infra.redis._dlq._redis import (
             _decode_int_dict,
         )
@@ -554,7 +554,7 @@ class TestDecodeIntDict:
         result = _decode_int_dict({None: b"1"})
         assert result == {}
 
-    def test_skips_unparseable_values(self):
+    async def test_skips_unparseable_values(self):
         from kntgraph.infra.redis._dlq._redis import (
             _decode_int_dict,
         )

@@ -240,7 +240,7 @@ class TestProfileManagerReadThrough:
         assert state is not None
         assert "lang" not in state.preferences
 
-    def test_unset_unknown_key_is_noop(self, event_log, profile_storage):
+    async def test_unset_unknown_key_is_noop(self, event_log, profile_storage):
         # not async; just exercises the dataclass path
         state = ProfileState(
             tenant_id="t",

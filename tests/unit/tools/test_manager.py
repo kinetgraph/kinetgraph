@@ -430,7 +430,7 @@ class TestProcessMessageHardCrash:
         # imported is enough for the dispatch path.)
         from kntgraph.tools import manager as mgr_mod
 
-        async def raise_then_crash(*_args, **_kwargs):
+        def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
         original = mgr_mod._invoke_tool_sync
@@ -457,7 +457,7 @@ class TestProcessMessageHardCrash:
 
         from kntgraph.tools import manager as mgr_mod
 
-        async def raise_then_crash(*_args, **_kwargs):
+        def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
         original = mgr_mod._invoke_tool_sync
@@ -670,7 +670,7 @@ class TestCustomRetries:
 
             from kntgraph.tools import manager as mgr_mod
 
-            async def raise_then_crash(*_args, **_kwargs):
+            def raise_then_crash(*_args, **_kwargs):
                 raise RuntimeError("worker process died")
 
             original = mgr_mod._invoke_tool_sync

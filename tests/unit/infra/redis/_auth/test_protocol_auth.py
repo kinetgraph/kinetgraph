@@ -23,12 +23,12 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestAPIKeyStorageProtocol:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._auth import APIKeyStorage
 
         assert APIKeyStorage is not None
 
-    def test_api_key_storage_lists_required_methods(self):
+    async def test_api_key_storage_lists_required_methods(self):
         from kntgraph.infra.redis._auth import APIKeyStorage
 
         for name in ("lookup", "store", "delete"):
@@ -36,7 +36,7 @@ class TestAPIKeyStorageProtocol:
 
 
 class TestAPIKeyStorageLookupContract:
-    def test_lookup_returns_raw_bytes_or_none(self):
+    async def test_lookup_returns_raw_bytes_or_none(self):
         """Contract: ``lookup(digest)`` returns the raw value or None."""
         from kntgraph.infra.redis._auth import APIKeyStorage
 
@@ -48,7 +48,7 @@ class TestAPIKeyStorageLookupContract:
 
 
 class TestAPIKeyStorageStoreContract:
-    def test_store_accepts_raw_bytes(self):
+    async def test_store_accepts_raw_bytes(self):
         from kntgraph.infra.redis._auth import APIKeyStorage
 
         storage = MagicMock(spec=APIKeyStorage)
@@ -59,7 +59,7 @@ class TestAPIKeyStorageStoreContract:
 
 
 class TestAPIKeyStorageDeleteContract:
-    def test_delete_removes_binding(self):
+    async def test_delete_removes_binding(self):
         from kntgraph.infra.redis._auth import APIKeyStorage
 
         storage = MagicMock(spec=APIKeyStorage)
@@ -84,7 +84,7 @@ class TestNoDirectRedisImportInAuth:
         "infra/redis/",
     }
 
-    def test_no_redis_asyncio_imports_outside_redis_package(self):
+    async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re
 
         pattern = re.compile(r"^(?:from|import)\s+redis(?:\.asyncio)?")

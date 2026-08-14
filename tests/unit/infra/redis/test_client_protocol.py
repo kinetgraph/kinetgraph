@@ -56,12 +56,12 @@ def _collect_redis_method_calls() -> dict[str, Path]:
 
 
 class TestRedisLikeProtocol:
-    def test_protocol_module_importable(self):
+    async def test_protocol_module_importable(self):
         from kntgraph.infra.redis import RedisLike
 
         assert RedisLike is not None
 
-    def test_protocol_is_runtime_checkable(self):
+    async def test_protocol_is_runtime_checkable(self):
         """`isinstance(client, RedisLike)` must work at runtime."""
         from kntgraph.infra.redis import RedisLike
 
@@ -69,7 +69,7 @@ class TestRedisLikeProtocol:
             RedisLike, "__call__"
         ), "RedisLike must be decorated with @runtime_checkable"
 
-    def test_redis_like_lists_required_methods(self):
+    async def test_redis_like_lists_required_methods(self):
         from kntgraph.infra.redis import RedisLike
 
         for name in (
@@ -86,7 +86,7 @@ class TestRedisLikeProtocol:
 
 
 class TestRedisAsyncioSatisfiesProtocol:
-    def test_redis_asyncio_redis_satisfies_redis_like(self):
+    async def test_redis_asyncio_redis_satisfies_redis_like(self):
         """`redis.asyncio.Redis` satisfies RedisLike via duck typing."""
         try:
             import redis.asyncio as redis_async
@@ -123,7 +123,7 @@ class TestProtocolCoverage:
         "infra/redis/",
     }
 
-    def test_protocol_covers_all_framework_redis_calls(self):
+    async def test_protocol_covers_all_framework_redis_calls(self):
         from kntgraph.infra.redis import RedisLike
 
         used = _collect_redis_method_calls()
@@ -156,7 +156,7 @@ class TestNoDirectRedisImportInFramework:
         "infra/redis/",
     }
 
-    def test_no_redis_asyncio_imports_outside_redis_package(self):
+    async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re
 
         pattern = re.compile(r"^(?:from|import)\s+redis(?:\.asyncio)?")

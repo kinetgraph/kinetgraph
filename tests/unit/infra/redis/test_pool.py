@@ -19,13 +19,13 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestRedisPool:
-    def test_pool_module_importable(self):
+    async def test_pool_module_importable(self):
         from kntgraph.infra.redis import RedisPool, create_redis_pool
 
         assert RedisPool is not None
         assert callable(create_redis_pool)
 
-    def test_pool_from_settings_uses_configured_url(self):
+    async def test_pool_from_settings_uses_configured_url(self):
         from kntgraph.infra.config import Settings
         from kntgraph.infra.redis import RedisPool
 
@@ -37,7 +37,7 @@ class TestRedisPool:
             assert "redis://test-host:1234/0" in (args or ())
             assert kwargs.get("max_connections") == settings.redis_max_connections
 
-    def test_pool_max_connections_propagated_from_settings(self):
+    async def test_pool_max_connections_propagated_from_settings(self):
         from kntgraph.infra.config import Settings
         from kntgraph.infra.redis import RedisPool
 
@@ -47,7 +47,7 @@ class TestRedisPool:
             kwargs = mock_from_url.call_args.kwargs
             assert kwargs["max_connections"] == 99
 
-    def test_pool_client_satisfies_redis_like(self):
+    async def test_pool_client_satisfies_redis_like(self):
         from kntgraph.infra.redis import RedisPool
 
         _pool = RedisPool.__new__(RedisPool)

@@ -26,12 +26,12 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestShortMemoryStorageProtocol:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         assert ShortMemoryStorage is not None
 
-    def test_memory_storage_lists_required_methods(self):
+    async def test_memory_storage_lists_required_methods(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         for name in (
@@ -46,7 +46,7 @@ class TestShortMemoryStorageProtocol:
 
 
 class TestShortMemoryStorageGetReturnsMappingOrNone:
-    def test_get_record_returns_mapping_when_present(self):
+    async def test_get_record_returns_mapping_when_present(self):
         """Contract: ``get_record`` returns a Mapping when the key exists."""
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
@@ -59,7 +59,7 @@ class TestShortMemoryStorageGetReturnsMappingOrNone:
 
 
 class TestShortMemoryStoragePutRecord:
-    def test_put_record_accepts_mapping_and_ttl(self):
+    async def test_put_record_accepts_mapping_and_ttl(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         storage = MagicMock(spec=ShortMemoryStorage)
@@ -76,7 +76,7 @@ class TestShortMemoryStoragePutRecord:
             ttl_seconds=3600,
         )
 
-    def test_put_record_accepts_no_ttl(self):
+    async def test_put_record_accepts_no_ttl(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         storage = MagicMock(spec=ShortMemoryStorage)
@@ -90,7 +90,7 @@ class TestShortMemoryStoragePutRecord:
 
 
 class TestShortMemoryStorageDeleteRecord:
-    def test_delete_record_removes_key(self):
+    async def test_delete_record_removes_key(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         storage = MagicMock(spec=ShortMemoryStorage)
@@ -101,7 +101,7 @@ class TestShortMemoryStorageDeleteRecord:
 
 
 class TestShortMemoryStorageIterKeys:
-    def test_iter_keys_returns_async_iterable(self):
+    async def test_iter_keys_returns_async_iterable(self):
         from kntgraph.infra.redis._memory import ShortMemoryStorage
 
         async def fake_iter_keys(prefix):
@@ -119,7 +119,7 @@ class TestShortMemoryStorageIterKeys:
             async for k in storage.iter_keys("knt:session:"):
                 keys.append(k)
 
-        asyncio.run(collect())
+        await collect()
         assert keys == ["knt:session:1", "knt:session:2"]
 
 
@@ -139,7 +139,7 @@ class TestNoDirectRedisImportInMemory:
         "infra/redis/",
     }
 
-    def test_no_redis_asyncio_imports_outside_redis_package(self):
+    async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re
 
         pattern = re.compile(r"^(?:from|import)\s+redis(?:\.asyncio)?")

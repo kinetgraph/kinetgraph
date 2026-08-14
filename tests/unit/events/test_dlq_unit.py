@@ -112,7 +112,7 @@ def _make_dlq_event(
 
 
 class TestDeadLetterEventCodec:
-    def test_to_dict_then_from_dict_round_trips(self):
+    async def test_to_dict_then_from_dict_round_trips(self):
         original = _make_dlq_event(retry_count=3)
         d = original.to_dict()
         decoded = DeadLetterEvent.from_dict(d)
@@ -123,7 +123,7 @@ class TestDeadLetterEventCodec:
         assert decoded.error_message == original.error_message
         assert decoded.retry_count == original.retry_count
 
-    def test_dlq_id_stable_on_event_id(self):
+    async def test_dlq_id_stable_on_event_id(self):
         event = _make_event()
         dl = _make_dlq_event(event=event)
         assert dl.dlq_id == f"dlq:{event.event_id}"

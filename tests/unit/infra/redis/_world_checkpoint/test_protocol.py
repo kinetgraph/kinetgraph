@@ -25,14 +25,14 @@ pytestmark = pytest.mark.asyncio
 
 
 class TestWorldCheckpointStorageProtocol:
-    def test_module_importable(self):
+    async def test_module_importable(self):
         from kntgraph.infra.redis._world_checkpoint import (
             WorldCheckpointStorage,
         )
 
         assert WorldCheckpointStorage is not None
 
-    def test_storage_lists_required_methods(self):
+    async def test_storage_lists_required_methods(self):
         from kntgraph.infra.redis._world_checkpoint import (
             WorldCheckpointStorage,
         )
@@ -56,7 +56,7 @@ class TestNoDirectRedisImportInWorldCheckpoint:
         "infra/redis/",
     }
 
-    def test_no_redis_asyncio_imports_outside_redis_package(self):
+    async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re
 
         pattern = re.compile(r"^(?:from|import)\s+redis(?:\.asyncio)?")
