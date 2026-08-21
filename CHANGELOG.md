@@ -15,8 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-21
+
 ### Added
 - **Domain Memory via ECS Components.** Introduced a new, native architectural pattern for persisting durable, structural domain facts without relying on volatile sliding windows (`Continuity`). Systems can now fold domain events into pure ECS Components (`@dataclass(frozen=True, slots=True)`), which are attached to the `World` entity and accessed with type safety (e.g. `world.get_component(CompanySizeProjection)`). See [ADR-059](ADRs/ADR-059-Domain-Memory-ECS-Components.md) for details.
+
 
 ## [0.11.1] — 2026-08-05
 
