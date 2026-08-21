@@ -5,9 +5,15 @@
 from __future__ import annotations
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.world import World
+from kntgraph.core.world import World, DomainComponent, domain_component
 from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.world import _apply_event
+from dataclasses import dataclass
+
+@domain_component("test.component.loaded")
+@dataclass(frozen=True)
+class MockComponent(DomainComponent):
+    value: int
 
 
 def _event(agent_id: str, event_type: str, *, event_class: str = "domain") -> Event:
@@ -67,6 +73,21 @@ def test_apply_event_preserves_derived_components_for_domain_events():
     assert "prior" not in updated.components
 
 
+def test_apply_event_preserves_custom_components_for_domain_events():
+    comp = MockComponent(value=99)
+    existing = AgentView(
+        agent_id="a-1",
+        components={
+            MockComponent: comp,
+        },
+    )
+    event = _event("a-1", "next.step")
+
+    updated = _apply_event(existing, event)
+
+    assert updated.get_component(MockComponent) is comp
+
+
 def test_apply_event_tracks_last_event_metadata():
     view = AgentView(agent_id="a-1")
     event = Event.create(
@@ -83,3 +104,40 @@ def test_apply_event_tracks_last_event_metadata():
     assert updated.last_event_at == event.timestamp
     assert updated.domain_phase is None
     assert updated.operational_phase == "running"
+
+
+def test_agent_view_get_component_fast_path():
+    comp = MockComponent(value=42)
+    view = AgentView(agent_id="a-1", components={MockComponent: comp})
+    assert view.get_component(MockComponent) is comp
+
+
+def test_agent_view_get_component_legacy_fallback():
+    comp = MockComponent(value=10)
+    view = AgentView(agent_id="a-1", components={"legacy.key": comp})
+    assert view.get_component(MockComponent) is comp
+
+
+def test_agent_view_get_component_not_found():
+    view = AgentView(agent_id="a-1", components={"other": 123})
+    assert view.get_component(MockComponent) is None
+
+
+def test_world_fold_with_custom_domain_component_projection():
+    # Since MockComponent is auto-registered with event_type="test.component.loaded",
+    # the default projection will automatically hydrate it! We don't need custom_proj.
+    
+    events = [
+        _event("a-1", "test.component.loaded"),
+        _event("a-1", "some.other.event"),
+    ]
+    
+    world = World.fold(events)
+    
+    view = world.get_agent("a-1")
+    assert view is not None
+    
+    comp = view.get_component(MockComponent)
+    assert comp is not None
+    assert comp.value == 1
+

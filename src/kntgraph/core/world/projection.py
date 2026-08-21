@@ -36,7 +36,6 @@ from ..event.operational import OPERATIONAL_EVENT_TO_PHASE
 from ..lifecycle import OperationalPhase
 from .view import AgentView
 
-
 # A projection is any callable from sequence[Event] to dict[agent_id, AgentView].
 Projection = Callable[[Sequence[Event]], dict[str, AgentView]]
 
@@ -98,6 +97,15 @@ def _is_derived_component_key(key: Any) -> bool:
         return key in _DERIVED_COMPONENT_KEYS
     # Typed component (class key, ADR-042).
     if isinstance(key, type):
+        # 1. Check if it's a typed ECS Component (ADR-059)
+        try:
+            from .component import DomainComponent
+            if issubclass(key, DomainComponent):
+                return True
+        except TypeError:
+            pass  # key is not a class or issubclass failed
+            
+        # 2. Check legacy memory components (ADR-042)
         try:
             from ..components import memory as _memory_components
         except ImportError:
@@ -257,14 +265,20 @@ def _lifecycle_phase_from_event(event_type: str) -> OperationalPhase:
     return event_type.rsplit(".", 1)[-1]  # type: ignore[return-value]
 
 
-def _extract_components_from_event(event: Event) -> dict[str, Any]:
+def _extract_components_from_event(event: Event) -> dict[Any, Any]:
     """
     Map the event payload into a components dict.
 
-    The default strategy is: each event becomes a single component
-    named after the event_type, whose value is the event's data
-    payload. Applications that want richer projections override this.
+    The default strategy is:
+    1. If a DomainComponent is registered for this event_type, auto-hydrate it.
+    2. Otherwise, each event becomes a single component named after the
+       event_type, whose value is the event's data payload.
     """
+    from .component import DomainComponent
+    cls = DomainComponent.__domain_registry__.get(event.event_type)
+    if cls:
+        return {cls: cls(**event.data)}
+        
     return {event.event_type: dict(event.data)}
 
 

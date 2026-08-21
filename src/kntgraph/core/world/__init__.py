@@ -57,6 +57,7 @@ will see an `ImportError`; they should use `WorldQuery.filter()`
 or construct `WorldQuery(world, predicate=fn)`.
 """
 
+from .component import DomainComponent, domain_component
 from .projection import Projection, project_default
 from .query import WorldQuery
 from .view import AgentView
@@ -64,6 +65,8 @@ from .world import World
 
 __all__ = [
     "AgentView",
+    "DomainComponent",
+    "domain_component",
     "Projection",
     "World",
     "WorldQuery",
