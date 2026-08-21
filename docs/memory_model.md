@@ -53,6 +53,16 @@ The framework categorizes memory into three distinct, Redis-backed short-term ti
 - **Storage**: Projected into **FalkorDB** (a graph database).
 - **Mechanism**: Extracts patterns and entities from the EventLog (via `SolutionExtractorSystem`) and promotes them into a queryable graph (via `SolutionPromoterSystem`) for GraphRAG retrieval.
 
+### 5. Domain Tier (ECS Components)
+*Introduced in ADR-059*
+- **Purpose**: Permanent, structural domain facts derived from the event stream (e.g., a company's legal size, a validation outcome, an aggregate's snapshot).
+- **Storage Strategy**: Pure in-memory ECS (Entity-Component-System). The framework natively reconstructs these components directly from the EventLog during the `World.fold()` operation.
+- **Usage (Auto-Hydration)**: Kinetgraph utilizes an inverted-control registry. By simply inheriting from `DomainComponent` and applying the `@domain_component("your.event.type")` decorator to a `@dataclass`, the component is automatically intercepted and hydrated by the framework. No manual loops or extractions are required.
+- **Update Semantics (Last-Event-Wins)**: Because the component is keyed by its class identity in the `AgentView`, any subsequent event with the same `event_type` will automatically overwrite the previous state of that component. This guarantees that the component always reflects the most recent fact without requiring manual merging logic.
+- **Lifecycle**: Permanent (bound to the immutable `EventLog`). These components do not suffer from "sliding window amnesia" and never expire.
+- **Identity**: Bound to `agent_id` (the aggregate root instance).
+- **Selection Criteria**: Used for data that is the direct, structural result of a business process, which systems must rely on indefinitely without arbitrary TTLs.
+
 ---
 
 ## Shared Orchestration (`BaseShortTermMemory`)

@@ -38,6 +38,7 @@ directly with `python` or via `uv run`.
 | 14 | `14_sales_logistics.py`               | Per-stream isolation: each `agent_id` is its own stream; changing one order's qty does not leak into another | core                 |
 | 15 | `15_audit_supervisor.py`              | Supervisor pattern: an audit system inspects per-agent Worlds and emits `audit.flagged` on inconsistency | core                 |
 | 16 | `16_continuity_recency.py`            | `ContinuityManager` (ADR-014): recency-suggest + LGPD `clear`                                     | core                 |
+| 21 | `21_domain_memory_ecs.py`             | Durable Domain Memory using pure ECS Components (ADR-059)                                         | core                 |
 
 ## Setup
 

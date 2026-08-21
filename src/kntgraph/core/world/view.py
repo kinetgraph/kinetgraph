@@ -32,9 +32,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, TypeVar, Type
 
 from ..lifecycle import OperationalPhase
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +105,24 @@ class AgentView:
     @property
     def is_running(self) -> bool:
         return self.operational_phase == "running"
+
+    def get_component(self, component_type: Type[T]) -> Optional[T]:
+        """
+        Type-safe accessor for ECS Components.
+        Returns the component if it exists and matches the requested type,
+        otherwise returns None.
+        """
+        # Fast path: check if the type itself is the key (Type Discipline)
+        val = self.components.get(component_type)
+        if isinstance(val, component_type):
+            return val
+
+        # Fallback: search by type if a legacy string key was used
+        for comp in self.components.values():
+            if isinstance(comp, component_type):
+                return comp
+
+        return None
 
 
 __all__ = ["AgentView"]
