@@ -100,11 +100,12 @@ def _is_derived_component_key(key: Any) -> bool:
         # 1. Check if it's a typed ECS Component (ADR-059)
         try:
             from .component import DomainComponent
+
             if issubclass(key, DomainComponent):
                 return True
         except TypeError:
             pass  # key is not a class or issubclass failed
-            
+
         # 2. Check legacy memory components (ADR-042)
         try:
             from ..components import memory as _memory_components
@@ -275,10 +276,11 @@ def _extract_components_from_event(event: Event) -> dict[Any, Any]:
        event_type, whose value is the event's data payload.
     """
     from .component import DomainComponent
+
     cls = DomainComponent.__domain_registry__.get(event.event_type)
     if cls:
         return {cls: cls(**event.data)}
-        
+
     return {event.event_type: dict(event.data)}
 
 

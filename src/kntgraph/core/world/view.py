@@ -116,12 +116,12 @@ class AgentView:
         val = self.components.get(component_type)
         if isinstance(val, component_type):
             return val
-            
+
         # Fallback: search by type if a legacy string key was used
         for comp in self.components.values():
             if isinstance(comp, component_type):
                 return comp
-                
+
         return None
 
 

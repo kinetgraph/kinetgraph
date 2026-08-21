@@ -10,9 +10,9 @@ This example demonstrates how to implement the Domain Memory tier
 using Kinetgraph's pure ECS architecture (ADR-059).
 
 Domain Memory is used for durable, structural business facts
-that should not expire. Kinetgraph provides an auto-registry 
-feature via the `DomainComponent` base class. Simply declaring 
-the class and passing `event_type` automatically teaches the 
+that should not expire. Kinetgraph provides an auto-registry
+feature via the `DomainComponent` base class. Simply declaring
+the class and passing `event_type` automatically teaches the
 framework how to hydrate it.
 """
 
@@ -20,12 +20,13 @@ from dataclasses import dataclass
 from typing import Optional
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.world import AgentView, DomainComponent, World, domain_component
+from kntgraph.core.world import DomainComponent, World, domain_component
 
 
 # =====================================================================
 # 1. Define the Domain Component (ECS Auto-Registered)
 # =====================================================================
+
 
 @domain_component("onboarding.company_size.loaded")
 @dataclass(frozen=True, slots=True)
@@ -35,12 +36,14 @@ class CompanySizeProjection(DomainComponent):
     Because it inherits from DomainComponent and defines `event_type`,
     the framework automatically hydrates it during the default fold!
     """
+
     company_size: str  # e.g., 'MEI', 'ME', 'EPP'
 
 
 # =====================================================================
 # 2. Example Execution
 # =====================================================================
+
 
 def main() -> None:
     agent_id = "onboarding-123"
@@ -73,18 +76,18 @@ def main() -> None:
     ]
 
     print("Rebuilding the World from the EventLog...")
-    
+
     # We just run the standard fold. The framework reads the registry
     # and automatically extracts `CompanySizeProjection`!
     world = World.fold(history)
-    
+
     view = world.get_agent(agent_id)
     if not view:
         return
 
     # Extract the component with perfect type-safety
     comp: Optional[CompanySizeProjection] = view.get_component(CompanySizeProjection)
-    
+
     if comp:
         print(f"Success! The agent's company size is permanently: {comp.company_size}")
         if comp.company_size == "MEI":

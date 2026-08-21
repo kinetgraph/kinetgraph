@@ -10,6 +10,7 @@ from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.world import _apply_event
 from dataclasses import dataclass
 
+
 @domain_component("test.component.loaded")
 @dataclass(frozen=True)
 class MockComponent(DomainComponent):
@@ -126,18 +127,17 @@ def test_agent_view_get_component_not_found():
 def test_world_fold_with_custom_domain_component_projection():
     # Since MockComponent is auto-registered with event_type="test.component.loaded",
     # the default projection will automatically hydrate it! We don't need custom_proj.
-    
+
     events = [
         _event("a-1", "test.component.loaded"),
         _event("a-1", "some.other.event"),
     ]
-    
+
     world = World.fold(events)
-    
+
     view = world.get_agent("a-1")
     assert view is not None
-    
+
     comp = view.get_component(MockComponent)
     assert comp is not None
     assert comp.value == 1
-
