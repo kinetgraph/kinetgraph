@@ -24,8 +24,8 @@ values are pinned in [`docs/quality.md`](docs/quality.md)
 [![cc](https://img.shields.io/badge/CC-A%20%282.49%29-brightgreen?style=for-the-badge&logo=radar&logoColor=white)](https://radon.readthedocs.io/)
 [![mi](https://img.shields.io/badge/MI-237_A_0_B_0_C-brightgreen?style=for-the-badge&logo=heartbeat&logoColor=white)](https://radon.readthedocs.io/)
 [![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen?style=for-the-badge&logo=microsoft&logoColor=white)](https://microsoft.github.io/pyright/)
-![Version](https://img.shields.io/badge/version-0.11.0-blue)
-[![pypi](https://img.shields.io/badge/pypi-0.11.0-blue?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/kntgraph/)
+![Version](https://img.shields.io/badge/version-0.13.0-blue)
+[![pypi](https://img.shields.io/badge/pypi-0.13.0-blue?style=for-the-badge&logo=pypi&logoColor=white)](https://pypi.org/project/kntgraph/)
 ### Tests
 
 [![coverage](https://img.shields.io/badge/coverage-83.0%25-brightgreen?style=for-the-badge&logo=codecov&logoColor=white)](https://coverage.readthedocs.io/)
@@ -95,12 +95,12 @@ Install from PyPI:
 uv add kntgraph
 ```
 
-The version is the git tag (`v0.11.0` → `0.11.0`),
+The version is the git tag (`v0.13.0` → `0.13.0`),
 discoverable on PyPI:
 
 ```bash
 pip show kntgraph
-# Version: 0.11.0
+# Version: 0.13.0
 # License: Apache-2.0
 ```
 
@@ -279,6 +279,14 @@ canonical schema is `Settings` in
 | [ADR-046](ADRs/ADR-046-CLI-Intent-Routing-Scaffold.md) | CLI Scaffold for Intent Routing Modes | Accepted (Implemented) |
 | [ADR-047](ADRs/ADR-047-Tool-Adapter-Pattern.md) | Standardizing Tool Construction via Adapters | Draft (sync `ToolWorker` stable; §6 follow-ups open) |
 
+### ADRs Accepted in v0.12.0 / v0.13.0 (closed in this cycle)
+
+| ADR | Título | Status |
+| --- | ------ | ------ |
+| [ADR-057](ADRs/ADR-057-durabilidade-dos-dados.md) | Data Storage — Operational and Historical | Implemented (v0.13.0) |
+| [ADR-058](ADRs/ADR-058-disaster-recovery.md) | Disaster Recovery — restore procedures, retention policy, and the WAIT budget | Implemented (v0.13.0) |
+| [ADR-059](ADRs/ADR-059-Domain-Memory-ECS-Components.md) | Domain Memory via ECS Components | Implemented (v0.13.0) |
+
 ### ADRs Accepted in v0.10.0 / v0.11.0 (closed in this cycle)
 
 | ADR | Título | Status |
@@ -310,6 +318,8 @@ canonical schema is `Settings` in
 
 ## Project status
 
+- `0.13.0` — current release. Adds Domain Memory via ECS Components (`ADR-059`) for persisting structural domain facts natively, and introduces the data durability and disaster recovery strategy (`ADR-057` and `ADR-058`).
+- `0.12.1` — reliability fixes and worker invocation module implementation. Refactored complexity metrics.
 - `0.11.0` — first PyPI release. Shipping
   `pip install kntgraph` as the canonical install
   path (ADR-052). The release process is now

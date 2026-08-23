@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-059: Domain Memory via ECS Components
 
-- **Status:** Accepted
+- **Status:** Implemented
 - **Date:** 2026-08-21
 - **Author:** kinetgraph architecture team
 - **Related to:**
