@@ -15,8 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-21
+
 ### Added
 - **Domain Memory via ECS Components.** Introduced a new, native architectural pattern for persisting durable, structural domain facts without relying on volatile sliding windows (`Continuity`). Systems can now fold domain events into pure ECS Components (`@dataclass(frozen=True, slots=True)`), which are attached to the `World` entity and accessed with type safety (e.g. `world.get_component(CompanySizeProjection)`). See [ADR-059](ADRs/ADR-059-Domain-Memory-ECS-Components.md) for details.
+- **Custom Projections and Data Durability.** Implemented data durability strategy including Iceberg offloading and disaster recovery procedures. See [ADR-057](ADRs/ADR-057-durabilidade-dos-dados.md) and [ADR-058](ADRs/ADR-058-disaster-recovery.md) for details.
+
+## [0.12.1] — 2026-08-14
+
+### Added
+- **Worker Invocation Module.** Implemented worker invocation module and enforced spawn method.
+
+### Changed
+- Refactored complexity metrics and improved version bumping script.
+
+### Fixed
+- Reliability on execution fixes.
 
 ## [0.11.1] — 2026-08-05
 
