@@ -329,6 +329,89 @@ eventos por agente, o restart cai de ~5s para ~50ms.
 - **`World.with_event`**: invariante. A primitive incremental já existe desde a v2.0; só não estava sendo usada pelo dispatcher.
 - **Projection (`project_default`)**: invariante. A função de reduzir evento → componentes continua a mesma.
 
+### 3.6 Custo do snapshot — vale pagar?
+
+> **Origin.** This section was carried over from
+> [ADR-058 §2.5](./ADR-058-disaster-recovery.md) (rev. 4)
+> after a scope-split between DR and component ownership.
+> The DR ADR keeps only the operational concern
+> ("snapshot is not a recovery target — the EventLog is");
+> this section owns the cost/value question of the
+> `IncrementalWorldStore` as a derived cache.
+
+The `IncrementalWorldStore` is a **derived** per-agent Redis
+pickle cache, with the EventLog (`Redis Streams`) as the
+primary source of history. That hierarchy is correct. The
+open question is **whether the cache pays for itself**.
+
+Evidence gathered against the current implementation:
+
+| Aspect | Reference | Cost |
+|---|---|---|
+| **Write cost per tick** | `src/kntgraph/runner/reactive.py:380` + `_systems_runner.py:97` | 2 Redis round-trips (load + save) + one `pickle.dumps` of the entire `World` |
+| **Read cost per tick** | same | `pickle.loads` of the entire `World` |
+| **Cold-start fallback** | `world_checkpoint.py:157-160` | `load()` returning empty → `World.fold` from the EventLog, O(N) |
+| **Trim-resilience** | `test_stream_trim_does_not_break_resume` | survives `XTRIM` past the cursor |
+| **Restart cost saved** | §3.1 (narrative) | "5 s → 50 ms" for 10 k events / agent — **not measured** |
+| **Pickle security** | `world_checkpoint.py:60-66` | `# nosec B403`; operator-only |
+| **Legacy dead code** | `src/kntgraph/infra/checkpoint.py` (~397 LOC) | unrelated, but indicates a migration that was not finished |
+| **Documentation drift** | `docs/checkpoints.md` (337 lines) | still describes the v2.1 `ReactiveCheckpoint` model |
+
+Two failure modes the snapshot must guard against to justify
+its cost:
+
+1. **Long-horizon restart.** A node reboots; the dispatcher
+   has to fold the whole stream before accepting new
+   intents. Without the snapshot, this is O(N_events_per_agent).
+2. **Cold start after `XTRIM`.** If the EventLog has been
+   trimmed past the snapshot's cursor, the snapshot is
+   authoritative for the trimmed region. Without the
+   snapshot, the dispatcher would have to fold from a stale
+   cursor and might over- or under-apply deltas.
+
+For (1), the framework's existing cold-start path
+(`World.fold` from `XRANGE - +`) **already handles this**.
+The snapshot is an **optimisation**, not a correctness
+guarantee. For (2), the trim is monotonic and the snapshot's
+`last_stream_id` is verified against the stream before
+reuse (`world_checkpoint.py:152-198`); this is also a
+**safety net**, not a correctness requirement.
+
+**Recommendation (proposed, to be validated by benchmark):**
+
+The snapshot is kept as an **optimisation tier** behind a
+flag. The default is **on** in production (restart latency
+matters at scale) and **off** in dev / CI. The flag is
+`KNT_WORLD_CHECKPOINT_ENABLED` (Pydantic Settings), default
+`true`. When `false`, the dispatcher uses cold-start on every
+restart; this is acceptable in dev because `N` is small.
+
+The benchmark that justifies (or vetoes) this default lives
+in `tests/stress/test_dispatcher_restart_latency.py`. It
+measures `time_to_first_intent_after_restart` at three event
+densities (1 k, 10 k, 100 k events/agent) with and without
+the snapshot. The benchmark is the gate: if the snapshot
+does not yield a ≥ 5× speedup at the 10 k density, the
+default flips to `false`.
+
+This decision does **not** delete `IncrementalWorldStore`.
+The code stays; the default changes. The legacy
+`CheckpointStore` (~397 LOC + ~337 LOC of docs) **is**
+deleted as a separate concern (DEBT.md), not under §3.5
+"what does not change" and not under this section's
+benchmark-driven default flip.
+
+**Per-class interaction (added by rev. after the 057 §4.11.6
+per-class retention split).** The `IncrementalWorldStore`
+carries `last_stream_id_per_class` as part of its metadata
+(one extra `dict[str, str]` field per checkpoint; no
+schema change). The benchmark must measure cold-start time
+under the **default per-class retention** — i.e. with the
+`"lifecycle"` tail truncated aggressively and the
+`"domain"` tail intact — to be representative of
+production workloads. A benchmark against an
+un-trimmed-only stream is no longer realistic.
+
 ---
 
 ## 4. Migração
