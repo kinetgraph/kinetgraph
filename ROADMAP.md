@@ -67,7 +67,16 @@ recebem proteção imediata.
 | 2 | LiteLLM fallback chain no `LiteLLMToolWorker.invoke` (regressão do ADR-043) | [ADR-061 §6.2](./ADRs/ADR-061-litellm-integration-review.md) | regression | Merged | — |
 
 > **Implementação efetiva:** `with_timeout_and_retry` + `BackoffPolicy(retry_on=(LLMRateLimitError, asyncio.TimeoutError))` (commit `84cfd45`). **Retry do mesmo model com backoff exponencial** (não fallback entre models). O `LLMConfig.fallback_models` continua sendo carregado mas não consumido; fica como **Tracking** até alguém implementar (o `with_fallback_chain` do toolkit não diferencia `LLMAuthError`/`LLMRateLimitError`, e estender o toolkit expandia escopo). A regressão do ADR-043 (rate-limit virava `Err` imediato) está fechada; o cenário "primary cai 429 → retry com backoff → sucesso" é coberto pelos 6 testes em `TestInvokeRetryPolicy`.
-| 3 | `chat_llm` registrado em `default_acl()` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
+| 3 | ~~`chat_llm` registrado em `default_acl()`~~ | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT** | — |
+
+> **Decisão 2026-08-26:** o fix literal proposto em ADR-061 §5 ("registrar `chat_llm` em `default_acl()`") **não fecha a brecha**. `default_acl()` já retorna `ToolACL(required_role=Role.agent)`, mas `LiteLLMToolWorker` é registrado **exclusivamente via `WorkerManager.register`**, que não consulta `ToolRegistry` nem `acl_for`. `ToolACL.check(principal)` e `ToolRegistry.acl_for` são **dead code** no `src/` (zero chamadores). A brecha real é mais ampla:
+>
+> 1. `WorkerManager._process_message` e `ToolRouter.route_batch` não têm hook de ACL.
+> 2. Os dois registries (`WorkerManager._tools` vs `ToolRegistry._tools`/`_acls`) nunca convergem para `chat_llm`.
+> 3. `RoleComponent.allowed_tools` não é lido em framework code (só nos Jinja scaffolds `cli/templates/routing/*.jinja`).
+> 4. O `Event` não carrega `principal`; `WorkerManager._process_message` não tem como consultar `principal_ctx`.
+>
+> **Plano detalhado** registrado em `DEBT.md` §2.X (WorkManager ACL hook). Quando voltar a esse item, ele vira **uma ADR nova** ("WorkerManager ACL hook") e cobre gate 1 + gate 2 da three-gate model (ADR-060 §3.0) — não só `chat_llm`. **Não fazer fix parcial** sem o plano de propagação do principal — daria falsa sensação de segurança.
 | 4 | `ChatRoleSystem` gate on `RoleComponent.allowed_tools` para `chat_llm` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
 | 5 | `SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools` | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
 | 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | Not started | — |
@@ -140,7 +149,8 @@ de deprecation — não pode ser pulada.
 | Three-gate enforcement end-to-end | Tracking | SwitcherSystem (item 12) é building block; enforcement full é follow-up |
 | Approval flow stub | Tracking | Sem vertical, sem approval flow |
 | `SolutionLookupSystem` deprecation | Tracking | Pode entrar com SolutionPipeline adoção |
-| `LiteLLMTool` / `ToolInvoker` deprecation | Tracking | Itens framework-level; entram quando alguém pegar |
+| `LiteLLMTool` / `ToolInvoker` deprecation | **Resolvido 2026-08-26 (v0.9.0)** | ADR-043 acelerou a remoção (mais cedo que o target original) |
+| **Single Tool Path (ADR-066)** — `ToolRegistry` / `Tool` Protocol / `ToolDescriptor` removal | **Tracking → DEBT §2.28** | Refactor estrutural em 3 minors (v0.16 ACL hook + v0.17 deprecation warning + v0.18 git rm). v0.16 fecha o gap ADR-061 §5; v0.17 + v0.18 são a remoção completa do caminho in-process. Não cabe em v0.14 (fix-first). |
 | Split `llm.py` | Tracking | Cosmetic; entra quando alguém pegar |
 | `arg_validation` re-export removal | Tracking | Idem |
 | `Capability` removal | Tracking | Idem |

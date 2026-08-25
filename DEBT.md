@@ -2302,8 +2302,214 @@ files:
       delta -17 — the 17-error delta is from
       the ADR-047 + CLI conftest work, not
       from this refactor)
-    - `tests` ✅ (1747 passed, 1 skipped)
-    - `bandit` ✅ (0 H + 0 M + 0 L)
-    - `audit` ✅ (0 known vulnerabilities)
+- `tests` ✅ (1747 passed, 1 skipped)
+  - `bandit` ✅ (0 H + 0 M + 0 L)
+  - `audit` ✅ (0 known vulnerabilities)
 
 **Acceptable:** N/A — closed.
+
+
+## 2.27 WorkerManager ACL hook (ADR-061 §5 gate 1 + gate 2)
+
+**Status:** Open — moved from ROADMAP v0.14 #3 on 2026-08-26.
+
+**Summary.** The `chat_llm` tool (the `LiteLLMToolWorker`,
+ADR-043) is end-to-end unaware of authorization beyond
+the EventLog's per-event tenant-ownership preflight
+(`check_tenant_ownership`, `src/kntgraph/stream/event_log/validation.py:151`).
+The emission at `_BaseRoleSystem._emit_request`
+(`src/kntgraph/agents/role_systems/_base.py:198`) is
+unconditional; `ToolAwareSystem.request_tool`
+(`src/kntgraph/tools/system.py:28`) takes no principal;
+`ToolRouter.route_batch`
+(`src/kntgraph/tools/router.py:37`) does not consult
+ACL; `WorkerManager._process_message`
+(`src/kntgraph/tools/manager.py:246`) does not import
+`ToolACL` or `Principal`; and `LiteLLMToolWorker.invoke`
+(`src/kntgraph/agents/tools/llm.py:662`) has no principal
+parameter. `ToolRegistry.acl_for` and `ToolACL.check` are
+declared but have **zero callers in `src/`** (`grep
+"acl_for\|ToolACL.check" src/` returns only the
+declarations). 41 test occurrences of `chat_llm`
+exercise the worker / projection / TTL paths; none
+construct a `Principal`, mock `acl_for`, or assert
+role-based denial.
+
+**Three independent sub-gaps.**
+
+  1. **Worker path has no ACL hook.** `default_acl()`
+     returns `ToolACL(required_role=Role.agent)` already
+     (`src/kntgraph/tools/acl.py:120`), so the
+     ADR-061 §5 suggested fix ("register `chat_llm` in
+     `default_acl()`") would not change anything — the
+     chat_llm worker is never registered in a
+     `ToolRegistry` (it is registered exclusively via
+     `WorkerManager.register`,
+     `src/kntgraph/tools/manager.py:92`), and
+     `WorkerManager` has no `_acls` dict.
+
+  2. **Two registries, no convergence.** `WorkerManager._tools`
+     and `ToolRegistry._tools`/`_acls` are separate
+     data structures; `LiteLLMToolWorker` is registered
+     in only the first. ADR-025 §5 documents the split
+     as intentional (the new Worker path supersedes the
+     old Tool path; the old registry is kept for the
+     non-Worker tools that remain on the
+     `ToolInvoker` contract), but the migration never
+     re-anchored the ACL hook to the Worker path.
+
+  3. **`RoleComponent.allowed_tools` not in framework.**
+     Defined only in the Jinja scaffold templates
+     (`cli/templates/routing/components.py.jinja:9`,
+     `cli/templates/routing/policy.py.jinja:7`); no
+     production module imports either. Confirms
+     ADR-061 §5 gap 2: a role persona has no way to
+     express "no LLM access" today.
+
+  4. **`Event` does not carry `principal`.**
+     `src/kntgraph/core/event/event.py:66` defines the
+     event shape without principal fields;
+     `WorkerManager._process_message` decodes the event
+     from the Redis stream payload in a fresh consumer
+     context where `principal_ctx` is not set. Any
+     principal-aware gate would need a way to recover
+     the principal — either stamping it in the event
+     payload (requires schema change), or via a
+     signed / trusted re-derivation from the agent_id's
+     tenant + the EventLog signature.
+
+**Proposed fix (when this lands).**
+
+  This is **not a one-line change**. It should be a new
+  ADR ("WorkerManager ACL hook") that covers the full
+  three-gate model (ADR-060 §3.0) for the Worker path,
+  not just `chat_llm`. Sketch:
+
+    1. **Thread principal through the event.**
+       `Event` gains an optional
+       `producer_principal_id: str | None` field; the
+       API layer (`api/intent_router/routes.py`)
+       stamps it from `principal_ctx`. The EventLog
+       `_preflight` validates the stamp against the
+       signed event (signature already proves
+       tenant-ownership; principal is derived from the
+       same identity claim).
+
+    2. **Converge the registries.** Either (a) extend
+       `WorkerManager.__init__` /
+       `WorkerManager.register` with an `acl` kwarg
+       and a sibling `dict[str, ToolACL]`; (b) make
+       `WorkerManager` accept a `ToolRegistry`
+       instance and consult `registry.acl_for(name)`
+       inside `_process_message` before
+       `run_in_executor`; (c) keep them separate but
+       enforce one-way: any tool registered in
+       `WorkerManager` MUST also be in
+       `ToolRegistry`, and the boot path raises on
+       mismatch. (b) is the cleanest.
+
+    3. **Add the gate in `_process_message`** (or in a
+       pre-dispatch hook in `ToolRouter.route_batch`):
+       `acl = self._registry.acl_for(tool_name);
+       if acl is None: deny; principal =
+       lookup(event.producer_principal_id);
+       ok, reason = acl.check(principal); if not ok:
+       emit tool.<name>.failed with data={error:
+       reason} and ack the message`.
+
+    4. **Gate 2 — `RoleComponent.allowed_tools`** in
+       `_BaseRoleSystem._emit_request` (or a thin
+       override in `ChatRoleSystem`). Read the role's
+       `allowed_tools` from the agent's view; if
+       `"chat_llm"` is absent, emit
+       `intent.validation_failed` instead of
+       `tool.chat_llm.requested`. Mirrors the
+       Double-Lock pattern in ADR-039 §3.
+
+    5. **Tests.** Construct a `Role.service`-only
+       `Principal`; construct a `LiteLLMToolWorker`;
+       assert the dispatcher blocks the emit (gate 2)
+       AND that `WorkerManager._process_message`
+       short-circuits with a `tool.chat_llm.failed`
+       event carrying `role_insufficient` (gate 1). At
+       least 5 tests across both gates.
+
+**Why this is Open and not in v0.14.** The full fix
+touches 4 modules + a new field on `Event` (a schema
+change with downstream migration cost), and is
+orthogonal to the rate-limit / memory / HTTP intake
+fixes that ARE in v0.14. Doing a partial fix (only
+the `default_acl()` registration suggested in ADR-061
+§5) would give a false sense of security: `chat_llm`
+remains executable by any principal because the Worker
+path does not consult the ACL. Better to register the
+full plan as debt and attack it when there is a
+dedicated ACL iteration.
+
+**Acceptable:** when the gates above are wired and
+the 5+ tests pass with `Role.service` denial
+asserted.
+
+
+## 2.28 Single Tool Path — WorkerManager canonical, `ToolRegistry`/`ToolInvoker` removed (ADR-066)
+
+**Status:** Open — proposed 2026-08-26.
+
+**Summary.** The framework has two parallel tool
+execution paths (`Tool` Protocol + `ToolInvoker` +
+`ToolRegistry` in-process, and `@tool_worker` +
+`WorkerManager` cross-process) that coexist today
+with no objective boundary between them. ADR-036
+made `WorkerManager` canonical; ADR-043 migrated the
+LLM onto it; ADR-047 split the LLM adapter. None of
+those removed the legacy path. The result is that
+`ToolRegistry.acl_for` and `ToolACL.check` are
+**dead code in production** (zero callers in `src/`),
+the CLI scaffolds still teach the dual path
+(`cli/templates/dispatcher.py.jinja` and
+`main.py.jinja` import `ToolRegistry`), and the
+arbitrary "is this in-process or Worker?" decision
+compounds as new tools land. ADR-066 proposes a
+three-minor migration: v0.16 adds the ACL hook to
+`WorkerManager` (per DEBT §2.27), v0.17 flips
+scaffolds and adds `DeprecationWarning` to the
+legacy path, v0.18 `git rm`'s the legacy files.
+
+**Three things land in v0.16 (the small, valuable
+slice):**
+
+  1. **`WorkerManager.register` gains `acl=`** and
+     consults it in `_process_message` (DEBT §2.27
+     step 1). `WorkerManager.acl_for(name)` becomes
+     the single ACL lookup.
+  2. **`Event.producer_principal_id`** is added
+     (optional field, signed at the API layer) so
+     the Worker path can call
+     `acl.check(principal)` without re-deriving the
+     principal from `agent_id`'s tenant.
+  3. **`_BaseRoleSystem._emit_request`** enforces
+     `RoleComponent.allowed_tools` for `chat_llm`
+     (DEBT §2.27 step 4 — gate 2 of the three-gate
+     model).
+
+**v0.16 closes the gap that ADR-061 §5 flagged for
+`chat_llm`** end-to-end. v0.17 + v0.18 are the
+structural cleanup (remove the dead path).
+
+**Why not in v0.14.** v0.14 is fix-first (8 brecha
+fixes + 5 prep items per `ROADMAP.md`). v0.16 ships
+the ACL hook as part of v0.14 only if the team
+decides to slip v0.14 to v0.15; the **structural
+removal** (v0.17 + v0.18) is **always** a separate
+minor — touching every tool, scaffold, and example
+that the legacy path taught, in a fix-first minor,
+would invert the minor's stated purpose. v0.15 stays
+the "Role enum deprecation" minor per the ROADMAP
+between-cycles item; v0.16 is the next dedicated
+iteration.
+
+**Acceptable:** when the v0.16 acceptance checklist
+in ADR-066 §8 is satisfied (WorkerManager ACL
+enforcement + RoleComponent.allowed_tools gate +
+Event.producer_principal_id signed). The v0.17 and
+v0.18 steps are tracked separately in the same ADR.
