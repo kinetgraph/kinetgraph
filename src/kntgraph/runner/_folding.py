@@ -18,13 +18,23 @@ this module can be unit-tested in isolation (no dispatcher
 instance, no Redis, no systems). The dispatcher passes
 ``self`` so the functions can read its ``_filter`` and
 ``_tool_ttls`` configuration.
+
+The fold composes three orthogonal projections in order:
+``default fold`` -> ``project_memory`` -> ``overlay tool``
+(ADR-042 §6.1, ADR-059 §2.2, ADR-044 §2.3). The base fold
+is incremental (one ``with_event`` per event); the two
+derived projections are base-projection-free — they reuse
+the views the base fold produced and overlay their derived
+components on top. The cost is one extra pass per derived
+projection; no second fold.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from kntgraph.core.event import Event
+from kntgraph.core.world import World
 
 from .reactive_tool_projection import (
     _has_tool_events,
@@ -32,11 +42,60 @@ from .reactive_tool_projection import (
 )
 
 if TYPE_CHECKING:
-    from kntgraph.core.world import World
     from kntgraph.runner.reactive import ReactiveDispatcher
 
 
 __all__ = ["fold_with_filter", "fold_with_systems"]
+
+
+def _project_memory_into_world(
+    world: "World",
+    new_events: list[Event],
+) -> "World":
+    """Compose the memory-hydration projection onto the
+    World (ADR-042 §6.1, ADR-059 §2.2).
+
+    The projection is ``project_memory`` (a pure function
+    over events and views) merged back into the
+    World with storage sync. Each agent whose view was
+    updated by ``project_memory`` has its components
+    cloned into the World's storage via
+    ``clone_with_entity`` so a subsequent replay
+    (which rebuilds the World from storage) preserves
+    the memory components.
+
+    Fast path: ``project_memory`` returns a dict that
+    passes agents with no memory events through
+    unchanged (``_project_memory_for_agent`` returns
+    ``None`` when the batch had no memory event and
+    the base view has no memory component). When the
+    returned dict is identity-equal to the input views,
+    no storage work runs either.
+    """
+    from kntgraph.core.world.projection_memory import project_memory
+
+    new_views = project_memory(new_events, world.views)
+    if not new_views:
+        return world
+    new_storage = world.storage
+    changed: bool = False
+    for agent_id, projected_view in new_views.items():
+        if world.views.get(agent_id) is projected_view:
+            # Pass-through (no memory events for this
+            # agent; ``project_memory`` returned the
+            # base view unchanged).
+            continue
+        new_storage = new_storage.clone_with_entity(
+            agent_id,
+            cast(
+                "Mapping[str | type[Any], Any]",
+                dict(projected_view.components),
+            ),
+        )
+        changed = True
+    if not changed:
+        return world
+    return World(tick=world.tick, storage=new_storage, views=new_views)
 
 
 def fold_with_filter(
@@ -52,19 +111,27 @@ def fold_with_filter(
     the World stays consistent with the full stream
     history; skipping a fold would desync it.
 
-    After the base fold, if the batch contains any
-    ``tool.*`` event (``tool.requested``,
-    ``tool.<name>.<suffix>``, ``tool.completed``,
-    ``tool.failed``) the ``overlay_tool_calls``
-    projection is applied on top of the post-fold
-    World so systems that use ``ToolAwareSystem``
-    see the materialised ``tool_requests`` and
-    ``tool_completions`` slots (ADR-036 §2.3).
+    After the base fold, the memory-hydration projection
+    (ADR-042 §6.1, ADR-059 §2.2) populates
+    ``SessionComponent``, ``ProfileComponent``, and
+    ``ContinuityComponent`` on the agents whose events
+    include a memory namespace; agents whose events do
+    not include one are passed through unchanged.
 
-    The overlay is base-projection-free: it reuses
-    the views the incremental ``with_event`` loop
-    already produced, so the cost is one extra pass
-    over the batch (no second fold).
+    Then, if the batch contains any ``tool.*`` event
+    (``tool.requested``, ``tool.<name>.<suffix>``,
+    ``tool.completed``, ``tool.failed``) the
+    ``overlay_tool_calls`` projection is applied on top
+    of the post-fold World so systems that use
+    ``ToolAwareSystem`` see the materialised
+    ``tool_requests`` and ``tool_completions`` slots
+    (ADR-036 §2.3, ADR-044 §2.3).
+
+    The two derived projections are
+    **base-projection-free**: they reuse the views the
+    incremental ``with_event`` loop already produced,
+    so the cost is one extra pass per projection (no
+    second fold).
 
     The overlay is configured with the dispatcher's
     ``tool_ttls`` (ADR-045); the overlay sets
@@ -85,6 +152,7 @@ def fold_with_filter(
         if dispatcher._filter is not None and not dispatcher._filter(event):
             continue
         new_event_count += 1
+    world = _project_memory_into_world(world, new_events)
     if new_event_count > 0 and _has_tool_events(new_events):
         world = _overlay_tool_projection(
             world,

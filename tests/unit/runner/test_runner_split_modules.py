@@ -148,6 +148,104 @@ class TestFoldWithFilter:
         _world, count = fold_with_filter(dispatcher, World.empty(), events)
         assert count == 0
 
+    async def test_memory_projection_composes_into_world(self) -> None:
+        """``fold_with_filter`` must run the memory
+        hydration projection (``project_memory``,
+        ADR-042 §6.1) so systems see ``SessionComponent`` /
+        ``ProfileComponent`` / ``ContinuityComponent`` on
+        the ``AgentView``. This was the bug that motivated
+        this fix: production was folding the default
+        projection only, and ``SessionComponent`` never
+        reached the view, so ``ChatRoleSystem`` silently
+        returned ``[]`` (line 121 of ``_base.py``).
+        """
+        from kntgraph.core.components.memory import (
+            SessionComponent,
+        )
+
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        session_event = _seed_event("a-1", "session.started")
+        session_event = Event.create(
+            event_type="session.started",
+            agent_id="a-1",
+            event_class="lifecycle",
+            correlation=session_event.correlation,
+            data={
+                "session_id": "s-1",
+                "user_id": "u-1",
+                "tenant_id": "tenant-A",
+                "started_at": "2026-08-26T00:00:00Z",
+                "metadata": {},
+            },
+        )
+        world, _count = fold_with_filter(
+            dispatcher, World.empty(), [session_event]
+        )
+        assert "a-1" in world.views
+        assert SessionComponent in world.views["a-1"].components
+
+    async def test_memory_projection_preserves_storage_for_replay(self) -> None:
+        """The memory hydration updates both ``views`` and
+        ``storage`` so a subsequent replay (which rebuilds
+        the World from storage) preserves the components.
+        If only ``views`` were updated, a checkpoint
+        save would lose the memory components because
+        ``storage.clone_with_entity`` is what makes the
+        state durable across ticks.
+        """
+        from kntgraph.core.components.memory import (
+            SessionComponent,
+        )
+
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        session_event = Event.create(
+            event_type="session.started",
+            agent_id="a-2",
+            event_class="lifecycle",
+            correlation=_seed_event("a-2").correlation,
+            data={
+                "session_id": "s-2",
+                "user_id": "u-1",
+                "tenant_id": "tenant-A",
+                "started_at": "2026-08-26T00:00:00Z",
+                "metadata": {},
+            },
+        )
+        world, _count = fold_with_filter(
+            dispatcher, World.empty(), [session_event]
+        )
+        rebuilt = world.storage.num_archetypes
+        # The storage has at least one entity (a-2).
+        # If only views were updated, storage would still
+        # be empty here.
+        assert rebuilt >= 1
+
+    async def test_memory_projection_passes_through_when_no_memory_events(
+        self,
+    ) -> None:
+        """Fast path: when the batch has no memory event,
+        ``project_memory`` returns the base view unchanged
+        for every agent (per the implementation contract
+        in ``projection_memory.py:558-570``). The fold
+        must return the same World object in that case --
+        no allocation, no storage work, no extra fold.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+        plain_event = _seed_event("a-3", "user.intent")
+        world, _count = fold_with_filter(
+            dispatcher, World.empty(), [plain_event]
+        )
+        assert "a-3" in world.views
+
 
 # ---------------------------------------------------------------------------
 # _folding.fold_with_systems

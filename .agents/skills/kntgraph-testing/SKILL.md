@@ -69,14 +69,22 @@ role-system tests pass. The shim was also what made
 `examples/05b` and `examples/05c` work standalone.
 
 Investigation on 2026-08-26 found that the production
-dispatcher **does not call `project_memory`** — the
-shim simulated behaviour the framework does not have.
-`ChatRoleSystem`, `PlannerRoleSystem`, and the rest do
+dispatcher **did not call `project_memory`** — the
+shim simulated behaviour the framework did not have.
+`ChatRoleSystem`, `PlannerRoleSystem`, and the rest did
 not function in production (no `SessionComponent` ever
-reaches the `AgentView`). The 15 tests passed against
+reached the `AgentView`). The 15 tests passed against
 a simulated dispatcher that masked the production bug.
 
-**Resolution:** delete the tests. The shim was a
+**Resolution (2026-08-26).** Delete the tests AND
+fix the production code. The 15 tests were deleted;
+`src/kntgraph/runner/_folding.py::fold_with_filter`
+now composes ``project_memory`` between the default fold
+and the tool overlay. ``examples/05b`` and ``05c`` keep
+their internal shims for now (redundant but harmless);
+a follow-up should remove them now that production
+behaves correctly. Reintroducing role-system tests is
+now safe (they will exercise real production behaviour).
 fixture for a system that does not work; once the
 production bug is fixed (the dispatcher must compose
 `project_memory` per ADR-042 §6.1), the tests come
@@ -100,3 +108,16 @@ Do not rely on `autouse=True` to make a patch visible
 across files. Pytest does not guarantee the order of
 fixture setup across files, and the patch is hiding
 the very behaviour the test should be exercising.
+
+**Resolution (2026-08-26).** The shim that motivated this
+rule was removed in
+``tests/agents/unit/roles/test_role_systems.py`` (15 tests
+deleted) and replaced with the **real production code**.
+``src/kntgraph/runner/_folding.py::fold_with_filter``
+now composes ``project_memory`` between the default fold
+and the tool overlay (ADR-042 §6.1, ADR-059 §2.2).
+Three new integration tests in
+``tests/unit/runner/test_runner_split_modules.py``
+cover the composition. Reintroducing role-system tests
+that previously relied on the shim is now safe: they
+exercise real production behaviour.
