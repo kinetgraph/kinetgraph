@@ -232,19 +232,39 @@ def register_post_intent(
                     status_code=422,
                     detail=("'tool' is required when type='tool.invoke'"),
                 )
-            if registry.get(body.tool) is None:
-                # NO event is emitted on 404. The
-                # EventLog stays clean of attempts
-                # that could never succeed (ADR-012
-                # §2.3).
-                raise HTTPException(
-                    status_code=404,
-                    detail=(
-                        f"Tool {body.tool!r} is not "
-                        f"registered for "
-                        f"agent_id={agent_id!r}"
-                    ),
-                )
+            # The gateway emits the
+            # ``tool.<name>.requested`` event
+            # **unconditionally** — even for tools
+            # not in the ``ToolRegistry``. The
+            # registration check (gate 1 of the
+            # three-gate ACL model, ADR-060 §3.0)
+            # moves to the dispatcher (the
+            # ``IntentResolutionSystem``,
+            # ADR-039 §2.2 step 2) where it is
+            # enforced alongside the RBAC and
+            # persona checks. On rejection the
+            # dispatcher emits
+            # ``intent.validation_failed`` with the
+            # canonical reason string
+            # (``tool_not_registered``); the client
+            # learns of the failure via the SSE
+            # subscribe stream.
+            #
+            # This change closes the gap flagged by
+            # ADR-065 §3.2 / §5.1: previously the
+            # gateway returned 404 with no event
+            # emitted (ADR-012 §2.3), so the
+            # EventLog stayed clean of attempts
+            # that could never succeed and the
+            # client learned of the failure
+            # synchronously. The new model
+            # (always emit, dispatcher validates)
+            # gives the operator an audit trail,
+            # makes idempotency work (two calls
+            # with the same body dedupe on
+            # ``event_id``), and unifies the
+            # failure surface across all three
+            # gates.
             event_type = f"tool.{body.tool}.requested"
             target = body.tool
         else:  # role.invoke

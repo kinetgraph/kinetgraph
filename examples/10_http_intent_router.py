@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-10 — HTTP IntentRouter (ADR-012).
+10 — HTTP IntentRouter (ADR-012 + ADR-065).
 
 Demonstrates the framework's HTTP gateway: external
 integrators (frontend, webhooks, mobile) call Tools and
@@ -11,15 +11,26 @@ Roles via HTTP. The router:
 
   1. authenticates the caller (X-API-Key);
   2. validates the request (pydantic);
-  3. rejects unknown tools at the HTTP boundary
-     (404, no event emitted);
-  4. emits a deterministic `tool.{name}.requested`
-     event into the EventLog;
-  5. returns 202 + status_url for the client to poll.
+  3. emits a deterministic `tool.{name}.requested`
+     event into the EventLog (unconditionally — even
+     for unknown tools; ADR-065 §3.2 / §5.1);
+  4. returns 202 + event_id; the client subscribes
+     to the SSE endpoint (`GET /agents/{id}/events`)
+     to learn of the outcome (success or
+     `intent.validation_failed`).
 
 The framework's core (ToolInvoker, ToolRegistry,
 EventLog) is unchanged. The router is **one** HTTP
 adapter; CLI, batch, and replay still work without it.
+
+> **Note** — the gateway does not consult the
+> ``ToolRegistry`` (ADR-065 §3.2). The registration
+> check is the dispatcher's job (gate 1 of the
+> three-gate ACL model, ADR-060 §3.0). The
+> ``echo`` tool below is registered so the example
+> runs end-to-end; without a registered tool, the
+> dispatcher emits ``intent.validation_failed``
+> which the client sees via SSE.
 
 Run with Redis available:
 
@@ -157,7 +168,11 @@ def main() -> None:
     )
     print(f"[2] tools: {r.status_code} {r.json()}")
 
-    # 3. Reject unknown tool (404, no event).
+    # 3. Unknown tool: 202 + event emitted (ADR-065
+    # §3.2). The dispatcher emits
+    # ``intent.validation_failed`` on rejection;
+    # the client learns via the SSE subscribe
+    # stream (see examples/22_sse_subscribe.py).
     r = client.post(
         "/agents/demo-agent/intents",
         headers={"X-API-Key": "demo-key"},
@@ -168,7 +183,12 @@ def main() -> None:
         },
     )
     print(f"[3] ghost tool: {r.status_code} {r.json()}")
-    assert len(log.events) == 0, "404 must NOT emit events"
+    assert r.status_code == 202, (
+        "the gateway no longer 404s on unknown tools"
+    )
+    assert len(log.events) == 1, "the event IS emitted"
+    ghost_event = log.events[0]
+    assert ghost_event.event_type == "tool.ghost.tool.requested"
 
     # 4. Accept a real tool call.
     r = client.post(
@@ -182,8 +202,10 @@ def main() -> None:
     )
     print(f"[4] echo: {r.status_code} {r.json()}")
     assert r.status_code == 202
-    assert len(log.events) == 1
-    accepted = log.events[0]
+    # The log now has 2 events: the ghost
+    # (emitted by [3]) and the echo (just emitted).
+    assert len(log.events) == 2
+    accepted = log.events[-1]
     print(f"[5] event: type={accepted.event_type}")
     print(f"    data={accepted.data}")
 
