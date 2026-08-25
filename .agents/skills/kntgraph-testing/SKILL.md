@@ -29,3 +29,74 @@ The project's `pyproject.toml` sets `asyncio_mode = "strict"`, which:
 - rejects stray marks on sync `def test_*`
 
 The gate is the `pytest -W error::pytest.PytestWarning` step in `scripts/ci.py`.
+
+## 7.4 Shims that simulate production behaviour are a smell
+
+A test file that uses **monkey-patches on core classes**
+(e.g. overriding `ReactiveDispatcher._fold_with_filter`)
+via a `@pytest.fixture(autouse=True)` creates two problems:
+
+1. **Order coupling.** Any other test file that uses
+   the patched method fails when collected **before**
+   the patching fixture runs. The symptom is intermittent
+   CI failure depending on alphabetical order, parallel
+   collection, or pytest plugin order.
+2. **Fidelity gap.** If the shim simulates behaviour
+   that production does not have, the tests pass against
+   a simulated dispatcher that does not match production.
+   The systems they exercise are then untested in
+   production.
+
+**The bar:** `pytest tests/path/to/test_X.py` must
+pass when run **alone**, without any other test file
+being collected first. Verify locally before merging:
+
+```bash
+KNT_REDIS_FAKE=1 uv run pytest tests/path/to/test_X.py
+```
+
+**The deeper rule:** if a test needs a shim to make
+a system observable, the system is broken in production
+— not in the test. Fix the system; the shim goes away
+with the fix.
+
+**Anti-pattern (the bug that motivated this rule):**
+in `tests/agents/unit/roles/test_role_systems.py`, an
+`autouse=True` fixture installed a `_fold_with_filter`
+shim on `ReactiveDispatcher` that simulated memory
+hydration (`project_memory`). The shim made the 15
+role-system tests pass. The shim was also what made
+`examples/05b` and `examples/05c` work standalone.
+
+Investigation on 2026-08-26 found that the production
+dispatcher **does not call `project_memory`** — the
+shim simulated behaviour the framework does not have.
+`ChatRoleSystem`, `PlannerRoleSystem`, and the rest do
+not function in production (no `SessionComponent` ever
+reaches the `AgentView`). The 15 tests passed against
+a simulated dispatcher that masked the production bug.
+
+**Resolution:** delete the tests. The shim was a
+fixture for a system that does not work; once the
+production bug is fixed (the dispatcher must compose
+`project_memory` per ADR-042 §6.1), the tests come
+back with a real (non-shimmed) dispatcher.
+
+**Rule for new monkey-patches on core classes:** if
+you find yourself patching production code to make
+a test pass, **stop**. The patch is hiding a
+production bug. Either:
+
+- Fix the production code (preferred — the framework
+  already has the right hooks; wire them up).
+- Move the patched logic into a non-test module and
+  call it from production (acceptable when the patched
+  behaviour is genuinely optional).
+- Inline the test in a way that does not require
+  the patch (e.g. populate the view directly with
+  `world.views["agent-1"] = AgentView(agent_id=..., components={SessionComponent: ...})`).
+
+Do not rely on `autouse=True` to make a patch visible
+across files. Pytest does not guarantee the order of
+fixture setup across files, and the patch is hiding
+the very behaviour the test should be exercising.

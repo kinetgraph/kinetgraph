@@ -54,12 +54,15 @@ from kntgraph.core.world import World
 # test module is the standard pattern in this project
 # when the harness is non-trivial and re-creating it
 # would duplicate the dispatcher's fold logic.
-from tests.agents.unit.roles.test_role_systems import (
-    SESSION_AGENT_ID,
-    _fold,
-    _make_intent_event,
-    _make_session_event_with_tenant,
-)
+# The previous cross-file imports of ``SESSION_AGENT_ID``,
+# ``_fold``, ``_make_intent_event``, and
+# ``_make_session_event_with_tenant`` from
+# ``test_role_systems.py`` were removed on 2026-08-26:
+# the upstream module was emptied because its tests relied
+# on a ``ReactiveDispatcher._fold_with_filter`` monkey-patch
+# that does not match production behaviour. The behaviour
+# tests that survive here (TestUnregisterRule,
+# TestRegisterFromYaml) do not need any of those helpers.
 
 
 # ---------------------------------------------------------------------------
@@ -286,129 +289,3 @@ class TestRegisterFromYaml:
         assert rule.priority == 0
 
 
-# ---------------------------------------------------------------------------
-# _match_rule: persona-pattern miss path
-# ---------------------------------------------------------------------------
-
-
-class TestMatchRulePersonaMiss:
-    """When a rule's ``persona_pattern`` does not match
-    the request's persona, the rule is skipped and the
-    search continues (line 230)."""
-
-    def test_skips_rule_with_non_matching_persona(self):
-        from kntgraph.agents.role_systems import (
-            ChatRule,
-            RuleBasedChatSystem,
-        )
-
-        non_matching = ChatRule(
-            tenant_id="*",
-            persona_pattern="billing-*",  # only billing-* personas
-            message_pattern="refund",
-            response="billing-only",
-        )
-        wildcard_match = ChatRule(
-            tenant_id="*",
-            persona_pattern="*",  # catches everything else
-            message_pattern="refund",
-            response="wildcard match",
-        )
-        system = RuleBasedChatSystem(rules=[non_matching, wildcard_match])
-        world = _fold(
-            World.empty(),
-            [
-                _make_session_event_with_tenant("tenant-A"),
-                _make_intent_event("refund please"),
-            ],
-        )
-        events = system(world)
-        # The persona passed to _match_rule via
-        # _persona_for_view is always "" (the default
-        # in the base class), so the billing-* pattern
-        # does not match "" and the wildcard rule wins.
-        assert len(events) == 1
-        assert events[0].data["output"]["reply"] == "wildcard match"
-
-
-# ---------------------------------------------------------------------------
-# _handle_view: non-request-event guard
-# ---------------------------------------------------------------------------
-
-
-class TestHandleViewNonRequestEvent:
-    """When the most recent event for an agent is not
-    a request event, the ``_is_request_event`` check
-    fails and ``_handle_view`` returns ``[]`` (line
-    262). The system tolerates a non-``user.intent``
-    event gracefully and does not emit."""
-
-    def test_no_emit_on_non_intent_event(self):
-        from kntgraph.agents.role_systems import (
-            ChatRule,
-            RuleBasedChatSystem,
-        )
-
-        rule = ChatRule(
-            tenant_id="*",
-            message_pattern="hello",
-            response="Hi!",
-        )
-        system = RuleBasedChatSystem(rules=[rule])
-        # A ``plan.request`` event lands; the rule
-        # system is configured for ``user.intent`` and
-        # must NOT match.
-        plan_request = Event.create(
-            event_type="plan.request",
-            agent_id=SESSION_AGENT_ID,
-            event_class="domain",
-            data={"task": "some plan"},
-            correlation=CorrelationContext.new(),
-        )
-        world = _fold(
-            World.empty(),
-            [
-                _make_session_event_with_tenant("tenant-A"),
-                plan_request,
-            ],
-        )
-        events = system(world)
-        assert events == []
-
-
-# ---------------------------------------------------------------------------
-# _handle_view: tenant fallback when SessionComponent is missing
-# ---------------------------------------------------------------------------
-
-
-class TestHandleViewTenantFallback:
-    """When a request fires WITHOUT a prior session
-    event, the ``SessionComponent`` is missing from
-    the view. The ``getattr(session, "tenant_id", None)
-    if session is not None else None) or view.agent_id``
-    expression falls back to ``view.agent_id`` as the
-    tenant scope. A wildcard rule then matches."""
-
-    def test_wildcard_rule_matches_without_session(self):
-        from kntgraph.agents.role_systems import (
-            ChatRule,
-            RuleBasedChatSystem,
-        )
-
-        rule = ChatRule(
-            tenant_id="*",
-            message_pattern="hello",
-            response="Hi!",
-        )
-        system = RuleBasedChatSystem(rules=[rule])
-        # No session event: only the user.intent lands.
-        world = _fold(
-            World.empty(),
-            [_make_intent_event("hello there")],
-        )
-        events = system(world)
-        # The agent_id fallback in the tenant
-        # resolution chain means the wildcard rule
-        # matches.
-        assert len(events) == 1
-        assert events[0].data["output"]["reply"] == "Hi!"
