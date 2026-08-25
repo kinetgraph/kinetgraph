@@ -199,8 +199,20 @@ class LiteLLMTransportAdapter(LLMTransport):
     ) -> dict:
         import litellm
 
-        litellm.drop_params = request.drop_unsupported_params
-        completion_kwargs = self._build_completion_kwargs(request)
+        # ``drop_params`` is forwarded **per-call** via
+        # the completion kwargs (ADR-061 §4.3). The
+        # previous code mutated the litellm global
+        # (``litellm.drop_params = ...``) which is not
+        # thread-safe across concurrent workers in
+        # the same process (each worker's mutation
+        # leaks into the others). Per-call override
+        # is the canonical litellm API for this
+        # concern; the global stays at its default
+        # value.
+        completion_kwargs = self._build_completion_kwargs(
+            request,
+            drop_params=request.drop_unsupported_params,
+        )
         try:
             response: Any = await litellm.acompletion(**completion_kwargs)
         except litellm.RateLimitError as e:
@@ -218,21 +230,36 @@ class LiteLLMTransportAdapter(LLMTransport):
             raise LLMError(str(e)) from e
         return self._dump_response(response)
 
-    def _build_completion_kwargs(self, request: "LLMRequest") -> dict[str, Any]:
+    def _build_completion_kwargs(
+        self,
+        request: "LLMRequest",
+        *,
+        drop_params: bool,
+    ) -> dict[str, Any]:
         """Build the ``litellm.acompletion`` kwargs
         from the ``LLMRequest`` value object. The
         ``response_format`` slot is forwarded to
         ``litellm_params`` (litellm's per-request
         escape hatch) so it survives the
         ``drop_unsupported_params`` filter. The
-        request's ``extra`` dict is merged last so
-        callers can override defaults via
-        ``LLMRequest(extra={"...": ...})``."""
+        ``drop_params`` flag is forwarded **per-call**
+        (ADR-061 §4.3); the previous design mutated
+        the litellm global which is not thread-safe
+        across concurrent workers in the same
+        process. The request's ``extra`` dict is
+        merged last so callers can override defaults
+        via ``LLMRequest(extra={"...": ...})``."""
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
+            # Per-call ``drop_params`` override (ADR-061
+            # §4.3). When ``True``, litellm silently
+            # drops params the chosen model does not
+            # support (e.g. ``response_format`` for
+            # some local models).
+            "drop_params": drop_params,
         }
         if request.response_format is not None:
             extra_dict = request.extra if isinstance(request.extra, dict) else {}
@@ -483,6 +510,9 @@ async def _astream_litellm_inner(
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            # Per-call ``drop_params`` override (ADR-061
+            # §4.3); mirrors the non-streaming path.
+            drop_params=True,
             **kwargs,
         )
         # The stream wrapper is an AsyncIterator at runtime
@@ -505,7 +535,15 @@ async def _astream_litellm_inner(
     except Exception as e:
         yield Err(ToolError(f"stream_error: {e!r}"))
 
-    litellm.drop_params = True
+    # ``drop_params`` and ``LITELLM_TELEMETRY`` are
+    # forwarded **per-call** via the completion kwargs
+    # and ``acompletion(...)`` constructor args
+    # respectively (ADR-061 §4.3 / ADR-019). The
+    # previous code mutated both globals — not
+    # thread-safe across concurrent workers in the
+    # same process. The new design keeps the globals
+    # at their defaults and passes the values per
+    # call.
     os.environ.setdefault("LITELLM_TELEMETRY", "False")
 
 

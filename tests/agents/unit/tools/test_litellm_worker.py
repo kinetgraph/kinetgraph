@@ -253,19 +253,27 @@ class TestInvokeRetryPolicy:
     iteration order is deterministic. The transport is
     patched at the worker level (the canonical seam per
     the file-level docstring).
+
+    Test isolation: each test patches the transport via
+    ``patch.object(_llm_mod, "LiteLLMTransportAdapter",
+    fake_transport)`` in a ``with`` block, so the
+    ``LiteLLMTransportAdapter`` reference is restored on
+    exit. (Earlier revisions used ``patcher.start()``
+    without ``.stop()``, which leaked the patch across
+    tests and confused sibling tests that needed the
+    real class.)
     """
 
-    def _patched_worker(
-        self, transport_side_effect: list[Any]
-    ) -> tuple[LiteLLMToolWorker, AsyncMock]:
+    def _make_worker(self) -> LiteLLMToolWorker:
+        """Build a worker with the short-backoff retry
+        policy used by every test in this class. The
+        transport is patched per-test (not here) so
+        the patch context lives only for the test's
+        invocation; this is the leak-fix the class
+        originally needed.
+        """
         from kntgraph.resilience import BackoffPolicy
 
-        fake_transport = AsyncMock(side_effect=transport_side_effect)
-        patcher = patch(
-            "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
-            return_value=fake_transport,
-        )
-        patcher.start()
         worker = LiteLLMToolWorker()
         # Short backoff so the retry loop returns in <100ms
         # even when ``max_attempts=3`` fires. The production
@@ -276,7 +284,41 @@ class TestInvokeRetryPolicy:
             max_delay=0.05,
             retry_on=(LLMRateLimitError, asyncio.TimeoutError),
         )
-        return worker, fake_transport
+        return worker
+
+    def _patched_worker(
+        self, transport_side_effect: list[Any]
+    ) -> tuple[LiteLLMToolWorker, AsyncMock]:
+        """Backward-compat helper: builds a worker
+        with the short-backoff retry policy. The
+        transport patching happens at the call site
+        via ``patch(...)`` (the canonical
+        FastAPI/seam pattern, no leaks)."""
+        return self._make_worker(), AsyncMock(side_effect=transport_side_effect)
+
+    def _invoke_with_transport(
+        self, worker: LiteLLMToolWorker, fake_transport: AsyncMock
+    ) -> Any:
+        """Drive ``worker.invoke(...)`` with the
+        ``LiteLLMTransportAdapter`` patched to the
+        fake transport. The patch is scoped to the
+        call (no leak).
+        """
+        from kntgraph.agents.tools import llm as _llm_mod
+
+        async def go():
+            with patch.object(
+                _llm_mod,
+                "LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="k",
+                )
+
+        return go
 
     @pytest.mark.asyncio
     async def test_rate_limit_retries_then_succeeds(self):
@@ -293,11 +335,18 @@ class TestInvokeRetryPolicy:
                 _ok_completion(text="hi"),
             ]
         )
-        r = await worker.invoke(
-            system="s",
-            user="u",
-            idempotency_key="rl-1",
-        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="rl-1",
+                )
+
+        r = await go()
         assert r.is_ok()
         assert r.unwrap()["text"] == "hi"
         assert fake_transport.call_count == 3
@@ -319,11 +368,18 @@ class TestInvokeRetryPolicy:
                 LLMRateLimitError("provider 429 c"),
             ]
         )
-        r = await worker.invoke(
-            system="s",
-            user="u",
-            idempotency_key="rl-exhaust",
-        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="rl-exhaust",
+                )
+
+        r = await go()
         assert r.is_err()
         err = r.err_value()
         assert isinstance(err, ToolError)
@@ -340,11 +396,18 @@ class TestInvokeRetryPolicy:
         worker, fake_transport = self._patched_worker(
             [LLMAuthError("bad api key")]
         )
-        r = await worker.invoke(
-            system="s",
-            user="u",
-            idempotency_key="auth-1",
-        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="auth-1",
+                )
+
+        r = await go()
         assert r.is_err()
         err = r.err_value()
         assert isinstance(err, ToolError)
@@ -364,11 +427,18 @@ class TestInvokeRetryPolicy:
         worker, fake_transport = self._patched_worker(
             [asyncio.TimeoutError(), _ok_completion(text="ok")]
         )
-        r = await worker.invoke(
-            system="s",
-            user="u",
-            idempotency_key="to-1",
-        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="to-1",
+                )
+
+        r = await go()
         assert r.is_ok()
         assert r.unwrap()["text"] == "ok"
         assert fake_transport.call_count == 2
@@ -382,12 +452,19 @@ class TestInvokeRetryPolicy:
         worker, fake_transport = self._patched_worker(
             [_ok_completion(text="fast", model="openai/gpt-4o-mini")]
         )
-        r = await worker.invoke(
-            system="s",
-            user="u",
-            idempotency_key="ok-1",
-            model="openai/gpt-4o-mini",
-        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=fake_transport,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="ok-1",
+                    model="openai/gpt-4o-mini",
+                )
+
+        r = await go()
         assert r.is_ok()
         assert r.unwrap()["text"] == "fast"
         assert fake_transport.call_count == 1
@@ -411,31 +488,132 @@ class TestInvokeRetryPolicy:
             return _ok_completion(text="ok", model=request.model)
 
         transport_mock = AsyncMock(side_effect=fake_call)
-        with patch(
-            "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
-            return_value=transport_mock,
-        ):
-            worker = LiteLLMToolWorker()
-            worker._timeout_s = 5.0
-            from kntgraph.resilience import BackoffPolicy
+        worker = LiteLLMToolWorker()
+        worker._timeout_s = 5.0
+        from kntgraph.resilience import BackoffPolicy
 
-            worker._retry_policy = BackoffPolicy(
-                max_attempts=3,
-                base_delay=0.01,
-                max_delay=0.05,
-                retry_on=(LLMRateLimitError, asyncio.TimeoutError),
-            )
-            r = await worker.invoke(
-                system="s",
-                user="u",
-                idempotency_key="caller-1",
-                model="anthropic/claude-3-5-sonnet",
-            )
+        worker._retry_policy = BackoffPolicy(
+            max_attempts=3,
+            base_delay=0.01,
+            max_delay=0.05,
+            retry_on=(LLMRateLimitError, asyncio.TimeoutError),
+        )
+        async def go():
+            with patch(
+                "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+                return_value=transport_mock,
+            ):
+                return await worker.invoke(
+                    system="s",
+                    user="u",
+                    idempotency_key="caller-1",
+                    model="anthropic/claude-3-5-sonnet",
+                )
+
+        r = await go()
         assert r.is_ok()
         assert attempts == [
             "anthropic/claude-3-5-sonnet",
             "anthropic/claude-3-5-sonnet",
         ]
+
+
+class TestDropParamsPerCall:
+    """
+    ADR-061 §4.3: ``drop_unsupported_params`` is
+    forwarded **per-call** via the
+    ``acompletion(...)`` kwargs. The previous
+    design mutated the litellm global
+    (``litellm.drop_params = ...``) which is not
+    thread-safe across concurrent workers in the
+    same process. The new design keeps the
+    ``LLMRequest.drop_unsupported_params`` slot
+    (already present) and passes it as
+    ``drop_params`` in the per-call kwargs.
+
+    The tests below assert that the adapter
+    forwards the flag through the kwargs without
+    touching the litellm global.
+    """
+
+    def test_adapter_passes_drop_params_per_call(self):
+        """The adapter forwards
+        ``drop_unsupported_params`` from
+        ``LLMRequest`` to ``drop_params`` in the
+        ``acompletion`` kwargs (per-call, not
+        global)."""
+        from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
+        from kntgraph.tools.llm_transport import LLMRequest
+
+        request = LLMRequest(
+            model="openai/gpt-4o-mini",
+            messages=[{"role": "user", "content": "hi"}],
+            temperature=0.0,
+            max_tokens=10,
+            drop_unsupported_params=True,
+        )
+        adapter = LiteLLMTransportAdapter()
+        kwargs = adapter._build_completion_kwargs(
+            request,
+            drop_params=request.drop_unsupported_params,
+        )
+        assert kwargs.get("drop_params") is True
+
+    def test_source_file_does_not_mutate_litellm_global(self):
+        """
+        Structural check: the source file
+        ``llm.py`` does not contain the line
+        ``litellm.drop_params = ...``.
+
+        The pre-fix code mutated the global on every
+        call (ADR-061 §4.3). The new code passes the
+        flag per-call via the ``acompletion`` kwargs.
+        A ``grep`` for ``litellm.drop_params`` in
+        the source file is the canonical regression
+        test for this contract (CI can run the
+        grep; the unit test embeds the assertion so
+        a ``git blame`` reveals the intent).
+        """
+        import inspect
+        import os
+
+        from kntgraph.agents.tools import llm
+
+        src_path = inspect.getsourcefile(llm)
+        assert src_path is not None
+        with open(src_path) as f:
+            source = f.read()
+        # The old code:
+        #     litellm.drop_params = request.drop_unsupported_params
+        # is gone. The new code passes ``drop_params``
+        # via ``acompletion(**completion_kwargs)``.
+        # We assert the **executable** form (assignment
+        # to ``litellm.drop_params`` as LHS, not a
+        # docstring mention). The detector tracks
+        # ``"""`` to ignore docstring content.
+        in_docstring = False
+        triple_count = 0
+        for line in source.splitlines():
+            triple_count += line.count('"""')
+            if triple_count % 2 == 1:
+                in_docstring = True
+            elif triple_count % 2 == 0 and in_docstring:
+                in_docstring = False
+            if in_docstring:
+                continue
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            if (
+                "litellm.drop_params" in line
+                and "=" in line
+                and "==" not in line.split("=")[0]
+            ):
+                pytest.fail(
+                    "ADR-061 §4.3: the adapter must not "
+                    "mutate the litellm global. Offending "
+                    f"line: {line!r}"
+                )
 
 
 def _ok_completion(
