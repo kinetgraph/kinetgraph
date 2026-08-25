@@ -2790,3 +2790,137 @@ clearance for cosmetic refactors.
 when someone picks up the package for any
 unrelated reason (faster migration is
 cheaper than waiting for a dedicated cycle).
+
+
+## 2.32 `SolutionPipeline` consolidation (ADR-060 §6.5.2)
+
+**Status:** Open — moved from ROADMAP v0.14 #11 on
+2026-08-26.
+
+**Summary.** Consolidate five Solution-tier classes
+into one ``SolutionPipeline``:
+
+  - ``SolutionExtractorSystem`` (202 LOC)
+  - ``SolutionLookupSystem`` (505 LOC, including
+    ``CachedSolution``, ``SolutionStoreLike``,
+    ``InMemorySolutionStore``, ``LookupStats``)
+  - ``SolutionReviewPublisherSystem`` (124 LOC,
+    including ``ReviewQueueLike``, stats)
+  - ``SolutionPromoterSystem`` (144 LOC,
+    including ``GraphPoolLike``, stats)
+  - ``SolutionProjector`` (363 LOC, in
+    ``agents/knowledge/``)
+
+Total: **~1338 LOC** across five files. The
+ADR-060 §6.5.2 design collapses them into one
+``SolutionPipeline`` class with four public methods
+(``extract``, ``review``, ``promote``,
+``read_for_overlay``) and a single ``__call__``
+that orchestrates the cycle. State that is currently
+duplicated across classes (``seen_request_event_ids``
+set, candidate counter, etc.) consolidates into one
+place.
+
+**Why not in v0.14.** This is a structural refactor
+of ~1338 LOC across 5 files, with the
+following risks:
+
+  1. **Shared state migration.** Each class owns
+     its own counters / sets / connections
+     (``seen_request_event_ids``, candidate
+     counter, ``ReviewQueueLike``, ``GraphPoolLike``,
+     ``SolutionStoreLike``). Consolidating means
+     picking **one** of these lifecycles as the
+     canonical home and migrating the others.
+     Mistakes here are silent (the wrong counter
+     wins, solutions get cached twice, etc.).
+  2. **Event-shape compatibility.** Each class
+     emits its own domain events (e.g.
+     ``*.solution.extracted``, ``*.solution.approved``,
+     ``*.solution.review_requested``). The
+     consolidated ``__call__`` must keep the same
+     event-shape contract so downstream consumers
+     (the Solution tier, the audit supervisor,
+     examples 09b/09c) keep working.
+  3. **Test surface.** There are several tests
+     for each of the five classes under
+     ``tests/agents/`` and ``tests/unit/``. A
+     naive ``git rm`` of the old classes leaves
+     orphan imports / test fixtures. The
+     consolidation has to update the test surface
+     in lock-step.
+  4. **Migration window.** Removing the five
+     classes is a breaking change. Even with a
+     ``DeprecationWarning`` shim, callers that
+     ``from kntgraph.agents.memory.solution_lookup
+     import SolutionLookupSystem`` break at import
+     time once the shim is removed.
+
+The risk is high enough that running this in a
+fix-first minor would invert the stated policy.
+A dedicated cleanup minor (v0.15+) carries the
+right scope.
+
+**Five-step migration plan (when this lands):**
+
+  1. **Draft the ``SolutionPipeline`` class**
+     in ``agents/memory/solutions/pipeline.py``.
+     Move the shared state (``seen_request_event_ids``,
+     candidate counter) into the class body. Keep
+     the four methods (``extract``, ``review``,
+     ``promote``, ``read_for_overlay``) as
+     thin wrappers over the existing logic,
+     extracted verbatim from the five classes.
+     Each method keeps the same event shapes it
+     emitted before (the contract tests pin this).
+  2. **Run ``SolutionPipeline.__call__`` alongside
+     the five legacy classes** (shadow mode).
+     The pipeline's outputs are asserted equal to
+     the legacy classes' outputs on a curated
+     integration test (``tests/agents/unit/memory/
+     test_solution_pipeline_parity.py``). The
+     five legacy classes still own their state; the
+     pipeline is read-only / dry-run.
+  3. **Cut over.** Switch the user's ``main.py``
+     scaffold from
+     ``ReactiveDispatcher(systems=[Extractor,
+     Review, Promoter, Lookup])`` to
+     ``ReactiveDispatcher(systems=[SolutionPipeline])``.
+     The five legacy classes emit
+     ``DeprecationWarning`` at import time and
+     forward calls to the pipeline (the
+     ``DeprecationWarning`` window is one minor
+     cycle per AGENTS.md §7).
+  4. **Delete the five legacy classes** in v0.11.0
+     (ADR-060 §6.5.6 timeline). The pipeline is
+     the single home; ``from agents.memory.
+     solution_X import XSystem`` becomes
+     ``ImportError`` with a clear migration path.
+  5. **Delete ``SolutionProjector``** in the same
+     minor. The projector is no longer a
+     top-level class; its work is a method on the
+     pipeline (``SolutionPipeline.write_to_graph()``).
+
+**Acceptable:** when:
+
+  - ``SolutionPipeline.__call__`` produces the
+    same event sequence as the five legacy
+    classes for the curated integration test
+    (parity verified byte-for-byte).
+  - The five legacy classes emit
+    ``DeprecationWarning`` and forward to the
+    pipeline (one minor cycle of compatibility).
+  - The user's scaffold uses one system
+    registration (not four).
+  - All 1338 LOC of legacy code is removed in
+    v0.11.0 (per the ADR-060 §6.5.6 schedule).
+  - 5+ new tests cover the pipeline:
+    ``test_extract_emits_candidate``,
+    ``test_review_publishes_to_queue``,
+    ``test_promote_writes_to_graph``,
+    ``test_read_for_overlay_emits_synthetic_completion``,
+    ``test_pipeline_consolidates_seen_request_ids``.
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when someone picks up the package for any
+unrelated reason.
