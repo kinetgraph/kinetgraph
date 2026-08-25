@@ -34,7 +34,11 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from kntgraph.agents.tools.llm import LiteLLMToolWorker
+from kntgraph.agents.tools.llm import (
+    LLMAuthError,
+    LLMRateLimitError,
+    LiteLLMToolWorker,
+)
 from kntgraph.core.result import ToolError
 
 
@@ -225,3 +229,232 @@ async def test_invoke_resolves_default_model_from_config():
     # The result envelope carries the model that
     # the transport reported.
     assert r.unwrap()["model"] == "default-model-from-config"
+
+
+class TestInvokeRetryPolicy:
+    """
+    ADR-061 §6.2 / §6.3: the worker retries on rate limit
+    and timeout via ``with_timeout_and_retry`` (the
+    framework-native counter comes from the toolkit —
+    ``logger.warning("timeout.with_timeout_and_retry.
+    attempt_n_of_max", ...)`` at timeout.py:322). The
+    worker translates the final outcome into
+    ``Result[dict, ToolError]``.
+
+    The tests swap ``worker._retry_policy`` for a
+    short-backoff variant so the retry loop returns in
+    <100ms even when ``max_attempts=3`` fires. The
+    production policy keeps ``base_delay=1.0,
+    max_delay=10.0`` (the worker's ``__init__`` default).
+
+    The transport is patched with an ``AsyncMock`` whose
+    ``side_effect`` is a list of exceptions / values;
+    ``AsyncMock`` consumes one entry per call so the
+    iteration order is deterministic. The transport is
+    patched at the worker level (the canonical seam per
+    the file-level docstring).
+    """
+
+    def _patched_worker(
+        self, transport_side_effect: list[Any]
+    ) -> tuple[LiteLLMToolWorker, AsyncMock]:
+        from kntgraph.resilience import BackoffPolicy
+
+        fake_transport = AsyncMock(side_effect=transport_side_effect)
+        patcher = patch(
+            "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+            return_value=fake_transport,
+        )
+        patcher.start()
+        worker = LiteLLMToolWorker()
+        # Short backoff so the retry loop returns in <100ms
+        # even when ``max_attempts=3`` fires. The production
+        # policy stays in the worker's ``__init__``.
+        worker._retry_policy = BackoffPolicy(
+            max_attempts=3,
+            base_delay=0.01,
+            max_delay=0.05,
+            retry_on=(LLMRateLimitError, asyncio.TimeoutError),
+        )
+        return worker, fake_transport
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_retries_then_succeeds(self):
+        """The transport raises ``LLMRateLimitError``
+        on the first two attempts and returns a
+        valid completion on the third. The worker
+        retries via ``with_timeout_and_retry`` and
+        the third call wins. ``AsyncMock`` records
+        exactly three calls."""
+        worker, fake_transport = self._patched_worker(
+            [
+                LLMRateLimitError("provider 429"),
+                LLMRateLimitError("provider 429"),
+                _ok_completion(text="hi"),
+            ]
+        )
+        r = await worker.invoke(
+            system="s",
+            user="u",
+            idempotency_key="rl-1",
+        )
+        assert r.is_ok()
+        assert r.unwrap()["text"] == "hi"
+        assert fake_transport.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_exhaustion_returns_err(self):
+        """All three attempts hit ``LLMRateLimitError``.
+        ``with_timeout_and_retry`` re-raises the last
+        error; the worker translates it to
+        ``Err(ToolError("llm_rate_limit: ..."))`` with
+        the original ``LLMRateLimitError`` as
+        ``__cause__`` (so the ``WorkerManager`` can
+        surface a recognisable error in the
+        ``tool.chat_llm.failed`` event)."""
+        worker, fake_transport = self._patched_worker(
+            [
+                LLMRateLimitError("provider 429 a"),
+                LLMRateLimitError("provider 429 b"),
+                LLMRateLimitError("provider 429 c"),
+            ]
+        )
+        r = await worker.invoke(
+            system="s",
+            user="u",
+            idempotency_key="rl-exhaust",
+        )
+        assert r.is_err()
+        err = r.err_value()
+        assert isinstance(err, ToolError)
+        assert "llm_rate_limit" in str(err)
+        assert isinstance(err.__cause__, LLMRateLimitError)
+        assert fake_transport.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_auth_error_does_not_retry(self):
+        """``LLMAuthError`` is NOT in the
+        ``retry_on`` tuple — credentials do not fix
+        themselves on retry. The worker surfaces it
+        on the first attempt (no second/third call)."""
+        worker, fake_transport = self._patched_worker(
+            [LLMAuthError("bad api key")]
+        )
+        r = await worker.invoke(
+            system="s",
+            user="u",
+            idempotency_key="auth-1",
+        )
+        assert r.is_err()
+        err = r.err_value()
+        assert isinstance(err, ToolError)
+        assert "llm_transport_error" in str(err)
+        assert "bad api key" in str(err)
+        assert isinstance(err.__cause__, LLMAuthError)
+        assert fake_transport.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_timeout_retries_then_succeeds(self):
+        """The transport raises
+        ``asyncio.TimeoutError`` on the first attempt
+        and returns a valid completion on the second.
+        The ``BackoffPolicy`` retries on
+        ``asyncio.TimeoutError`` (per-attempt timeout
+        fires; the worker waits and retries)."""
+        worker, fake_transport = self._patched_worker(
+            [asyncio.TimeoutError(), _ok_completion(text="ok")]
+        )
+        r = await worker.invoke(
+            system="s",
+            user="u",
+            idempotency_key="to-1",
+        )
+        assert r.is_ok()
+        assert r.unwrap()["text"] == "ok"
+        assert fake_transport.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_first_attempt_success_does_not_retry(self):
+        """On success the worker does not invoke the
+        transport again (the retry loop never
+        enters). The envelope carries the transport's
+        ``model`` (not the config default)."""
+        worker, fake_transport = self._patched_worker(
+            [_ok_completion(text="fast", model="openai/gpt-4o-mini")]
+        )
+        r = await worker.invoke(
+            system="s",
+            user="u",
+            idempotency_key="ok-1",
+            model="openai/gpt-4o-mini",
+        )
+        assert r.is_ok()
+        assert r.unwrap()["text"] == "fast"
+        assert fake_transport.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_caller_model_overrides_default_in_retry_loop(self):
+        """When the caller passes a ``model=`` kwarg,
+        every retry attempt uses that model (the
+        ``BackoffPolicy`` does not change the request
+        payload — only the call count). The
+        transport sees the caller-specified model on
+        every attempt."""
+        from kntgraph.tools.llm_transport import LLMRequest
+
+        attempts: list[str] = []
+
+        async def fake_call(request: LLMRequest) -> dict:
+            attempts.append(request.model)
+            if len(attempts) < 2:
+                raise LLMRateLimitError("429")
+            return _ok_completion(text="ok", model=request.model)
+
+        transport_mock = AsyncMock(side_effect=fake_call)
+        with patch(
+            "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+            return_value=transport_mock,
+        ):
+            worker = LiteLLMToolWorker()
+            worker._timeout_s = 5.0
+            from kntgraph.resilience import BackoffPolicy
+
+            worker._retry_policy = BackoffPolicy(
+                max_attempts=3,
+                base_delay=0.01,
+                max_delay=0.05,
+                retry_on=(LLMRateLimitError, asyncio.TimeoutError),
+            )
+            r = await worker.invoke(
+                system="s",
+                user="u",
+                idempotency_key="caller-1",
+                model="anthropic/claude-3-5-sonnet",
+            )
+        assert r.is_ok()
+        assert attempts == [
+            "anthropic/claude-3-5-sonnet",
+            "anthropic/claude-3-5-sonnet",
+        ]
+
+
+def _ok_completion(
+    *, text: str = "ok", model: str = "fake/model"
+) -> dict[str, Any]:
+    """Helper: a transport-shaped completion dict
+    that the worker can parse into the public
+    envelope."""
+    return {
+        "choices": [
+            {
+                "message": {"content": text},
+                "finish_reason": "stop",
+            }
+        ],
+        "model": model,
+        "usage": {
+            "prompt_tokens": 1,
+            "completion_tokens": 1,
+            "total_tokens": 2,
+        },
+    }
