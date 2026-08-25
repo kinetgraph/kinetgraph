@@ -64,7 +64,9 @@ recebem proteção imediata.
 | # | Item | ADR | Tipo | Status | Owner |
 |---|---|---|---|---|---|
 | 1 | `RuleBasedChatSystem._persona_for_view` corrigido — personas globs casam desde v0.9 | [ADR-061 §11.1](./ADRs/ADR-061-litellm-integration-review.md) | bug | Merged | — |
-| 2 | LiteLLM fallback chain no `LiteLLMToolWorker.invoke` (regressão do ADR-043) | [ADR-061 §6.2](./ADRs/ADR-061-litellm-integration-review.md) | regression | Not started | — |
+| 2 | LiteLLM fallback chain no `LiteLLMToolWorker.invoke` (regressão do ADR-043) | [ADR-061 §6.2](./ADRs/ADR-061-litellm-integration-review.md) | regression | Merged | — |
+
+> **Implementação efetiva:** `with_timeout_and_retry` + `BackoffPolicy(retry_on=(LLMRateLimitError, asyncio.TimeoutError))` (commit `84cfd45`). **Retry do mesmo model com backoff exponencial** (não fallback entre models). O `LLMConfig.fallback_models` continua sendo carregado mas não consumido; fica como **Tracking** até alguém implementar (o `with_fallback_chain` do toolkit não diferencia `LLMAuthError`/`LLMRateLimitError`, e estender o toolkit expandia escopo). A regressão do ADR-043 (rate-limit virava `Err` imediato) está fechada; o cenário "primary cai 429 → retry com backoff → sucesso" é coberto pelos 6 testes em `TestInvokeRetryPolicy`.
 | 3 | `chat_llm` registrado em `default_acl()` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
 | 4 | `ChatRoleSystem` gate on `RoleComponent.allowed_tools` para `chat_llm` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
 | 5 | `SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools` | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
