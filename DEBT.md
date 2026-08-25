@@ -2513,3 +2513,113 @@ in ADR-066 §8 is satisfied (WorkerManager ACL
 enforcement + RoleComponent.allowed_tools gate +
 Event.producer_principal_id signed). The v0.17 and
 v0.18 steps are tracked separately in the same ADR.
+
+
+## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14
+
+**Status:** Open — moved from ROADMAP v0.14 #4, #5,
+#12 on 2026-08-26 (consolidated).
+
+**Summary.** Three v0.14 items depend on a
+`RoleComponent` class that **does not exist in
+framework code**. It is defined only in the Jinja
+scaffold templates
+(`src/kntgraph/cli/templates/routing/components.py.jinja:9–14`),
+and **zero** modules in `src/`, `tests/`, or
+`examples/` instantiate `RoleComponent` or populate
+`allowed_tools` (`grep -rn "RoleComponent\b\|allowed_tools"
+src/ tests/ examples/` returns only the two Jinja
+files and the ADR text). All three gates (gate 2:
+tool emission; gate 3: handoff; §11.4b: synthetic
+emission) require the user to register their component
+class — which the framework does not yet support.
+
+**Items covered (consolidated for clarity):**
+
+  - **#4 (ADR-061 §5 gate 2).** `ChatRoleSystem._emit_request`
+    blocks when the registered `RoleComponent.allowed_tools`
+    does not contain `"chat_llm"`. Emits
+    `intent.validation_failed` with reason
+    `role_allowed_tools_missing`. Default-allow when
+    no role class is registered.
+  - **#5 (ADR-061 §11.4b).** `SolutionLookupSystem`
+    synthetic `tool.<name>.completed` emission gates
+    on `RoleComponent.allowed_tools` (the lookup
+    system's synthetic emission is itself a
+    domain event, not a tool call; gate 2 still
+    applies because the emission pretends to be the
+    tool's completion).
+  - **#12 (ADR-060 §3.1 gate 3).**
+    `RoleComponent.SwitcherSystem` validates
+    `destination.role_name in source.handoff_targets`
+    before allowing cross-agent handoff. This is a
+    **third** gate (handoff), not a subset of gate
+    2; it needs both source and destination role
+    components on the respective views. Multi-agent
+    handoff was deprioritised when "fmh_office não
+    é vertical separada" (ROADMAP §"Decisão de
+    escopo"); demand for cross-agent handoff has
+    not surfaced since.
+
+**Why not in v0.14.** Each item, implemented
+standalone, requires the same three pieces of new
+infrastructure:
+
+  1. **Registry API** for user `RoleComponent`
+     classes — likely
+     `RoleAwareSystem.register_role_component_class(cls)`
+     on the `_BaseRoleSystem` class so the
+     registration is per-system, not per-process.
+     This is a new public surface.
+  2. **Scan path** in `_BaseRoleSystem` /
+     `SwitcherSystem` that walks `view.components`
+     and finds the registered class's instance via
+     `cls` lookup in the dict's typed-key half
+     (`AgentView.components: dict[str | type[Any], Any]`
+     already supports this; the
+     `type: ignore[reportUnknownVariableType]`
+     smell is the framework's known escape hatch).
+  3. **Event shapes** — `intent.validation_failed`
+     (defined by no existing ADR; needs an
+     `event_type` + projection rule + completion
+     wiring) for gate 2; `*.handoff_accepted` /
+     `*.handoff_rejected` for gate 3.
+
+These three pieces are exactly the **gate-2 +
+gate-3 slice** of [ADR-066 v0.16 §4.1](./ADRs/ADR-066-Single-Tool-Path.md)
+(plus the SwitcherSystem sketch in ADR-060 §3.1).
+Delivering them now and then again in v0.16 is
+duplicated work. Item #12 specifically **also**
+requires concrete multi-agent demand, which has not
+surfaced.
+
+**Acceptable (per item):**
+
+  - **#4:** when ADR-066 v0.16 lands, gate-2
+    enforcement passes: a user project can register
+    a `RoleComponent` class via the new API;
+    `_BaseRoleSystem._emit_request` reads the
+    registered class's `allowed_tools`; if
+    `"chat_llm"` is absent, emits
+    `intent.validation_failed` with reason
+    `role_allowed_tools_missing`. 3+ tests:
+    registered role + `chat_llm` in
+    `allowed_tools` → emit happens (existing
+    behaviour preserved); registered role + no
+    `chat_llm` in `allowed_tools` → emit blocked,
+    `intent.validation_failed` published; no
+    registered role class → default-allow (no
+    breakage for projects that don't opt in).
+  - **#5:** when #4's gate-2 is in place, extend the
+    same scan path to `SolutionLookupSystem.__call__`
+    so synthetic `tool.<name>.completed` emission is
+    also gated. 2+ tests: synthetic emission blocked
+    when persona lacks the tool name; synthetic
+    emission allowed when persona has it.
+  - **#12:** when there is **concrete multi-agent
+    demand** + ADR-066 v0.16's gate-2 infrastructure
+    + a new ADR-XXX "Cross-agent handoff" that
+    defines `*.handoff_requested` / `*.handoff_accepted`
+    event shapes and the `SwitcherSystem`'s
+    `destination.role_name in source.handoff_targets`
+    check. No current demand.

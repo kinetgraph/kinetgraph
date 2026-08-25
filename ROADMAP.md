@@ -77,8 +77,12 @@ recebem proteção imediata.
 > 4. O `Event` não carrega `principal`; `WorkerManager._process_message` não tem como consultar `principal_ctx`.
 >
 > **Plano detalhado** registrado em `DEBT.md` §2.X (WorkManager ACL hook). Quando voltar a esse item, ele vira **uma ADR nova** ("WorkerManager ACL hook") e cobre gate 1 + gate 2 da three-gate model (ADR-060 §3.0) — não só `chat_llm`. **Não fazer fix parcial** sem o plano de propagação do principal — daria falsa sensação de segurança.
-| 4 | `ChatRoleSystem` gate on `RoleComponent.allowed_tools` para `chat_llm` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
-| 5 | `SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools` | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | security | Not started | — |
+| 4 | ~~`ChatRoleSystem` gate on `RoleComponent.allowed_tools` para `chat_llm`~~ | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT §2.29** | — |
+
+> **Decisão 2026-08-26:** o gate literal proposto depende de uma classe `RoleComponent` que **não existe em framework code** — vive só nos Jinja scaffolds (`cli/templates/routing/components.py.jinja:9`). Nenhum exemplo, nenhum teste, nenhum módulo `src/` instancia `RoleComponent` ou popula `allowed_tools`. Fazer o fix isolado aqui exige introduzir uma API nova (registry de "componente de role do projeto") + duck-typing em `view.components` — duplica a infraestrutura que o ADR-066 v0.16 já vai trazer (gate 2 do three-gate model). **Aguardar ADR-066 v0.16** para entregar este item junto com gate 1 (WorkerManager ACL hook) e o `Event.producer_principal_id`. **Tracking:** DEBT §2.29.
+| 5 | ~~`SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools`~~ | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT §2.29** | — |
+
+> **Decisão 2026-08-26:** mesma justificativa do item #4 — o gate depende de `RoleComponent` que **não existe em framework code** (só nos Jinja scaffolds). Synthetic emission gating é exatamente a fatia gate-2 do ADR-066 v0.16. **Aguardar ADR-066 v0.16.**
 | 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | Not started | — |
 | 7 | SSE subscribe (`GET /agents/{agent_id}/events`) substitui long-poll `GET /status` | [ADR-065 §3.1](./ADRs/ADR-065-http-intake-event-driven-review.md) | UX fix | Not started | — |
 | 8 | Gateway removido do 404 em tool desconhecida (delegado ao dispatcher) | [ADR-065 §3.2](./ADRs/ADR-065-http-intake-event-driven-review.md) | architecture | Not started | — |
@@ -90,7 +94,9 @@ recebem proteção imediata.
 | 9 | `PrincipalLevel` enum introduzido **ao lado** do `Role` enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | Not started | — |
 | 10 | `agents.role_systems/` re-organisation (split `_prompts.py`; one class per file) | [ADR-060 §6.5.3](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | Not started | — |
 | 11 | `SolutionPipeline` consolidation (4 sistemas → 1) | [ADR-060 §6.5.2](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | Not started | — |
-| 12 | `RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` campo | [ADR-060 §3.1](./ADRs/ADR-060-fmh-office-v2-pillars.md) | feature | Not started | — |
+| 12 | ~~`RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` campo~~ | [ADR-060 §3.1](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~feature~~ | **Tracking → DEBT §2.29** | — |
+
+> **Decisão 2026-08-26:** `RoleComponent.SwitcherSystem` é o sistema de handoff da three-gate model (gate 3). Depende da classe `RoleComponent` ser registrada no framework — mesma justificativa do item #4. Handoff entre agentes (cross-agent) **só faz sentido em arquiteturas multi-agent** que a decisão "fmh_office não é vertical separada" (seção "Decisão de escopo" acima) adiou. **Aguardar ADR-066 v0.16** (que traz o registry de `RoleComponent`) **e** demanda concreta de multi-agent handoff.
 
 ### In scope (cleanup leve — sem regressão)
 
