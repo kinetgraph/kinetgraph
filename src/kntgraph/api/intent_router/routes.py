@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Optional
+from uuid import UUID
 
 import structlog
 
@@ -247,20 +248,28 @@ def register_post_intent(
         )
 
         # 3. Append to EventLog. The HTTP intent router
-        # is the entry point of an external flow; the
-        # request may carry a caller-supplied
-        # ``X-Correlation-Id`` (passed via
-        # ``idempotency_key``) or we mint a fresh
-        # correlation_id. ADR-037: the caller MUST
-        # supply a correlation context — we do it here
-        # at the entry point instead of letting the
-        # framework default it.
+        # is the entry point of an external flow.
+        # ``correlation_id`` is **derived from
+        # ``event_id``** (ADR-065 §2.3, ADR-037 §2
+        # requirement): the event_id is a UUID5 hash
+        # of the deterministic request fields
+        # (``agent_id``, ``type``, ``target``,
+        # ``args``, ``idempotency_key``); using the
+        # same hash for the correlation_id makes a
+        # retry of the same request produce the same
+        # correlation_id, so the audit trail stitches
+        # the retry back to the original intent.
+        #
+        # ADR-037 §2 requires the caller to supply a
+        # correlation context; we build it here at the
+        # entry point instead of letting the framework
+        # default it. The default would mint a fresh
+        # UUID per call (the pre-fix bug) and break
+        # the retry-audit-trail contract.
         from kntgraph.core.event import CorrelationContext
-        from uuid import uuid4
 
-        flow_id = uuid4()
         correlation = CorrelationContext.new(
-            correlation_id=flow_id,
+            correlation_id=UUID(event_id),
         )
         event = Event.domain_from(
             agent_id=agent_id,
@@ -272,6 +281,14 @@ def register_post_intent(
                 "source": "http.intent_router",
             },
             correlation=correlation,
+            # Pin the Event's ``event_id`` to the
+            # deterministic hash so the
+            # ``correlation_id == event_id`` invariant
+            # holds end-to-end (the Event's default
+            # would mint a fresh UUID4 and the audit
+            # trail would break on the first emit
+            # without this pin).
+            event_id=UUID(event_id),
         )
         append_result = await log.append(event)
         if append_result.is_err():
