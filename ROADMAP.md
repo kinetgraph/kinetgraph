@@ -83,9 +83,15 @@ recebem proteção imediata.
 | 5 | ~~`SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools`~~ | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT §2.29** | — |
 
 > **Decisão 2026-08-26:** mesma justificativa do item #4 — o gate depende de `RoleComponent` que **não existe em framework code** (só nos Jinja scaffolds). Synthetic emission gating é exatamente a fatia gate-2 do ADR-066 v0.16. **Aguardar ADR-066 v0.16.**
-| 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | Not started | — |
-| 7 | SSE subscribe (`GET /agents/{agent_id}/events`) substitui long-poll `GET /status` | [ADR-065 §3.1](./ADRs/ADR-065-http-intake-event-driven-review.md) | UX fix | Not started | — |
-| 8 | Gateway removido do 404 em tool desconhecida (delegado ao dispatcher) | [ADR-065 §3.2](./ADRs/ADR-065-http-intake-event-driven-review.md) | architecture | Not started | — |
+| 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | Merged | — |
+
+> **Merged em commit `7810b2b`** (2026-08-26). O `correlation_id` agora é `UUID(event_id)` (mesma proveniência do hash determinístico); o `event_id` é pinado no `domain_from(..., event_id=...)` para garantir o invariante. 5 testes em `tests/unit/api/test_correlation_id.py`.
+| 7 | SSE subscribe (`GET /agents/{agent_id}/events`) substitui long-poll `GET /status` | [ADR-065 §3.1](./ADRs/ADR-065-http-intake-event-driven-review.md) | UX fix | Merged | — |
+
+> **Merged em commit `3e6e2a9`** (2026-08-26). Endpoint SSE via `register_sse_events` em `src/kntgraph/api/intent_router/routes.py`. Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Query params: `from_` (cursor), `causation_id` (filter por fluxo), `event_class` (filter domain/lifecycle/tool). Legacy `/status` emite `DeprecationWarning`. 6 testes em `tests/unit/api/test_sse_subscribe.py`. Doc em `docs/sse_subscribe.md`; exemplo em `examples/22_sse_subscribe.py`.
+| 8 | Gateway removido do 404 em tool desconhecida (delegado ao dispatcher) | [ADR-065 §3.2](./ADRs/ADR-065-http-intake-event-driven-review.md) | architecture | Merged | — |
+
+> **Merged em commit `0fd1d69`** (2026-08-26). Gateway emite `tool.<name>.requested` **incondicionalmente**; a validação de registro passa a ser feita pelo dispatcher (gate 1 do three-gate model, ADR-060 §3.0). Cliente recebe 202 + `event_id`; aprende da falha via SSE (`intent.validation_failed`). Breaking change para clientes que esperavam 404. Teste atualizado em `tests/unit/api/test_intent_router.py`.
 
 ### In scope (preparação — habilita próximos minors)
 
@@ -108,8 +114,12 @@ recebem proteção imediata.
 
 | # | Item | ADR | Tipo | Status | Owner |
 |---|---|---|---|---|---|
-| 13 | Remove `_RateLimitLike` / `_AuthLike` shims | [ADR-061 §4.1](./ADRs/ADR-061-litellm-integration-review.md) | cleanup | Not started | — |
-| 14 | Per-call `drop_params=` (não mutar `litellm.drop_params` global) | [ADR-061 §4.3](./ADRs/ADR-061-litellm-integration-review.md) | fix | Not started | — |
+| 13 | Remove `_RateLimitLike` / `_AuthLike` shims | [ADR-061 §4.1](./ADRs/ADR-061-litellm-integration-review.md) | cleanup | Merged | — |
+
+> **Merged em commit sem número registrado** (2026-08-26, entre `84cfd45` e `1cbb396`). Shims `_RateLimitLike` e `_AuthLike` removidos de `src/kntgraph/agents/tools/llm.py` (-16 LOC). Os test fakes `_FakeRateLimitError` / `_FakeAuthError` agora herdam **diretamente** de `LLMRateLimitError` / `LLMAuthError` (sem `_RateLimitLike` / `_AuthLike` na MRO). Nenhuma referência remanescente no `src/` ou `examples/`.
+| 14 | Per-call `drop_params=` (não mutar `litellm.drop_params` global) | [ADR-061 §4.3](./ADRs/ADR-061-litellm-integration-review.md) | fix | Merged | — |
+
+> **Merged em commit `1cbb396`** (2026-08-26). O adapter LiteLLM não muta mais o global `litellm.drop_params` (thread-unsafe em workers concorrentes). O flag `drop_unsupported_params` é passado **per-call** como `drop_params=` no `acompletion(...)` kwargs (caminho principal e streaming). 2 testes em `TestDropParamsPerCall`. Bonus: consertou um leak pre-existente no `_patched_worker` que substituía a classe via `patcher.start()` sem `.stop()`.
 
 ### Out of scope (tracking)
 
@@ -143,7 +153,7 @@ a janela:
 |---|---|---|---|---|
 | 15 | ~~`security.principal.Role` enum emite `DeprecationWarning` (apontando para `PrincipalLevel`)~~ | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~foundation~~ | **Tracking → DEBT §2.30** | — |
 
-> **Decisão 2026-08-26:** mesmo padrão dos itens #4/#5/#12 (que viraram DEBT §2.29) — emit warning é trabalho puro de migração que vale fazer **junto** com o ciclo de deprecation completo do `Role` (introduzir `PrincipalLevel` **→** emitir warning **→** remover `Role` em v1.0). Movido para DEBT §2.30 para acompanhar a janela AGENTS.md §7 (uma minor cycle de warning, depois remoção). **Quando executar:** em qualquer release que toque `security.principal.Role` (mesmo que não seja uma minor planejada); ou antes do release que remove o enum.
+> **Decisão 2026-08-26 (revisada):** puxado de DEBT §2.30 nesta sessão para execução, mas voltou para DEBT quando a discussão apontou que emitir `DeprecationWarning` no `Role` exige decisão arquitetural sobre escopo (module-level vs por-acesso vs híbrido) que cabe em uma sessão dedicada com mais contexto sobre telemetria de warning em produção. Mantido em DEBT §2.30.
 
 **Quando executar:** em qualquer release que toque
 o módulo `security.principal` (mesmo que não seja uma

@@ -2709,6 +2709,29 @@ release that touches the module (planned: v0.16's
 ADR-066 gate-1 work, per the ADR-066 §4.1 step 3)
 ships the warning; v1.0 ships the removal.
 
+**2026-08-26 (revisão):** puxado para o ROADMAP v0.14
+nesta sessão, depois revertido para DEBT quando a
+discussão apontou que emitir `DeprecationWarning`
+no `Role` exige decisão arquitetural sobre **escopo
+do warning**:
+
+  - **Module-level** (uma vez no import): cobre 90%
+    dos casos sem custo runtime. Não cobre uso
+    via `from kntgraph.security import Role` em
+    runtime.
+  - **Por-acesso** (em cada `Role.X`): cobre 100%
+    mas adiciona overhead e risco em introspecção
+    (`Role.__members__`, `Role.__iter__`).
+  - **Híbrido** (module + `__getattribute__`
+    deduplicado): cobre tudo mas precisa de flag
+    para evitar cascata de warnings em produção.
+
+A decisão cabe em uma sessão dedicada com mais
+contexto (telemetria de warning em produção, impacto
+em bibliotecas que usam `Role` como type hint).
+Quando o item for puxado de novo, abrir a sessão
+com a pergunta "qual escopo?" como primeiro item.
+
 
 ## 2.31 `agents.role_systems/` re-organisation (ADR-060 §6.5.3)
 
