@@ -44,6 +44,10 @@ historical records).
 
 - [Tools](tools.md) — the `Tool` Protocol,
   `ToolRegistry`, `ToolInvoker`, idempotency.
+- [SSE Subscribe](sse_subscribe.md) — the
+  `GET /agents/{agent_id}/events` endpoint that
+  replaces the legacy long-poll status endpoint
+  (ADR-065 §3.1).
 - [Routing](routing.md) — semantic routing
   (GLiNER2-based intent + argument extraction).
 - [Solution tier (ADR-010)](consolidation.md) —

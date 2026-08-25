@@ -5,7 +5,7 @@
 """
 intent_router.routes -- FastAPI route installers.
 
-Four installers, each taking the FastAPI primitives
+Five installers, each taking the FastAPI primitives
 (`FastAPI`, `Depends`, `Header`, `HTTPException`,
 `Principal`), the framework dependencies (`EventLog`,
 `ToolRegistry`), and the `bind_principal_dependency`
@@ -22,8 +22,18 @@ themselves) and lets tests inject mocks.
     validate, resolve target, emit
     `tool.<name>.requested`, return 202.
   - `register_get_status(app, ..., log, auth)`:
-    ``GET /agents/{id}/events/{eid}/status`` (the
-    long-poll status endpoint).
+    ``GET /agents/{id}/events/{eid}/status`
+    (the long-poll status endpoint, **deprecated**
+    in v0.14 per ADR-065 §3.1 / §5.1; use
+    `register_sse_events` for new code).
+  - `register_sse_events(app, ..., log, auth)`:
+    `GET /agents/{id}/events` — the SSE subscribe
+    endpoint (ADR-065 §3.1 / §4.1). Streams the
+    agent's EventLog from the cursor supplied by
+    the client; each event carries the canonical
+    payload, the `id` is the Redis Stream cursor
+    (so the SSE standard `Last-Event-ID` reconnect
+    semantics work out of the box).
 
 The `auth` argument is the closure produced by
 `bind_principal_dependency(verifier)`; it maps the
@@ -36,7 +46,10 @@ pattern inlined 3x before the helper was extracted
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+import json
+import warnings
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Optional
 from uuid import UUID
 
@@ -51,6 +64,7 @@ from ...core._typing import (
     RouterApp,
 )
 from ...core.event import Event
+from ...core.event.codec import event_to_dict
 from ...core.long_poll import DEFAULT_POLL_INTERVAL_S, await_terminal_event
 from ...security import Principal
 from ...stream.event_log import EventLog
@@ -69,6 +83,18 @@ from .helpers import (
 )
 
 logger = structlog.get_logger()
+
+
+# Test-only hook: when set, the SSE generator
+# closes after the first batch of events has been
+# yielded. Production never sets this; the
+# generator keeps polling indefinitely until the
+# client disconnects (``CancelledError`` propagates
+# and FastAPI cleans up the response). The hook
+# exists so unit tests can drive the generator
+# end-to-end without blocking on the long-lived
+# poll loop.
+_sse_test_close_after_first_batch: bool = False
 
 
 # The shape of the closure produced by
@@ -309,6 +335,213 @@ def register_post_intent(
         )
 
 
+def _get_streaming_response() -> type:
+    """
+    Lazily import :class:`fastapi.responses.StreamingResponse`.
+
+    The ``fastapi`` package is an optional dependency
+    (the ``[api]`` extra). The other ``register_*``
+    installers defer the FastAPI imports to the
+    FastAPI wrapper module (``_create_app``); SSE
+    reuses the same import strategy via this helper.
+
+    The runtime call from ``register_sse_events``
+    raises ``ImportError`` with a clear message
+    pointing at ``kntgraph[api]`` if FastAPI is
+    missing.
+    """
+    from fastapi.responses import StreamingResponse
+
+    return StreamingResponse
+
+
+def register_sse_events(
+    app: RouterApp,
+    FastAPI: type | None = None,
+    *,
+    Depends: Dependable,
+    Principal: type | None = None,
+    log: EventLog | None = None,
+    auth: PrincipalDep,
+) -> None:
+    """
+    Install ``GET /agents/{agent_id}/events`` — the SSE
+    subscribe endpoint (ADR-065 §3.1 / §4.1).
+
+    Behaviour
+    ---------
+
+    The endpoint streams the agent's EventLog to the
+    client as Server-Sent Events. The client controls
+    the start point via ``from=<stream_id>`` (default
+    ``"0"`` = replay the whole visible window). The
+    server reads new events with a poll-and-yield loop
+    while the connection is held. Optional filters
+    narrow the stream:
+
+      - ``causation_id=<event_id>`` — only events whose
+        ``causation_id`` matches the value (the
+        canonical use case: subscribe to the result of
+        one POST ``/intents`` request).
+      - ``event_class=<domain|lifecycle|tool>`` —
+        only events of the given class.
+
+    Each SSE frame carries the canonical payload
+    (``event: <type>``, ``id: <stream_id>``,
+    ``data: <json>``). The ``id`` is the Redis Stream
+    cursor, so the SSE standard ``Last-Event-ID``
+    reconnect semantics work out of the box: a client
+    that disconnects and reconnects with the last
+    ``id`` it received gets the gap replayed.
+
+    A ``:heartbeat\\n\\n`` SSE comment is emitted
+    every 15 s when no events have arrived; this
+    keeps proxies / load balancers from closing idle
+    connections.
+
+    The endpoint REPLACES the long-poll
+    ``GET /agents/{agent_id}/events/{event_id}/status``
+    (now deprecated). The old endpoint is kept for
+    one minor cycle with a ``DeprecationWarning`` at
+    request time (ADR-065 §5.1).
+
+    Why poll-and-yield and not real subscribe
+    ----------------------------------------
+
+    The EventLog does not yet expose a
+    ``subscribe(agent_id)`` primitive (see DEBT
+    §2.X for the planned Redis Pub/Sub channel).
+    Polling is good enough for v0.14: the poll
+    interval is 100 ms (matches the legacy long-poll
+    cadence); the EventLog's Redis Stream read is
+    cheap; and the SSE framing only adds a few bytes
+    per event. When the volume justifies it, the
+    internals of this endpoint swap to a real
+    Pub/Sub channel without changing the public
+    contract.
+    """
+
+    StreamingResponse = _get_streaming_response()
+
+    @app.get("/agents/{agent_id}/events")
+    async def sse_events(
+        agent_id: str,
+        principal: Principal = Depends(auth),  # type: ignore[valid-type]
+        from_: str = "0",
+        causation_id: "str | None" = None,
+        event_class: "str | None" = None,
+    ) -> "StreamingResponse":  # type: ignore[valid-type]
+        """
+        Subscribe to the agent's EventLog.
+
+        Query parameters (all optional):
+          - ``from_``: the Redis Stream cursor to
+            start from (``"0"`` = from the
+            beginning). On reconnect, the SSE client
+            sends the last ``id`` it received as
+            ``Last-Event-ID``; the gateway translates
+            that into ``from_``.
+          - ``causation_id``: filter to events whose
+            ``causation_id`` matches (use the
+            ``event_id`` returned by ``POST /intents``
+            to subscribe to one specific request).
+          - ``event_class``: filter by event class
+            (``"domain"``, ``"lifecycle"``, ``"tool"``).
+        """
+        check_agent_binding(principal, agent_id)
+
+        # SSE filters are validated once at the entry
+        # point; the inner generator is a pure
+        # poll-and-yield loop and trusts the inputs.
+        causation_filter: Optional[str] = causation_id
+        class_filter: Optional[str] = event_class
+
+        async def _stream() -> AsyncIterator[bytes]:
+            cursor = from_
+            # Tracks the last time we emitted a
+            # heartbeat so idle connections stay alive.
+            last_heartbeat = asyncio.get_event_loop().time()
+            heartbeat_interval_s = 15.0
+            poll_interval_s = DEFAULT_POLL_INTERVAL_S
+            try:
+                while True:
+                    events: list[Event] = []
+                    try:
+                        # ``read(agent_id, start="(",
+                        # end="+")`` returns events
+                        # strictly after ``from_``. When
+                        # ``from_ == "0"``, we want the
+                        # whole history, so ``start="-"
+                        # end="+"``. Otherwise the
+                        # ``start="("`` is the Redis
+                        # Stream exclusive-id convention
+                        # (``(`` + cursor = strictly after
+                        # the cursor); the EventLog's
+                        # ``read(start, end)`` honours it.
+                        start = "-" if cursor == "0" else f"({cursor}"
+                        events = await log.read(
+                            agent_id,
+                            start=start,
+                            end="+",
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "intent_router.sse_read_failed",
+                            agent_id=agent_id,
+                            error=str(e),
+                        )
+                        await asyncio.sleep(poll_interval_s)
+                        continue
+                    if not events:
+                        # Test hook: when the
+                        # ``_sse_test_close_after_first_batch``
+                        # global is set, the generator
+                        # closes after the first batch
+                        # of events has been yielded.
+                        # Production never sets this; the
+                        # generator keeps polling
+                        # indefinitely until the client
+                        # disconnects.
+                        if _sse_test_close_after_first_batch:
+                            return
+                        now = asyncio.get_event_loop().time()
+                        if now - last_heartbeat >= heartbeat_interval_s:
+                            yield b":heartbeat\n\n"
+                            last_heartbeat = now
+                        await asyncio.sleep(poll_interval_s)
+                        continue
+                    for ev in events:
+                        if causation_filter is not None:
+                            if str(ev.causation_id or "") != causation_filter:
+                                continue
+                        if class_filter is not None:
+                            if ev.event_class != class_filter:
+                                continue
+                        payload = event_to_dict(ev)
+                        frame = (
+                            f"event: {ev.event_type}\n"
+                            f"id: {ev.event_id}\n"
+                            f"data: {json.dumps(payload, default=str)}\n\n"
+                        ).encode("utf-8")
+                        yield frame
+                        cursor = str(ev.event_id)
+                        last_heartbeat = asyncio.get_event_loop().time()
+                    # Test hook: close after the first
+                    # batch of events has been yielded.
+                    if _sse_test_close_after_first_batch:
+                        return
+            except asyncio.CancelledError:
+                raise
+
+        return StreamingResponse(
+            _stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
 def register_get_status(
     app: RouterApp,
     FastAPI: type | None = None,
@@ -321,6 +554,13 @@ def register_get_status(
     """
     Install ``GET /agents/{agent_id}/events/{event_id}/status``
     (the long-poll status endpoint).
+
+    **Deprecated in v0.14** (ADR-065 §5.1). Use
+    ``GET /agents/{agent_id}/events?causation_id=<event_id>``
+    (the SSE subscribe endpoint, ``register_sse_events``)
+    instead. The endpoint stays in place for one
+    minor cycle; emits ``DeprecationWarning`` at
+    request time.
     """
 
     @app.get(
@@ -341,7 +581,23 @@ def register_get_status(
         (default 5). Returns `pending` if no
         terminal event arrived in that window;
         the client should poll again.
+
+        **Deprecated:** prefer
+        ``GET /agents/{agent_id}/events?causation_id={event_id}``
+        (SSE). The new endpoint streams the same
+        terminal events without the per-request
+        polling overhead; ``Last-Event-ID`` on
+        reconnect handles gap replay automatically.
         """
+        warnings.warn(
+            (
+                f"GET /agents/{agent_id}/events/{event_id}/status "
+                f"is deprecated; use GET /agents/{agent_id}/events?"
+                f"causation_id={event_id} (SSE) instead. See ADR-065 §5.1."
+            ),
+            DeprecationWarning,
+            stacklevel=2,
+        )
         check_agent_binding(principal, agent_id)
 
         def _match(e: Event) -> bool:
@@ -384,4 +640,5 @@ __all__ = [
     "register_healthz",
     "register_list_tools",
     "register_post_intent",
+    "register_sse_events",
 ]

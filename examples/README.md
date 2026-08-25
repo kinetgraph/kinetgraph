@@ -39,6 +39,7 @@ directly with `python` or via `uv run`.
 | 15 | `15_audit_supervisor.py`              | Supervisor pattern: an audit system inspects per-agent Worlds and emits `audit.flagged` on inconsistency | core                 |
 | 16 | `16_continuity_recency.py`            | `ContinuityManager` (ADR-014): recency-suggest + LGPD `clear`                                     | core                 |
 | 21 | `21_domain_memory_ecs.py`             | Durable Domain Memory using pure ECS Components (ADR-059)                                         | core                 |
+| 22 | `22_sse_subscribe.py`                | SSE subscribe to a request's result: `GET /agents/{id}/events` (ADR-065 §3.1) — replaces long-poll | core                 |
 
 ## Setup
 

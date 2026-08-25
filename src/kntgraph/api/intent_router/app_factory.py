@@ -48,6 +48,7 @@ from .routes import (
     register_healthz,
     register_list_tools,
     register_post_intent,
+    register_sse_events,
 )
 
 
@@ -136,6 +137,14 @@ def _create_app(
             auth=auth,
         )
         register_get_status(
+            app,
+            FastAPI,
+            Depends=Depends,
+            Principal=Principal,
+            log=log,
+            auth=auth,
+        )
+        register_sse_events(
             app,
             FastAPI,
             Depends=Depends,
