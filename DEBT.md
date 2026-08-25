@@ -2623,3 +2623,170 @@ surfaced.
     event shapes and the `SwitcherSystem`'s
     `destination.role_name in source.handoff_targets`
     check. No current demand.
+
+
+## 2.30 `Role` enum DeprecationWarning (ADR-060 §2.0)
+
+**Status:** Open — moved from ROADMAP v0.14 #15 on
+2026-08-26.
+
+**Summary.** Item #9 of v0.14 introduced the new
+`PrincipalLevel` enum (ADR-060 §2.0) **alongside**
+the legacy `Role` enum, with the migration helper
+`PrincipalLevel.from_role` and the dual-field
+`Principal.role` / `Principal.level` design. The
+final step of the migration is the
+**`DeprecationWarning`** on the `Role` enum
+itself, so callers learn to migrate to
+`PrincipalLevel` over one minor cycle.
+
+**Why not in v0.14.** Item #9 lands `PrincipalLevel`
+without warning so the framework surface is stable
+during v0.14's fix-first window. The warning itself
+ships in the release that *uses* `Role` most (so
+the warning fires where it matters); the warning
+window is one minor cycle, per AGENTS.md §7. The
+removal of `Role` ships in the release AFTER the
+warning cycle (currently scheduled for v1.0 in the
+ADR-060 §2.0 timeline).
+
+**Three-step migration (mirrors the timeline in
+ADR-060 §2.0):**
+
+  1. **v0.14 (done):** introduce `PrincipalLevel`
+     alongside `Role`; mark `Role` as deprecated in
+     the docstring; add `PrincipalLevel.from_role`
+     helper; add `Principal.level` field with
+     `effective_level()` / `with_level()` helpers.
+     **This commit.**
+  2. **Next release that touches `security.principal`:**
+     add ``warnings.warn(..., DeprecationWarning,
+     stacklevel=2)`` at module load time (covers
+     ``import security`` triggering the warning) and
+     inside `Role.__new__` (covers every
+     ``Role.agent`` / ``Role.admin`` / ``Role.service``
+     access). Update the migration guide in
+     `docs/` with the rename path:
+     ``Role.agent`` → ``PrincipalLevel.agent``.
+     Audit `src/kntgraph` for direct `Role.X`
+     references; replace with `PrincipalLevel.X` so
+     the framework itself stops emitting warnings.
+  3. **v1.0:** `git rm Role` from
+     `src/kntgraph/security/principal.py`; remove
+     `Principal.role` field; keep `PrincipalLevel`
+     as the sole canonical name. Any
+     `Role`-referencing user code breaks at import
+     time with a clear ``AttributeError`` pointing
+     to `PrincipalLevel`.
+
+**Acceptable:** when steps 2 and 3 land and the
+following acceptance criteria pass:
+
+  - Module-level ``warnings.warn`` on import emits
+    a ``DeprecationWarning`` with the message
+    "``Role`` enum is deprecated; use
+    ``PrincipalLevel`` instead (ADR-060 §2.0).
+    Removal target: v1.0."
+  - ``Role.agent`` / ``Role.admin`` / ``Role.service``
+    access emits the same ``DeprecationWarning``
+    (the per-access case).
+  - ``PrincipalLevel.from_role(Role.agent) ==
+    PrincipalLevel.agent`` round-trip still works
+    (the migration is mechanical).
+  - 3+ tests cover: (a) module-level import emits
+    the warning; (b) ``Role.X`` access emits the
+    warning; (c) the `PrincipalLevel` migration
+    path produces the same RBAC outcome.
+  - Framework's own ``src/kntgraph`` code does not
+    emit the warning (audit confirms zero direct
+    ``Role.X`` references after step 2).
+  - v1.0 ``git rm`` removes the enum cleanly; no
+    internal call sites break.
+
+**Trigger:** per AGENTS.md §7, "em qualquer release
+que toque o módulo security.principal". The next
+release that touches the module (planned: v0.16's
+ADR-066 gate-1 work, per the ADR-066 §4.1 step 3)
+ships the warning; v1.0 ships the removal.
+
+
+## 2.31 `agents.role_systems/` re-organisation (ADR-060 §6.5.3)
+
+**Status:** Open — moved from ROADMAP v0.14 #10 on
+2026-08-26.
+
+**Summary.** Cleanup puro do
+`src/kntgraph/agents/role_systems/` package. O
+`__init__.py` atual (224 LOC) mistura 5 classes,
+6 constantes, 3 event-type constants e prompts. A
+re-organização proposta pelo ADR-060 §6.5.3 tem
+5 sub-itens:
+
+  1. **Five concrete systems move out of
+     `__init__.py` into one-file-per-system**
+     (`chat.py`, `planner.py`, `summarizer.py`,
+     `personalized.py`, `rule_based.py`). The
+     `__init__.py` re-exports. Matches the
+     convention in `agents/memory/solutions/`
+     (one class per file).
+
+  2. **`_prompts.py` splits into `_prompts.py`
+     (the prompts) and `_schemas.py` (the output
+     dataclasses).** Today `CHAT_SYSTEM_PROMPT`
+     lives next to `ChatReply`. The prompt is a
+     product config (deployment-overridable in
+     v2); the schema is a domain contract (always
+     current). Mixing the two is the smell.
+
+  3. **`_persona_for_view` stub in
+     `RuleBasedChatSystem`** is fixed (currently
+     returns `""`; v2 reads from `RoleComponent`
+     or `_RolePersonaComponent`). This depends on
+     the `RoleComponent` registry (DEBT §2.29 /
+     ADR-066 v0.16).
+
+  4. **`PersonalizedRoleSystem.OUTPUT_MODEL =
+     BaseModel`** is replaced with a typed
+     `_PersonalizedReply` schema, aligning with
+     the other three role systems.
+
+  5. **Dead `_emit_chat_completion`** (in
+     `_base.py` line 236) is either wired into the
+     LLM path's `_consume_pending_completions`
+     (the comment says "shared between Chat and
+     RuleBased" but only RuleBased calls it) or
+     removed.
+
+**Why not in v0.14.** Items 1, 2, 4, 5 are
+cosmetic / cleanup puro — no fix de bug, no
+security gap, no audit trail. Item 3 (the
+`_persona_for_view` fix) is **blocked** on
+DEBT §2.29 (the `RoleComponent` registry). Putting
+items 1, 2, 4, 5 in v0.14 inverts the
+fix-first policy stated in ROADMAP §"Decisão de
+escopo". The natural carrier is v0.15+ when the
+fix-first pressure releases and the framework has
+clearance for cosmetic refactors.
+
+**Acceptable:** when the split lands and:
+
+  - `agents/role_systems/__init__.py` is a thin
+    re-export module (< 50 LOC); each concrete
+    system lives in its own file.
+  - `_prompts.py` (prompts) and `_schemas.py`
+    (output dataclasses) are separate; no file
+    imports the other.
+  - `PersonalizedRoleSystem.OUTPUT_MODEL` is a
+    concrete `BaseModel` subclass, not
+    `BaseModel` itself.
+  - `_emit_chat_completion` is either deleted
+    (no callers after the audit) or wired into
+    `_consume_pending_completions`.
+  - Item 3 (`_persona_for_view`) ships
+    alongside DEBT §2.29 (when the
+    `RoleComponent` registry lands).
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when someone picks up the package for any
+unrelated reason (faster migration is
+cheaper than waiting for a dedicated cycle).

@@ -3,14 +3,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Zero-Trust Level 2 — Identity model (ADR-017).
+Zero-Trust Level 2 — Identity model (ADR-017 + ADR-060 §2.0).
 
 The framework answers "who is calling?" via three types:
 
-  Principal  — the immutable record of a caller.
-  Role       — admin | agent | service.
-  Action     — what the principal wants to do (used by
-               the Policy evaluator).
+  Principal      — the immutable record of a caller.
+  Role           — admin | agent | service.
+                   Deprecated in v0.14 (ADR-060 §2.0); use
+                   ``PrincipalLevel`` for new code. Kept
+                   for one minor cycle so callers have time
+                   to migrate; removed in v1.0.
+  PrincipalLevel — admin | agent | service.
+                   New canonical name for the RBAC permission
+                   on a principal (ADR-060 §2.0). Introduced
+                   in v0.14 alongside ``Role``; the migration
+                   helper is ``PrincipalLevel.from_role``.
+  Action         — what the principal wants to do (used by
+                   the Policy evaluator).
 
 This module is the source of truth for those types. The
 HTTP gateway, the ToolInvoker, and the EventLog all
@@ -59,6 +68,13 @@ class Role(str, Enum):
 
     Used by `Policy.allows(principal, resource, action)`
     to gate operations at the framework boundary.
+
+    **Deprecated in v0.14** (ADR-060 §2.0). Use
+    :class:`PrincipalLevel` for new code. The two
+    enums coexist for one minor cycle so callers have
+    time to migrate; ``PrincipalLevel.from_role``
+    converts between them. The enum is removed in
+    v1.0.
     """
 
     service = "service"  # background workers; tenant-scoped
@@ -79,6 +95,93 @@ class Role(str, Enum):
         return self == other or self < other
 
 
+class PrincipalLevel(str, Enum):
+    """
+    RBAC permission on a :class:`Principal` (ADR-060 §2.0).
+
+    The rename from ``Role`` to ``PrincipalLevel`` makes
+    the type's purpose explicit: it is the
+    infrastructure-level permission a principal carries
+    on a request, not a semantic role in the agent
+    world (the latter lives on ``RoleComponent``,
+    ADR-039). The values are the same as ``Role`` —
+    the migration is mechanical.
+
+    Ordering (lower < higher privilege):
+      service < agent < admin
+
+    Coexistence with ``Role``:
+
+      - ``PrincipalLevel`` is the canonical name
+        going forward (ADR-060 §2.0).
+      - ``Role`` is kept for one minor cycle with
+        ``PrincipalLevel.from_role`` as the
+        migration helper.
+      - Both enums map to the same string values
+        (``"service"``, ``"agent"``, ``"admin"``); a
+        serialised Principal's ``role`` field can be
+        deserialised into either.
+
+    .. note::
+
+        ``Principal.level`` is a new optional field on
+        :class:`Principal` (added in v0.14). Existing
+        principals constructed with ``role=Role.X``
+        keep working; the ``role`` field stays the
+        canonical RBAC source until v1.0. New code
+        should set both ``role`` and ``level`` (the
+        helper ``Principal.with_level()`` does the
+        conversion automatically).
+    """
+
+    service = "service"  # background workers; tenant-scoped
+    agent = "agent"  # user-facing agents; tenant-scoped
+    admin = "admin"  # cross-tenant operators; tenant=None
+
+    @classmethod
+    def from_role(
+        cls, role: "Role | str"
+    ) -> "PrincipalLevel":
+        """
+        Convert a legacy :class:`Role` value to the
+        equivalent :class:`PrincipalLevel`. Provided
+        so the migration is mechanical: every
+        ``Role.agent`` becomes ``PrincipalLevel.agent``
+        via a one-line rename.
+
+        Accepts either a :class:`Role` enum value or
+        the raw string (``"service"``, ``"agent"``,
+        ``"admin"``). Unknown strings raise
+        ``ValueError`` so the caller learns of a
+        corrupted serialised value.
+        """
+        if isinstance(role, Role):
+            return cls(role.value)
+        # Raw string path: serialised principals store
+        # ``role`` as the enum's ``.value``. We look up
+        # the member explicitly so unknown strings
+        # surface as ``ValueError`` instead of a
+        # silent ``AttributeError`` later.
+        try:
+            return cls(role)
+        except ValueError:
+            raise ValueError(
+                f"Cannot convert {role!r} to "
+                f"PrincipalLevel: not a known Role value"
+            ) from None
+
+    def __lt__(self, other: ComparableT) -> bool:
+        order = (PrincipalLevel.service, PrincipalLevel.agent, PrincipalLevel.admin)
+        if not isinstance(other, PrincipalLevel):
+            return NotImplemented
+        return order.index(self) < order.index(other)
+
+    def __le__(self, other: ComparableT) -> bool:
+        if not isinstance(other, PrincipalLevel):
+            return NotImplemented
+        return self == other or self < other
+
+
 @dataclass(frozen=True, slots=True)
 class Principal:
     """
@@ -93,7 +196,17 @@ class Principal:
         at the `EventLog.append` boundary (see
         ``EventLog._validate_principal_tenant``).
     role : Role
-        One of ``admin``, ``agent``, ``service``.
+        One of ``admin``, ``agent``, ``service``. **Deprecated**
+        in v0.14; prefer ``level``. Kept as the canonical
+        RBAC source until v1.0 so existing callers do not
+        break during the migration window.
+    level : Optional[PrincipalLevel]
+        The RBAC permission on this principal (ADR-060
+        §2.0). New code should set this alongside
+        ``role`` (use ``Principal.with_level()`` to
+        derive it from ``role`` automatically). ``None``
+        means "the principal predates the v0.14 migration;
+        callers should fall back to ``role``".
     tenant_id : Optional[str]
         Tenant scope. Must be non-null for ``agent`` and
         ``service``; must be null for ``admin``. The
@@ -110,12 +223,30 @@ class Principal:
       - ``role in (agent, service)`` with a null
         ``tenant_id``
       - empty ``tenant_id`` (None is fine for admin only)
+      - ``level`` set to a value whose tenant
+        constraint disagrees with ``role`` /
+        ``tenant_id`` (cross-check; both enums share
+        the admin-needs-no-tenant rule).
+
+    .. note::
+
+        ``level`` and ``role`` are intentionally separate
+        fields during the migration window (v0.14 →
+        v1.0). They carry the same string values today
+        (``"service"``, ``"agent"``, ``"admin"``) so a
+        principal constructed with both fields is
+        internally consistent. The deprecation of
+        ``role`` (tracking in DEBT) and the eventual
+        removal happen together — until then, callers
+        that need the canonical permission read ``level``
+        if set and ``role`` otherwise.
     """
 
     agent_id: str
     role: Role
     tenant_id: Optional[str]
     key_id: str
+    level: Optional[PrincipalLevel] = None
 
     def __post_init__(self) -> None:
         if not self.agent_id:
@@ -133,10 +264,63 @@ class Principal:
                 raise ValueError(
                     f"Principal.role={self.role.value} requires a non-empty tenant_id"
                 )
+        # ``level`` is optional; if set, it must agree
+        # with the admin/tenant invariants (same
+        # constraint as ``role``).
+        if self.level is not None:
+            if self.level == PrincipalLevel.admin:
+                if self.tenant_id is not None:
+                    raise ValueError(
+                        f"Principal.level=admin requires "
+                        f"tenant_id=None; got {self.tenant_id!r}"
+                    )
+            else:
+                if self.tenant_id is None or not self.tenant_id:
+                    raise ValueError(
+                        f"Principal.level={self.level.value} requires "
+                        f"a non-empty tenant_id"
+                    )
+
+    def effective_level(self) -> PrincipalLevel:
+        """
+        Return the canonical RBAC level for this
+        principal. Prefers ``level`` (the new
+        field); falls back to ``role`` converted
+        via ``PrincipalLevel.from_role``.
+
+        Callers that need a single source of truth
+        for the RBAC permission should use this
+        accessor rather than reading ``role`` or
+        ``level`` directly. Once ``role`` is removed
+        (v1.0), this returns ``self.level`` directly.
+        """
+        if self.level is not None:
+            return self.level
+        return PrincipalLevel.from_role(self.role)
+
+    def with_level(self, level: PrincipalLevel) -> "Principal":
+        """
+        Return a new :class:`Principal` with ``level``
+        set to ``level``. The ``role`` field is
+        unchanged (the migration is additive; ``role``
+        stays the canonical RBAC source until v1.0).
+        """
+        # ``frozen=True`` slots require ``object.__setattr__``
+        # for the rebuild; ``dataclasses.replace`` is the
+        # idiomatic alternative.
+        from dataclasses import replace
+
+        return replace(self, level=level)
 
     def is_admin(self) -> bool:
-        """True when this principal is cross-tenant."""
-        return self.role == Role.admin
+        """
+        True when this principal is cross-tenant.
+
+        Reads ``effective_level`` so the answer is
+        consistent with the new ``level`` field once
+        callers start populating it.
+        """
+        return self.effective_level() == PrincipalLevel.admin
 
     def owns(self, agent_id: str) -> bool:
         """
@@ -400,6 +584,7 @@ __all__ = [
     "DefaultPolicy",
     "Policy",
     "Principal",
+    "PrincipalLevel",
     "Resource",
     "Role",
     "principal_ctx",

@@ -91,8 +91,12 @@ recebem proteção imediata.
 
 | # | Item | ADR | Tipo | Status | Owner |
 |---|---|---|---|---|---|
-| 9 | `PrincipalLevel` enum introduzido **ao lado** do `Role` enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | Not started | — |
-| 10 | `agents.role_systems/` re-organisation (split `_prompts.py`; one class per file) | [ADR-060 §6.5.3](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | Not started | — |
+| 9 | `PrincipalLevel` enum introduzido **ao lado** do `Role` enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | Merged | — |
+
+> **Implementado em 2026-08-26.** O enum `PrincipalLevel` foi adicionado em `src/kntgraph/security/principal.py:142` ao lado do `Role`. Migração aditiva: `Principal` ganhou campo opcional `level: Optional[PrincipalLevel]` (default `None`); helper `effective_level()` prefere `level` e cai para `PrincipalLevel.from_role(role)`; `with_level()` retorna nova principal imutável; `is_admin()` lê `effective_level()`. `Role` foi marcado como deprecated no docstring (sem `DeprecationWarning` runtime ainda — isso é o item #15). 11 testes em `tests/unit/security/test_principal_level.py` cobrem a migração. A remoção efetiva do `Role` (v1.0) é o item #15 abaixo.
+| 10 | ~~`agents.role_systems/` re-organisation (split `_prompts.py`; one class per file)~~ | [ADR-060 §6.5.3](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~cleanup~~ | **Tracking → DEBT §2.31** | — |
+
+> **Decisão 2026-08-26:** cleanup puro, sem fix de bug ou regressão. O `_prompts.py` mistura prompts (config de produto, deployment-overridable em v2) com schemas de output (contrato de domínio, sempre current). O split ("one class per file") é cosmético — o `agents/role_systems/__init__.py` tem 224 LOC misturando 5 classes, 6 constantes, 3 event-type constants, e prompts. Não vale atrasar v0.14 (fix-first) para esperar um cleanup. **Aguardar v0.15+** ou demanda concreta. **Tracking:** DEBT §2.31.
 | 11 | `SolutionPipeline` consolidation (4 sistemas → 1) | [ADR-060 §6.5.2](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | Not started | — |
 | 12 | ~~`RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` campo~~ | [ADR-060 §3.1](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~feature~~ | **Tracking → DEBT §2.29** | — |
 
@@ -135,7 +139,9 @@ a janela:
 
 | # | Item | ADR | Status | Owner |
 |---|---|---|---|---|
-| 15 | `security.principal.Role` enum emite `DeprecationWarning` (apontando para `PrincipalLevel`) | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | Not started | — |
+| 15 | ~~`security.principal.Role` enum emite `DeprecationWarning` (apontando para `PrincipalLevel`)~~ | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~foundation~~ | **Tracking → DEBT §2.30** | — |
+
+> **Decisão 2026-08-26:** mesmo padrão dos itens #4/#5/#12 (que viraram DEBT §2.29) — emit warning é trabalho puro de migração que vale fazer **junto** com o ciclo de deprecation completo do `Role` (introduzir `PrincipalLevel` **→** emitir warning **→** remover `Role` em v1.0). Movido para DEBT §2.30 para acompanhar a janela AGENTS.md §7 (uma minor cycle de warning, depois remoção). **Quando executar:** em qualquer release que toque `security.principal.Role` (mesmo que não seja uma minor planejada); ou antes do release que remove o enum.
 
 **Quando executar:** em qualquer release que toque
 o módulo `security.principal` (mesmo que não seja uma

@@ -286,24 +286,6 @@ class LiteLLMTransportAdapter(LLMTransport):
 # -----------------------------------------------------------------------------
 
 
-class _RateLimitLike(Exception):
-    """Deprecated: use `LLMRateLimitError` instead.
-
-    Kept as an alias for the test fake (`_FakeRateLimitError`),
-    which subclasses this for backwards compatibility. New code
-    should raise/catch `LLMRateLimitError` directly.
-    """
-
-
-class _AuthLike(Exception):
-    """Deprecated: use `LLMAuthError` instead.
-
-    Kept as an alias for the test fake (`_FakeAuthError`),
-    which subclasses this for backwards compatibility. New code
-    should raise/catch `LLMAuthError` directly.
-    """
-
-
 # -----------------------------------------------------------------------------
 # Typed LLM exceptions
 # -----------------------------------------------------------------------------
