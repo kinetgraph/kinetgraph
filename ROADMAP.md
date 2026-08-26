@@ -53,113 +53,88 @@ não estão planejadas no momento.
 
 ---
 
-## v0.14.0 — **close the gaps**
+## v0.14.0 — **close the gaps** (RELEASED 2026-08-26)
 
 **Foco**: fechar todas as brechas críticas e regressões
-que estão em produção hoje. Operators em produção
-recebem proteção imediata.
+que estavam em produção. v0.14 ships as a
+security-and-correctness release.
 
-### In scope (brecha — fix-first)
+### v0.14 items (final state)
 
-| # | Item | ADR | Tipo | Status | Owner |
-|---|---|---|---|---|---|
-| 1 | `RuleBasedChatSystem._persona_for_view` corrigido — personas globs casam desde v0.9 | [ADR-061 §11.1](./ADRs/ADR-061-litellm-integration-review.md) | bug | Merged | — |
-| 2 | LiteLLM fallback chain no `LiteLLMToolWorker.invoke` (regressão do ADR-043) | [ADR-061 §6.2](./ADRs/ADR-061-litellm-integration-review.md) | regression | Merged | — |
+| # | Item | ADR | Tipo | Status |
+|---|---|---|---|---|
+| 1 | `RuleBasedChatSystem._persona_for_view` corrigido — personas globs casam desde v0.9 | [ADR-061 §11.1](./ADRs/ADR-061-litellm-integration-review.md) | bug | **Merged (commit `9a50bec`)** |
+| 2 | LiteLLM retry com backoff exponencial (não fallback chain) | [ADR-061 §6.2](./ADRs/ADR-061-litellm-integration-review.md) | regression | **Merged (commit `84cfd45`)** |
+| 3 | WorkerManager ACL hook (gate 1) + `RoleComponent` (gate 2) | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md), [ADR-060 §3.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | security | **Merged (commit `8936b0c`)** |
+| 4 | `_BaseRoleSystem._build_request_event` gate on `RoleComponent.allowed_tools` | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | security | **Merged (commit `8936b0c`)** |
+| 5 | `SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools` | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | security | **Tracking → DEBT §2.29 (item #5)** |
+| 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | **Merged (commit `7810b2b`)** |
+| 7 | SSE subscribe (`GET /agents/{agent_id}/events`) substitui long-poll `GET /status` | [ADR-065 §3.1](./ADRs/ADR-065-http-intake-event-driven-review.md) | UX fix | **Merged (commit `3e6e2a9`)** |
+| 8 | Gateway removido do 404 em tool desconhecida (delegado ao dispatcher) | [ADR-065 §3.2](./ADRs/ADR-065-http-intake-event-driven-review.md) | architecture | **Merged (commit `0fd1d69`)** |
+| 9 | `PrincipalLevel` enum introduzido ao lado do `Role`; migração aditiva | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | **Merged (commit `4391ffe`)** |
+| 10 | `agents.role_systems/` re-organisation (split; one class per file) | [ADR-060 §6.5.3](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | **Tracking → DEBT §2.31** |
+| 11 | `SolutionPipeline` consolidation (5 sistemas → 1) | [ADR-060 §6.5.2](./ADRs/ADR-060-fmh-office-v2-pillars.md) | cleanup | **Tracking → DEBT §2.32** |
+| 12 | `RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` | [ADR-060 §3.1](./ADRs/ADR-060-fmh-office-v2-pillars.md) | feature | **Tracking → DEBT §2.29 (item #12)** |
+| 13 | Remove `_RateLimitLike` / `_AuthLike` shims | [ADR-061 §4.1](./ADRs/ADR-061-litellm-integration-review.md) | cleanup | **Merged (commit entre `84cfd45` e `1cbb396`)** |
+| 14 | Per-call `drop_params=` (não mutar `litellm.drop_params` global) | [ADR-061 §4.3](./ADRs/ADR-061-litellm-integration-review.md) | fix | **Merged (commit `1cbb396`)** |
+| 15 | `Role` enum emite `DeprecationWarning` (apontando para `PrincipalLevel`) | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | **Closed 2026-08-26: `Role` removido direto (commit `7392d1c`); sem warning cycle** |
 
-> **Implementação efetiva:** `with_timeout_and_retry` + `BackoffPolicy(retry_on=(LLMRateLimitError, asyncio.TimeoutError))` (commit `84cfd45`). **Retry do mesmo model com backoff exponencial** (não fallback entre models). O `LLMConfig.fallback_models` continua sendo carregado mas não consumido; fica como **Tracking** até alguém implementar (o `with_fallback_chain` do toolkit não diferencia `LLMAuthError`/`LLMRateLimitError`, e estender o toolkit expandia escopo). A regressão do ADR-043 (rate-limit virava `Err` imediato) está fechada; o cenário "primary cai 429 → retry com backoff → sucesso" é coberto pelos 6 testes em `TestInvokeRetryPolicy`.
-| 3 | ~~`chat_llm` registrado em `default_acl()`~~ | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT** | — |
+### Bonus items (delivered alongside v0.14)
 
-> **Decisão 2026-08-26:** o fix literal proposto em ADR-061 §5 ("registrar `chat_llm` em `default_acl()`") **não fecha a brecha**. `default_acl()` já retorna `ToolACL(required_role=Role.agent)`, mas `LiteLLMToolWorker` é registrado **exclusivamente via `WorkerManager.register`**, que não consulta `ToolRegistry` nem `acl_for`. `ToolACL.check(principal)` e `ToolRegistry.acl_for` são **dead code** no `src/` (zero chamadores). A brecha real é mais ampla:
->
-> 1. `WorkerManager._process_message` e `ToolRouter.route_batch` não têm hook de ACL.
-> 2. Os dois registries (`WorkerManager._tools` vs `ToolRegistry._tools`/`_acls`) nunca convergem para `chat_llm`.
-> 3. `RoleComponent.allowed_tools` não é lido em framework code (só nos Jinja scaffolds `cli/templates/routing/*.jinja`).
-> 4. O `Event` não carrega `principal`; `WorkerManager._process_message` não tem como consultar `principal_ctx`.
->
-> **Plano detalhado** registrado em `DEBT.md` §2.X (WorkManager ACL hook). Quando voltar a esse item, ele vira **uma ADR nova** ("WorkerManager ACL hook") e cobre gate 1 + gate 2 da three-gate model (ADR-060 §3.0) — não só `chat_llm`. **Não fazer fix parcial** sem o plano de propagação do principal — daria falsa sensação de segurança.
-| 4 | ~~`ChatRoleSystem` gate on `RoleComponent.allowed_tools` para `chat_llm`~~ | [ADR-061 §5](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT §2.29** | — |
+| Item | ADR | Status |
+|---|---|---|
+| `RoleComponent` em `core.components.role` (mirror Jinja template shape) | [ADR-039 + ADR-060 §3.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | **Merged (commit `8936b0c`)** |
+| Three-Gate Model: gate 1 (WorkerManager ACL) + gate 2 (RoleComponent) + gate 3 (worker) | [ADR-060 §3.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | **Merged (commit `8936b0c`)** |
+| `WorkerManager.register(tool_cls, acl=...)` com sentinel `_UNSET` + `acl_for(name)` | [ADR-066 §4.1](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `f1ccc19`)** |
+| `Event.producer_principal_id` (stamp from API layer, recover in Worker) | [ADR-066 §4.1](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `f1ccc19`)** |
+| ADR-066 v0.17: DeprecationWarning on `WorkerManager.register` (no acl=) and `ToolRegistry.__init__` | [ADR-066 §4.4](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `c22a5e4`)** |
+| ADR-066 v0.17: CLI scaffold flip (`cli/templates/dispatcher.py.jinja`) | [ADR-066 §3.1](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `c22a5e4`)** |
+| `WorldProjection` protocol + `MemoryHydrationProjection` in `runner.reactive_extensions` | [ADR-042 §6.1](./ADRs/ADR-042-hydration-pipeline.md) | **Merged (commit `4e383de`)** |
+| Built-in memory hydration in `ReactiveDispatcher._fold_with_filter` (no opt-in) | [ADR-042 §6.1](./ADRs/ADR-042-hydration-pipeline.md) | **Merged (commit `4e383de`)** |
+| `SessionComponent.session_id` honours `data.session_id` (with fallback) | [DEBT §2.33](./DEBT.md) | **Merged (commit `543e145`)** |
+| `Role` enum removed; `PrincipalLevel` is the single RBAC enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | **Merged (commit `7392d1c`)** |
 
-> **Decisão 2026-08-26:** o gate literal proposto depende de uma classe `RoleComponent` que **não existe em framework code** — vive só nos Jinja scaffolds (`cli/templates/routing/components.py.jinja:9`). Nenhum exemplo, nenhum teste, nenhum módulo `src/` instancia `RoleComponent` ou popula `allowed_tools`. Fazer o fix isolado aqui exige introduzir uma API nova (registry de "componente de role do projeto") + duck-typing em `view.components` — duplica a infraestrutura que o ADR-066 v0.16 já vai trazer (gate 2 do three-gate model). **Aguardar ADR-066 v0.16** para entregar este item junto com gate 1 (WorkerManager ACL hook) e o `Event.producer_principal_id`. **Tracking:** DEBT §2.29.
-| 5 | ~~`SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools`~~ | [ADR-061 §11.4b](./ADRs/ADR-061-litellm-integration-review.md) | ~~security~~ | **Tracking → DEBT §2.29** | — |
+### Still open (moved to DEBT)
 
-> **Decisão 2026-08-26:** mesma justificativa do item #4 — o gate depende de `RoleComponent` que **não existe em framework code** (só nos Jinja scaffolds). Synthetic emission gating é exatamente a fatia gate-2 do ADR-066 v0.16. **Aguardar ADR-066 v0.16.**
-| 6 | `correlation_id = uuid4()` → derivar de `event_id` (audit trail fix) | [ADR-065 §2.3](./ADRs/ADR-065-http-intake-event-driven-review.md) | audit bug | Merged | — |
+- **DEBT §2.28 v0.18**: `git rm` of `ToolRegistry`; update API factory to take `worker_manager=`; update examples (`examples/knt-cli/weather_platform`); migrate `knowledge/extraction/*` callers; remove the `DeprecationWarning` on `WorkerManager.register` no-`acl=` form (becomes a hard error).
+- **DEBT §2.29 item #5**: `SolutionLookupSystem` synthetic emission gated on `RoleComponent.allowed_tools` (still pending; gate 2 was delivered in v0.14 but the `SolutionLookupSystem` consumer is not yet wired).
+- **DEBT §2.29 item #12**: `RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` (deferred; multi-agent handoff demand has not surfaced).
+- **DEBT §2.31**: `agents/role_systems/` re-organisation (one class per file; `_prompts.py` / `_schemas.py` split).
+- **DEBT §2.32**: `SolutionPipeline` consolidation (~1338 LOC across 5 classes).
 
-> **Merged em commit `7810b2b`** (2026-08-26). O `correlation_id` agora é `UUID(event_id)` (mesma proveniência do hash determinístico); o `event_id` é pinado no `domain_from(..., event_id=...)` para garantir o invariante. 5 testes em `tests/unit/api/test_correlation_id.py`.
-| 7 | SSE subscribe (`GET /agents/{agent_id}/events`) substitui long-poll `GET /status` | [ADR-065 §3.1](./ADRs/ADR-065-http-intake-event-driven-review.md) | UX fix | Merged | — |
+### Notas de release (delivered 2026-08-26)
 
-> **Merged em commit `3e6e2a9`** (2026-08-26). Endpoint SSE via `register_sse_events` em `src/kntgraph/api/intent_router/routes.py`. Headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Query params: `from_` (cursor), `causation_id` (filter por fluxo), `event_class` (filter domain/lifecycle/tool). Legacy `/status` emite `DeprecationWarning`. 6 testes em `tests/unit/api/test_sse_subscribe.py`. Doc em `docs/sse_subscribe.md`; exemplo em `examples/22_sse_subscribe.py`.
-| 8 | Gateway removido do 404 em tool desconhecida (delegado ao dispatcher) | [ADR-065 §3.2](./ADRs/ADR-065-http-intake-event-driven-review.md) | architecture | Merged | — |
-
-> **Merged em commit `0fd1d69`** (2026-08-26). Gateway emite `tool.<name>.requested` **incondicionalmente**; a validação de registro passa a ser feita pelo dispatcher (gate 1 do three-gate model, ADR-060 §3.0). Cliente recebe 202 + `event_id`; aprende da falha via SSE (`intent.validation_failed`). Breaking change para clientes que esperavam 404. Teste atualizado em `tests/unit/api/test_intent_router.py`.
-
-### In scope (preparação — habilita próximos minors)
-
-| # | Item | ADR | Tipo | Status | Owner |
-|---|---|---|---|---|---|
-| 9 | `PrincipalLevel` enum introduzido **ao lado** do `Role` enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | foundation | Merged | — |
-
-> **Implementado em 2026-08-26.** O enum `PrincipalLevel` foi adicionado em `src/kntgraph/security/principal.py:142` ao lado do `Role`. Migração aditiva: `Principal` ganhou campo opcional `level: Optional[PrincipalLevel]` (default `None`); helper `effective_level()` prefere `level` e cai para `PrincipalLevel.from_role(role)`; `with_level()` retorna nova principal imutável; `is_admin()` lê `effective_level()`. `Role` foi marcado como deprecated no docstring (sem `DeprecationWarning` runtime ainda — isso é o item #15). 11 testes em `tests/unit/security/test_principal_level.py` cobrem a migração. A remoção efetiva do `Role` (v1.0) é o item #15 abaixo.
-| 10 | ~~`agents.role_systems/` re-organisation (split `_prompts.py`; one class per file)~~ | [ADR-060 §6.5.3](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~cleanup~~ | **Tracking → DEBT §2.31** | — |
-
-> **Decisão 2026-08-26:** cleanup puro, sem fix de bug ou regressão. O `_prompts.py` mistura prompts (config de produto, deployment-overridable em v2) com schemas de output (contrato de domínio, sempre current). O split ("one class per file") é cosmético — o `agents/role_systems/__init__.py` tem 224 LOC misturando 5 classes, 6 constantes, 3 event-type constants, e prompts. Não vale atrasar v0.14 (fix-first) para esperar um cleanup. **Aguardar v0.15+** ou demanda concreta. **Tracking:** DEBT §2.31.
-| 11 | ~~`SolutionPipeline` consolidation (4 sistemas → 1)~~ | [ADR-060 §6.5.2](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~cleanup~~ | **Tracking → DEBT §2.32** | — |
-
-> **Decisão 2026-08-26:** consolidação estrutural de 5 classes (`SolutionExtractorSystem`, `SolutionLookupSystem`, `SolutionReviewPublisherSystem`, `SolutionPromoterSystem`, `SolutionProjector`) / ~1338 LOC em uma única `SolutionPipeline` (ADR-060 §6.5.2). Cleanup puro, sem fix de bug ou regressão. O escopo é grande (mover estado compartilhado entre 5 classes, refatorar `__call__` de cada uma, atualizar testes que importam `SolutionLookupSystem` etc., deletar os arquivos antigos). Risco alto de regressão sutil em uma sessão — diferentemente dos itens anteriores (pequenos, focados), esse exige uma minor dedicada. **Aguardar v0.15+** ou demanda concreta. **Tracking:** DEBT §2.32.
-| 12 | ~~`RoleComponent.SwitcherSystem` (gate 3) + `handoff_targets` campo~~ | [ADR-060 §3.1](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~feature~~ | **Tracking → DEBT §2.29** | — |
-
-> **Decisão 2026-08-26:** `RoleComponent.SwitcherSystem` é o sistema de handoff da three-gate model (gate 3). Depende da classe `RoleComponent` ser registrada no framework — mesma justificativa do item #4. Handoff entre agentes (cross-agent) **só faz sentido em arquiteturas multi-agent** que a decisão "fmh_office não é vertical separada" (seção "Decisão de escopo" acima) adiou. **Aguardar ADR-066 v0.16** (que traz o registry de `RoleComponent`) **e** demanda concreta de multi-agent handoff.
-
-### In scope (cleanup leve — sem regressão)
-
-| # | Item | ADR | Tipo | Status | Owner |
-|---|---|---|---|---|---|
-| 13 | Remove `_RateLimitLike` / `_AuthLike` shims | [ADR-061 §4.1](./ADRs/ADR-061-litellm-integration-review.md) | cleanup | Merged | — |
-
-> **Merged em commit sem número registrado** (2026-08-26, entre `84cfd45` e `1cbb396`). Shims `_RateLimitLike` e `_AuthLike` removidos de `src/kntgraph/agents/tools/llm.py` (-16 LOC). Os test fakes `_FakeRateLimitError` / `_FakeAuthError` agora herdam **diretamente** de `LLMRateLimitError` / `LLMAuthError` (sem `_RateLimitLike` / `_AuthLike` na MRO). Nenhuma referência remanescente no `src/` ou `examples/`.
-| 14 | Per-call `drop_params=` (não mutar `litellm.drop_params` global) | [ADR-061 §4.3](./ADRs/ADR-061-litellm-integration-review.md) | fix | Merged | — |
-
-> **Merged em commit `1cbb396`** (2026-08-26). O adapter LiteLLM não muta mais o global `litellm.drop_params` (thread-unsafe em workers concorrentes). O flag `drop_unsupported_params` é passado **per-call** como `drop_params=` no `acompletion(...)` kwargs (caminho principal e streaming). 2 testes em `TestDropParamsPerCall`. Bonus: consertou um leak pre-existente no `_patched_worker` que substituía a classe via `patcher.start()` sem `.stop()`.
-
-### Out of scope (tracking)
-
-- **`fmh_office` como vertical separada** foi descartada em
-  2026-08-26 — os conceitos vivem como building blocks
-  em `agents/memory/`. Decisão registrada acima.
-- **Demais minors (v0.15+)** não estão planejadas no
-  momento. A deprecation do `Role` enum (item abaixo)
-  é o **único** trabalho entre ciclos planejado; o
-  restante entra quando aparecer demanda concreta.
-
-### Notas de release
-
-- Migration guide em `docs/migration_0.13_to_0.14.md`.
+- Mensagem no changelog: **"v0.14 ships as a security-and-correctness release. Breaking: `Role` enum removed; migrate to `PrincipalLevel`. Deprecations: `ToolRegistry`, `WorkerManager.register` no-`acl=` form."**
+- Migration guide integrado no CHANGELOG (`## [0.14.0]`).
 - A mudança em `agents/` requer `knt upgrade` (ADR-053) para projetos v0.13.
-- Mensagem no changelog: **"v0.14 ships as a security-and-correctness release; eight items are bug-fix or regression-fix."**
 
 ---
 
-## Próximo item entre ciclos (sem minor planejada)
+## Próxima minor (v0.15) — proposed
 
-A janela deprecation de uma minor (`AGENTS.md` §7)
-exige que o item seja deprecated **antes** do release
-que o remove. Como v0.14 introduz `PrincipalLevel`
-ao lado de `Role`, a **deprecation** do `Role` enum
-precisa acontecer **antes** de qualquer release que o
-remova. Esse item fica registrado aqui para garantir
-a janela:
+A próxima minor proposta após v0.14 é **v0.15 — finish
+the Three-Gate Model and remove legacy Tool path**:
 
-| # | Item | ADR | Status | Owner |
-|---|---|---|---|---|
-| 15 | ~~`security.principal.Role` enum emite `DeprecationWarning` (apontando para `PrincipalLevel`)~~ | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | ~~foundation~~ | **Tracking → DEBT §2.30** | — |
+- **DEBT §2.28 v0.18**: `git rm` of `ToolRegistry`;
+  update API factory to take `worker_manager=`;
+  update examples; migrate `knowledge/extraction/*`
+  callers; remove the `DeprecationWarning` on
+  `WorkerManager.register` no-`acl=` form (becomes
+  a hard error). This is the final step of ADR-066.
+- **DEBT §2.29 item #5**: `SolutionLookupSystem`
+  synthetic emission gated on
+  `RoleComponent.allowed_tools`. Wire the gate 2
+  consumer in `agents/role_systems/`.
+- **DEBT §2.31**: `agents/role_systems/` re-organisation
+  (one class per file; split `_prompts.py` /
+  `_schemas.py`).
+- **DEBT §2.32**: `SolutionPipeline` consolidation
+  (~1338 LOC).
 
-> **Decisão 2026-08-26 (revisada):** puxado de DEBT §2.30 nesta sessão para execução, mas voltou para DEBT quando a discussão apontou que emitir `DeprecationWarning` no `Role` exige decisão arquitetural sobre escopo (module-level vs por-acesso vs híbrido) que cabe em uma sessão dedicada com mais contexto sobre telemetria de warning em produção. Mantido em DEBT §2.30.
-
-**Quando executar:** em qualquer release que toque
-o módulo `security.principal` (mesmo que não seja uma
-minor planejada); ou antes do release que remove o
-enum. A regra do `AGENTS.md` §7 é de uma minor cycle
-de deprecation — não pode ser pulada.
+A janela deprecation foi respeitada: `ToolRegistry`
+e o no-`acl=` form emitiram `DeprecationWarning`
+em v0.14 (um minor cycle), e a remoção hard é
+v0.15+.
 
 ---
 
@@ -170,11 +145,11 @@ de deprecation — não pode ser pulada.
 | `fmh_office.v2` scaffold | Removido | Não há vertical separada; conceitos viram building blocks |
 | `fmh_office.v1` removal | Removido | Vertical não existe mais; nada para remover |
 | WebSocket subscribe (`/events/ws`) | Tracking | Pode entrar em minor futura se aparecer demanda |
-| Three-gate enforcement end-to-end | Tracking | SwitcherSystem (item 12) é building block; enforcement full é follow-up |
+| Three-gate enforcement end-to-end | **Tracking → DEBT §2.29 (items #5, #12)** | SwitcherSystem (item 12) é building block; SolutionLookupSystem synthetic emission (item #5) é o resto |
 | Approval flow stub | Tracking | Sem vertical, sem approval flow |
 | `SolutionLookupSystem` deprecation | Tracking | Pode entrar com SolutionPipeline adoção |
-| `LiteLLMTool` / `ToolInvoker` deprecation | **Resolvido 2026-08-26 (v0.9.0)** | ADR-043 acelerou a remoção (mais cedo que o target original) |
-| **Single Tool Path (ADR-066)** — `ToolRegistry` / `Tool` Protocol / `ToolDescriptor` removal | **Tracking → DEBT §2.28** | Refactor estrutural em 3 minors (v0.16 ACL hook + v0.17 deprecation warning + v0.18 git rm). v0.16 fecha o gap ADR-061 §5; v0.17 + v0.18 são a remoção completa do caminho in-process. Não cabe em v0.14 (fix-first). |
+| `LiteLLMTool` / `ToolInvoker` deprecation | **Resolvido v0.9.0** | ADR-043 acelerou a remoção |
+| **Single Tool Path (ADR-066)** — `ToolRegistry` / `Tool` Protocol / `ToolDescriptor` removal | **v0.16 + v0.17 + v0.18** | v0.16 (commit `f1ccc19`) entregou ACL hook; v0.17 (commit `c22a5e4`) entregou DeprecationWarning + scaffold flip; v0.18 é o `git rm` final |
 | Split `llm.py` | Tracking | Cosmetic; entra quando alguém pegar |
 | `arg_validation` re-export removal | Tracking | Idem |
 | `Capability` removal | Tracking | Idem |
@@ -182,7 +157,7 @@ de deprecation — não pode ser pulada.
 | `LLMResponse` typed envelope | Tracking | Idem |
 | Cost budget gate | Tracking | Idem |
 | `fmh_office.v1` removal | Tracking | Vertical não existe |
-| `PrincipalLevel` canonical | **Incluído como item 9** | Foundation para tudo; entra em v0.14 |
+| `PrincipalLevel` canonical | **Merged (commit `4391ffe`)** | Foundation para tudo; entregue em v0.14 |
 | `WorldCheckpoint` benchmark | Tracking | Pode entrar em patch v0.14.x |
 | Cross-region restore, encryption-at-rest, etc. (ADR-057/058 §open) | Tracking | Aguarda decisão de infra/platform team |
 
