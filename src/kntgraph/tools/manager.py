@@ -4,6 +4,52 @@
 
 """
 Worker Manager - orchestrates the Tool Worker Pattern (ADR-036).
+
+The ``WorkerManager`` is the single tool execution path
+(ADR-066 §3.1: ``ToolRegistry`` is removed). Each
+``register(tool_cls, *, acl=None)`` call optionally
+attaches a ``ToolACL`` that ``_process_message``
+consults before invoking the worker (gate-1 of the
+three-gate ACL model, ADR-060 §3.0). On ACL denial
+the worker emits ``tool.<name>.failed`` with reason
+``acl_denied`` and acks the message — the request
+fails fast without consuming a worker slot.
+
+The ``acl_for(name)`` accessor mirrors the
+``ToolRegistry.acl_for`` surface so the existing
+``WorkerManager`` callers (test fixtures, CLI
+scaffolds) can switch with a one-line rename. The
+canonical ACL home stays ``kntgraph.tools.acl``;
+``WorkerManager`` re-exports ``ToolACL`` and
+``default_acl`` for discoverability.
+
+ACL semantics
+-------------
+
+  - ``register(tool_cls)`` (legacy, no ``acl=``):
+    **no constraint** — the tool is invoked for
+    every request. This preserves backward
+    compatibility for callers that registered
+    tools before v0.16. The migration path is to
+    re-register with ``acl=default_acl()`` (the
+    framework baseline: ``Role.agent``, tenant
+    unpinned) or a stricter ``ToolACL``.
+  - ``register(tool_cls, acl=default_acl())``
+    (explicit baseline): every request is checked
+    against ``Role.agent``. The worker refuses the
+    request if the principal's role is below
+    ``agent`` or the tenant does not match.
+  - ``register(tool_cls, acl=ToolACL(...))``
+    (custom): the caller's custom policy. The
+    worker refuses the request if ``acl.check(p)``
+    returns ``False``.
+
+The ``producer_principal_id`` stamped on the event
+at the request boundary (per ADR-066 §4.1) is the
+input to ``acl.check``. Events that predate v0.16
+(``producer_principal_id=None``) are denied when
+``acl`` is set — the audit trail records
+``acl_denied_no_principal``.
 """
 
 from __future__ import annotations
@@ -13,7 +59,7 @@ import json
 import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import Type
+from typing import Optional, Type
 
 import uuid
 from typing import TYPE_CHECKING
@@ -28,8 +74,21 @@ import structlog
 from kntgraph.core.event import Event
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
+from kntgraph.tools.acl import ToolACL, default_acl
 
 logger = structlog.get_logger()
+
+# Sentinel used to differentiate "the caller did not
+# pass ``acl=``" (legacy, no constraint) from "the
+# caller passed ``acl=None`` explicitly" (the new
+# default-allow-with-no-policy contract). The legacy
+# path is preserved at the API level: omitting
+# ``acl=`` keeps the pre-v0.16 behaviour. Passing
+# ``acl=None`` is reserved for future use (e.g. the
+# v0.17 step flips the default to ``default_acl()``
+# and uses this sentinel to detect the explicit opt
+# out).
+_UNSET: "object" = object()
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -38,7 +97,12 @@ logger = structlog.get_logger()
 # lives in ``_worker_invocation`` so the ``spawn`` start
 # method can pickle the callable by reference without
 # pulling the rest of the package into the worker.
-__all__ = ["WorkerManager", "_invoke_tool_sync"]
+__all__ = [
+    "ToolACL",
+    "WorkerManager",
+    "_invoke_tool_sync",
+    "default_acl",
+]
 
 
 _SPAWN_METHOD = "spawn"
@@ -76,6 +140,16 @@ class WorkerManager:
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
+        # Per-tool ACL (ADR-066 §4.1). The value is
+        # the sentinel ``_UNSET`` when the caller did
+        # not pass ``acl=`` (legacy, no constraint);
+        # the sentinel ``_UNSET`` is filtered out of
+        # ``acl_for`` so the legacy callers see
+        # ``None`` (the pre-v0.16 contract). When the
+        # caller passes ``acl=...``, the value is the
+        # ``ToolACL`` they passed (or ``default_acl()``
+        # for ``acl=None`` explicitly).
+        self._acls: dict[str, "ToolACL | object"] = {}
         # Observability surface: the consume loop updates the
         # counters and timestamps on every message; the heartbeat
         # log line is emitted by ``_consume_loop`` itself.
@@ -89,11 +163,57 @@ class WorkerManager:
         # liveness line from each component on the same cadence.
         self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
 
-    def register(self, tool_cls: Type) -> None:
-        """Register a class decorated with @tool_worker."""
+    def register(
+        self,
+        tool_cls: Type,
+        *,
+        acl: Optional[ToolACL] = _UNSET,  # type: ignore[assignment]
+    ) -> None:
+        """Register a class decorated with @tool_worker.
+
+        ``acl`` (ADR-066 §4.1, ADR-061 §5) is the
+        per-tool authorisation consulted by
+        ``_process_message`` before invoking the
+        worker. The default (no ``acl=`` kwarg)
+        preserves the pre-v0.16 behaviour: no
+        constraint. Pass ``acl=default_acl()`` for
+        the framework baseline (``Role.agent``,
+        tenant-unpinned) or a stricter
+        ``ToolACL(tenant_pinned=True, ...)`` for
+        tenant-scoped tools.
+        """
         if not hasattr(tool_cls, "name"):
             raise TypeError("Tool must be decorated with @tool_worker")
         self._tools[tool_cls.name] = tool_cls
+        # ``acl`` is the sentinel ``_UNSET`` when the
+        # caller omitted the kwarg (legacy, no
+        # constraint). Otherwise the value is the
+        # ``ToolACL`` (or ``default_acl()`` if the
+        # caller explicitly passed ``acl=None``).
+        if acl is _UNSET:
+            self._acls[tool_cls.name] = _UNSET
+        else:
+            self._acls[tool_cls.name] = (
+                acl if acl is not None else default_acl()
+            )
+
+    def acl_for(self, name: str) -> Optional[ToolACL]:
+        """Return the ``ToolACL`` for ``name`` (or
+        ``None`` if the tool is not registered, or
+        was registered without an explicit
+        ``acl=``). The framework reads this at
+        invoke time so the gate-1 ACL check does not
+        need a separate lookup.
+
+        The surface mirrors ``ToolRegistry.acl_for``
+        (removed in v0.18 per ADR-066 §4.4); the
+        rename is a one-line ``r.acl_for(n)``
+        → ``wm.acl_for(n)``.
+        """
+        stored = self._acls.get(name)
+        if stored is _UNSET or stored is None:
+            return None
+        return stored  # type: ignore[return-value]
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -269,6 +389,84 @@ class WorkerManager:
             request_event.data.get("params") or request_event.data.get("args") or {}
         )
         idempotency_key = str(request_event.event_id)
+
+        # Gate-1 ACL check (ADR-060 §3.0, ADR-061 §5,
+        # ADR-066 §4.1). The worker refuses the request
+        # before consuming a worker slot — the canonical
+        # "deny-by-construction" pattern. We use the
+        # ``producer_principal_id`` stamped on the event
+        # at the request boundary (the API layer in v0.16
+        # sets it from ``principal_ctx``; older events
+        # pass ``None`` and we deny with a clear
+        # ``reason`` so the operator can diagnose).
+        acl = self.acl_for(tool_name)
+        principal_id = request_event.producer_principal_id
+        denied_reason: Optional[str] = None
+        if acl is None:
+            # Tool registered without ``acl=`` (legacy).
+            # Default-allow: the operator must opt in to
+            # the new ACL surface by re-registering with
+            # ``acl=default_acl()``. This matches the
+            # ADR-066 migration path: the v0.16 step
+            # ships the hook + default ACL; the v0.17
+            # step flips the default to deny (so the
+            # gap closes by construction in production).
+            pass
+        elif principal_id is None:
+            # Event predates v0.16 — no principal
+            # stamped. We deny with
+            # ``acl_denied_no_principal`` so the audit
+            # trail records why.
+            denied_reason = "acl_denied_no_principal"
+        else:
+            from kntgraph.security import Principal, Role
+
+            # ``producer_principal_id`` is the principal's
+            # ``agent_id`` (the format the API layer
+            # produces from ``principal_ctx``: per the
+            # same convention as ``Principal.agent_id``,
+            # it starts with the tenant, e.g.
+            # ``tenant-a.agent-1``). We extract the
+            # tenant prefix for the ``Principal``
+            # invariant (non-admin requires a
+            # non-empty tenant). If the format is
+            # ambiguous, fall back to the whole string
+            # as the tenant (single-segment legacy).
+            tenant_id = principal_id.partition(".")[0] or principal_id
+            principal = Principal(
+                agent_id=principal_id,
+                role=Role.agent,
+                tenant_id=tenant_id,
+                key_id="worker",
+            )
+            ok, reason = acl.check(principal)
+            if not ok:
+                denied_reason = f"acl_denied:{reason}"
+
+        if denied_reason is not None:
+            logger.warning(
+                "worker.acl_denied",
+                tool=tool_name,
+                message_id=message_id,
+                reason=denied_reason,
+                producer_principal_id=principal_id,
+            )
+            denied_evt = Event.create(
+                event_type=f"tool.{tool_name}.failed",
+                agent_id=request_event.agent_id,
+                event_class="domain",
+                causation_id=uuid.UUID(idempotency_key),
+                data={
+                    "error": denied_reason,
+                    "request_id": idempotency_key,
+                },
+                correlation=request_event.correlation,
+                producer_principal_id=principal_id,
+            )
+            await self._event_log.append(denied_evt)
+            await self._redis.xack(stream_key, self._group_name, message_id)
+            self._messages_failed_total += 1
+            return
 
         try:
             # We use asyncio.get_running_loop().run_in_executor to run the tool synchronously

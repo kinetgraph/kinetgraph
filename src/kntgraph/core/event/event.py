@@ -106,6 +106,20 @@ class Event:
     # roundtrip unchanged. See ``kntgraph.security`` for
     # the signing primitives.
     signature: Optional["Signature"] = None
+    # Identity of the :class:`Principal` that produced
+    # this event (ADR-066 §4.1, DEBT §2.27 step 1).
+    # ``None`` for events written before v0.16 (the
+    # ``EventLog.append`` boundary re-derives the
+    # tenant from the agent_id's tenant when this
+    # field is missing). Once the
+    # ``WorkerManager`` ACL hook lands (v0.16
+    # step 2), this field is the canonical input
+    # for the gate-1 ACL check: the dispatcher
+    # looks up ``principal_ctx`` at the request
+    # boundary and stamps the resolved identity
+    # here so the worker's gate-1 check does not
+    # need a separate lookup.
+    producer_principal_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         # The Literal type is a static-only contract. The wire
@@ -122,6 +136,18 @@ class Event:
                 f"This usually means a corrupted Redis entry "
                 f"or a producer emitting an unknown class."
             )
+        # ``producer_principal_id`` is a free-form
+        # string (``agent_id`` of the producing
+        # Principal). We do NOT enforce a UUID shape
+        # here because the field's content is
+        # caller-defined (the API layer sets it from
+        # ``principal_ctx``; tests set it
+        # directly). The wire codec validates the
+        # string length against the agent_id
+        # character class (see ``_validate_agent_id``
+        # for the same regex).
+        if self.producer_principal_id is not None:
+            _validate_agent_id(self.producer_principal_id)
 
     # ------------------------------------------------------------------ build
 
@@ -139,6 +165,7 @@ class Event:
         timestamp: Optional[datetime] = None,
         version: int = 1,
         signature: Optional["Signature"] = None,
+        producer_principal_id: Optional[str] = None,
     ) -> "Event":
         """
         Builds an Event. The `event_id` defaults to uuid5 of
@@ -202,6 +229,7 @@ class Event:
             causation_id=causation_id,
             version=version,
             signature=signature,
+            producer_principal_id=producer_principal_id,
         )
 
     # -------------------------------------------------- framework-owned builder
@@ -217,6 +245,7 @@ class Event:
         causation_id: Optional[UUID] = None,
         event_id: Optional[UUID] = None,
         timestamp: Optional[datetime] = None,
+        producer_principal_id: Optional[str] = None,
     ) -> "Event":
         """
         Builds a framework-owned OPERATIONAL event (lifecycle class).
@@ -239,6 +268,7 @@ class Event:
             causation_id=causation_id,
             event_id=event_id,
             timestamp=timestamp,
+            producer_principal_id=producer_principal_id,
         )
 
     # ----------------------------------------------- application-side builder
@@ -254,6 +284,7 @@ class Event:
         causation_id: Optional[UUID] = None,
         event_id: Optional[UUID] = None,
         timestamp: Optional[datetime] = None,
+        producer_principal_id: Optional[str] = None,
     ) -> "Event":
         """
         Builds an APPLICATION-defined DOMAIN event.
@@ -287,6 +318,7 @@ class Event:
             causation_id=causation_id,
             event_id=event_id,
             timestamp=timestamp,
+            producer_principal_id=producer_principal_id,
         )
 
     # ------------------------------------------------------------------ wire
