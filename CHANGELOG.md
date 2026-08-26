@@ -15,6 +15,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-26
+
+### Added
+- **Pluggable `WorldProjection` interface on `ReactiveDispatcher`.**
+  The dispatcher accepts a new `projections=[...]` kwarg that
+  composes caller-supplied post-fold projections in order,
+  after the built-in memory hydration (ADR-042 §6.1) and
+  before the tool-call overlay (ADR-044 §2.3). The framework
+  exposes the protocol in
+  `:mod:kntgraph.runner.reactive_extensions` and a built-in
+  `:class:MemoryHydrationProjection` that wraps
+  `:func:project_memory` for callers that prefer objects to
+  bare functions. **The legacy monkey-patch
+  (`examples/05b_session_chat_ecs.py::_install_projection_shim`)
+  is removed**; the dispatcher does the same work natively.
+  See [ADR-042](ADRs/ADR-042-hydration-pipeline.md) for the
+  full hydration pipeline design.
+
+- **Three-Gate Model for tool authorisation (ADR-060 §3.0,
+  ADR-061 §5, ADR-066).** The framework now enforces
+  authorisation at three independent layers:
+
+    1. **Gate 2 — System-level (role persona).** A new
+       `:class:RoleComponent` in
+       `:mod:kntgraph.core.components.role` carries
+       `persona` / `instructions` / `allowed_tools`. The
+       `:meth:_BaseRoleSystem._build_request_event` reads
+       the view's `RoleComponent` before emitting a tool
+       request; when the role forbids the target tool, the
+       system emits `intent.validation_failed` with
+       `reason="role_does_not_allow_tool"` instead of
+       `tool.<name>.requested`. The check is **opt-in**:
+       deployments that do not install a `RoleComponent`
+       keep the legacy unconditional emission behaviour.
+
+    2. **Gate 1 — Worker-level (per-tool ACL).** The
+       `:meth:WorkerManager.register` accepts an
+       `acl=` kwarg with a `_UNSET` sentinel; the
+       `_process_message` consults `acl_for(name)` before
+       running the worker. Missing-principal requests are
+       denied with `acl_denied_no_principal`;
+       role-insufficient requests with `acl_denied:<reason>`.
+       The framework baseline is `default_acl()`
+       (`PrincipalLevel.agent`, tenant-unpinned).
+
+    3. **Gate 3 — Tool-level** (the LLM worker itself; the
+       worker's own `invoke` implementation). The LLM
+       worker remains a pure I/O adapter; gates 1 + 2
+       gate the request before the worker runs.
+
+- **`MemoryHydrationProjection` exposed in
+  `:mod:kntgraph.runner`.** The built-in memory hydration
+  projection is now part of the public surface, mirroring
+  the Jinja scaffold template shape
+  (`cli/templates/routing/components.py.jinja`). The
+  function `:func:has_tool_access` is the policy primitive
+  used by `_BaseRoleSystem` and any caller that needs the
+  same gate semantics outside the dispatcher.
+
+- **`Event.producer_principal_id` (ADR-066 §4.1).** A new
+  optional field on `:class:Event` carries the producer's
+  `Principal.agent_id`. The API layer (`api/intent_router/routes.py`)
+  stamps it from `principal_ctx`. The Worker path reads it
+  from the event payload to recover the principal for the
+  gate-1 ACL check. The wire format encodes `None` as `""`
+  so the field round-trips through the EventLog codec.
+
+### Fixed
+- **`SessionComponent.session_id` honours the
+  `session.started` event payload (DEBT §2.33).** Previously,
+  the projection derived `session_id` from the `agent_id`
+  (`session:ecs-demo` → `ecs-demo`) and ignored the wire
+  value. The fold now captures `state["session_id"]` from
+  the event payload (alongside `user_id` / `tenant_id`);
+  `_build_session_component` prefers the wire value when
+  present and falls back to the `agent_id` derivation when
+  absent (legacy replays keep working). 4 new tests cover
+  the wire path, the fallback, the empty-string fallback,
+  and the multi-tick preservation.
+
+### Changed
+- **`Role` enum removed (ADR-060 §2.0).** The legacy
+  `Role` enum (v0.14 deprecation target) is removed in
+  v0.14.0. `:class:PrincipalLevel` is the single canonical
+  RBAC permission enum going forward.
+
+    **Migration**: callers using `Role.X` or
+    `Principal(role=Role.X, ...)` MUST migrate to
+    `PrincipalLevel.X` and
+    `Principal(level=PrincipalLevel.X, ...)`. The enum
+    values are unchanged (`"service"`, `"agent"`,
+    `"admin"`), so serialised principals keep
+    round-tripping. The `:attr:Principal.level` field is
+    now required (was optional in v0.14-pre). The
+    `PrincipalLevel.from_role` helper was removed
+    (no `Role` to convert from); use
+    `PrincipalLevel._coerce` for raw-string deserialisation.
+
+- **`ToolACL.required_role` → `ToolACL.required_level`.**
+  The ACL field now uses `PrincipalLevel` instead of the
+  legacy `Role`. The default remains
+  `PrincipalLevel.agent`.
+
+- **`DefaultPolicy.allows` reads `principal.level`.** The
+  Zero-Trust Level 2 policy no longer reads `principal.role`;
+  the `principal.level < min_level` check uses
+  `PrincipalLevel` for both sides.
+
+- **`WorkerManager.register` (no `acl=` kwarg) emits a
+  `DeprecationWarning`.** The warning points to
+  `acl=default_acl()`, `acl=ToolACL(...)`, or the explicit
+  `acl=None` opt-out. The warning is removed in v0.18
+  (ADR-066 §4.4); the no-`acl=` form becomes a hard error.
+
+- **`ToolRegistry` deprecated (ADR-066 §4.4).** The
+  framework's `ToolRegistry` is deprecated in favour of
+  `WorkerManager`. The warning fires on construction; the
+  module is removed in v0.18. The CLI scaffold
+  (`cli/templates/dispatcher.py.jinja`) flipped to
+  `WorkerManager.register(tool, acl=default_acl())`.
+
+### Migration guide
+- **From 0.13.x to 0.14.0:**
+
+    - Replace `Role.X` with `PrincipalLevel.X` everywhere.
+    - Replace `Principal(role=Role.X, tenant_id=..., key_id=...)`
+      with `Principal(level=PrincipalLevel.X, tenant_id=..., key_id=...)`.
+    - Replace `ToolACL(required_role=Role.X)` with
+      `ToolACL(required_level=PrincipalLevel.X)`.
+    - Replace `WorkerManager.register(tool_cls)` with
+      `WorkerManager.register(tool_cls, acl=default_acl())`
+      (or `acl=ToolACL(...)` for stricter policies).
+    - Replace `ToolRegistry()` with `WorkerManager(...)` —
+      see the new `WorkerManager.acl_for(name)` accessor
+      that mirrors `ToolRegistry.acl_for`.
+
+  The migration script `scripts/migrate_principals.py`
+  continues to work for the wire field `role` (kept as the
+  JSON key for backward compatibility with pre-0.14
+  serialised principals); the value now carries the
+  `PrincipalLevel` string.
+
 ## [0.13.0] — 2026-08-21
 
 ### Added
