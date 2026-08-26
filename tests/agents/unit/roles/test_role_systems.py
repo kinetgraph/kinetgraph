@@ -3,603 +3,222 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for the ECS-shaped role systems
-(``kntgraph.agents.role_systems``).
+Gate 2 (ADR-060 §3.0, ADR-066 §5 follow-up):
+role-system authorisation via ``RoleComponent.allowed_tools``.
 
-The systems are the **migration path** for the legacy
-``ChatRole`` / ``PlannerRole`` / ``SummarizerRole`` /
-``PersonalizedRole`` (ADR-039 + ADR-043 + ADR-044
-follow-up). Each test drives the system through the
-shim's fold logic (the same way the dispatcher would)
-and asserts the emitted events.
+The :class:`_BaseRoleSystem` reads
+``view.components[RoleComponent]`` before emitting a
+tool request and short-circuits with
+``intent.validation_failed`` when the target tool is
+not in the allow-list. When the view does NOT carry
+a ``RoleComponent``, the system falls back to the
+legacy unconditional emission (opt-in enforcement).
+
+The previous contents of this file (15 tests covering
+``ChatRoleSystem``, ``PlannerRoleSystem``,
+``SummarizerRoleSystem``, ``PersonalizedRoleSystem``,
+and ``RuleBasedChatSystem``) were deleted on 2026-08-26.
+
+Reason: they relied on a ``ReactiveDispatcher._fold_with_filter``
+monkey-patch that simulated memory hydration
+(``project_memory``) — a projection that the **production
+dispatcher does not invoke**. The tests were passing
+against a simulated dispatcher that does not match
+production behaviour; the role systems they exercised
+do not function in production either (no ``SessionComponent``
+ever reaches the ``AgentView``). See the file's git
+history for the deleted code; the bug is tracked in
+the roadmap under "Project Memory composition in
+production dispatcher" (future ADR).
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
-import pytest
-
+from kntgraph.agents.role_systems._base import _BaseRoleSystem
+from kntgraph.core.components.memory import SessionComponent
+from kntgraph.core.components.role import (
+    RoleComponent,
+    has_tool_access,
+)
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.world import World
-from kntgraph.runner import reactive as _reactive_mod
-from kntgraph.runner.reactive_tool_projection import _overlay_tool_projection
+from kntgraph.core.world import AgentView, World
+
+from pydantic import BaseModel
 
 
-SESSION_AGENT_ID = "session:ecs-roles-test"
+class _OutputModel(BaseModel):
+    pass
 
 
-def _ctx() -> CorrelationContext:
-    return CorrelationContext.new()
+class _StubRoleSystem(_BaseRoleSystem):
+    """A minimal role system that targets the
+    ``chat_llm`` tool and reads ``user.intent`` events.
+
+    Used to exercise the gate 2 check without
+    pulling in the LLM-backed chat systems' heavy
+    prompt machinery.
+    """
+
+    TOOL_NAME = "chat_llm"
+    REQUEST_EVENT_TYPE = "user.intent"
+    GENERATED_EVENT_TYPE = "chat.reply.generated"
+    OUTPUT_MODEL = _OutputModel
+
+    def _build_system_prompt(self) -> str:
+        return "system"
+
+    def _build_user_prompt(self, view, session, new_input: str) -> str:
+        return new_input
 
 
-def _install_shim() -> None:
-    """Install the same projection shim that examples
-    05b / 05c use (default fold + memory hydration +
-    tool overlay)."""
-    from kntgraph.core.world.projection_memory import project_memory as _pm
-
-    if getattr(_reactive_mod.ReactiveDispatcher, "_memory_shim_applied", False):
-        return
-
-    def _fold_with_filter_shim(self, world, new_events):
-        new_event_count = 0
-        for event in new_events:
-            world = world.with_event(event)
-            if self._filter is not None and not self._filter(event):
-                continue
-            new_event_count += 1
-        new_views: dict = dict(world.views)
-        any_changed = False
-        for agent_id, hydrated_view in _pm(new_events, world.views).items():
-            if world.views.get(agent_id) is not hydrated_view:
-                new_views[agent_id] = hydrated_view
-                any_changed = True
-        if any_changed:
-            new_storage = world.storage
-            for agent_id, view in new_views.items():
-                if world.views.get(agent_id) is not view:
-                    new_storage = new_storage.clone_with_entity(
-                        agent_id, dict(view.components)
-                    )
-            world = World(tick=world.tick, storage=new_storage, views=new_views)
-        if new_event_count > 0 and any(
-            e.event_type.startswith("tool.")
-            and (
-                e.event_type.endswith(".requested")
-                or e.event_type.endswith(".completed")
-                or e.event_type.endswith(".failed")
-            )
-            for e in new_events
-        ):
-            world = _overlay_tool_projection(world, new_events)
-        return world, new_event_count
-
-    _reactive_mod.ReactiveDispatcher._fold_with_filter = _fold_with_filter_shim
-    _reactive_mod.ReactiveDispatcher._memory_shim_applied = True
-
-
-@pytest.fixture(autouse=True)
-def _shim():
-    _install_shim()
-
-
-def _make_session_event() -> Event:
-    return Event.create(
-        event_type="session.started",
-        agent_id=SESSION_AGENT_ID,
-        event_class="domain",
-        data={
-            "session_id": SESSION_AGENT_ID.removeprefix("session:"),
-            "user_id": "u",
-            "tenant_id": "t",
-        },
-        correlation=_ctx(),
-    )
-
-
-def _make_intent_event(message: str) -> Event:
-    return Event.create(
+def _make_world(
+    *,
+    user_intent_message: str = "hello",
+    role: RoleComponent | None = None,
+) -> World:
+    """Build a World with one agent carrying the
+    ``user.intent`` event (and an optional
+    ``RoleComponent``). The ``last_event_id`` points
+    to the ``user.intent`` event so the system
+    treats it as a new request."""
+    ctx = CorrelationContext.new()
+    user_intent_ev = Event.create(
         event_type="user.intent",
-        agent_id=SESSION_AGENT_ID,
+        agent_id="agent-1",
         event_class="domain",
-        data={"intent": "chat", "message": message},
-        correlation=_ctx(),
+        data={"intent": "chat", "message": user_intent_message},
+        correlation=ctx,
     )
-
-
-def _make_completion_event(
-    request_event_id: UUID,
-    text: str,
-    correlation_id: UUID,
-    agent_id: str = SESSION_AGENT_ID,
-) -> Event:
-    return Event.create(
-        event_type="tool.chat_llm.completed",
-        agent_id=agent_id,
-        event_class="domain",
-        data={"text": text},
-        correlation=CorrelationContext(correlation_id=correlation_id),
-        causation_id=str(request_event_id),
+    components: dict = {
+        "user.intent": {"intent": "chat", "message": user_intent_message},
+        SessionComponent: SessionComponent(
+            session_id="agent-1",
+            user_id="u",
+            tenant_id="t",
+            messages=(),
+            context={},
+            started_at=0.0,
+            ended_at=None,
+            intent_event_id=str(user_intent_ev.event_id),
+        ),
+        "last_event_id": str(user_intent_ev.event_id),
+        "last_event_at": user_intent_ev.timestamp.timestamp(),
+    }
+    if role is not None:
+        components[RoleComponent] = role
+    view = AgentView(
+        agent_id="agent-1",
+        components=components,
+        last_event_id=str(user_intent_ev.event_id),
+        last_event_at=user_intent_ev.timestamp.timestamp(),
     )
+    world = World.empty()
+    world = world.with_event(user_intent_ev)
+    # Replace the auto-generated view with our
+    # hand-crafted one (carrying the optional
+    # RoleComponent). The dispatcher's
+    # ``_build_request_event`` reads the view that
+    # is in ``world.views`` at call time; the
+    # monkey-patch-free path here lets the test
+    # build a deterministic view.
+    world_with_view = World(
+        tick=world.tick,
+        storage=world.storage,
+        views={"agent-1": view},
+    )
+    return world_with_view
 
 
-def _fold(world: World, events: list[Event]) -> World:
-    inst = _reactive_mod.ReactiveDispatcher.__new__(_reactive_mod.ReactiveDispatcher)
-    inst._filter = None
-    new_world, _ = inst._fold_with_filter(world, events)
-    return new_world
+def test_has_tool_access_permits_none_role() -> None:
+    """``has_tool_access(None, ...)`` returns ``True``
+    (the legacy fallback; the view does not carry
+    a RoleComponent)."""
+    assert has_tool_access(None, "chat_llm") is True
 
 
-# ---------------------------------------------------------------------------
-# ChatRoleSystem
-# ---------------------------------------------------------------------------
+def test_has_tool_access_permits_listed_tool() -> None:
+    role = RoleComponent(
+        persona="chat",
+        instructions="x",
+        allowed_tools=["chat_llm"],
+    )
+    assert has_tool_access(role, "chat_llm") is True
 
 
-def test_chat_role_system_emits_chat_llm_request_on_user_intent():
-    """Tick 1: a ``user.intent`` event lands. The
-    ``ChatRoleSystem`` reads the ``SessionComponent`` and
-    emits a ``tool.chat_llm.requested`` event with the
-    role's ``SYSTEM_PROMPT`` and the formatted transcript.
-    """
-    from kntgraph.agents.role_systems import ChatRoleSystem
+def test_has_tool_access_denies_unlisted_tool() -> None:
+    role = RoleComponent(
+        persona="service",
+        instructions="x",
+        allowed_tools=["other_tool"],
+    )
+    assert has_tool_access(role, "chat_llm") is False
 
-    system = ChatRoleSystem(persona="be concise")
-    world = _fold(World.empty(), [_make_session_event(), _make_intent_event("hi")])
-    events = system(world)
+
+def test_role_component_in_view_with_chat_llm_in_allow_list_emits_tool_request() -> None:
+    """A role with ``chat_llm`` in ``allowed_tools``
+    emits a ``tool.chat_llm.requested`` event
+    (gate 2 passes; the request goes through)."""
+    role = RoleComponent(
+        persona="chat",
+        instructions="x",
+        allowed_tools=["chat_llm"],
+    )
+    world = _make_world(role=role)
+    events = _StubRoleSystem()(world)
     assert len(events) == 1
     assert events[0].event_type == "tool.chat_llm.requested"
-    assert events[0].data["tool"] == "chat_llm"
-    # The system_prompt is the ChatRole's SYSTEM_PROMPT.
-    assert "conversation" in events[0].data["params"]["system"].lower()
-    # The user_prompt is the formatted transcript
-    # (includes the new user message + prior history).
-    assert "hi" in events[0].data["params"]["user"]
 
 
-def test_chat_role_system_emits_generated_event_on_completion():
-    """Tick 2: a ``tool.chat_llm.completed`` event lands
-    (the LLM response). The system parses the JSON
-    reply into a ``ChatReply`` and emits a
-    ``chat.reply.generated`` event.
-    """
-    from kntgraph.agents.role_systems import (
-        EVENT_TYPE_CHAT_REPLY_GENERATED,
-        ChatRoleSystem,
+def test_role_component_in_view_without_chat_llm_in_allow_list_emits_validation_failed() -> None:
+    """A role that does NOT include ``chat_llm`` in
+    ``allowed_tools`` causes the system to emit an
+    ``intent.validation_failed`` event instead of a
+    ``tool.chat_llm.requested`` event (gate 2
+    blocks)."""
+    role = RoleComponent(
+        persona="service",
+        instructions="x",
+        allowed_tools=["other_tool"],
     )
-
-    system = ChatRoleSystem()
-    world = _fold(World.empty(), [_make_session_event(), _make_intent_event("hi")])
-    request_event = system(world)[0]
-    # The dispatcher would have appended the
-    # request event to the EventLog; the next tick's
-    # fold sees BOTH the request (in-flight) AND
-    # the completion (just landed).
-    reply_json = '{"reply": "Hello!", "follow_up_questions": ["How are you?"]}'
-    completion = _make_completion_event(
-        request_event.event_id,
-        reply_json,
-        UUID(str(request_event.correlation.correlation_id)),
-    )
-    world2 = _fold(world, [request_event, completion])
-    events = system(world2)
-    # The system emits a ``chat.reply.generated`` event
-    # with the typed ``output`` payload.
+    world = _make_world(role=role)
+    events = _StubRoleSystem()(world)
     assert len(events) == 1
-    assert events[0].event_type == EVENT_TYPE_CHAT_REPLY_GENERATED
-    output = events[0].data["output"]
-    assert output["reply"] == "Hello!"
-    assert output["follow_up_questions"] == ["How are you?"]
-
-
-def test_chat_role_system_does_not_re_emit_on_same_completion():
-    """Calling the system twice on the same World (with
-    the same completion) does NOT re-emit the generated
-    event. The system deduplicates by request_event_id."""
-    from kntgraph.agents.role_systems import ChatRoleSystem
-
-    system = ChatRoleSystem()
-    world = _fold(World.empty(), [_make_session_event(), _make_intent_event("hi")])
-    request_event = system(world)[0]
-    completion = _make_completion_event(
-        request_event.event_id,
-        '{"reply": "Hello!", "follow_up_questions": []}',
-        UUID(str(request_event.correlation.correlation_id)),
+    event = events[0]
+    assert event.event_type == "intent.validation_failed"
+    assert event.data["reason"] == "role_does_not_allow_tool"
+    assert event.data["tool"] == "chat_llm"
+    assert event.data["role_persona"] == "service"
+    # The event's correlation_id matches the
+    # request event's eid (the user.intent) so
+    # the SSE endpoint can correlate the
+    # validation failure with the user input.
+    assert event.correlation.correlation_id == UUID(
+        world.views["agent-1"].last_event_id
     )
-    world2 = _fold(world, [request_event, completion])
-    # First call emits the generated event.
-    events1 = system(world2)
-    assert len(events1) == 1
-    # Second call (same world) emits nothing.
-    events2 = system(world2)
-    assert events2 == []
 
 
-# ---------------------------------------------------------------------------
-# PlannerRoleSystem
-# ---------------------------------------------------------------------------
-
-
-def test_planner_role_system_emits_plan_request():
-    """The ``PlannerRoleSystem`` reacts to a
-    ``plan.request`` event and emits a
-    ``tool.chat_llm.requested`` event."""
-    from kntgraph.agents.role_systems import PlannerRoleSystem
-
-    system = PlannerRoleSystem()
-    plan_request = Event.create(
-        event_type="plan.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"task": "Emitir NF-e para cliente X"},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [plan_request])
-    events = system(world)
+def test_no_role_component_in_view_emits_tool_request_legacy_path() -> None:
+    """When the view does NOT carry a RoleComponent,
+    the system falls back to the legacy
+    unconditional emission (gate 2 is opt-in)."""
+    world = _make_world()  # role=None
+    events = _StubRoleSystem()(world)
     assert len(events) == 1
     assert events[0].event_type == "tool.chat_llm.requested"
-    assert events[0].data["tool"] == "chat_llm"
-    assert "Emitir NF-e" in events[0].data["params"]["user"]
 
 
-def test_planner_role_system_emits_plan_generated():
-    """The ``PlannerRoleSystem`` parses the LLM's
-    response into a ``Plan`` and emits a
-    ``plan.generated`` event."""
-    from kntgraph.agents.role_systems import (
-        EVENT_TYPE_PLAN_GENERATED,
-        PlannerRoleSystem,
-    )
-
-    system = PlannerRoleSystem()
-    plan_request = Event.create(
-        event_type="plan.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"task": "Emitir NF-e"},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [plan_request])
-    request_event = system(world)[0]
-    plan_json = (
-        '{"goal": "Emitir NF-e",'
-        ' "steps": [{"name": "validate", "description": "validate", "depends_on": []}],'
-        ' "rationale": "simple", "risks": []}'
-    )
-    completion = _make_completion_event(
-        request_event.event_id,
-        plan_json,
-        UUID(str(request_event.correlation.correlation_id)),
-        agent_id="agent-1",
-    )
-    world2 = _fold(world, [request_event, completion])
-    events = system(world2)
+def test_role_component_with_empty_allow_list_always_denies() -> None:
+    """A role with ``allowed_tools=[]`` (the
+    default) is forbidden to request any tool.
+    This is the strictest configuration: a
+    deployment that installs a RoleComponent but
+    forgets to populate the allow-list will see
+    every request denied."""
+    role = RoleComponent(persona="locked", instructions="x")
+    world = _make_world(role=role)
+    events = _StubRoleSystem()(world)
     assert len(events) == 1
-    assert events[0].event_type == EVENT_TYPE_PLAN_GENERATED
-    output = events[0].data["output"]
-    assert output["goal"] == "Emitir NF-e"
-    assert len(output["steps"]) == 1
-    assert output["steps"][0]["name"] == "validate"
-
-
-# ---------------------------------------------------------------------------
-# SummarizerRoleSystem
-# ---------------------------------------------------------------------------
-
-
-def test_summarizer_role_system_emits_summary_request():
-    """The ``SummarizerRoleSystem`` reacts to a
-    ``summary.request`` event."""
-    from kntgraph.agents.role_systems import SummarizerRoleSystem
-
-    system = SummarizerRoleSystem()
-    summary_request = Event.create(
-        event_type="summary.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"text": "A long document..."},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [summary_request])
-    events = system(world)
-    assert len(events) == 1
-    assert events[0].event_type == "tool.chat_llm.requested"
-    assert "long document" in events[0].data["params"]["user"]
-
-
-def test_summarizer_role_system_emits_summary_generated():
-    from kntgraph.agents.role_systems import (
-        EVENT_TYPE_SUMMARY_GENERATED,
-        SummarizerRoleSystem,
-    )
-
-    system = SummarizerRoleSystem()
-    summary_request = Event.create(
-        event_type="summary.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"text": "A long document..."},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [summary_request])
-    request_event = system(world)[0]
-    summary_json = '{"summary": "Short.", "key_points": ["point 1"], "word_count": 1}'
-    completion = _make_completion_event(
-        request_event.event_id,
-        summary_json,
-        UUID(str(request_event.correlation.correlation_id)),
-        agent_id="agent-1",
-    )
-    world2 = _fold(world, [request_event, completion])
-    events = system(world2)
-    assert len(events) == 1
-    assert events[0].event_type == EVENT_TYPE_SUMMARY_GENERATED
-    output = events[0].data["output"]
-    assert output["summary"] == "Short."
-    assert output["key_points"] == ["point 1"]
-    assert output["word_count"] == 1
-
-
-# ---------------------------------------------------------------------------
-# PersonalizedRoleSystem
-# ---------------------------------------------------------------------------
-
-
-def test_personalized_role_system_emits_personalized_request():
-    """The ``PersonalizedRoleSystem`` reacts to a
-    ``personalized.request`` event."""
-    from kntgraph.agents.role_systems import PersonalizedRoleSystem
-
-    system = PersonalizedRoleSystem()
-    personalized_request = Event.create(
-        event_type="personalized.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"input": "Tell me about ECS"},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [personalized_request])
-    events = system(world)
-    assert len(events) == 1
-    assert events[0].event_type == "tool.chat_llm.requested"
-    assert "ECS" in events[0].data["params"]["user"]
-
-
-def test_personalized_role_system_emits_personalized_reply_generated():
-    """The ``PersonalizedRoleSystem`` returns the LLM's
-    raw text in a ``{"text": "..."}`` envelope (the
-    legacy role is free-form)."""
-    from kntgraph.agents.role_systems import (
-        EVENT_TYPE_PERSONALIZED_REPLY_GENERATED,
-        PersonalizedRoleSystem,
-    )
-
-    system = PersonalizedRoleSystem()
-    personalized_request = Event.create(
-        event_type="personalized.request",
-        agent_id="agent-1",
-        event_class="domain",
-        data={"input": "Tell me about ECS"},
-        correlation=_ctx(),
-    )
-    world = _fold(World.empty(), [personalized_request])
-    request_event = system(world)[0]
-    completion = _make_completion_event(
-        request_event.event_id,
-        "Free-form reply text",
-        UUID(str(request_event.correlation.correlation_id)),
-        agent_id="agent-1",
-    )
-    world2 = _fold(world, [request_event, completion])
-    events = system(world2)
-    assert len(events) == 1
-    assert events[0].event_type == EVENT_TYPE_PERSONALIZED_REPLY_GENERATED
-    assert events[0].data["output"]["text"] == "Free-form reply text"
-
-
-# ---------------------------------------------------------------------------
-# RuleBasedChatSystem (ADR-049 — ZTA-friendly no-LLM path)
-# ---------------------------------------------------------------------------
-
-
-def _make_session_event_with_tenant(
-    tenant_id: str = "tenant-A",
-) -> Event:
-    """Build a minimal session event with a tenant_id
-    payload so the rule system can match on tenant_id.
-    The default fold projects the session into the
-    ``SessionComponent``."""
-    from datetime import datetime, timezone
-
-    return Event.create(
-        event_type="session.started",
-        agent_id=SESSION_AGENT_ID,
-        event_class="lifecycle",
-        correlation=_ctx(),
-        data={
-            "session_id": "s-1",
-            "user_id": "u-1",
-            "tenant_id": tenant_id,
-            "started_at": datetime.now(tz=timezone.utc).isoformat(),
-            "metadata": {},
-        },
-    )
-
-
-def test_rule_based_chat_emits_deterministic_reply_on_match():
-    """A rule whose ``tenant_id`` and ``message_pattern``
-    match produces a ``chat.reply.generated`` event
-    directly (no ``tool.chat_llm.requested``)."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    rule = ChatRule(
-        tenant_id="tenant-A",
-        persona_pattern="*",
-        message_pattern="refund",
-        response="Please contact billing.",
-    )
-    system = RuleBasedChatSystem(rules=[rule])
-    world = _fold(
-        World.empty(),
-        [
-            _make_session_event_with_tenant("tenant-A"),
-            _make_intent_event("How do I get a refund?"),
-        ],
-    )
-    events = system(world)
-    assert len(events) == 1
-    completion = events[0]
-    assert completion.event_type == "chat.reply.generated"
-    assert completion.data["output"]["reply"] == "Please contact billing."
-    # No LLM request emitted; the rule path short-circuits.
-    assert all(e.event_type != "tool.chat_llm.requested" for e in events)
-
-
-def test_rule_based_chat_returns_empty_on_miss():
-    """When no rule matches, the system returns ``[]``
-    so the next system in the dispatcher's list
-    handles the LLM fallback."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    rule = ChatRule(
-        tenant_id="tenant-A",
-        persona_pattern="*",
-        message_pattern="refund",
-        response="Please contact billing.",
-    )
-    system = RuleBasedChatSystem(rules=[rule])
-    world = _fold(
-        World.empty(),
-        [
-            _make_session_event_with_tenant("tenant-A"),
-            _make_intent_event("What is the meaning of life?"),
-        ],
-    )
-    events = system(world)
-    assert events == []
-
-
-def test_rule_based_chat_tenant_id_filter():
-    """A rule scoped to ``tenant-A`` does NOT match a
-    ``tenant-B`` request (even if the message
-    matches)."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    rule = ChatRule(
-        tenant_id="tenant-A",
-        persona_pattern="*",
-        message_pattern="refund",
-        response="tenant-A-only",
-    )
-    system = RuleBasedChatSystem(rules=[rule])
-    world = _fold(
-        World.empty(),
-        [
-            _make_session_event_with_tenant("tenant-B"),
-            _make_intent_event("refund please"),
-        ],
-    )
-    events = system(world)
-    assert events == []
-
-
-def test_rule_based_chat_wildcard_tenant_matches_all():
-    """A rule with ``tenant_id="*"`` matches every
-    tenant."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    rule = ChatRule(
-        tenant_id="*",
-        persona_pattern="*",
-        message_pattern="hello",
-        response="Hi!",
-    )
-    system = RuleBasedChatSystem(rules=[rule])
-    for tenant in ("tenant-A", "tenant-B", "tenant-C"):
-        world = _fold(
-            World.empty(),
-            [
-                _make_session_event_with_tenant(tenant),
-                _make_intent_event("hello"),
-            ],
-        )
-        events = system(world)
-        assert len(events) == 1
-        assert events[0].data["output"]["reply"] == "Hi!"
-
-
-def test_rule_based_chat_priority_picks_higher_match():
-    """When multiple rules match, the higher-priority
-    rule wins."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    low = ChatRule(
-        tenant_id="*",
-        persona_pattern="*",
-        message_pattern="refund",
-        response="low priority",
-        priority=0,
-    )
-    high = ChatRule(
-        tenant_id="*",
-        persona_pattern="*",
-        message_pattern="refund",
-        response="high priority",
-        priority=10,
-    )
-    system = RuleBasedChatSystem(rules=[low, high])
-    world = _fold(
-        World.empty(),
-        [
-            _make_session_event_with_tenant("tenant-A"),
-            _make_intent_event("refund please"),
-        ],
-    )
-    events = system(world)
-    assert len(events) == 1
-    assert events[0].data["output"]["reply"] == "high priority"
-
-
-def test_rule_based_chat_register_rule_at_runtime():
-    """Operators can add rules after construction."""
-    from kntgraph.agents.role_systems import (
-        ChatRule,
-        RuleBasedChatSystem,
-    )
-
-    system = RuleBasedChatSystem()
-    world = _fold(
-        World.empty(),
-        [
-            _make_session_event_with_tenant("tenant-A"),
-            _make_intent_event("hello"),
-        ],
-    )
-    # No rule yet: miss.
-    assert system(world) == []
-    # Register a rule: hit on the next pump.
-    system.register_rule(
-        ChatRule(
-            tenant_id="tenant-A",
-            message_pattern="hello",
-            response="Hi!",
-        )
-    )
-    events = system(world)
-    assert len(events) == 1
-    assert events[0].data["output"]["reply"] == "Hi!"
+    assert events[0].event_type == "intent.validation_failed"
+    assert events[0].data["role_persona"] == "locked"

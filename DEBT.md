@@ -1310,9 +1310,7 @@ from __future__ import annotations
 
 ## 2.15 ADR-042 hydration pipeline (memory components)
 
-**Status:** Partially delivered (components + projection
-exist; full hydration pipeline in the dispatcher is
-still a shim; example 05b is WIP).
+**Status:** Closed in 2026-08-26 (this session).
 
 **Delivered in this iteration (2026-07-14):**
 
@@ -1336,6 +1334,8 @@ still a shim; example 05b is WIP).
     monkey-patches ``ReactiveDispatcher._fold_with_filter``
     to compose: ``default projection`` →
     ``project_memory`` → ``overlay_tool_calls``.
+    *Removed in 2026-08-26; replaced by the
+    framework-native pipeline.*
 
   - **Example 05b** (``examples/05b_session_chat_ecs.py``):
     the canonical reference implementation of the
@@ -1347,26 +1347,27 @@ still a shim; example 05b is WIP).
     bug is the multi-tick overlay loss (see
     item 2.16 below).
 
-**Open work (ADR-042 §6.1 follow-up):**
+**Closed in 2026-08-26 (this session):**
 
-  - **Compose API.** The shim is a monkey-patch; the
-    framework needs a proper
-    ``ReactiveDispatcher(projections=[...])`` API
-    that composes projections in order. The shim
-    should be deleted once the API ships.
-    Action: ADR follow-up PR.
+  - **Compose API** (the ``projections=[...]``
+    kwarg). Implemented as a generic
+    :class:`WorldProjection` protocol in
+    :mod:`kntgraph.runner.reactive_extensions`;
+    the dispatcher composes the list in order,
+    after the base fold and before the tool
+    overlay. Commit ``4e383de``.
 
   - **Run the projection in the framework.**
-    ``project_memory`` lives in
-    ``core/world/projection_memory.py``; the
-    framework's default ``World.fold`` does not
-    call it. The shim is the only way to wire
-    it in today. Action: expose a
-    ``MemoryHydrationProjection`` class in
-    ``runner/reactive_extensions.py`` and call it
-    from the default ``_fold_with_filter`` after
-    the base projection and before the tool
-    overlay.
+    :func:`kntgraph.runner._folding.fold_with_filter`
+    now calls
+    :func:`_project_memory_into_world` natively
+    on every tick (always on; no opt-in needed);
+    the caller-supplied ``projections=[...]``
+    list extends the pipeline, it does not
+    replace the built-in memory hydration. The
+    example 05b no longer needs to register
+    ``MemoryHydrationProjection()`` explicitly;
+    the legacy monkey-patch was deleted.
 
   - **Tests for the projection.** ~~The
     ``project_memory`` projection has no unit
@@ -1390,6 +1391,15 @@ still a shim; example 05b is WIP).
     corresponding type (matching the
     ``_fold_session`` behaviour; previously the
     base component was discarded).
+
+  - **Latent bug in
+    :func:`_build_session_component`** (DEBT
+    §2.33): the projection now honours the
+    ``session.started`` event payload's
+    ``session_id``; falls back to the
+    ``agent_id`` derivation when absent
+    (legacy replays). 4 new tests in
+    :mod:`tests.unit.core.test_projection_memory`.
 
 
 ## 2.16 Tool-call overlay: multi-tick slot loss
@@ -2302,8 +2312,905 @@ files:
       delta -17 — the 17-error delta is from
       the ADR-047 + CLI conftest work, not
       from this refactor)
-    - `tests` ✅ (1747 passed, 1 skipped)
-    - `bandit` ✅ (0 H + 0 M + 0 L)
-    - `audit` ✅ (0 known vulnerabilities)
+- `tests` ✅ (1747 passed, 1 skipped)
+  - `bandit` ✅ (0 H + 0 M + 0 L)
+  - `audit` ✅ (0 known vulnerabilities)
 
 **Acceptable:** N/A — closed.
+
+
+## 2.27 WorkerManager ACL hook (ADR-061 §5 gate 1 + gate 2)
+
+**Status:** Closed in 2026-08-26 (this session).
+
+**Summary.** The `chat_llm` tool (the `LiteLLMToolWorker`,
+ADR-043) is end-to-end unaware of authorization beyond
+the EventLog's per-event tenant-ownership preflight
+(`check_tenant_ownership`, `src/kntgraph/stream/event_log/validation.py:151`).
+The emission at `_BaseRoleSystem._emit_request`
+(`src/kntgraph/agents/role_systems/_base.py:198`) is
+unconditional; `ToolAwareSystem.request_tool`
+(`src/kntgraph/tools/system.py:28`) takes no principal;
+`ToolRouter.route_batch`
+(`src/kntgraph/tools/router.py:37`) does not consult
+ACL; `WorkerManager._process_message`
+(`src/kntgraph/tools/manager.py:246`) does not import
+`ToolACL` or `Principal`; and `LiteLLMToolWorker.invoke`
+(`src/kntgraph/agents/tools/llm.py:662`) has no principal
+parameter. `ToolRegistry.acl_for` and `ToolACL.check` are
+declared but have **zero callers in `src/`** (`grep
+"acl_for\|ToolACL.check" src/` returns only the
+declarations). 41 test occurrences of `chat_llm`
+exercise the worker / projection / TTL paths; none
+construct a `Principal`, mock `acl_for`, or assert
+role-based denial.
+
+**Three independent sub-gaps.**
+
+  1. **Worker path has no ACL hook.** `default_acl()`
+     returns `ToolACL(required_role=Role.agent)` already
+     (`src/kntgraph/tools/acl.py:120`), so the
+     ADR-061 §5 suggested fix ("register `chat_llm` in
+     `default_acl()`") would not change anything — the
+     chat_llm worker is never registered in a
+     `ToolRegistry` (it is registered exclusively via
+     `WorkerManager.register`,
+     `src/kntgraph/tools/manager.py:92`), and
+     `WorkerManager` has no `_acls` dict.
+
+  2. **Two registries, no convergence.** `WorkerManager._tools`
+     and `ToolRegistry._tools`/`_acls` are separate
+     data structures; `LiteLLMToolWorker` is registered
+     in only the first. ADR-025 §5 documents the split
+     as intentional (the new Worker path supersedes the
+     old Tool path; the old registry is kept for the
+     non-Worker tools that remain on the
+     `ToolInvoker` contract), but the migration never
+     re-anchored the ACL hook to the Worker path.
+
+  3. **`RoleComponent.allowed_tools` not in framework.**
+     Defined only in the Jinja scaffold templates
+     (`cli/templates/routing/components.py.jinja:9`,
+     `cli/templates/routing/policy.py.jinja:7`); no
+     production module imports either. Confirms
+     ADR-061 §5 gap 2: a role persona has no way to
+     express "no LLM access" today.
+
+  4. **`Event` does not carry `principal`.**
+     `src/kntgraph/core/event/event.py:66` defines the
+     event shape without principal fields;
+     `WorkerManager._process_message` decodes the event
+     from the Redis stream payload in a fresh consumer
+     context where `principal_ctx` is not set. Any
+     principal-aware gate would need a way to recover
+     the principal — either stamping it in the event
+     payload (requires schema change), or via a
+     signed / trusted re-derivation from the agent_id's
+     tenant + the EventLog signature.
+
+**Proposed fix (when this lands).**
+
+  This is **not a one-line change**. It should be a new
+  ADR ("WorkerManager ACL hook") that covers the full
+  three-gate model (ADR-060 §3.0) for the Worker path,
+  not just `chat_llm`. Sketch:
+
+    1. **Thread principal through the event.**
+       `Event` gains an optional
+       `producer_principal_id: str | None` field; the
+       API layer (`api/intent_router/routes.py`)
+       stamps it from `principal_ctx`. The EventLog
+       `_preflight` validates the stamp against the
+       signed event (signature already proves
+       tenant-ownership; principal is derived from the
+       same identity claim).
+
+    2. **Converge the registries.** Either (a) extend
+       `WorkerManager.__init__` /
+       `WorkerManager.register` with an `acl` kwarg
+       and a sibling `dict[str, ToolACL]`; (b) make
+       `WorkerManager` accept a `ToolRegistry`
+       instance and consult `registry.acl_for(name)`
+       inside `_process_message` before
+       `run_in_executor`; (c) keep them separate but
+       enforce one-way: any tool registered in
+       `WorkerManager` MUST also be in
+       `ToolRegistry`, and the boot path raises on
+       mismatch. (b) is the cleanest.
+
+    3. **Add the gate in `_process_message`** (or in a
+       pre-dispatch hook in `ToolRouter.route_batch`):
+       `acl = self._registry.acl_for(tool_name);
+       if acl is None: deny; principal =
+       lookup(event.producer_principal_id);
+       ok, reason = acl.check(principal); if not ok:
+       emit tool.<name>.failed with data={error:
+       reason} and ack the message`.
+
+    4. **Gate 2 — `RoleComponent.allowed_tools`** in
+       `_BaseRoleSystem._emit_request` (or a thin
+       override in `ChatRoleSystem`). Read the role's
+       `allowed_tools` from the agent's view; if
+       `"chat_llm"` is absent, emit
+       `intent.validation_failed` instead of
+       `tool.chat_llm.requested`. Mirrors the
+       Double-Lock pattern in ADR-039 §3.
+
+    5. **Tests.** Construct a `Role.service`-only
+       `Principal`; construct a `LiteLLMToolWorker`;
+       assert the dispatcher blocks the emit (gate 2)
+       AND that `WorkerManager._process_message`
+       short-circuits with a `tool.chat_llm.failed`
+       event carrying `role_insufficient` (gate 1). At
+       least 5 tests across both gates.
+
+**Why this is Open and not in v0.14.** The full fix
+touches 4 modules + a new field on `Event` (a schema
+change with downstream migration cost), and is
+orthogonal to the rate-limit / memory / HTTP intake
+fixes that ARE in v0.14. Doing a partial fix (only
+the `default_acl()` registration suggested in ADR-061
+§5) would give a false sense of security: `chat_llm`
+remains executable by any principal because the Worker
+path does not consult the ACL. Better to register the
+full plan as debt and attack it when there is a
+dedicated ACL iteration.
+
+**Acceptable:** when the gates above are wired and
+the 5+ tests pass with `Role.service` denial
+asserted.
+
+**Closed in 2026-08-26 (this session).**
+
+  - **Gate 1 (WorkerManager ACL)** was delivered in
+    commit ``f1ccc19`` (ADR-066 v0.16):
+    :meth:`WorkerManager.register` accepts an
+    ``acl=`` kwarg with a ``_UNSET`` sentinel;
+    ``_process_message`` consults ``acl_for(name)``
+    before running the worker; missing-principal
+    requests are denied with
+    ``acl_denied_no_principal``; role-insufficient
+    requests are denied with
+    ``acl_denied:<reason>``. 7 tests in
+    :mod:`tests.unit.tools.test_worker_manager_acl`.
+
+  - **Gate 2 (Role persona)** delivered in this
+    session:
+
+      - :class:`RoleComponent` in
+        :mod:`kntgraph.core.components.role` carries
+        ``persona`` / ``instructions`` /
+        ``allowed_tools``; mirrors the Jinja
+        template shape
+        (``cli/templates/routing/components.py.jinja``).
+      - :func:`has_tool_access` is the policy
+        primitive; returns ``True`` when the role
+        is absent (legacy fallback, opt-in
+        enforcement) or when the tool is in the
+        allow-list.
+      - :meth:`_BaseRoleSystem._build_request_event`
+        consults the view's
+        ``RoleComponent`` before emitting a tool
+        request; when the role forbids the tool,
+        the system emits ``intent.validation_failed``
+        with ``reason="role_does_not_allow_tool"``
+        instead of ``tool.<name>.requested``.
+
+    7 tests in
+    :mod:`tests.agents.unit.roles.test_role_systems`
+    cover: legacy fallback (no RoleComponent),
+    role permits tool, role denies tool,
+    empty allow-list (strictest), validation
+    event correlation, validation event
+    payload shape.
+
+  - **The two gates together** form the
+    ADR-060 §3.0 Three-Gate Model:
+
+      1. **System-level** (gate 2):
+         ``RoleComponent.allowed_tools``.
+      2. **Worker-level** (gate 1):
+         ``WorkerManager.acl_for(name).check(principal)``.
+      3. **Tool-level** (the LLM worker itself):
+         the worker's own ``invoke``
+         implementation.
+
+  - **Migration note.** Gate 2 is opt-in:
+    deployments that do NOT install a
+    ``RoleComponent`` on the view keep the legacy
+    unconditional emission behaviour. The
+    transition to strict role-based access
+    control is a deployment-level configuration
+    decision (the Jinja templates already ship
+    with a ``RoleComponent``; deployments that
+    build their own ``AgentView`` from raw
+    events need to opt-in explicitly).
+
+
+## 2.28 Single Tool Path — WorkerManager canonical, `ToolRegistry`/`ToolInvoker` removed (ADR-066)
+
+**Status:** Partially closed in 2026-08-26 (this session): v0.17 delivered. v0.18 still pending (`git rm` of legacy files).
+
+**Summary.** The framework has two parallel tool
+execution paths (`Tool` Protocol + `ToolInvoker` +
+`ToolRegistry` in-process, and `@tool_worker` +
+`WorkerManager` cross-process) that coexist today
+with no objective boundary between them. ADR-036
+made `WorkerManager` canonical; ADR-043 migrated the
+LLM onto it; ADR-047 split the LLM adapter. None of
+those removed the legacy path. The result is that
+`ToolRegistry.acl_for` and `ToolACL.check` are
+**dead code in production** (zero callers in `src/`),
+the CLI scaffolds still teach the dual path
+(`cli/templates/dispatcher.py.jinja` and
+`main.py.jinja` import `ToolRegistry`), and the
+arbitrary "is this in-process or Worker?" decision
+compounds as new tools land. ADR-066 proposes a
+three-minor migration: v0.16 adds the ACL hook to
+`WorkerManager` (per DEBT §2.27), v0.17 flips
+scaffolds and adds `DeprecationWarning` to the
+legacy path, v0.18 `git rm`'s the legacy files.
+
+**Three things land in v0.16 (the small, valuable
+slice):**
+
+  1. **`WorkerManager.register` gains `acl=`** and
+     consults it in `_process_message` (DEBT §2.27
+     step 1). `WorkerManager.acl_for(name)` becomes
+     the single ACL lookup.
+  2. **`Event.producer_principal_id`** is added
+     (optional field, signed at the API layer) so
+     the Worker path can call
+     `acl.check(principal)` without re-deriving the
+     principal from `agent_id`'s tenant.
+  3. **`_BaseRoleSystem._emit_request`** enforces
+     `RoleComponent.allowed_tools` for `chat_llm`
+     (DEBT §2.27 step 4 — gate 2 of the three-gate
+     model).
+
+**v0.16 closes the gap that ADR-061 §5 flagged for
+`chat_llm`** end-to-end. v0.17 + v0.18 are the
+structural cleanup (remove the dead path).
+
+**Why not in v0.14.** v0.14 is fix-first (8 brecha
+fixes + 5 prep items per `ROADMAP.md`). v0.16 ships
+the ACL hook as part of v0.14 only if the team
+decides to slip v0.14 to v0.15; the **structural
+removal** (v0.17 + v0.18) is **always** a separate
+minor — touching every tool, scaffold, and example
+that the legacy path taught, in a fix-first minor,
+would invert the minor's stated purpose. v0.15 stays
+the "Role enum deprecation" minor per the ROADMAP
+between-cycles item; v0.16 is the next dedicated
+iteration.
+
+**Acceptable:** when the v0.16 acceptance checklist
+in ADR-066 §8 is satisfied (WorkerManager ACL
+enforcement + RoleComponent.allowed_tools gate +
+Event.producer_principal_id signed). The v0.17 and
+v0.18 steps are tracked separately in the same ADR.
+
+**Closed in 2026-08-26 (this session) — v0.17 only.**
+
+  - **DeprecationWarning on
+    ``WorkerManager.register(tool_cls)`` without
+    ``acl=``. The warning points to ADR-066 §4.4
+    and the ``acl=default_acl()`` /
+    ``acl=ToolACL(...)`` / ``acl=None`` opt-out.
+    Passing ``acl=None`` is the explicit
+    opt-out and does NOT warn.
+  - **DeprecationWarning on
+    ``ToolRegistry.__init__``**. The module and
+    class docstrings are updated; the warning
+    points to ``WorkerManager.register`` /
+    ``WorkerManager.acl_for`` as the
+    replacement. v0.18 will ``git rm`` the
+    module.
+  - **Scaffold flip**. ``cli/templates/dispatcher.py.jinja``
+    flipped from ``ToolRegistry`` to
+    ``WorkerManager.register(tool, acl=default_acl())``.
+    ``cli/templates/main.py.jinja`` keeps the
+    v0.17 transitional ``ToolRegistry`` form
+    with a comment noting the v0.18 swap
+    (the API factory still takes ``registry=``;
+    the v0.18 change to ``worker_manager=`` is
+    out of scope for this minimal slice per the
+    session's scope decision).
+  - **Tests.** 3 new tests in
+    ``TestWorkerManagerRegisterDeprecation``
+    (``tests/unit/tools/test_worker_manager_acl.py``)
+    validate the warning is emitted for the
+    no-``acl=`` form and NOT emitted for
+    ``acl=default_acl()`` or ``acl=None``.
+    ``TestDeprecation`` in
+    ``tests/unit/tools/test_registry.py``
+    validates the ``ToolRegistry.__init__``
+    warning. The module-level
+    ``pytestmark = filterwarnings("ignore:...")``
+    keeps the existing tests readable.
+
+**Still pending (v0.18).**
+
+  - ``git rm src/kntgraph/tools/registry.py``
+    once the API factory, the internal
+    ``knowledge/extraction/*`` callers, and the
+    CLI examples have migrated to
+    ``WorkerManager.acl_for``.
+  - Remove the v0.17 transitional ``ToolRegistry``
+    call in ``cli/templates/main.py.jinja``
+    and update the API factory to accept
+    ``worker_manager=`` directly.
+  - Update ``examples/knt-cli/weather_platform``
+    to use ``WorkerManager.register(acl=...)``.
+  - Drop the
+    ``DeprecationWarning`` on
+    ``WorkerManager.register`` no-``acl=`` form
+    (it becomes a hard error in v0.18).
+
+
+## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14
+
+**Status:** Open — moved from ROADMAP v0.14 #4, #5,
+#12 on 2026-08-26 (consolidated).
+
+**Summary.** Three v0.14 items depend on a
+`RoleComponent` class that **does not exist in
+framework code**. It is defined only in the Jinja
+scaffold templates
+(`src/kntgraph/cli/templates/routing/components.py.jinja:9–14`),
+and **zero** modules in `src/`, `tests/`, or
+`examples/` instantiate `RoleComponent` or populate
+`allowed_tools` (`grep -rn "RoleComponent\b\|allowed_tools"
+src/ tests/ examples/` returns only the two Jinja
+files and the ADR text). All three gates (gate 2:
+tool emission; gate 3: handoff; §11.4b: synthetic
+emission) require the user to register their component
+class — which the framework does not yet support.
+
+**Items covered (consolidated for clarity):**
+
+  - **#4 (ADR-061 §5 gate 2).** `ChatRoleSystem._emit_request`
+    blocks when the registered `RoleComponent.allowed_tools`
+    does not contain `"chat_llm"`. Emits
+    `intent.validation_failed` with reason
+    `role_allowed_tools_missing`. Default-allow when
+    no role class is registered.
+  - **#5 (ADR-061 §11.4b).** `SolutionLookupSystem`
+    synthetic `tool.<name>.completed` emission gates
+    on `RoleComponent.allowed_tools` (the lookup
+    system's synthetic emission is itself a
+    domain event, not a tool call; gate 2 still
+    applies because the emission pretends to be the
+    tool's completion).
+  - **#12 (ADR-060 §3.1 gate 3).**
+    `RoleComponent.SwitcherSystem` validates
+    `destination.role_name in source.handoff_targets`
+    before allowing cross-agent handoff. This is a
+    **third** gate (handoff), not a subset of gate
+    2; it needs both source and destination role
+    components on the respective views. Multi-agent
+    handoff was deprioritised when "fmh_office não
+    é vertical separada" (ROADMAP §"Decisão de
+    escopo"); demand for cross-agent handoff has
+    not surfaced since.
+
+**Why not in v0.14.** Each item, implemented
+standalone, requires the same three pieces of new
+infrastructure:
+
+  1. **Registry API** for user `RoleComponent`
+     classes — likely
+     `RoleAwareSystem.register_role_component_class(cls)`
+     on the `_BaseRoleSystem` class so the
+     registration is per-system, not per-process.
+     This is a new public surface.
+  2. **Scan path** in `_BaseRoleSystem` /
+     `SwitcherSystem` that walks `view.components`
+     and finds the registered class's instance via
+     `cls` lookup in the dict's typed-key half
+     (`AgentView.components: dict[str | type[Any], Any]`
+     already supports this; the
+     `type: ignore[reportUnknownVariableType]`
+     smell is the framework's known escape hatch).
+  3. **Event shapes** — `intent.validation_failed`
+     (defined by no existing ADR; needs an
+     `event_type` + projection rule + completion
+     wiring) for gate 2; `*.handoff_accepted` /
+     `*.handoff_rejected` for gate 3.
+
+These three pieces are exactly the **gate-2 +
+gate-3 slice** of [ADR-066 v0.16 §4.1](./ADRs/ADR-066-Single-Tool-Path.md)
+(plus the SwitcherSystem sketch in ADR-060 §3.1).
+Delivering them now and then again in v0.16 is
+duplicated work. Item #12 specifically **also**
+requires concrete multi-agent demand, which has not
+surfaced.
+
+**Acceptable (per item):**
+
+  - **#4:** when ADR-066 v0.16 lands, gate-2
+    enforcement passes: a user project can register
+    a `RoleComponent` class via the new API;
+    `_BaseRoleSystem._emit_request` reads the
+    registered class's `allowed_tools`; if
+    `"chat_llm"` is absent, emits
+    `intent.validation_failed` with reason
+    `role_allowed_tools_missing`. 3+ tests:
+    registered role + `chat_llm` in
+    `allowed_tools` → emit happens (existing
+    behaviour preserved); registered role + no
+    `chat_llm` in `allowed_tools` → emit blocked,
+    `intent.validation_failed` published; no
+    registered role class → default-allow (no
+    breakage for projects that don't opt in).
+  - **#5:** when #4's gate-2 is in place, extend the
+    same scan path to `SolutionLookupSystem.__call__`
+    so synthetic `tool.<name>.completed` emission is
+    also gated. 2+ tests: synthetic emission blocked
+    when persona lacks the tool name; synthetic
+    emission allowed when persona has it.
+  - **#12:** when there is **concrete multi-agent
+    demand** + ADR-066 v0.16's gate-2 infrastructure
+    + a new ADR-XXX "Cross-agent handoff" that
+    defines `*.handoff_requested` / `*.handoff_accepted`
+    event shapes and the `SwitcherSystem`'s
+    `destination.role_name in source.handoff_targets`
+    check. No current demand.
+
+
+## 2.30 `Role` enum DeprecationWarning (ADR-060 §2.0)
+
+**Status:** Closed in 2026-08-26 (this session) — `Role` enum removed directly (no warning cycle).
+
+**Summary.** Item #9 of v0.14 introduced the new
+`PrincipalLevel` enum (ADR-060 §2.0) **alongside**
+the legacy `Role` enum, with the migration helper
+`PrincipalLevel.from_role` and the dual-field
+`Principal.role` / `Principal.level` design. The
+final step of the migration is the
+**`DeprecationWarning`** on the `Role` enum
+itself, so callers learn to migrate to
+`PrincipalLevel` over one minor cycle.
+
+**Why not in v0.14.** Item #9 lands `PrincipalLevel`
+without warning so the framework surface is stable
+during v0.14's fix-first window. The warning itself
+ships in the release that *uses* `Role` most (so
+the warning fires where it matters); the warning
+window is one minor cycle, per AGENTS.md §7. The
+removal of `Role` ships in the release AFTER the
+warning cycle (currently scheduled for v1.0 in the
+ADR-060 §2.0 timeline).
+
+**Three-step migration (mirrors the timeline in
+ADR-060 §2.0):**
+
+  1. **v0.14 (done):** introduce `PrincipalLevel`
+     alongside `Role`; mark `Role` as deprecated in
+     the docstring; add `PrincipalLevel.from_role`
+     helper; add `Principal.level` field with
+     `effective_level()` / `with_level()` helpers.
+     **This commit.**
+  2. **Next release that touches `security.principal`:**
+     add ``warnings.warn(..., DeprecationWarning,
+     stacklevel=2)`` at module load time (covers
+     ``import security`` triggering the warning) and
+     inside `Role.__new__` (covers every
+     ``Role.agent`` / ``Role.admin`` / ``Role.service``
+     access). Update the migration guide in
+     `docs/` with the rename path:
+     ``Role.agent`` → ``PrincipalLevel.agent``.
+     Audit `src/kntgraph` for direct `Role.X`
+     references; replace with `PrincipalLevel.X` so
+     the framework itself stops emitting warnings.
+  3. **v1.0:** `git rm Role` from
+     `src/kntgraph/security/principal.py`; remove
+     `Principal.role` field; keep `PrincipalLevel`
+     as the sole canonical name. Any
+     `Role`-referencing user code breaks at import
+     time with a clear ``AttributeError`` pointing
+     to `PrincipalLevel`.
+
+**Acceptable:** when steps 2 and 3 land and the
+following acceptance criteria pass:
+
+  - Module-level ``warnings.warn`` on import emits
+    a ``DeprecationWarning`` with the message
+    "``Role`` enum is deprecated; use
+    ``PrincipalLevel`` instead (ADR-060 §2.0).
+    Removal target: v1.0."
+  - ``Role.agent`` / ``Role.admin`` / ``Role.service``
+    access emits the same ``DeprecationWarning``
+    (the per-access case).
+  - ``PrincipalLevel.from_role(Role.agent) ==
+    PrincipalLevel.agent`` round-trip still works
+    (the migration is mechanical).
+  - 3+ tests cover: (a) module-level import emits
+    the warning; (b) ``Role.X`` access emits the
+    warning; (c) the `PrincipalLevel` migration
+    path produces the same RBAC outcome.
+  - Framework's own ``src/kntgraph`` code does not
+    emit the warning (audit confirms zero direct
+    ``Role.X`` references after step 2).
+  - v1.0 ``git rm`` removes the enum cleanly; no
+    internal call sites break.
+
+**Trigger:** per AGENTS.md §7, "em qualquer release
+que toque o módulo security.principal". The next
+release that touches the module (planned: v0.16's
+ADR-066 gate-1 work, per the ADR-066 §4.1 step 3)
+ships the warning; v1.0 ships the removal.
+
+**2026-08-26 (revisão):** puxado para o ROADMAP v0.14
+nesta sessão, depois revertido para DEBT quando a
+discussão apontou que emitir `DeprecationWarning`
+no `Role` exige decisão arquitetural sobre **escopo
+do warning**:
+
+  - **Module-level** (uma vez no import): cobre 90%
+    dos casos sem custo runtime. Não cobre uso
+    via `from kntgraph.security import Role` em
+    runtime.
+  - **Por-acesso** (em cada `Role.X`): cobre 100%
+    mas adiciona overhead e risco em introspecção
+    (`Role.__members__`, `Role.__iter__`).
+  - **Híbrido** (module + `__getattribute__`
+    deduplicado): cobre tudo mas precisa de flag
+    para evitar cascata de warnings em produção.
+
+A decisão cabe em uma sessão dedicada com mais
+contexto (telemetria de warning em produção, impacto
+em bibliotecas que usam `Role` como type hint).
+Quando o item for puxado de novo, abrir a sessão
+com a pergunta "qual escopo?" como primeiro item.
+
+**Closed in 2026-08-26 (this session) — `Role`
+removed directly (no warning cycle).**
+
+  - :class:`Principal.role` removed;
+    :class:`PrincipalLevel.level` is the single
+    RBAC field on ``Principal``.
+  - :meth:`Principal.from_agent_id` takes
+    ``level=PrincipalLevel.X`` (not ``role=Role.X``).
+  - :meth:`PrincipalLevel.from_role` removed
+    (no ``Role`` to convert from);
+    :meth:`PrincipalLevel._coerce` handles
+    raw-string deserialisation.
+  - :attr:`ToolACL.required_role` removed;
+    :attr:`ToolACL.required_level` is the
+    single field.
+  - :meth:`DefaultPolicy.allows` reads
+    ``principal.level`` instead of
+    ``principal.role``.
+  - ``Principal.to_json`` / ``Principal.from_json``
+    keep the wire field name ``role`` for
+    backward compatibility (legacy serialised
+    principals keep round-tripping); the
+    value carries the ``PrincipalLevel``
+    string (``"service"`` / ``"agent"`` /
+    ``"admin"``).
+  - The enum ``Role`` was deleted from
+    :mod:`kntgraph.security.principal` and the
+    ``__all__`` export list.
+  - ``scripts/migrate_principals.py`` updated
+    to use ``PrincipalLevel.agent`` (it was
+    a legacy-binding migration script that
+    wrote ``Principal(role=Role.agent, ...)``;
+    now ``Principal(level=PrincipalLevel.agent, ...)``).
+  - Test coverage rewritten in
+    :mod:`tests.unit.security.test_principal_level`
+    (the migration-additive tests for the old
+    ``role`` field are gone; the new tests cover
+    the canonical ``level`` API).
+
+
+## 2.31 `agents.role_systems/` re-organisation (ADR-060 §6.5.3)
+
+**Status:** Open — moved from ROADMAP v0.14 #10 on
+2026-08-26.
+
+**Summary.** Cleanup puro do
+`src/kntgraph/agents/role_systems/` package. O
+`__init__.py` atual (224 LOC) mistura 5 classes,
+6 constantes, 3 event-type constants e prompts. A
+re-organização proposta pelo ADR-060 §6.5.3 tem
+5 sub-itens:
+
+  1. **Five concrete systems move out of
+     `__init__.py` into one-file-per-system**
+     (`chat.py`, `planner.py`, `summarizer.py`,
+     `personalized.py`, `rule_based.py`). The
+     `__init__.py` re-exports. Matches the
+     convention in `agents/memory/solutions/`
+     (one class per file).
+
+  2. **`_prompts.py` splits into `_prompts.py`
+     (the prompts) and `_schemas.py` (the output
+     dataclasses).** Today `CHAT_SYSTEM_PROMPT`
+     lives next to `ChatReply`. The prompt is a
+     product config (deployment-overridable in
+     v2); the schema is a domain contract (always
+     current). Mixing the two is the smell.
+
+  3. **`_persona_for_view` stub in
+     `RuleBasedChatSystem`** is fixed (currently
+     returns `""`; v2 reads from `RoleComponent`
+     or `_RolePersonaComponent`). This depends on
+     the `RoleComponent` registry (DEBT §2.29 /
+     ADR-066 v0.16).
+
+  4. **`PersonalizedRoleSystem.OUTPUT_MODEL =
+     BaseModel`** is replaced with a typed
+     `_PersonalizedReply` schema, aligning with
+     the other three role systems.
+
+  5. **Dead `_emit_chat_completion`** (in
+     `_base.py` line 236) is either wired into the
+     LLM path's `_consume_pending_completions`
+     (the comment says "shared between Chat and
+     RuleBased" but only RuleBased calls it) or
+     removed.
+
+**Why not in v0.14.** Items 1, 2, 4, 5 are
+cosmetic / cleanup puro — no fix de bug, no
+security gap, no audit trail. Item 3 (the
+`_persona_for_view` fix) is **blocked** on
+DEBT §2.29 (the `RoleComponent` registry). Putting
+items 1, 2, 4, 5 in v0.14 inverts the
+fix-first policy stated in ROADMAP §"Decisão de
+escopo". The natural carrier is v0.15+ when the
+fix-first pressure releases and the framework has
+clearance for cosmetic refactors.
+
+**Acceptable:** when the split lands and:
+
+  - `agents/role_systems/__init__.py` is a thin
+    re-export module (< 50 LOC); each concrete
+    system lives in its own file.
+  - `_prompts.py` (prompts) and `_schemas.py`
+    (output dataclasses) are separate; no file
+    imports the other.
+  - `PersonalizedRoleSystem.OUTPUT_MODEL` is a
+    concrete `BaseModel` subclass, not
+    `BaseModel` itself.
+  - `_emit_chat_completion` is either deleted
+    (no callers after the audit) or wired into
+    `_consume_pending_completions`.
+  - Item 3 (`_persona_for_view`) ships
+    alongside DEBT §2.29 (when the
+    `RoleComponent` registry lands).
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when someone picks up the package for any
+unrelated reason (faster migration is
+cheaper than waiting for a dedicated cycle).
+
+
+## 2.32 `SolutionPipeline` consolidation (ADR-060 §6.5.2)
+
+**Status:** Open — moved from ROADMAP v0.14 #11 on
+2026-08-26.
+
+**Summary.** Consolidate five Solution-tier classes
+into one ``SolutionPipeline``:
+
+  - ``SolutionExtractorSystem`` (202 LOC)
+  - ``SolutionLookupSystem`` (505 LOC, including
+    ``CachedSolution``, ``SolutionStoreLike``,
+    ``InMemorySolutionStore``, ``LookupStats``)
+  - ``SolutionReviewPublisherSystem`` (124 LOC,
+    including ``ReviewQueueLike``, stats)
+  - ``SolutionPromoterSystem`` (144 LOC,
+    including ``GraphPoolLike``, stats)
+  - ``SolutionProjector`` (363 LOC, in
+    ``agents/knowledge/``)
+
+Total: **~1338 LOC** across five files. The
+ADR-060 §6.5.2 design collapses them into one
+``SolutionPipeline`` class with four public methods
+(``extract``, ``review``, ``promote``,
+``read_for_overlay``) and a single ``__call__``
+that orchestrates the cycle. State that is currently
+duplicated across classes (``seen_request_event_ids``
+set, candidate counter, etc.) consolidates into one
+place.
+
+**Why not in v0.14.** This is a structural refactor
+of ~1338 LOC across 5 files, with the
+following risks:
+
+  1. **Shared state migration.** Each class owns
+     its own counters / sets / connections
+     (``seen_request_event_ids``, candidate
+     counter, ``ReviewQueueLike``, ``GraphPoolLike``,
+     ``SolutionStoreLike``). Consolidating means
+     picking **one** of these lifecycles as the
+     canonical home and migrating the others.
+     Mistakes here are silent (the wrong counter
+     wins, solutions get cached twice, etc.).
+  2. **Event-shape compatibility.** Each class
+     emits its own domain events (e.g.
+     ``*.solution.extracted``, ``*.solution.approved``,
+     ``*.solution.review_requested``). The
+     consolidated ``__call__`` must keep the same
+     event-shape contract so downstream consumers
+     (the Solution tier, the audit supervisor,
+     examples 09b/09c) keep working.
+  3. **Test surface.** There are several tests
+     for each of the five classes under
+     ``tests/agents/`` and ``tests/unit/``. A
+     naive ``git rm`` of the old classes leaves
+     orphan imports / test fixtures. The
+     consolidation has to update the test surface
+     in lock-step.
+  4. **Migration window.** Removing the five
+     classes is a breaking change. Even with a
+     ``DeprecationWarning`` shim, callers that
+     ``from kntgraph.agents.memory.solution_lookup
+     import SolutionLookupSystem`` break at import
+     time once the shim is removed.
+
+The risk is high enough that running this in a
+fix-first minor would invert the stated policy.
+A dedicated cleanup minor (v0.15+) carries the
+right scope.
+
+**Five-step migration plan (when this lands):**
+
+  1. **Draft the ``SolutionPipeline`` class**
+     in ``agents/memory/solutions/pipeline.py``.
+     Move the shared state (``seen_request_event_ids``,
+     candidate counter) into the class body. Keep
+     the four methods (``extract``, ``review``,
+     ``promote``, ``read_for_overlay``) as
+     thin wrappers over the existing logic,
+     extracted verbatim from the five classes.
+     Each method keeps the same event shapes it
+     emitted before (the contract tests pin this).
+  2. **Run ``SolutionPipeline.__call__`` alongside
+     the five legacy classes** (shadow mode).
+     The pipeline's outputs are asserted equal to
+     the legacy classes' outputs on a curated
+     integration test (``tests/agents/unit/memory/
+     test_solution_pipeline_parity.py``). The
+     five legacy classes still own their state; the
+     pipeline is read-only / dry-run.
+  3. **Cut over.** Switch the user's ``main.py``
+     scaffold from
+     ``ReactiveDispatcher(systems=[Extractor,
+     Review, Promoter, Lookup])`` to
+     ``ReactiveDispatcher(systems=[SolutionPipeline])``.
+     The five legacy classes emit
+     ``DeprecationWarning`` at import time and
+     forward calls to the pipeline (the
+     ``DeprecationWarning`` window is one minor
+     cycle per AGENTS.md §7).
+  4. **Delete the five legacy classes** in v0.11.0
+     (ADR-060 §6.5.6 timeline). The pipeline is
+     the single home; ``from agents.memory.
+     solution_X import XSystem`` becomes
+     ``ImportError`` with a clear migration path.
+  5. **Delete ``SolutionProjector``** in the same
+     minor. The projector is no longer a
+     top-level class; its work is a method on the
+     pipeline (``SolutionPipeline.write_to_graph()``).
+
+**Acceptable:** when:
+
+  - ``SolutionPipeline.__call__`` produces the
+    same event sequence as the five legacy
+    classes for the curated integration test
+    (parity verified byte-for-byte).
+  - The five legacy classes emit
+    ``DeprecationWarning`` and forward to the
+    pipeline (one minor cycle of compatibility).
+  - The user's scaffold uses one system
+    registration (not four).
+  - All 1338 LOC of legacy code is removed in
+    v0.11.0 (per the ADR-060 §6.5.6 schedule).
+  - 5+ new tests cover the pipeline:
+    ``test_extract_emits_candidate``,
+    ``test_review_publishes_to_queue``,
+    ``test_promote_writes_to_graph``,
+    ``test_read_for_overlay_emits_synthetic_completion``,
+    ``test_pipeline_consolidates_seen_request_ids``.
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when someone picks up the package for any
+unrelated reason.
+
+
+## 2.33 `_build_session_component` ignores `data.session_id`
+
+**Status:** Closed in 2026-08-26 (this session).
+
+**Problem:**
+:func:`kntgraph.core.world.projection_memory._build_session_component`
+derives the ``SessionComponent.session_id`` from the
+``agent_id`` (``session:ecs-demo`` → ``ecs-demo``) and
+ignores the ``session_id`` field of the
+``session.started`` event payload. Today the
+producer (:meth:`kntgraph.memory.session.SessionManager.open_session`)
+emits a ``session_id`` that matches the
+``agent_id_for(session_id)`` convention, so the
+derived value happens to match the wire value, but
+the projection does not actually use the wire
+value.
+
+**Why it's a bug:**
+
+  - Any producer that does NOT follow the
+    ``session:<id>`` convention for ``agent_id``
+    sees the projection silently rewrite the
+    ``session_id`` (e.g. a test fixture using
+    ``"agent:foo"`` as ``agent_id`` and
+    ``"bar"`` as ``session_id`` would see the
+    projection store ``session_id="foo"``).
+  - The fold cannot be replayed against a different
+    naming convention without breaking.
+  - Tests that want to assert the wire
+    ``session_id`` is honoured cannot be written.
+
+**Why we are deferring the fix:**
+
+  - The bug is latent: the only producer in tree
+    today is :class:`SessionManager` and it follows
+    the convention.
+  - Fixing the bug requires deciding the
+    precedence (wire value vs derived value) AND a
+    test plan for the edge cases (empty wire
+    value, mismatched wire value, replay against
+    a renamed convention). That is a 2-3 hour
+    exercise that does not advance §2.15.
+  - §2.15 (ADR-042 §6.1 follow-up) is about the
+    framework plumbing (compose projections); the
+    bug is in the projection itself and is
+    orthogonal to the plumbing.
+
+**Plan for the fix (when picked up):**
+
+  1. Update :func:`_on_session_started` to capture
+     the wire ``session_id`` into the fold state
+     (alongside ``user_id`` / ``tenant_id``).
+  2. Update :func:`_build_session_component` to
+     prefer the wire value when present, fall back
+     to the ``agent_id`` derivation when not.
+  3. Add tests:
+     - ``test_session_id_from_wire_when_present``
+     - ``test_session_id_falls_back_to_agent_id_when_absent``
+     - ``test_session_id_preserved_across_ticks_when_wire_value_changes``
+  4. Update
+     :mod:`tests.unit.core.test_projection_memory`
+     and
+     :mod:`tests.agents.unit.test_example_05b_projection`
+     to assert the wire value is honoured.
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when the projection is touched for any other
+reason (it is the load-bearing fold for the
+memory tier; revisit before v1.0).
+
+**Closed in 2026-08-26 (this session).**
+
+  - :func:`_init_session_state` adds
+    ``"session_id"`` to the fold state and seeds
+    it from the base component when one exists.
+  - :func:`_on_session_started` captures
+    ``state["session_id"]`` from the event payload
+    (alongside ``user_id`` / ``tenant_id``).
+  - :func:`_build_session_component` prefers the
+    wire value when present; falls back to the
+    ``agent_id`` derivation (legacy replays).
+  - 4 new tests in
+    :mod:`tests.unit.core.test_projection_memory`:
+    ``test_session_id_from_wire_when_present``,
+    ``test_session_id_falls_back_to_agent_id_when_absent``,
+    ``test_session_id_falls_back_when_data_value_is_empty``,
+    ``test_session_id_preserved_across_ticks_when_wire_value_changes``.
+  - Existing test
+    ``test_session_started_creates_session_component``
+    keeps its assertion on the fallback path
+    (no ``data.session_id`` in the wire event).
+  - :mod:`tests.agents.unit.test_example_05b_projection`
+    updated to assert the wire value is honoured
+    across ticks.

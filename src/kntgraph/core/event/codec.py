@@ -44,6 +44,16 @@ def event_to_dict(event: Event) -> dict:
         "correlation": event.correlation.to_dict(),
         "causation_id": str(event.causation_id) if event.causation_id else "",
         "version": event.version,
+        # ``producer_principal_id`` is additive (ADR-066
+        # §4.1). Emitted as empty string when absent;
+        # ``from_dict`` decodes empty string back to
+        # ``None``. Old consumers ignore unknown keys
+        # via the existing extra-ignore behaviour.
+        "producer_principal_id": (
+            event.producer_principal_id
+            if event.producer_principal_id is not None
+            else ""
+        ),
     }
     # ``signature`` is additive (ADR-016 PR 2). Omitted
     # from the wire when absent; old consumers ignore
@@ -79,6 +89,12 @@ def event_from_dict(d: dict) -> Event:
         from kntgraph.security.signing import Signature
 
         sig_obj = Signature.from_dict(d["signature"])
+    # ``producer_principal_id`` is optional (ADR-066
+    # §4.1). Decoded as ``None`` when missing or empty.
+    raw_principal_id = d.get("producer_principal_id")
+    producer_principal_id: Optional[str] = (
+        raw_principal_id if raw_principal_id else None
+    )
     # Local imports to avoid the cycle
     # `event` ↔ `correlation` at module load time.
     from .correlation import CorrelationContext
@@ -95,6 +111,7 @@ def event_from_dict(d: dict) -> Event:
         timestamp=datetime.fromisoformat(d["timestamp"]),
         version=version,
         signature=sig_obj,
+        producer_principal_id=producer_principal_id,
     )
 
 

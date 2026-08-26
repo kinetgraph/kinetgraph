@@ -86,27 +86,36 @@ class TestImportGraphNoCycle:
 
         assert protocol is not None
 
-    def test_arg_validation_does_not_eagerly_import_vertical(
-        self,
-    ):
-        """``kntgraph.agents.tools.arg_validation`` used to
-        import ``walk_schema`` from the vertical
-        ``kntgraph.agents.knowledge.argument_extractor`` at
-        module level. After Iter 25, it imports the
-        framework's ``walk_schema`` instead.
+    def test_arg_validation_lives_in_framework(self):
+        """Iter 30 (v0.15): ``arg_validation`` was
+        promoted to the framework. The module lives at
+        ``kntgraph.tools.arg_validation``; the vertical
+        path ``kntgraph.agents.tools.arg_validation``
+        is a re-export shim for one minor cycle.
 
-        We verify the dependency direction: the
-        framework's module is reachable from
-        ``arg_validation`` without forcing the vertical
-        to load.
+        We verify:
+          - the framework path is reachable without
+            forcing the vertical to load;
+          - the public symbols are the **same
+            function object** (re-export, not a
+            copy).
+          - the vertical path still works (shim
+            compatibility).
         """
-        import kntgraph.agents.tools.arg_validation as av
+        import kntgraph.tools.arg_validation as framework_av
 
-        # The legacy import line is gone. The function
-        # ``validate_args`` should still work.
-        from kntgraph.agents.tools.arg_validation import validate_args
+        from kntgraph.tools.arg_validation import (
+            SchemaValidationError,
+            validate_args,
+        )
 
-        assert validate_args is av.validate_args
+        # The framework module owns the canonical
+        # function objects.
+        assert validate_args is framework_av.validate_args
+        assert (
+            SchemaValidationError
+            is framework_av.SchemaValidationError
+        )
 
 
 class TestCyclicImportRegression:
@@ -143,8 +152,12 @@ class TestCyclicImportRegression:
         "kntgraph.agents.memory.solutions._promoter",
         "kntgraph.agents.knowledge.solution_projector",
         "kntgraph.agents.tools.pii",
-        "kntgraph.agents.tools.arg_validation",
         "kntgraph.agents.tools.protocol",
+        # ``arg_validation`` was promoted to the
+        # framework in Iter 30 (v0.15); the vertical
+        # module is gone (see ``test_arg_validation_lives_in_framework``
+        # for the migration contract).
+        "kntgraph.tools.arg_validation",
     ],
 )
 def test_module_importable(module_name: str):

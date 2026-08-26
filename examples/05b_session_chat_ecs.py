@@ -96,7 +96,6 @@ from kntgraph.core.event import (
 )
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import World
-from kntgraph.core.world.projection_memory import project_memory
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisSessionStorage
 from kntgraph.memory.session import SessionManager
@@ -111,126 +110,23 @@ from _lib.redis_or_fake import make_redis_client
 
 
 # ---------------------------------------------------------------------------
-# 1. Reactive extensions (the "shim")
+# 1. Reactive extensions
 # ---------------------------------------------------------------------------
 #
-# The framework does not yet expose a clean
-# "compose projections" hook on the dispatcher. This
-# example monkey-patches ``ReactiveDispatcher`` so
-# that ``World.fold`` runs the default projection,
-# then ``project_memory`` (hydration), then the tool
-# overlay — in that order. The same shim is what the
-# production code will do once the framework exposes
-# a proper "compose" API (ADR-042 §6.1 follow-up).
+# The framework's default
+# :func:`ReactiveDispatcher` fold runs the base
+# projection (last-event-wins), then the built-in
+# memory hydration (ADR-042 §6.1), then the tool-call
+# overlay (ADR-044 §2.3). The pipeline is wired
+# natively; no shim is required.
+#
+# The dispatcher also exposes a ``projections=[...]``
+# kwarg for callers that need to compose their own
+# post-fold projections (the list extends the
+# pipeline, it does not replace the built-ins). This
+# example does not need a custom projection, so the
+# kwarg is omitted.
 
-
-def _install_projection_shim() -> None:
-    """
-    Compose the framework projections into the
-    dispatcher's fold pass.
-
-    The framework's default fold is the
-    "last-event-wins" projection. The
-    :func:`_apply_event` helper now **preserves
-    derived components** (tool-call slots, memory
-    components) across the default domain fold
-    (ADR-042 + ADR-044). What this shim adds is:
-
-      1. The **memory hydration** projection
-         (``project_memory``) runs AFTER the
-         default fold. It walks the events in
-         the batch and materialises the
-         ``SessionComponent`` / ``ProfileComponent``
-         / ``ContinuityComponent`` on the
-         ``AgentView`` (purely from the events;
-         no Redis I/O). The components are
-         preserved across the next default fold
-         thanks to :data:`_DERIVED_COMPONENT_KEYS`.
-
-      2. The **tool-call overlay** runs LAST
-         (it would otherwise race with the
-         memory projection). It installs the
-         ``tool_requests`` / ``tool_completions``
-         slots and accumulates across ticks
-         (ADR-044 Option B).
-
-    The composition order is the same as the
-    production :func:`ReactiveDispatcher._fold_with_filter`
-    but inlined here so the example is runnable
-    without a new framework release.
-
-    The shim is **idempotent**: it only patches
-    if not already patched.
-    """
-    from kntgraph.runner import reactive as _reactive_mod
-    from kntgraph.runner import reactive_tool_projection as _rtp_mod
-
-    if getattr(_reactive_mod.ReactiveDispatcher, "_memory_shim_applied", False):
-        return
-
-    def _fold_with_filter_shim(self, world, new_events):
-        # Step 1: default fold. The default
-        # ``with_event`` is used so the
-        # ``_apply_event`` preservation rule
-        # applies (derived components are kept).
-        new_event_count = 0
-        for event in new_events:
-            world = world.with_event(event)
-            if self._filter is not None and not self._filter(event):
-                continue
-            new_event_count += 1
-
-        # Step 2: memory hydration. The
-        # projection is a pure fold of the
-        # events in the current batch; the
-        # ``base_views`` argument carries the
-        # components from previous ticks (so
-        # a tick that has no memory event
-        # keeps the SessionComponent from a
-        # previous tick).
-        #
-        # The output of ``project_memory`` is
-        # a new ``dict[str, AgentView]`` (one
-        # entry per agent touched by a memory
-        # event in the batch). Agents not in
-        # the output keep their current view
-        # (the projection's contract: agents
-        # not touched by memory events come
-        # back as the same view object).
-        new_views: dict[str, Any] = dict(world.views)
-        any_changed = False
-        for agent_id, hydrated_view in project_memory(new_events, world.views).items():
-            if world.views.get(agent_id) is not hydrated_view:
-                new_views[agent_id] = hydrated_view
-                any_changed = True
-        if any_changed:
-            new_storage = world.storage
-            for agent_id, view in new_views.items():
-                if world.views.get(agent_id) is not view:
-                    new_storage = new_storage.clone_with_entity(
-                        agent_id, dict(view.components)
-                    )
-            world = World(tick=world.tick, storage=new_storage, views=new_views)
-
-        # Step 3: tool-call overlay. Installs
-        # the ``tool_requests`` /
-        # ``tool_completions`` slots on the
-        # affected views. ADR-044: the
-        # overlay accumulates across ticks
-        # (a pending request from a previous
-        # tick is preserved until the matching
-        # completion lands).
-        if new_event_count > 0 and _rtp_mod._has_tool_events(new_events):
-            world = _rtp_mod._overlay_tool_projection(world, new_events)
-        return world, new_event_count
-
-    _reactive_mod.ReactiveDispatcher._fold_with_filter = _fold_with_filter_shim
-    _reactive_mod.ReactiveDispatcher._memory_shim_applied = True
-
-
-# Install the shim on import so the rest of the
-# example can build the dispatcher normally.
-_install_projection_shim()
 
 
 # ---------------------------------------------------------------------------

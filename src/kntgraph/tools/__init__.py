@@ -105,9 +105,26 @@ from .protocol import (
 )
 from .registry import ToolRegistry
 from .router import ToolRouter
+# ``schema`` must be imported before ``arg_validation``
+# so that when ``arg_validation`` triggers the
+# vertical's lazy imports (``infra.hashing`` →
+# ``solution_lookup`` → ``_extractor`` → ``_coerce``
+# → ``schema``), the ``schema`` module is already
+# in ``sys.modules`` and the cycle does not
+# re-enter its own partial load. This is the
+# canonical fix for the pre-existing cycle that
+# ``arg_validation`` exposes; the original
+# vertical location dodged the cycle because the
+# vertical ``__init__.py`` imported
+# ``kntgraph.tools.*`` first (which finished loading
+# ``schema``), then imported the vertical's
+# ``arg_validation``.
 from .schema import FieldSpec, compute_schema_version, walk_schema
 from .system import ToolAwareSystem
 from .worker import tool_worker
+# Imported after ``schema`` to avoid the partial-load
+# cycle (see the comment above).
+from .arg_validation import SchemaValidationError, validate_args
 
 
 __all__ = [
@@ -119,6 +136,7 @@ __all__ = [
     "LLMResponse",
     "LLMTransport",
     "LLMUsage",
+    "SchemaValidationError",
     "Tool",
     "ToolACL",
     "ToolArgValue",
@@ -130,5 +148,6 @@ __all__ = [
     "compute_schema_version",
     "default_acl",
     "tool_worker",
+    "validate_args",
     "walk_schema",
 ]

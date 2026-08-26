@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for ``kntgraph.agents.tools.arg_validation``.
+Unit tests for ``kntgraph.tools.arg_validation``.
 
 Covers the public ``validate_args`` contract and the private
 helpers it composes (``_python_type_name``, ``_matches_type``,
@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import pytest
 
-from kntgraph.agents.tools.arg_validation import (
+from kntgraph.tools.arg_validation import (
     SchemaValidationError,
     _matches_type,
     _python_type_name,

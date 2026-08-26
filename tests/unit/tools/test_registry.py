@@ -36,8 +36,21 @@ from typing import Optional
 import pytest
 
 from kntgraph.core.result import Ok
+from kntgraph.security import PrincipalLevel
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.registry import ToolRegistry
+
+# ADR-066 §4.4 (v0.17): ``ToolRegistry.__init__``
+# emits a ``DeprecationWarning``. The fixture
+# constructs one for every test; the existing
+# tests cover behaviour, not the deprecation
+# signal. Silence the warning here so the
+# existing tests stay readable; the
+# ``TestDeprecation`` class below is the single
+# explicit assertion of the warning.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:ToolRegistry is deprecated:DeprecationWarning"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -107,22 +120,22 @@ class TestRegister:
 
     def test_register_with_custom_acl(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
         registry.register(_EchoTool(), acl=acl)
         assert registry.acl_for("echo") == acl
-        assert registry.acl_for("echo").required_role == "admin"
+        assert registry.acl_for("echo").required_level == PrincipalLevel.admin
 
     def test_register_with_acl_convenience(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="supervisor",
+            required_level="supervisor",
             tenant_pinned=False,
         )
         registry.register_with_acl(_EchoTool(), acl=acl)
         assert registry.acl_for("echo") == acl
-        assert registry.acl_for("echo").required_role == "supervisor"
+        assert registry.acl_for("echo").required_level == "supervisor"
 
     def test_register_duplicate_raises(self, registry: ToolRegistry) -> None:
         registry.register(_EchoTool())
@@ -135,7 +148,7 @@ class TestRegister:
         # the registry's internal state.
         registry.register(_EchoTool())
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -153,7 +166,7 @@ class TestSetAcl:
     def test_set_acl_replaces_existing(self, registry: ToolRegistry) -> None:
         registry.register(_EchoTool())
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -162,7 +175,7 @@ class TestSetAcl:
 
     def test_set_acl_raises_for_unknown_tool(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -185,7 +198,7 @@ class TestAclFor:
         registry.register(_EchoTool())
         acl: Optional[ToolACL] = registry.acl_for("echo")
         assert acl is not None
-        assert acl.required_role == "agent"
+        assert acl.required_level == PrincipalLevel.agent
         assert acl.tenant_pinned is False
 
 
@@ -319,3 +332,22 @@ class TestSchemaToJson:
             assert result is None
         finally:
             reg_mod.json.dumps = original_dumps  # type: ignore[assignment]
+
+
+class TestDeprecation:
+    """ADR-066 §4.4 (v0.17): ``ToolRegistry()``
+    emits a ``DeprecationWarning`` pointing to
+    ``WorkerManager.register(tool_cls, acl=...)``
+    as the replacement. The module-level
+    ``pytestmark = filterwarnings("ignore:...")``
+    silences the warning for the rest of this
+    file; this class opts back in to validate
+    the signal is emitted.
+    """
+
+    def test_init_emits_deprecation_warning(self) -> None:
+        """Constructing a ``ToolRegistry`` emits a
+        ``DeprecationWarning`` mentioning
+        ``WorkerManager`` as the replacement."""
+        with pytest.warns(DeprecationWarning, match="WorkerManager"):
+            ToolRegistry()

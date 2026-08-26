@@ -5,6 +5,19 @@
 """
 kntgraph.tools.registry -- framework-level ToolRegistry.
 
+.. deprecated:: v0.17
+    The ``ToolRegistry`` is deprecated and will be
+    removed in v0.18 (ADR-066 §4.4). The canonical
+    tool registration path is now
+    :class:`WorkerManager` (ADR-066 §3.1). The
+    ``WorkerManager.acl_for(name)`` accessor
+    mirrors ``ToolRegistry.acl_for`` for migration
+    convenience. New code MUST use
+    ``WorkerManager.register(tool_cls, acl=...)``;
+    this module is kept only for the migration
+    window (one minor cycle per the framework
+    deprecation policy).
+
 The registry holds the set of available tools for an
 agent or application, with per-tool ACL. Lookup is by
 ``name``. The registry is intentionally simple (no
@@ -36,6 +49,7 @@ home without leaking into the vertical package.
 from __future__ import annotations
 
 import json
+import warnings
 from typing import Mapping, Optional
 
 import structlog
@@ -52,9 +66,28 @@ class ToolRegistry:
     """
     Holds the set of available tools for an agent or
     application. Lookup is by ``name``.
+
+    .. deprecated:: v0.17
+        See module docstring. Use
+        :class:`WorkerManager` instead.
     """
 
     def __init__(self) -> None:
+        # ADR-066 §4.4: the legacy ``ToolRegistry``
+        # is deprecated in v0.17 and will be removed
+        # in v0.18. The warning is emitted on
+        # construction (any caller still using this
+        # path is on the legacy code path and needs
+        # to migrate to ``WorkerManager``).
+        warnings.warn(
+            (
+                "ToolRegistry is deprecated and will be removed in v0.18 "
+                "(ADR-066 §4.4). Use WorkerManager.register(tool_cls, "
+                "acl=...) and WorkerManager.acl_for(name) instead."
+            ),
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._tools: dict[str, Tool] = {}
         self._acls: dict[str, ToolACL] = {}
 

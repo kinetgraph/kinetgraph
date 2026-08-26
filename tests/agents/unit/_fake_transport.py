@@ -31,25 +31,21 @@ sys.path.insert(
 )
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-# Use the real typed exception classes so `LiteLLMTool`'s
-# `except LLMRateLimitError` / `except LLMAuthError` catches
-# the fake's errors. The fake also subclasses the legacy
-# `_RateLimitLike` / `_AuthLike` markers for backwards
-# compatibility with code that hasn't migrated yet — but
-# the production path uses the typed hierarchy.
+# Use the real typed exception classes so `LiteLLMTransportAdapter`'s
+# ``except LLMRateLimitError`` / ``except LLMAuthError`` catches
+# the fake's errors. (ADR-061 §4.1: the legacy
+# ``_RateLimitLike`` / ``_AuthLike`` shims were removed in v0.14.)
 from kntgraph.agents.tools.llm import (  # noqa: E402
     LLMAuthError,
     LLMRateLimitError,
-    _AuthLike,
-    _RateLimitLike,
 )
 
 
-class _FakeRateLimitError(LLMRateLimitError, _RateLimitLike):
+class _FakeRateLimitError(LLMRateLimitError):
     pass
 
 
-class _FakeAuthError(LLMAuthError, _AuthLike):
+class _FakeAuthError(LLMAuthError):
     pass
 
 

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for the HTTP gateway (ADR-012).
+Unit tests for the HTTP gateway (ADR-012 + ADR-065).
 
 Coverage
 ---------
@@ -11,14 +11,22 @@ Coverage
   `EventLog`-level contract
   - Emits a `tool.{name}.requested` event into the
     EventLog on accepted intents.
-  - Does NOT emit any event on 404 (unknown tool).
+  - Emits the event **even for unknown tools**
+    (ADR-065 §3.2 / §5.1: the registration
+    check moves to the dispatcher; the gateway
+    emits unconditionally and the client learns
+    of the failure via the SSE subscribe stream).
   - The `event_id` is deterministic: two requests
     with the same `(agent_id, type, tool, args,
     idempotency_key)` produce the same UUID5.
 
   `ToolRegistry` lookup
-  - 404 when the tool is not registered.
-  - 202 when the tool is registered.
+  - The gateway does NOT consult the registry
+    (ADR-065 §3.2). The dispatcher enforces
+    registration (gate 1 of the three-gate ACL
+    model, ADR-060 §3.0).
+  - 202 when the tool is registered (and the
+    dispatcher accepts it).
   - The `tool` field is required for `tool.invoke`
     and the `role` field for `role.invoke`.
 
@@ -93,13 +101,13 @@ class _FakeVerifier:
     """
 
     def __init__(self, bindings: dict[str, str]) -> None:
-        from kntgraph.security import Principal, Role
+        from kntgraph.security import Principal, PrincipalLevel
 
         self._bindings = bindings
         self._principals = {
             k: Principal(
                 agent_id=v,
-                role=Role.agent,
+                level=PrincipalLevel.agent,
                 tenant_id=v.partition(".")[0] or v,
                 key_id="test",
             )
@@ -206,26 +214,59 @@ class TestAuth:
 
 
 # ---------------------------------------------------------------------------
-# 404 — Tool not registered
+# Gateway no longer 404s on unknown tool (ADR-065 §3.2).
+# The registration check moves to the dispatcher; the
+# gateway emits the event unconditionally and the
+# client learns of the failure via the SSE subscribe
+# stream (``intent.validation_failed``).
 # ---------------------------------------------------------------------------
 
 
 class TestRejection:
-    def test_unknown_tool_returns_404_and_no_event(self):
+    def test_unknown_tool_returns_202_and_emits_event(self):
+        """The gateway no longer 404s on unknown
+        tool (ADR-065 §3.2 / §5.1).
+
+        Previously the gateway returned 404 with no
+        event emitted (ADR-012 §2.3); the EventLog
+        stayed clean of attempts that could never
+        succeed. The new model: emit the event
+        unconditionally; the dispatcher validates
+        and emits ``intent.validation_failed`` on
+        rejection.
+
+        Idempotency also works now: two calls with
+        the same body dedupe on ``event_id``
+        (same UUID5 hash).
+        """
         log = FakeEventLog()
         client = _build_app(log=log)
+        body = {
+            "type": "tool.invoke",
+            "tool": "ghost.tool",
+            "args": {"x": 1},
+        }
         r = client.post(
             "/agents/agent-1/intents",
             headers={"X-API-Key": "key-for-a1"},
-            json={
-                "type": "tool.invoke",
-                "tool": "ghost.tool",
-                "args": {"x": 1},
-            },
+            json=body,
         )
-        assert r.status_code == 404
-        # NO event was emitted. ADR-012 §2.3.
-        assert len(log.events) == 0
+        # 202 Accepted (not 404): the request was
+        # emitted; the dispatcher will validate.
+        assert r.status_code == 202
+        # The event IS emitted.
+        assert len(log.events) == 1
+        ev = log.events[0]
+        assert ev.event_type == "tool.ghost.tool.requested"
+        assert ev.agent_id == "agent-1"
+        # The same body on retry dedupes (same
+        # deterministic event_id).
+        r2 = client.post(
+            "/agents/agent-1/intents",
+            headers={"X-API-Key": "key-for-a1"},
+            json=body,
+        )
+        assert r2.json()["event_id"] == r.json()["event_id"]
 
     def test_role_invoke_does_not_require_registry(self):
         """

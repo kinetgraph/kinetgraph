@@ -66,7 +66,6 @@ from .world import World
 __all__ = [
     "AgentView",
     "DomainComponent",
-    "domain_component",
     "Projection",
     "World",
     "WorldQuery",

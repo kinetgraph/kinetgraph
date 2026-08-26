@@ -101,7 +101,7 @@ def test_check_tenant_ownership_returns_none_when_principal_owns():
     principals as cross-tenant violators.
     """
     from kntgraph.core.event import CorrelationContext, Event
-    from kntgraph.security import Principal, Role
+    from kntgraph.security import Principal, PrincipalLevel
 
     # Event under ``tenant-A``; principal owns
     # ``tenant-A``.
@@ -113,7 +113,7 @@ def test_check_tenant_ownership_returns_none_when_principal_owns():
     )
     principal = Principal(
         agent_id="tenant-A.agent-1",
-        role=Role.agent,
+        level=PrincipalLevel.agent,
         tenant_id="tenant-A",
         key_id="k1",
     )

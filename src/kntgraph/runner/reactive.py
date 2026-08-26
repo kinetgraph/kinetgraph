@@ -103,6 +103,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from ..tools.router import ToolRouter
+    from .reactive_extensions import WorldProjection
 
 logger = structlog.get_logger()
 
@@ -135,7 +136,26 @@ class ReactiveDispatcher:
         tool_ttls: Optional[ToolCallTTL] = None,
         rediscovery_interval_seconds: float = 5.0,
         heartbeat_interval_seconds: float = 30.0,
+        projections: Optional[list["WorldProjection"]] = None,
     ) -> None:
+        """
+        Args:
+            (existing args unchanged)
+            projections: optional list of
+                :class:`WorldProjection` objects to run
+                **after the base fold and before the
+                tool overlay**. The list is composed in
+                order; each projection receives the
+                World returned by the previous one. The
+                built-in memory-hydration projection
+                (ADR-042 §6.1) always runs before any
+                caller-supplied projection; the tool
+                overlay (ADR-044 §2.3) always runs last.
+                See
+                :mod:`kntgraph.runner.reactive_extensions`
+                for the extension protocol and the
+                built-in :class:`MemoryHydrationProjection`.
+        """
         """
         Args:
             log: the EventLog to poll and append to.
@@ -199,6 +219,14 @@ class ReactiveDispatcher:
         self._interval = poll_interval
         self._filter = filter_fn
         self._tool_router = tool_router
+        # ADR-042 §6.1 follow-up: caller-supplied
+        # projections. Stored as-is; the dispatcher
+        # composes them in ``_fold_with_filter`` after
+        # the base fold and before the tool overlay.
+        # An empty / ``None`` list keeps the legacy
+        # behaviour (built-in memory hydration + tool
+        # overlay only; no opt-in needed).
+        self._projections: list["WorldProjection"] = list(projections or [])
         # ADR-045: the dispatcher's tool TTL config. The
         # overlay SETS ``expires_at`` on each new request
         # (using this config); the

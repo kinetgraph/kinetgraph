@@ -30,6 +30,15 @@ If a tenant needs full JSON-Schema validation, the
 canonical answer is to install `jsonschema` and wrap
 this module — the merge logic in `ToolInvoker` is
 schema-validator-agnostic.
+
+Moved from ``kntgraph.agents.tools.arg_validation``
+on 2026-08-26 (the module is pure framework: it
+depends on ``kntgraph.core._typing.JsonValue`` and
+``kntgraph.tools.protocol.ToolArgValue``, both
+framework primitives, plus ``kntgraph.tools.schema``
+which already lives in the framework). The vertical
+path keeps a re-export shim for one minor cycle
+(see ``agents/tools/__init__.py``).
 """
 
 from __future__ import annotations

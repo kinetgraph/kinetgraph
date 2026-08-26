@@ -77,6 +77,7 @@ from kntgraph.core.result import (
     Result,
     ToolError,
 )
+from kntgraph.resilience import BackoffPolicy, with_timeout_and_retry
 from kntgraph.tools.llm_transport import (
     LLMChunk,
     LLMRequest,
@@ -198,8 +199,20 @@ class LiteLLMTransportAdapter(LLMTransport):
     ) -> dict:
         import litellm
 
-        litellm.drop_params = request.drop_unsupported_params
-        completion_kwargs = self._build_completion_kwargs(request)
+        # ``drop_params`` is forwarded **per-call** via
+        # the completion kwargs (ADR-061 §4.3). The
+        # previous code mutated the litellm global
+        # (``litellm.drop_params = ...``) which is not
+        # thread-safe across concurrent workers in
+        # the same process (each worker's mutation
+        # leaks into the others). Per-call override
+        # is the canonical litellm API for this
+        # concern; the global stays at its default
+        # value.
+        completion_kwargs = self._build_completion_kwargs(
+            request,
+            drop_params=request.drop_unsupported_params,
+        )
         try:
             response: Any = await litellm.acompletion(**completion_kwargs)
         except litellm.RateLimitError as e:
@@ -217,21 +230,36 @@ class LiteLLMTransportAdapter(LLMTransport):
             raise LLMError(str(e)) from e
         return self._dump_response(response)
 
-    def _build_completion_kwargs(self, request: "LLMRequest") -> dict[str, Any]:
+    def _build_completion_kwargs(
+        self,
+        request: "LLMRequest",
+        *,
+        drop_params: bool,
+    ) -> dict[str, Any]:
         """Build the ``litellm.acompletion`` kwargs
         from the ``LLMRequest`` value object. The
         ``response_format`` slot is forwarded to
         ``litellm_params`` (litellm's per-request
         escape hatch) so it survives the
         ``drop_unsupported_params`` filter. The
-        request's ``extra`` dict is merged last so
-        callers can override defaults via
-        ``LLMRequest(extra={"...": ...})``."""
+        ``drop_params`` flag is forwarded **per-call**
+        (ADR-061 §4.3); the previous design mutated
+        the litellm global which is not thread-safe
+        across concurrent workers in the same
+        process. The request's ``extra`` dict is
+        merged last so callers can override defaults
+        via ``LLMRequest(extra={"...": ...})``."""
         kwargs: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
+            # Per-call ``drop_params`` override (ADR-061
+            # §4.3). When ``True``, litellm silently
+            # drops params the chosen model does not
+            # support (e.g. ``response_format`` for
+            # some local models).
+            "drop_params": drop_params,
         }
         if request.response_format is not None:
             extra_dict = request.extra if isinstance(request.extra, dict) else {}
@@ -283,24 +311,6 @@ class LiteLLMTransportAdapter(LLMTransport):
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
-
-
-class _RateLimitLike(Exception):
-    """Deprecated: use `LLMRateLimitError` instead.
-
-    Kept as an alias for the test fake (`_FakeRateLimitError`),
-    which subclasses this for backwards compatibility. New code
-    should raise/catch `LLMRateLimitError` directly.
-    """
-
-
-class _AuthLike(Exception):
-    """Deprecated: use `LLMAuthError` instead.
-
-    Kept as an alias for the test fake (`_FakeAuthError`),
-    which subclasses this for backwards compatibility. New code
-    should raise/catch `LLMAuthError` directly.
-    """
 
 
 # -----------------------------------------------------------------------------
@@ -500,6 +510,9 @@ async def _astream_litellm_inner(
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            # Per-call ``drop_params`` override (ADR-061
+            # §4.3); mirrors the non-streaming path.
+            drop_params=True,
             **kwargs,
         )
         # The stream wrapper is an AsyncIterator at runtime
@@ -522,7 +535,15 @@ async def _astream_litellm_inner(
     except Exception as e:
         yield Err(ToolError(f"stream_error: {e!r}"))
 
-    litellm.drop_params = True
+    # ``drop_params`` and ``LITELLM_TELEMETRY`` are
+    # forwarded **per-call** via the completion kwargs
+    # and ``acompletion(...)`` constructor args
+    # respectively (ADR-061 §4.3 / ADR-019). The
+    # previous code mutated both globals — not
+    # thread-safe across concurrent workers in the
+    # same process. The new design keeps the globals
+    # at their defaults and passes the values per
+    # call.
     os.environ.setdefault("LITELLM_TELEMETRY", "False")
 
 
@@ -632,6 +653,21 @@ class LiteLLMToolWorker:
         # invariant) and read the others from
         # ``LLMSettings`` directly.
         self._timeout_s = cfg.timeout_s
+        # Retry policy (ADR-061 §6.2 / §6.3): 3 attempts,
+        # exponential backoff with jitter, retries on
+        # ``LLMRateLimitError`` and ``asyncio.TimeoutError``
+        # only. Auth and generic transport errors do not
+        # benefit from retry (credentials do not fix
+        # themselves; transient errors are not helped by
+        # looping). The policy is held as an instance attr
+        # so tests can substitute a short-backoff variant
+        # without re-constructing the worker.
+        self._retry_policy = BackoffPolicy(
+            max_attempts=3,
+            base_delay=1.0,
+            max_delay=10.0,
+            retry_on=(LLMRateLimitError, asyncio.TimeoutError),
+        )
         # Lazily-initialised transport (avoids the
         # ``litellm`` import cost in the parent
         # process; the worker process is a fresh
@@ -669,6 +705,32 @@ class LiteLLMToolWorker:
         ``tool.chat_llm.failed`` event. The
         original exception is preserved as
         ``__cause__`` for diagnostics.
+
+        Retry policy (ADR-061 §6.2, §6.3)
+        ---------------------------------
+
+        The transport call is wrapped in
+        ``with_timeout_and_retry`` from
+        ``kntgraph.resilience``. The
+        ``BackoffPolicy`` retries on
+        ``LLMRateLimitError`` (provider 429) and
+        ``asyncio.TimeoutError`` (per-attempt
+        timeout); other exceptions propagate
+        immediately. ``LLMAuthError`` and the
+        generic ``LLMError`` do **not** trigger
+        retry (auth credentials do not fix
+        themselves; generic transport errors do
+        not benefit from retry either). After
+        retries are exhausted the last error
+        propagates and the worker converts it to
+        a ``ToolError``.
+
+        Per-attempt timeout is ``self._timeout_s``
+        (from ``LLMConfig.timeout_s``); each
+        attempt has its own deadline (the budget
+        is per-attempt, not total). Total wall-
+        clock is capped by the ``BackoffPolicy``'s
+        backoff sleeps.
         """
         effective_model = model or self._default_model
         # ``temperature`` and ``max_tokens`` are
@@ -693,21 +755,67 @@ class LiteLLMToolWorker:
             idempotency_key=idempotency_key,
             extra={"think": think, "stream": stream},
         )
+        # ``with_timeout_and_retry`` returns the function's
+        # result on first success. ``BackoffPolicy`` decides
+        # which exceptions trigger a retry (and how long to
+        # wait between attempts). The worker's role is to
+        # translate the final outcome into ``Result[dict,
+        # ToolError]``:
+        #   - Success: ``Ok({text, model, usage, ...})``.
+        #   - ``LLMRateLimitError`` / ``asyncio.TimeoutError``
+        #     after retries exhausted: ``Err(ToolError(...))``
+        #     carrying the original exception as ``__cause__``.
+        #   - ``LLMAuthError`` / ``LLMError``: never retried;
+        #     propagates immediately and is converted to
+        #     ``Err(ToolError("llm_transport_error: ..."))``
+        #     (no retry benefit on auth or generic transport
+        #     errors; ADR-061 §6.2).
+        async def _attempt() -> dict:
+            """Single attempt at the LLM call.
+
+            ``with_timeout_and_retry``'s ``fn`` parameter
+            is typed as ``Callable[[], R]`` but pyright
+            only resolves ``R`` from a properly typed
+            ``async def``; lambdas default to
+            ``CoroutineType``. The function closes over
+            ``transport`` and ``request`` from the
+            enclosing scope.
+            """
+            return await transport(request)
+
+        started = time.perf_counter()
         try:
-            started = time.perf_counter()
-            completion = await asyncio.wait_for(
-                transport(request),
-                timeout=self._timeout_s,
+            completion: dict = cast(
+                dict,
+                await with_timeout_and_retry(
+                    _attempt,
+                    timeout_seconds=self._timeout_s,
+                    backoff=self._retry_policy,
+                    operation_name=f"llm.invoke.{effective_model}",
+                ),
             )
-            latency_ms = (time.perf_counter() - started) * 1000.0
         except asyncio.TimeoutError as e:
+            # All retries exhausted on timeout. The
+            # ``with_timeout_and_retry`` re-raised the
+            # last ``asyncio.TimeoutError``.
             err = ToolError(f"llm_timeout after {self._timeout_s}s")
             err.__cause__ = e
             return Err(err)
+        except LLMRateLimitError as e:
+            # All retries exhausted on rate limit.
+            err = ToolError(f"llm_rate_limit: {e}")
+            err.__cause__ = e
+            return Err(err)
         except Exception as e:
+            # ``LLMAuthError`` / generic ``LLMError`` /
+            # anything else propagates immediately (no
+            # retry). The envelope mirrors the legacy
+            # behaviour so the ``WorkerManager``'s error
+            # path does not change.
             err = ToolError(f"llm_transport_error: {e!r}")
             err.__cause__ = e
             return Err(err)
+        latency_ms = (time.perf_counter() - started) * 1000.0
 
         # Translate the transport's dict into the
         # worker's public envelope.

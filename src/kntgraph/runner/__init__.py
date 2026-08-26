@@ -17,6 +17,12 @@ fold for purity.
 """
 
 from .reactive import ReactiveDispatcher
+from .reactive_extensions import MemoryHydrationProjection, WorldProjection
 from .runner import Runner
 
-__all__ = ["ReactiveDispatcher", "Runner"]
+__all__ = [
+    "MemoryHydrationProjection",
+    "ReactiveDispatcher",
+    "Runner",
+    "WorldProjection",
+]

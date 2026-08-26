@@ -140,6 +140,7 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         *,
         rules: Optional[list[ChatRule]] = None,
         case_insensitive_message: bool = True,
+        persona: str = "",
     ) -> None:
         super().__init__()
         # Defensive copy; sorted by descending priority
@@ -149,6 +150,17 @@ class RuleBasedChatSystem(_BaseRoleSystem):
             key=lambda r: (-r.priority,),
         )
         self._case_insensitive = case_insensitive_message
+        # The persona this rule system substitutes for.
+        # ``RuleBasedChatSystem`` is the deterministic
+        # short-circuit that runs **before** the LLM-backed
+        # ``ChatRoleSystem`` in the dispatcher stack; the
+        # caller passes the persona so rule matching can
+        # use the same persona the downstream LLM system
+        # would have used. ``""`` keeps the default
+        # permissive (matches only ``"*"`` patterns),
+        # which preserves the historical behaviour for
+        # callers that have not migrated.
+        self._persona = persona
 
     def register_rule(self, rule: ChatRule) -> None:
         """Insert a rule. Maintains the priority-sorted
@@ -320,20 +332,19 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         return [completion]
 
     def _persona_for_view(self, view: AgentView) -> str:
-        """Read the persona from the base class. The
-        base ``_BaseRoleSystem`` does not store a
-        persona directly; subclasses like
-        ``ChatRoleSystem`` do. We read it from the
-        optional ``RoleComponent``-style payload if
-        present (callers register rules against the
-        same persona used by ``ChatRoleSystem``)."""
-        # The base class exposes ``REQUEST_EVENT_TYPE``
-        # + ``_read_new_input``. The persona is
-        # implementation-specific; the rule
-        # registration API accepts a glob, so the
-        # operator can register a default ``"*"``
-        # rule that catches every persona.
-        return ""
+        """Read the persona from the instance attribute.
+
+        The persona is constructor-set (``RuleBasedChatSystem(persona=...)``)
+        and matches the persona of the downstream
+        ``ChatRoleSystem(persona=...)`` this rule system
+        is short-circuiting. Callers pass the same
+        persona to both systems so a rule's
+        ``persona_pattern`` glob is evaluated against
+        the real persona — fixing the v0.9.0 stub
+        that always returned ``""`` and made every
+        non-``"*"`` pattern a dead branch.
+        """
+        return self._persona
 
 
 # The base ``_BaseRoleSystem`` lives in
