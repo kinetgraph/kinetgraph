@@ -99,7 +99,6 @@ from kntgraph.core.world import World
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisSessionStorage
 from kntgraph.memory.session import SessionManager
-from kntgraph.runner import MemoryHydrationProjection
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.manager import WorkerManager
@@ -111,22 +110,22 @@ from _lib.redis_or_fake import make_redis_client
 
 
 # ---------------------------------------------------------------------------
-# 1. Reactive extensions (projections list)
+# 1. Reactive extensions
 # ---------------------------------------------------------------------------
 #
-# The dispatcher exposes a ``projections=[...]``
-# kwarg that composes custom post-fold projections
-# in order (ADR-042 §6.1 follow-up). The framework's
-# built-in memory hydration and tool overlay always
-# run regardless of the kwarg; the list extends the
-# pipeline, it does not replace the built-ins.
+# The framework's default
+# :func:`ReactiveDispatcher` fold runs the base
+# projection (last-event-wins), then the built-in
+# memory hydration (ADR-042 §6.1), then the tool-call
+# overlay (ADR-044 §2.3). The pipeline is wired
+# natively; no shim is required.
 #
-# For this example we **explicitly** register the
-# built-in :class:`MemoryHydrationProjection` so the
-# composition intent is visible at the call site.
-# The legacy monkey-patch that this example used to
-# install is no longer needed; the dispatcher does
-# the same work natively.
+# The dispatcher also exposes a ``projections=[...]``
+# kwarg for callers that need to compose their own
+# post-fold projections (the list extends the
+# pipeline, it does not replace the built-ins). This
+# example does not need a custom projection, so the
+# kwarg is omitted.
 
 
 
@@ -643,7 +642,6 @@ async def main() -> None:
         redis=redis_client,
         tool_router=tool_router,
         poll_interval=0.5,
-        projections=[MemoryHydrationProjection()],
     )
 
     worker_manager = WorkerManager(

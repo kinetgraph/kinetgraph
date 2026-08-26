@@ -1310,9 +1310,7 @@ from __future__ import annotations
 
 ## 2.15 ADR-042 hydration pipeline (memory components)
 
-**Status:** Partially delivered (components + projection
-exist; full hydration pipeline in the dispatcher is
-still a shim; example 05b is WIP).
+**Status:** Closed in 2026-08-26 (this session).
 
 **Delivered in this iteration (2026-07-14):**
 
@@ -1336,6 +1334,8 @@ still a shim; example 05b is WIP).
     monkey-patches ``ReactiveDispatcher._fold_with_filter``
     to compose: ``default projection`` →
     ``project_memory`` → ``overlay_tool_calls``.
+    *Removed in 2026-08-26; replaced by the
+    framework-native pipeline.*
 
   - **Example 05b** (``examples/05b_session_chat_ecs.py``):
     the canonical reference implementation of the
@@ -1347,26 +1347,27 @@ still a shim; example 05b is WIP).
     bug is the multi-tick overlay loss (see
     item 2.16 below).
 
-**Open work (ADR-042 §6.1 follow-up):**
+**Closed in 2026-08-26 (this session):**
 
-  - **Compose API.** The shim is a monkey-patch; the
-    framework needs a proper
-    ``ReactiveDispatcher(projections=[...])`` API
-    that composes projections in order. The shim
-    should be deleted once the API ships.
-    Action: ADR follow-up PR.
+  - **Compose API** (the ``projections=[...]``
+    kwarg). Implemented as a generic
+    :class:`WorldProjection` protocol in
+    :mod:`kntgraph.runner.reactive_extensions`;
+    the dispatcher composes the list in order,
+    after the base fold and before the tool
+    overlay. Commit ``4e383de``.
 
   - **Run the projection in the framework.**
-    ``project_memory`` lives in
-    ``core/world/projection_memory.py``; the
-    framework's default ``World.fold`` does not
-    call it. The shim is the only way to wire
-    it in today. Action: expose a
-    ``MemoryHydrationProjection`` class in
-    ``runner/reactive_extensions.py`` and call it
-    from the default ``_fold_with_filter`` after
-    the base projection and before the tool
-    overlay.
+    :func:`kntgraph.runner._folding.fold_with_filter`
+    now calls
+    :func:`_project_memory_into_world` natively
+    on every tick (always on; no opt-in needed);
+    the caller-supplied ``projections=[...]``
+    list extends the pipeline, it does not
+    replace the built-in memory hydration. The
+    example 05b no longer needs to register
+    ``MemoryHydrationProjection()`` explicitly;
+    the legacy monkey-patch was deleted.
 
   - **Tests for the projection.** ~~The
     ``project_memory`` projection has no unit
@@ -1390,6 +1391,15 @@ still a shim; example 05b is WIP).
     corresponding type (matching the
     ``_fold_session`` behaviour; previously the
     base component was discarded).
+
+  - **Latent bug in
+    :func:`_build_session_component`** (DEBT
+    §2.33): the projection now honours the
+    ``session.started`` event payload's
+    ``session_id``; falls back to the
+    ``agent_id`` derivation when absent
+    (legacy replays). 4 new tests in
+    :mod:`tests.unit.core.test_projection_memory`.
 
 
 ## 2.16 Tool-call overlay: multi-tick slot loss

@@ -11,8 +11,9 @@ versions of the example monkey-patched
 :class:`ReactiveDispatcher._fold_with_filter` to
 compose the framework's default fold with the memory
 hydration projection and the tool-call overlay; that
-shim is no longer needed (the framework exposes a
-``projections=[...]`` kwarg natively).
+shim is no longer needed (the framework runs both
+built-in projections natively in
+:func:`kntgraph.runner._folding.fold_with_filter`).
 
 These tests now exercise the dispatcher's native
 projection pipeline through the example's classes:
@@ -64,12 +65,6 @@ def mod_05b():
 
 def _ctx() -> CorrelationContext:
     return CorrelationContext.new()
-
-
-def test_projection_imports_from_runner(mod_05b):
-    """The example imports ``MemoryHydrationProjection``
-    from ``kntgraph.runner`` (the public surface)."""
-    assert mod_05b.MemoryHydrationProjection is MemoryHydrationProjection
 
 
 def test_projection_module_does_not_monkey_patch_reactive_dispatcher(mod_05b):
