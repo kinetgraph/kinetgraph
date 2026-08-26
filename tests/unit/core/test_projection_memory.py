@@ -453,3 +453,126 @@ class TestProjectMemoryMultiTick:
 # readability).
 def _dummy_helper(view: AgentView) -> dict:
     return view.components
+
+
+class TestProjectMemorySessionIdFromWire:
+    """DEBT §2.33 fix: the projection captures the
+    ``session_id`` from the ``session.started`` event
+    payload. When the wire value is absent (legacy
+    events, partial replays), the fold falls back to
+    the ``agent_id`` derivation.
+    """
+
+    def test_session_id_from_wire_when_present(self) -> None:
+        """The ``session.started`` event payload's
+        ``session_id`` is honoured by the projection,
+        even when it does NOT match the ``agent_id``
+        convention."""
+        event = _event(
+            event_type="session.started",
+            agent_id="agent:foo",
+            data={
+                "session_id": "wire-session-id",
+                "user_id": "u1",
+                "tenant_id": "t1",
+            },
+        )
+        out = project_memory([event])
+        view = out["agent:foo"]
+        sc = view.components[SessionComponent]
+        assert sc.session_id == "wire-session-id"
+
+    def test_session_id_falls_back_to_agent_id_when_absent(self) -> None:
+        """When the event payload omits ``session_id``
+        (legacy events, partial replays), the fold
+        falls back to the ``agent_id`` minus the
+        ``session:`` prefix."""
+        event = _event(
+            event_type="session.started",
+            agent_id="session:legacy",
+            data={"user_id": "u1", "tenant_id": "t1"},
+        )
+        out = project_memory([event])
+        view = out["session:legacy"]
+        sc = view.components[SessionComponent]
+        # Fallback: derived from agent_id.
+        assert sc.session_id == "legacy"
+
+    def test_session_id_falls_back_when_data_value_is_empty(self) -> None:
+        """An empty string in ``data.session_id``
+        triggers the fallback (same as absent).
+        The wire value is only honoured when it is a
+        non-empty string."""
+        event = _event(
+            event_type="session.started",
+            agent_id="session:abc",
+            data={
+                "session_id": "",
+                "user_id": "u1",
+                "tenant_id": "t1",
+            },
+        )
+        out = project_memory([event])
+        view = out["session:abc"]
+        sc = view.components[SessionComponent]
+        # Empty wire value → fallback to agent_id.
+        assert sc.session_id == "abc"
+
+    def test_session_id_preserved_across_ticks_when_wire_value_changes(self) -> None:
+        """Tick N captures the wire ``session_id``;
+        tick N+1 (without a new ``session.started``
+        event) preserves the value from tick N.
+
+        A subsequent ``session.started`` in a later
+        tick DOES re-derive (because the handler
+        re-reads the wire); that is a separate
+        test below.
+        """
+        tick1 = [
+            _event(
+                event_type="session.started",
+                agent_id="agent-x",
+                data={
+                    "session_id": "first",
+                    "user_id": "u",
+                    "tenant_id": "t",
+                },
+            ),
+        ]
+        view1 = project_memory(tick1)["agent-x"]
+        sc1 = view1.components[SessionComponent]
+        assert sc1.session_id == "first"
+
+        # Tick N+1 has a domain event but no
+        # ``session.*`` event. The fold preserves
+        # the base ``session_id``.
+        tick2 = [
+            _event(
+                event_type="user.intent",
+                agent_id="agent-x",
+                data={"intent": "chat", "message": "hi"},
+            ),
+        ]
+        view2 = project_memory(tick2, base_views={"agent-x": view1})["agent-x"]
+        sc2 = view2.components[SessionComponent]
+        # Preserved from tick 1.
+        assert sc2.session_id == "first"
+
+        # Tick N+2 with a NEW ``session.started``
+        # carrying a different wire ``session_id``
+        # re-derives (the handler reads the new
+        # wire value).
+        tick3 = [
+            _event(
+                event_type="session.started",
+                agent_id="agent-x",
+                data={
+                    "session_id": "second",
+                    "user_id": "u",
+                    "tenant_id": "t",
+                },
+            ),
+        ]
+        view3 = project_memory(tick3, base_views={"agent-x": view2})["agent-x"]
+        sc3 = view3.components[SessionComponent]
+        assert sc3.session_id == "second"

@@ -130,13 +130,20 @@ def test_memory_hydration_projection_hydrates_session_component_for_user_intent(
 
 def test_memory_hydration_projection_preserves_session_component_across_ticks(mod_05b):
     """Tick N+1 with no memory event keeps the
-    ``SessionComponent`` from tick N (no clobber)."""
+    ``SessionComponent`` from tick N (no clobber).
+
+    The ``session_id`` is captured from the
+    ``session.started`` event payload (DEBT §2.33
+    fix); the projection honours the wire value
+    across ticks.
+    """
+    wire_session_id = "wire-session-id-42"
     session_ev = Event.create(
         event_type="session.started",
         agent_id=mod_05b.SESSION_AGENT_ID,
         event_class="domain",
         data={
-            "session_id": "ignored-by-fold",
+            "session_id": wire_session_id,
             "user_id": "u",
             "tenant_id": "t",
         },
@@ -187,10 +194,11 @@ def test_memory_hydration_projection_preserves_session_component_across_ticks(mo
     assert view.components[SessionComponent].intent_event_id == str(intent_ev_2.event_id)
     # The session identity fields are preserved
     # across ticks (no clobber). The ``session_id``
-    # is derived from the ``agent_id`` by the fold,
-    # so it survives across ticks unchanged.
-    expected_session_id = mod_05b.SESSION_AGENT_ID.removeprefix("session:")
-    assert view.components[SessionComponent].session_id == expected_session_id
+    # was captured from the ``session.started``
+    # event payload in tick 1 (DEBT §2.33 fix);
+    # it survives across ticks unchanged because
+    # no subsequent event re-derived it.
+    assert view.components[SessionComponent].session_id == wire_session_id
     assert view.components[SessionComponent].user_id == "u"
     assert view.components[SessionComponent].tenant_id == "t"
 

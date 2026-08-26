@@ -2951,7 +2951,7 @@ unrelated reason.
 
 ## 2.33 `_build_session_component` ignores `data.session_id`
 
-**Status:** Documented 2026-08-26 (this session).
+**Status:** Closed in 2026-08-26 (this session).
 
 **Problem:**
 :func:`kntgraph.core.world.projection_memory._build_session_component`
@@ -3018,3 +3018,28 @@ value.
 when the projection is touched for any other
 reason (it is the load-bearing fold for the
 memory tier; revisit before v1.0).
+
+**Closed in 2026-08-26 (this session).**
+
+  - :func:`_init_session_state` adds
+    ``"session_id"`` to the fold state and seeds
+    it from the base component when one exists.
+  - :func:`_on_session_started` captures
+    ``state["session_id"]`` from the event payload
+    (alongside ``user_id`` / ``tenant_id``).
+  - :func:`_build_session_component` prefers the
+    wire value when present; falls back to the
+    ``agent_id`` derivation (legacy replays).
+  - 4 new tests in
+    :mod:`tests.unit.core.test_projection_memory`:
+    ``test_session_id_from_wire_when_present``,
+    ``test_session_id_falls_back_to_agent_id_when_absent``,
+    ``test_session_id_falls_back_when_data_value_is_empty``,
+    ``test_session_id_preserved_across_ticks_when_wire_value_changes``.
+  - Existing test
+    ``test_session_started_creates_session_component``
+    keeps its assertion on the fallback path
+    (no ``data.session_id`` in the wire event).
+  - :mod:`tests.agents.unit.test_example_05b_projection`
+    updated to assert the wire value is honoured
+    across ticks.

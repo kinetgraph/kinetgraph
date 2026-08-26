@@ -117,9 +117,17 @@ def _init_session_state(
     base component (or from scratch when no base is
     given). The state is a dict (not a dataclass) so
     the per-event handlers can mutate fields without
-    rebuilding the state object every step."""
+    rebuilding the state object every step.
+
+    The ``session_id`` field is captured from the
+    ``session.started`` event payload (DEBT §2.33
+    fix); ``_build_session_component`` falls back
+    to the ``agent_id`` derivation when the state
+    is empty.
+    """
     if base_session is None:
         return {
+            "session_id": "",
             "messages": [],
             "context": {},
             "started_at": 0.0,
@@ -129,6 +137,7 @@ def _init_session_state(
             "intent_event_id": None,
         }
     return {
+        "session_id": base_session.session_id,
         "messages": list(base_session.messages),
         "context": dict(base_session.context),
         "started_at": base_session.started_at,
@@ -142,12 +151,20 @@ def _init_session_state(
 def _on_session_started(e: Event, state: dict[str, Any]) -> None:
     """``session.started`` handler: stamp the start
     time and capture the identity fields. ``user_id``
-    / ``tenant_id`` default to the current state so
-    a re-derived identity does not clobber the base
-    (e.g. when the batch only carries the timestamp)."""
+    / ``tenant_id`` / ``session_id`` default to the
+    current state so a re-derived identity does not
+    clobber the base (e.g. when the batch only
+    carries the timestamp).
+
+    ``session_id`` (DEBT §2.33 fix) is captured from
+    ``e.data["session_id"]``; ``_build_session_component``
+    falls back to the ``agent_id`` derivation when
+    the state is empty.
+    """
     state["started_at"] = e.timestamp.timestamp()
     state["user_id"] = str(e.data.get("user_id", state["user_id"]))
     state["tenant_id"] = str(e.data.get("tenant_id", state["tenant_id"]))
+    state["session_id"] = str(e.data.get("session_id", state["session_id"]))
 
 
 def _on_session_message(e: Event, state: dict[str, Any]) -> None:
@@ -209,15 +226,27 @@ def _compute_intent_event_id(
 
 def _build_session_component(agent_id: str, state: dict[str, Any]) -> SessionComponent:
     """Materialise the ``SessionComponent`` from the
-    fold state. The ``session_id`` is the agent_id
-    minus the ``session:`` prefix (the convention is
-    that ``session:<id>`` is the agent namespace and
-    the bare id is the session id)."""
-    session_id = (
-        agent_id.removeprefix("session:")
-        if agent_id.startswith("session:")
-        else agent_id
-    )
+    fold state.
+
+    The ``session_id`` is the value captured from the
+    ``session.started`` event payload (see
+    :func:`_on_session_started`); when the state is
+    empty (legacy event without ``data.session_id``,
+    or no ``session.started`` in this batch), the
+    fold falls back to the ``agent_id`` minus the
+    ``session:`` prefix (the convention is that
+    ``session:<id>`` is the agent namespace and the
+    bare id is the session id).
+    """
+    wire_session_id = state["session_id"]
+    if wire_session_id:
+        session_id = wire_session_id
+    else:
+        session_id = (
+            agent_id.removeprefix("session:")
+            if agent_id.startswith("session:")
+            else agent_id
+        )
     return SessionComponent(
         session_id=session_id,
         user_id=state["user_id"],
