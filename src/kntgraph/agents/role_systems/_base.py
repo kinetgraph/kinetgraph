@@ -24,6 +24,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from kntgraph.core.components.memory import SessionComponent
+from kntgraph.core.components.role import RoleComponent, has_tool_access
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import World
@@ -148,7 +149,67 @@ class _BaseRoleSystem(ToolAwareSystem):
         new_input = self._read_new_input(view)
         if not new_input:
             return None
+        # Gate 2 (ADR-060 §3.0, ADR-066 §5 follow-up):
+        # the role's ``allowed_tools`` is the
+        # system-level authorisation gate. When the
+        # view carries a :class:`RoleComponent` and
+        # the target tool is not in
+        # ``allowed_tools``, the system emits
+        # ``intent.validation_failed`` instead of
+        # ``tool.<name>.requested``. The
+        # WorkerManager (gate 1) and the tool worker
+        # (gate 3) are skipped on the failure path.
+        # When the view does NOT carry a
+        # ``RoleComponent``, the system falls back to
+        # the legacy unconditional emission (opt-in
+        # enforcement; deployments that have not
+        # adopted role personas keep working).
+        role = view.components.get(RoleComponent)
+        if not has_tool_access(role, self.TOOL_NAME):
+            return self._emit_validation_failed(
+                agent_id=agent_id,
+                view=view,
+                reason="role_does_not_allow_tool",
+                tool_name=self.TOOL_NAME,
+                role_persona=getattr(role, "persona", None),
+            )
         return self._emit_request(agent_id, view, session, new_input)
+
+    def _emit_validation_failed(
+        self,
+        *,
+        agent_id: str,
+        view,
+        reason: str,
+        tool_name: str,
+        role_persona: str | None,
+    ) -> Event:
+        """Emit the gate-2 denial event.
+
+        The event is emitted with
+        ``event_class="domain"`` so it lands in the
+        same stream as user intents; the type
+        ``intent.validation_failed`` mirrors the
+        existing ``api/intent_router`` validation
+        error (ADR-049). Downstream systems (the
+        SSE endpoint, the session recorder) see a
+        single event with a ``reason`` field that
+        explains the denial.
+        """
+        last_eid = view.last_event_id
+        correlation = CorrelationContext(correlation_id=UUID(str(last_eid)))
+        return Event.create(
+            event_type="intent.validation_failed",
+            agent_id=agent_id,
+            event_class="domain",
+            data={
+                "reason": reason,
+                "tool": tool_name,
+                "role_persona": role_persona,
+            },
+            causation_id=str(last_eid) if last_eid else None,
+            correlation=correlation,
+        )
 
     def _consume_pending_completions(self, agent_id: str, view) -> list[Event]:
         events: list[Event] = []

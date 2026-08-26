@@ -16,9 +16,12 @@ from .memory import (
     ProfileComponent,
     SessionComponent,
 )
+from .role import RoleComponent, has_tool_access
 
 __all__ = [
     "ContinuityComponent",
     "ProfileComponent",
+    "RoleComponent",
     "SessionComponent",
+    "has_tool_access",
 ]

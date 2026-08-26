@@ -2321,7 +2321,7 @@ files:
 
 ## 2.27 WorkerManager ACL hook (ADR-061 §5 gate 1 + gate 2)
 
-**Status:** Open — moved from ROADMAP v0.14 #3 on 2026-08-26.
+**Status:** Closed in 2026-08-26 (this session).
 
 **Summary.** The `chat_llm` tool (the `LiteLLMToolWorker`,
 ADR-043) is end-to-end unaware of authorization beyond
@@ -2459,6 +2459,72 @@ dedicated ACL iteration.
 **Acceptable:** when the gates above are wired and
 the 5+ tests pass with `Role.service` denial
 asserted.
+
+**Closed in 2026-08-26 (this session).**
+
+  - **Gate 1 (WorkerManager ACL)** was delivered in
+    commit ``f1ccc19`` (ADR-066 v0.16):
+    :meth:`WorkerManager.register` accepts an
+    ``acl=`` kwarg with a ``_UNSET`` sentinel;
+    ``_process_message`` consults ``acl_for(name)``
+    before running the worker; missing-principal
+    requests are denied with
+    ``acl_denied_no_principal``; role-insufficient
+    requests are denied with
+    ``acl_denied:<reason>``. 7 tests in
+    :mod:`tests.unit.tools.test_worker_manager_acl`.
+
+  - **Gate 2 (Role persona)** delivered in this
+    session:
+
+      - :class:`RoleComponent` in
+        :mod:`kntgraph.core.components.role` carries
+        ``persona`` / ``instructions`` /
+        ``allowed_tools``; mirrors the Jinja
+        template shape
+        (``cli/templates/routing/components.py.jinja``).
+      - :func:`has_tool_access` is the policy
+        primitive; returns ``True`` when the role
+        is absent (legacy fallback, opt-in
+        enforcement) or when the tool is in the
+        allow-list.
+      - :meth:`_BaseRoleSystem._build_request_event`
+        consults the view's
+        ``RoleComponent`` before emitting a tool
+        request; when the role forbids the tool,
+        the system emits ``intent.validation_failed``
+        with ``reason="role_does_not_allow_tool"``
+        instead of ``tool.<name>.requested``.
+
+    7 tests in
+    :mod:`tests.agents.unit.roles.test_role_systems`
+    cover: legacy fallback (no RoleComponent),
+    role permits tool, role denies tool,
+    empty allow-list (strictest), validation
+    event correlation, validation event
+    payload shape.
+
+  - **The two gates together** form the
+    ADR-060 §3.0 Three-Gate Model:
+
+      1. **System-level** (gate 2):
+         ``RoleComponent.allowed_tools``.
+      2. **Worker-level** (gate 1):
+         ``WorkerManager.acl_for(name).check(principal)``.
+      3. **Tool-level** (the LLM worker itself):
+         the worker's own ``invoke``
+         implementation.
+
+  - **Migration note.** Gate 2 is opt-in:
+    deployments that do NOT install a
+    ``RoleComponent`` on the view keep the legacy
+    unconditional emission behaviour. The
+    transition to strict role-based access
+    control is a deployment-level configuration
+    decision (the Jinja templates already ship
+    with a ``RoleComponent``; deployments that
+    build their own ``AgentView`` from raw
+    events need to opt-in explicitly).
 
 
 ## 2.28 Single Tool Path — WorkerManager canonical, `ToolRegistry`/`ToolInvoker` removed (ADR-066)
