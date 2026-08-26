@@ -36,9 +36,6 @@ Framework-level types (in ``kntgraph.tools``)
 
 Vertical-owned (this package)
 
-* ``arg_validation`` -- light JSON-Schema validation
-  for tool kwargs (consumes the framework's
-  ``walk_schema``).
 * ``capability`` -- :class:`Capability` (semantic alias
   for Tool; ADR-006).
 * ``llm_transport`` -- :class:`LLMTransport` Protocol
@@ -64,15 +61,26 @@ Iter 25: the framework moved ``walk_schema``,
 ``kntgraph.agents.tools.protocol`` re-export shim keeps
 existing imports working; new code should import
 directly from ``kntgraph.tools``.
+
+Iter 30 (v0.15): ``arg_validation`` was promoted to
+the framework (it is pure framework code: depends
+on ``JsonValue``, ``ToolArgValue``, and
+``walk_schema``, all framework primitives). The
+vertical module ``kntgraph.agents.tools.arg_validation``
+is kept as a re-export shim for one minor cycle;
+new code should import from ``kntgraph.tools``
+(``SchemaValidationError``, ``validate_args``).
+Removal target: v0.16.
 """
 
 from kntgraph.tools import (
+    SchemaValidationError,
     ToolACL,
     ToolDescriptor,
     ToolRegistry,
     default_acl,
+    validate_args,
 )
-from kntgraph.agents.tools.arg_validation import SchemaValidationError, validate_args
 from kntgraph.agents.tools.capability import Capability
 from kntgraph.agents.tools.pii import (
     DEFAULT_PII_LABELS,
