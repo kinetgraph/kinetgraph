@@ -2947,3 +2947,74 @@ right scope.
 **Trigger:** v0.15+ dedicated cleanup minor, or
 when someone picks up the package for any
 unrelated reason.
+
+
+## 2.33 `_build_session_component` ignores `data.session_id`
+
+**Status:** Documented 2026-08-26 (this session).
+
+**Problem:**
+:func:`kntgraph.core.world.projection_memory._build_session_component`
+derives the ``SessionComponent.session_id`` from the
+``agent_id`` (``session:ecs-demo`` → ``ecs-demo``) and
+ignores the ``session_id`` field of the
+``session.started`` event payload. Today the
+producer (:meth:`kntgraph.memory.session.SessionManager.open_session`)
+emits a ``session_id`` that matches the
+``agent_id_for(session_id)`` convention, so the
+derived value happens to match the wire value, but
+the projection does not actually use the wire
+value.
+
+**Why it's a bug:**
+
+  - Any producer that does NOT follow the
+    ``session:<id>`` convention for ``agent_id``
+    sees the projection silently rewrite the
+    ``session_id`` (e.g. a test fixture using
+    ``"agent:foo"`` as ``agent_id`` and
+    ``"bar"`` as ``session_id`` would see the
+    projection store ``session_id="foo"``).
+  - The fold cannot be replayed against a different
+    naming convention without breaking.
+  - Tests that want to assert the wire
+    ``session_id`` is honoured cannot be written.
+
+**Why we are deferring the fix:**
+
+  - The bug is latent: the only producer in tree
+    today is :class:`SessionManager` and it follows
+    the convention.
+  - Fixing the bug requires deciding the
+    precedence (wire value vs derived value) AND a
+    test plan for the edge cases (empty wire
+    value, mismatched wire value, replay against
+    a renamed convention). That is a 2-3 hour
+    exercise that does not advance §2.15.
+  - §2.15 (ADR-042 §6.1 follow-up) is about the
+    framework plumbing (compose projections); the
+    bug is in the projection itself and is
+    orthogonal to the plumbing.
+
+**Plan for the fix (when picked up):**
+
+  1. Update :func:`_on_session_started` to capture
+     the wire ``session_id`` into the fold state
+     (alongside ``user_id`` / ``tenant_id``).
+  2. Update :func:`_build_session_component` to
+     prefer the wire value when present, fall back
+     to the ``agent_id`` derivation when not.
+  3. Add tests:
+     - ``test_session_id_from_wire_when_present``
+     - ``test_session_id_falls_back_to_agent_id_when_absent``
+     - ``test_session_id_preserved_across_ticks_when_wire_value_changes``
+  4. Update
+     :mod:`tests.unit.core.test_projection_memory`
+     and
+     :mod:`tests.agents.unit.test_example_05b_projection`
+     to assert the wire value is honoured.
+
+**Trigger:** v0.15+ dedicated cleanup minor, or
+when the projection is touched for any other
+reason (it is the load-bearing fold for the
+memory tier; revisit before v1.0).

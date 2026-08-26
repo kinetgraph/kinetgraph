@@ -153,6 +153,18 @@ def fold_with_filter(
             continue
         new_event_count += 1
     world = _project_memory_into_world(world, new_events)
+    # ADR-042 §6.1 follow-up: caller-supplied
+    # projections run after the built-in memory
+    # hydration and before the tool overlay. Each
+    # projection receives the World returned by the
+    # previous projection (compose-in-order). The
+    # list is empty by default; the legacy behaviour
+    # (built-in memory hydration + tool overlay
+    # only) is preserved when no projections are
+    # registered. See
+    # :mod:`kntgraph.runner.reactive_extensions`.
+    for projection in dispatcher._projections:
+        world = projection(world, new_events)
     if new_event_count > 0 and _has_tool_events(new_events):
         world = _overlay_tool_projection(
             world,
