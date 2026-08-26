@@ -2529,7 +2529,7 @@ asserted.
 
 ## 2.28 Single Tool Path — WorkerManager canonical, `ToolRegistry`/`ToolInvoker` removed (ADR-066)
 
-**Status:** Open — proposed 2026-08-26.
+**Status:** Partially closed in 2026-08-26 (this session): v0.17 delivered. v0.18 still pending (`git rm` of legacy files).
 
 **Summary.** The framework has two parallel tool
 execution paths (`Tool` Protocol + `ToolInvoker` +
@@ -2589,6 +2589,63 @@ in ADR-066 §8 is satisfied (WorkerManager ACL
 enforcement + RoleComponent.allowed_tools gate +
 Event.producer_principal_id signed). The v0.17 and
 v0.18 steps are tracked separately in the same ADR.
+
+**Closed in 2026-08-26 (this session) — v0.17 only.**
+
+  - **DeprecationWarning on
+    ``WorkerManager.register(tool_cls)`` without
+    ``acl=``. The warning points to ADR-066 §4.4
+    and the ``acl=default_acl()`` /
+    ``acl=ToolACL(...)`` / ``acl=None`` opt-out.
+    Passing ``acl=None`` is the explicit
+    opt-out and does NOT warn.
+  - **DeprecationWarning on
+    ``ToolRegistry.__init__``**. The module and
+    class docstrings are updated; the warning
+    points to ``WorkerManager.register`` /
+    ``WorkerManager.acl_for`` as the
+    replacement. v0.18 will ``git rm`` the
+    module.
+  - **Scaffold flip**. ``cli/templates/dispatcher.py.jinja``
+    flipped from ``ToolRegistry`` to
+    ``WorkerManager.register(tool, acl=default_acl())``.
+    ``cli/templates/main.py.jinja`` keeps the
+    v0.17 transitional ``ToolRegistry`` form
+    with a comment noting the v0.18 swap
+    (the API factory still takes ``registry=``;
+    the v0.18 change to ``worker_manager=`` is
+    out of scope for this minimal slice per the
+    session's scope decision).
+  - **Tests.** 3 new tests in
+    ``TestWorkerManagerRegisterDeprecation``
+    (``tests/unit/tools/test_worker_manager_acl.py``)
+    validate the warning is emitted for the
+    no-``acl=`` form and NOT emitted for
+    ``acl=default_acl()`` or ``acl=None``.
+    ``TestDeprecation`` in
+    ``tests/unit/tools/test_registry.py``
+    validates the ``ToolRegistry.__init__``
+    warning. The module-level
+    ``pytestmark = filterwarnings("ignore:...")``
+    keeps the existing tests readable.
+
+**Still pending (v0.18).**
+
+  - ``git rm src/kntgraph/tools/registry.py``
+    once the API factory, the internal
+    ``knowledge/extraction/*`` callers, and the
+    CLI examples have migrated to
+    ``WorkerManager.acl_for``.
+  - Remove the v0.17 transitional ``ToolRegistry``
+    call in ``cli/templates/main.py.jinja``
+    and update the API factory to accept
+    ``worker_manager=`` directly.
+  - Update ``examples/knt-cli/weather_platform``
+    to use ``WorkerManager.register(acl=...)``.
+  - Drop the
+    ``DeprecationWarning`` on
+    ``WorkerManager.register`` no-``acl=`` form
+    (it becomes a hard error in v0.18).
 
 
 ## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14

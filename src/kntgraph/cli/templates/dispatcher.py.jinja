@@ -4,7 +4,8 @@
 
 from kntgraph.runner import ReactiveDispatcher, Runner
 from kntgraph.stream.event_log import EventLog
-from kntgraph.tools.registry import ToolRegistry
+from kntgraph.tools.acl import default_acl
+from kntgraph.tools.manager import WorkerManager
 
 # Import Systems and Tools from your context's agents here.
 # For example:
@@ -33,13 +34,21 @@ def build_{{ context_name }}_dispatcher(
     # tools = get_checkout_agent_tools() + ...
     tools = []
 
-    # 2. Register tools (per the ``ToolRegistry`` contract; the
-    # legacy ``IntentResolutionSystem`` ACL gate was removed in
-    # v0.9.0; per-tool ACL is enforced by the ``ToolACL`` at the
-    # ``ToolRegistry`` level).
-    registry = ToolRegistry()
+    # 2. Register tools via the canonical ``WorkerManager`` path
+    # (ADR-066 §3.1). Each tool is registered with
+    # ``acl=default_acl()`` for the framework baseline
+    # (``Role.agent``, tenant-unpinned); tighten per tool with
+    # ``ToolACL(tenant_pinned=True, ...)`` for tenant-scoped
+    # tools. The legacy ``ToolRegistry`` was removed in v0.18.
+    # Note: ``WorkerManager`` is the orchestrator that runs the
+    # tools in a process pool; the dispatcher only sees the
+    # ``tool.<name>.requested`` events the systems emit.
+    worker_manager = WorkerManager(
+        redis=redis,
+        event_log=log,
+    )
     for tool in tools:
-        registry.register(tool)
+        worker_manager.register(tool, acl=default_acl())
 
     # 3. Aggregate Systems. The legacy ``IntentResolutionSystem``
     # (kntgraph.agents.roles) was removed in v0.9.0 (ADR-039).

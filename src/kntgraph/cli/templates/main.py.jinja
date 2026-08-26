@@ -66,6 +66,14 @@ def build_monolith():
     # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
 
     # Configure the API Gateway (Intent Router).
+    # NOTE: ``ToolRegistry`` is the v0.17 transitional
+    # path; the API factory will be updated to accept
+    # ``worker_manager=`` in v0.18 (ADR-066 §4.4).
+    # The scaffold keeps the v0.17 form so the
+    # generated project compiles against the current
+    # API factory; new code should register tools via
+    # ``worker_manager.register(tool, acl=...)`` above
+    # and ignore the ``ToolRegistry`` instance below.
     registry = ToolRegistry()
     verifier = RedisAPIKeyVerifier(redis)
 

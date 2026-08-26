@@ -184,6 +184,30 @@ class WorkerManager:
         """
         if not hasattr(tool_cls, "name"):
             raise TypeError("Tool must be decorated with @tool_worker")
+        # ADR-066 §4.4: the no-``acl=`` form is
+        # deprecated in v0.17; the legacy path is
+        # ``register(tool_cls)`` with no policy
+        # attached (no constraint). The warning is
+        # scoped to the ``acl is _UNSET`` branch
+        # (caller did not pass ``acl=`` at all).
+        # Passing ``acl=None`` is the explicit
+        # opt-out and does NOT warn (the caller is
+        # acknowledging the policy choice).
+        if acl is _UNSET:
+            import warnings
+
+            warnings.warn(
+                (
+                    "WorkerManager.register(tool_cls) without an explicit "
+                    "acl= kwarg is deprecated and will be removed in v0.18 "
+                    "(ADR-066 §4.4). Pass acl=default_acl() for the "
+                    "framework baseline or acl=ToolACL(...) for a stricter "
+                    "policy. Pass acl=None to explicitly opt out (no "
+                    "warning)."
+                ),
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._tools[tool_cls.name] = tool_cls
         # ``acl`` is the sentinel ``_UNSET`` when the
         # caller omitted the kwarg (legacy, no

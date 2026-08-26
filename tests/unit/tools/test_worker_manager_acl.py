@@ -310,3 +310,69 @@ class TestWorkerManagerACL:
         # separate ``ToolACL()`` is not ``is``
         # identical to ``default_acl()``.
         assert ToolACL() is not explicit
+
+
+class TestWorkerManagerRegisterDeprecation:
+    """ADR-066 §4.4 (v0.17): ``register(tool_cls)``
+    without an explicit ``acl=`` kwarg emits a
+    ``DeprecationWarning``. The warning is NOT
+    emitted when ``acl=default_acl()``,
+    ``acl=ToolACL(...)``, or ``acl=None`` (the
+    explicit opt-out) is passed.
+    """
+
+    def test_register_without_acl_emits_deprecation_warning(self) -> None:
+        """``register(LiteLLMToolWorker)`` (no ``acl=``)
+        emits a ``DeprecationWarning`` pointing to
+        ADR-066 §4.4."""
+        from kntgraph.agents.tools.llm import LiteLLMToolWorker
+        from kntgraph.tools.manager import WorkerManager
+
+        manager = WorkerManager.__new__(WorkerManager)
+        manager._tools = {}
+        manager._acls = {}
+        with pytest.warns(DeprecationWarning, match="ADR-066 §4.4"):
+            manager.register(LiteLLMToolWorker)
+
+    def test_register_with_acl_does_not_emit_deprecation_warning(self) -> None:
+        """``register(LiteLLMToolWorker, acl=default_acl())``
+        does NOT emit a ``DeprecationWarning`` (the
+        caller is explicitly opting in)."""
+        import warnings
+
+        from kntgraph.agents.tools.llm import LiteLLMToolWorker
+        from kntgraph.tools.acl import default_acl
+        from kntgraph.tools.manager import WorkerManager
+
+        manager = WorkerManager.__new__(WorkerManager)
+        manager._tools = {}
+        manager._acls = {}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            manager.register(LiteLLMToolWorker, acl=default_acl())
+        # No DeprecationWarning about ADR-066 §4.4.
+        deprecation_warnings = [
+            w for w in caught if issubclass(w.category, DeprecationWarning)
+        ]
+        assert all("ADR-066 §4.4" not in str(w.message) for w in deprecation_warnings)
+
+    def test_register_with_acl_none_does_not_emit_deprecation_warning(self) -> None:
+        """``register(LiteLLMToolWorker, acl=None)``
+        is the explicit opt-out (legacy behaviour
+        without warning). The caller is acknowledging
+        the policy choice."""
+        import warnings
+
+        from kntgraph.agents.tools.llm import LiteLLMToolWorker
+        from kntgraph.tools.manager import WorkerManager
+
+        manager = WorkerManager.__new__(WorkerManager)
+        manager._tools = {}
+        manager._acls = {}
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            manager.register(LiteLLMToolWorker, acl=None)
+        deprecation_warnings = [
+            w for w in caught if issubclass(w.category, DeprecationWarning)
+        ]
+        assert all("ADR-066 §4.4" not in str(w.message) for w in deprecation_warnings)

@@ -39,6 +39,18 @@ from kntgraph.core.result import Ok
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.registry import ToolRegistry
 
+# ADR-066 §4.4 (v0.17): ``ToolRegistry.__init__``
+# emits a ``DeprecationWarning``. The fixture
+# constructs one for every test; the existing
+# tests cover behaviour, not the deprecation
+# signal. Silence the warning here so the
+# existing tests stay readable; the
+# ``TestDeprecation`` class below is the single
+# explicit assertion of the warning.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:ToolRegistry is deprecated:DeprecationWarning"
+)
+
 
 # ---------------------------------------------------------------------------
 # Test fixtures: minimal Tool classes (duck-typed; the registry
@@ -319,3 +331,22 @@ class TestSchemaToJson:
             assert result is None
         finally:
             reg_mod.json.dumps = original_dumps  # type: ignore[assignment]
+
+
+class TestDeprecation:
+    """ADR-066 §4.4 (v0.17): ``ToolRegistry()``
+    emits a ``DeprecationWarning`` pointing to
+    ``WorkerManager.register(tool_cls, acl=...)``
+    as the replacement. The module-level
+    ``pytestmark = filterwarnings("ignore:...")``
+    silences the warning for the rest of this
+    file; this class opts back in to validate
+    the signal is emitted.
+    """
+
+    def test_init_emits_deprecation_warning(self) -> None:
+        """Constructing a ``ToolRegistry`` emits a
+        ``DeprecationWarning`` mentioning
+        ``WorkerManager`` as the replacement."""
+        with pytest.warns(DeprecationWarning, match="WorkerManager"):
+            ToolRegistry()
