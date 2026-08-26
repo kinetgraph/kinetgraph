@@ -20,7 +20,7 @@ Tests cover:
     registered without ``acl=`` (legacy, pre-v0.16).
   - The explicit ``acl=default_acl()`` path:
     requests with ``producer_principal_id`` pass
-    when the principal has ``Role.agent``.
+    when the principal has ``PrincipalLevel.agent``.
   - The denial path: the worker emits
     ``tool.<name>.failed`` with ``acl_denied``
     reason and acks the message (no worker slot
@@ -148,7 +148,7 @@ class TestWorkerManagerACL:
     async def test_explicit_default_acl_allows_agent_principal(self):
         """Tools registered with ``acl=default_acl()``
         pass when the ``producer_principal_id`` has
-        ``Role.agent`` (the baseline requirement)."""
+        ``PrincipalLevel.agent`` (the baseline requirement)."""
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
         from kntgraph.tools.acl import default_acl
 
@@ -220,8 +220,8 @@ class TestWorkerManagerACL:
 
     @pytest.mark.asyncio
     async def test_explicit_default_acl_denies_below_agent_principal(self):
-        """A ``Role.service`` principal (below
-        ``Role.agent``) is denied with ``acl_denied``
+        """A ``PrincipalLevel.service`` principal (below
+        ``PrincipalLevel.agent``) is denied with ``acl_denied``
         when ``acl=default_acl()`` is set. The reason
         string surfaces the failure mode in the audit
         trail.
@@ -232,7 +232,7 @@ class TestWorkerManagerACL:
         layer at the request boundary is the
         canonical place to look up the role via
         ``principal_ctx``). The worker's gate-1
-        check defaults to ``Role.agent`` (the
+        check defaults to ``PrincipalLevel.agent`` (the
         baseline requirement) — when the role is
         below ``agent``, the caller must surface
         this via a custom ``ToolACL`` (the gate-1
@@ -240,18 +240,18 @@ class TestWorkerManagerACL:
         ``Principal``, not on the request).
         """
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
-        from kntgraph.security import Role
+        from kntgraph.security import PrincipalLevel
         from kntgraph.tools.acl import ToolACL
 
         manager, redis_mock, event_log_mock = self._make_manager()
 
-        # Custom ACL that requires ``Role.admin``
+        # Custom ACL that requires ``PrincipalLevel.admin``
         # (above ``agent``). The baseline
         # ``default_acl()`` accepts ``agent`` and
         # above; to exercise the role-below-agent
         # denial path, we register a stricter ACL
         # that rejects everything below ``admin``.
-        strict_acl = ToolACL(required_role=Role.admin)
+        strict_acl = ToolACL(required_level=PrincipalLevel.admin)
         manager.register(LiteLLMToolWorker, acl=strict_acl)
 
         request = self._make_request(

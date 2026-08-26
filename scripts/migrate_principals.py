@@ -52,7 +52,7 @@ from collections.abc import Iterator
 
 import redis.asyncio as aioredis
 
-from kntgraph.security import Principal, Role
+from kntgraph.security import Principal, PrincipalLevel
 
 
 KEY_PREFIX = "knt:api:keys:"
@@ -121,10 +121,10 @@ def _migrate_value(raw: bytes) -> bytes | None:
         # Empty value — leave alone, surface as
         # migration failure (we don't write).
         raise ValueError("empty legacy binding")
-    principal = Principal.from_agent_id(decoded, role=Role.agent, key_id="legacy")
+    principal = Principal.from_agent_id(decoded, level=PrincipalLevel.agent, key_id="legacy")
     payload: dict[str, object] = {
         "agent_id": principal.agent_id,
-        "role": principal.role.value,
+        "role": principal.level.value,
         "tenant_id": principal.tenant_id,
         "key_id": principal.key_id,
     }

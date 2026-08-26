@@ -33,8 +33,8 @@ that never expose the private key.
 
 Level 2 (ADR-017):
   - ``Principal`` — immutable identity record
-    (agent_id + role + tenant_id + key_id).
-  - ``Role`` — admin | agent | service.
+    (agent_id + level + tenant_id + key_id).
+  - ``PrincipalLevel`` — admin | agent | service.
   - ``Action`` and ``Resource`` — the policy contract.
   - ``Policy`` — the authorisation evaluator
     (always-allow vs default).
@@ -71,7 +71,6 @@ from .principal import (
     Principal,
     PrincipalLevel,
     Resource,
-    Role,
     principal_ctx,
 )
 from .signing import (
@@ -205,7 +204,6 @@ __all__ = [
     "PublicKey",
     "Resource",
     "RevocationRecord",
-    "Role",
     "SUPPORTED_ALGORITHMS",
     "SUPPORTED_BATCH_ALGORITHMS",
     "Signature",

@@ -97,7 +97,7 @@ class TestEventLogAppendDelegates:
     async def test_append_blocks_tenant_violation(self):
         from kntgraph.stream.event_log.store import EventLog
 
-        from kntgraph.security import Principal, Role, principal_ctx
+        from kntgraph.security import Principal, PrincipalLevel, principal_ctx
 
         storage = _fake_storage()
         log = EventLog(storage=storage)
@@ -105,7 +105,7 @@ class TestEventLogAppendDelegates:
 
         principal = Principal(
             agent_id="agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-b",
             key_id="k1",
         )

@@ -65,7 +65,7 @@ def _build_app_with_log(log):
     from kntgraph.api.auth import AuthError
     from kntgraph.core.result import Err, Ok
     from kntgraph.agents.tools.protocol import Tool
-    from kntgraph.security import Principal, Role
+    from kntgraph.security import Principal, PrincipalLevel
     from kntgraph.tools.registry import ToolRegistry
 
     class _FakeTool(Tool):
@@ -85,7 +85,7 @@ def _build_app_with_log(log):
             self._principals = {
                 k: Principal(
                     agent_id=v,
-                    role=Role.agent,
+                    level=PrincipalLevel.agent,
                     tenant_id=v.partition(".")[0] or v,
                     key_id="test",
                 )

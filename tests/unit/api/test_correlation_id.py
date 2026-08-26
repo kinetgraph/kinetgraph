@@ -61,7 +61,7 @@ class TestCorrelationIdDerivation:
         )
         from kntgraph.security import (
             Principal,
-            Role,
+            PrincipalLevel,
         )
         from kntgraph.tools.registry import ToolRegistry
 
@@ -84,7 +84,7 @@ class TestCorrelationIdDerivation:
                 self._principals = {
                     k: Principal(
                         agent_id=v,
-                        role=Role.agent,
+                        level=PrincipalLevel.agent,
                         tenant_id=v.partition(".")[0] or v,
                         key_id="test",
                     )

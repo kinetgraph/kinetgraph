@@ -27,16 +27,16 @@ ACL semantics
 -------------
 
   - ``register(tool_cls)`` (legacy, no ``acl=``):
-    **no constraint** — the tool is invoked for
-    every request. This preserves backward
-    compatibility for callers that registered
-    tools before v0.16. The migration path is to
-    re-register with ``acl=default_acl()`` (the
-    framework baseline: ``Role.agent``, tenant
-    unpinned) or a stricter ``ToolACL``.
-  - ``register(tool_cls, acl=default_acl())``
-    (explicit baseline): every request is checked
-    against ``Role.agent``. The worker refuses the
+     **no constraint** — the tool is invoked for
+     every request. This preserves backward
+     compatibility for callers that registered
+     tools before v0.16. The migration path is to
+     re-register with ``acl=default_acl()`` (the
+     framework baseline: ``PrincipalLevel.agent``,
+     tenant unpinned) or a stricter ``ToolACL``.
+   - ``register(tool_cls, acl=default_acl())``
+     (explicit baseline): every request is checked
+     against ``PrincipalLevel.agent``. The worker refuses the
     request if the principal's role is below
     ``agent`` or the tenant does not match.
   - ``register(tool_cls, acl=ToolACL(...))``
@@ -177,7 +177,7 @@ class WorkerManager:
         worker. The default (no ``acl=`` kwarg)
         preserves the pre-v0.16 behaviour: no
         constraint. Pass ``acl=default_acl()`` for
-        the framework baseline (``Role.agent``,
+        the framework baseline (``PrincipalLevel.agent``,
         tenant-unpinned) or a stricter
         ``ToolACL(tenant_pinned=True, ...)`` for
         tenant-scoped tools.
@@ -443,7 +443,7 @@ class WorkerManager:
             # trail records why.
             denied_reason = "acl_denied_no_principal"
         else:
-            from kntgraph.security import Principal, Role
+            from kntgraph.security import Principal, PrincipalLevel
 
             # ``producer_principal_id`` is the principal's
             # ``agent_id`` (the format the API layer
@@ -459,7 +459,7 @@ class WorkerManager:
             tenant_id = principal_id.partition(".")[0] or principal_id
             principal = Principal(
                 agent_id=principal_id,
-                role=Role.agent,
+                level=PrincipalLevel.agent,
                 tenant_id=tenant_id,
                 key_id="worker",
             )

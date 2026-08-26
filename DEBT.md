@@ -2760,8 +2760,7 @@ surfaced.
 
 ## 2.30 `Role` enum DeprecationWarning (ADR-060 §2.0)
 
-**Status:** Open — moved from ROADMAP v0.14 #15 on
-2026-08-26.
+**Status:** Closed in 2026-08-26 (this session) — `Role` enum removed directly (no warning cycle).
 
 **Summary.** Item #9 of v0.14 introduced the new
 `PrincipalLevel` enum (ADR-060 §2.0) **alongside**
@@ -2864,6 +2863,45 @@ contexto (telemetria de warning em produção, impacto
 em bibliotecas que usam `Role` como type hint).
 Quando o item for puxado de novo, abrir a sessão
 com a pergunta "qual escopo?" como primeiro item.
+
+**Closed in 2026-08-26 (this session) — `Role`
+removed directly (no warning cycle).**
+
+  - :class:`Principal.role` removed;
+    :class:`PrincipalLevel.level` is the single
+    RBAC field on ``Principal``.
+  - :meth:`Principal.from_agent_id` takes
+    ``level=PrincipalLevel.X`` (not ``role=Role.X``).
+  - :meth:`PrincipalLevel.from_role` removed
+    (no ``Role`` to convert from);
+    :meth:`PrincipalLevel._coerce` handles
+    raw-string deserialisation.
+  - :attr:`ToolACL.required_role` removed;
+    :attr:`ToolACL.required_level` is the
+    single field.
+  - :meth:`DefaultPolicy.allows` reads
+    ``principal.level`` instead of
+    ``principal.role``.
+  - ``Principal.to_json`` / ``Principal.from_json``
+    keep the wire field name ``role`` for
+    backward compatibility (legacy serialised
+    principals keep round-tripping); the
+    value carries the ``PrincipalLevel``
+    string (``"service"`` / ``"agent"`` /
+    ``"admin"``).
+  - The enum ``Role`` was deleted from
+    :mod:`kntgraph.security.principal` and the
+    ``__all__`` export list.
+  - ``scripts/migrate_principals.py`` updated
+    to use ``PrincipalLevel.agent`` (it was
+    a legacy-binding migration script that
+    wrote ``Principal(role=Role.agent, ...)``;
+    now ``Principal(level=PrincipalLevel.agent, ...)``).
+  - Test coverage rewritten in
+    :mod:`tests.unit.security.test_principal_level`
+    (the migration-additive tests for the old
+    ``role`` field are gone; the new tests cover
+    the canonical ``level`` API).
 
 
 ## 2.31 `agents.role_systems/` re-organisation (ADR-060 §6.5.3)

@@ -36,6 +36,7 @@ from typing import Optional
 import pytest
 
 from kntgraph.core.result import Ok
+from kntgraph.security import PrincipalLevel
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.registry import ToolRegistry
 
@@ -119,22 +120,22 @@ class TestRegister:
 
     def test_register_with_custom_acl(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
         registry.register(_EchoTool(), acl=acl)
         assert registry.acl_for("echo") == acl
-        assert registry.acl_for("echo").required_role == "admin"
+        assert registry.acl_for("echo").required_level == PrincipalLevel.admin
 
     def test_register_with_acl_convenience(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="supervisor",
+            required_level="supervisor",
             tenant_pinned=False,
         )
         registry.register_with_acl(_EchoTool(), acl=acl)
         assert registry.acl_for("echo") == acl
-        assert registry.acl_for("echo").required_role == "supervisor"
+        assert registry.acl_for("echo").required_level == "supervisor"
 
     def test_register_duplicate_raises(self, registry: ToolRegistry) -> None:
         registry.register(_EchoTool())
@@ -147,7 +148,7 @@ class TestRegister:
         # the registry's internal state.
         registry.register(_EchoTool())
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -165,7 +166,7 @@ class TestSetAcl:
     def test_set_acl_replaces_existing(self, registry: ToolRegistry) -> None:
         registry.register(_EchoTool())
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -174,7 +175,7 @@ class TestSetAcl:
 
     def test_set_acl_raises_for_unknown_tool(self, registry: ToolRegistry) -> None:
         acl = ToolACL(
-            required_role="admin",
+            required_level=PrincipalLevel.admin,
             tenant_pinned=True,
             tenant_id="tenant-1",
         )
@@ -197,7 +198,7 @@ class TestAclFor:
         registry.register(_EchoTool())
         acl: Optional[ToolACL] = registry.acl_for("echo")
         assert acl is not None
-        assert acl.required_role == "agent"
+        assert acl.required_level == PrincipalLevel.agent
         assert acl.tenant_pinned is False
 
 

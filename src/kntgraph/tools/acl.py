@@ -8,16 +8,17 @@ Tool-level authorisation (ADR-017 §5, Scenario B).
 Each registered tool can carry an optional
 ``ToolACL`` describing:
 
-  - ``required_role``: minimum role the caller must
-    have. Defaults to ``Role.agent`` (the most common
-    case for user-facing tools).
+  - ``required_level``: minimum :class:`PrincipalLevel`
+    the caller must have. Defaults to
+    ``PrincipalLevel.agent`` (the most common case
+    for user-facing tools).
 
   - ``tenant_pinned``: when True, the tool may only be
     invoked by principals whose ``tenant_id`` matches
     the tool's ``tenant_id``. The ``tenant_id`` field
     is set at registration time; tools registered as
     pinned to ``tenant-A`` are invisible to principals
-    of ``tenant-B`` even if they pass the role check.
+    of ``tenant-B`` even if they pass the level check.
 
 The framework's contract is that ACL is enforced
 **at the ToolInvoker**, not at registration time. The
@@ -29,6 +30,11 @@ Iter 25: moved from ``kntgraph.agents.tools.acl`` to the
 framework so that ``kntgraph.modules`` can depend
 on the canonical home without leaking into the
 vertical package.
+
+Migration from the legacy ``Role`` enum (v0.15):
+
+  - ``ToolACL(required_role=Role.agent)`` →
+    ``ToolACL(required_level=PrincipalLevel.agent)``.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from kntgraph.security import Principal, Role
+from kntgraph.security import Principal, PrincipalLevel
 
 
 __all__ = ["ToolACL", "default_acl"]
@@ -50,9 +56,10 @@ class ToolACL:
 
     Attributes
     ----------
-    required_role : Role
-        The minimum role a principal must hold to
-        invoke this tool. Defaults to ``Role.agent``.
+    required_level : PrincipalLevel
+        The minimum :class:`PrincipalLevel` a principal
+        must hold to invoke this tool. Defaults to
+        ``PrincipalLevel.agent``.
     tenant_pinned : bool
         When True, only principals whose
         ``tenant_id == tenant_id`` (or admins) may
@@ -62,10 +69,10 @@ class ToolACL:
         ``tenant_pinned=True``; must be None when
         ``tenant_pinned=False`` (a pinned tool has a
         tenant; an unpinned tool is global within its
-        required_role).
+        required_level).
     """
 
-    required_role: Role = Role.agent
+    required_level: PrincipalLevel = PrincipalLevel.agent
     tenant_pinned: bool = False
     tenant_id: Optional[str] = None
 
@@ -92,16 +99,16 @@ class ToolACL:
         uncertainty results in denial. Order of checks
         (cheapest first):
 
-          1. role match (cheap O(1) on enum)
+          1. level match (cheap O(1) on enum)
           2. tenant match (cheap string compare)
         """
-        # 1. Role check.
-        if principal.role < self.required_role:
+        # 1. Level check.
+        if principal.level < self.required_level:
             return (
                 False,
                 f"role_insufficient: "
-                f"required {self.required_role.value}, "
-                f"got {principal.role.value}",
+                f"required {self.required_level.value}, "
+                f"got {principal.level.value}",
             )
         # 2. Tenant check (only when pinned).
         if self.tenant_pinned:
@@ -118,7 +125,7 @@ class ToolACL:
 
 
 def default_acl() -> ToolACL:
-    """Unpinned, agent-role. Equivalent to the framework's
+    """Unpinned, agent-level. Equivalent to the framework's
     behaviour before ADR-017.
     """
     return ToolACL()

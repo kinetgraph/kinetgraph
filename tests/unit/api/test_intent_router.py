@@ -101,13 +101,13 @@ class _FakeVerifier:
     """
 
     def __init__(self, bindings: dict[str, str]) -> None:
-        from kntgraph.security import Principal, Role
+        from kntgraph.security import Principal, PrincipalLevel
 
         self._bindings = bindings
         self._principals = {
             k: Principal(
                 agent_id=v,
-                role=Role.agent,
+                level=PrincipalLevel.agent,
                 tenant_id=v.partition(".")[0] or v,
                 key_id="test",
             )

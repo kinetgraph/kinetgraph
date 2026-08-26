@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from kntgraph.security import Principal, Role
+from kntgraph.security import Principal, PrincipalLevel
 
 
 class TestFromAgentId:
@@ -33,10 +33,10 @@ class TestFromAgentId:
     """
 
     def test_dotted_agent_id_derives_tenant(self):
-        p = Principal.from_agent_id("tenant-A.agent-1", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1")
         assert p.agent_id == "tenant-A.agent-1"
         assert p.tenant_id == "tenant-A"
-        assert p.role == Role.agent
+        assert p.level == PrincipalLevel.agent
         assert p.key_id == "k1"
 
     def test_single_segment_agent_id_is_its_own_tenant(self):
@@ -44,7 +44,7 @@ class TestFromAgentId:
         single-tenant form. We must NOT silently set
         `tenant_id=None` (admin-only) — the agent
         owns its own tenant."""
-        p = Principal.from_agent_id("solo-agent", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("solo-agent", level=PrincipalLevel.agent, key_id="k1")
         assert p.agent_id == "solo-agent"
         assert p.tenant_id == "solo-agent"
 
@@ -55,7 +55,7 @@ class TestFromAgentId:
         with pytest.raises(ValueError) as exc_info:
             Principal.from_agent_id(
                 "tenant-A.admin-1",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 key_id="k1",
             )
         assert "admin" in str(exc_info.value).lower()
@@ -70,7 +70,7 @@ class TestFromAgentId:
         with pytest.raises(ValueError):
             Principal.from_agent_id(
                 "lone-admin",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 key_id="k1",
             )
 
@@ -78,7 +78,7 @@ class TestFromAgentId:
         with pytest.raises(ValueError) as exc_info:
             Principal.from_agent_id(
                 "",
-                role=Role.service,
+                level=PrincipalLevel.service,
                 key_id="k1",
             )
         # Either the `agent_id` check or the
@@ -88,7 +88,7 @@ class TestFromAgentId:
 
     def test_empty_agent_id_rejected(self):
         with pytest.raises(ValueError) as exc_info:
-            Principal.from_agent_id("", role=Role.agent, key_id="k1")
+            Principal.from_agent_id("", level=PrincipalLevel.agent, key_id="k1")
         assert "agent_id" in str(exc_info.value)
 
     def test_deeply_nested_uses_first_segment(self):
@@ -96,7 +96,7 @@ class TestFromAgentId:
         partitions on the FIRST separator, matching
         the legacy convention used by the Redis
         binding table."""
-        p = Principal.from_agent_id("a.b.c", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("a.b.c", level=PrincipalLevel.agent, key_id="k1")
         assert p.tenant_id == "a"
         assert p.agent_id == "a.b.c"
 
@@ -104,14 +104,14 @@ class TestFromAgentId:
         """The factory returns a real `Principal`
         (not a duck type); this keeps the type hint
         honest for callers."""
-        p = Principal.from_agent_id("x.y", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("x.y", level=PrincipalLevel.agent, key_id="k1")
         assert isinstance(p, Principal)
 
     def test_owns_works_for_dotted(self):
         """`Principal.owns(agent_id)` must work for
         the dotted form (the most common case from
         the factory)."""
-        p = Principal.from_agent_id("tenant-A.agent-1", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1")
         assert p.owns("tenant-A") is True
         assert p.owns("tenant-A.agent-1") is True
         assert p.owns("tenant-A.other") is True
@@ -121,7 +121,7 @@ class TestFromAgentId:
     def test_owns_works_for_single_segment(self):
         """The legacy `agent_id == tenant_id` form
         must also work for `owns`."""
-        p = Principal.from_agent_id("solo-agent", role=Role.agent, key_id="k1")
+        p = Principal.from_agent_id("solo-agent", level=PrincipalLevel.agent, key_id="k1")
         assert p.owns("solo-agent") is True
         # `solo-agent.x` lives "under" the tenant.
         assert p.owns("solo-agent.x") is True
@@ -137,20 +137,20 @@ class TestFromAgentIdRoundTrip:
 
     def test_matches_handwritten_construction(self):
         agent_id = "tenant-A.agent-1"
-        p_factory = Principal.from_agent_id(agent_id, role=Role.agent, key_id="k1")
+        p_factory = Principal.from_agent_id(agent_id, level=PrincipalLevel.agent, key_id="k1")
         p_hand = Principal(
             agent_id=agent_id,
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k1",
         )
         assert p_factory == p_hand
 
     def test_legacy_form_matches_handwritten(self):
-        p_factory = Principal.from_agent_id("solo", role=Role.agent, key_id="k1")
+        p_factory = Principal.from_agent_id("solo", level=PrincipalLevel.agent, key_id="k1")
         p_hand = Principal(
             agent_id="solo",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="solo",
             key_id="k1",
         )

@@ -33,7 +33,7 @@ from kntgraph.api.auth import (  # noqa: E402
     bind_principal_dependency,
 )
 from kntgraph.core.result import Err, Ok  # noqa: E402
-from kntgraph.security import Principal, Role, principal_ctx  # noqa: E402
+from kntgraph.security import Principal, PrincipalLevel, principal_ctx  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ class _ErrVerifier:
 def _principal(agent_id: str = "tenant-a.agent-1") -> Principal:
     return Principal(
         agent_id=agent_id,
-        role=Role.agent,
+        level=PrincipalLevel.agent,
         tenant_id=agent_id.partition(".")[0],
         key_id="test",
     )

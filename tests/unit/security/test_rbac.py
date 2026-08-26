@@ -44,8 +44,8 @@ from kntgraph.security import (
     AlwaysAllowPolicy,
     DefaultPolicy,
     Principal,
+    PrincipalLevel,
     Resource,
-    Role,
     principal_ctx,
 )
 from kntgraph.tools.acl import ToolACL
@@ -72,7 +72,7 @@ class TestPrincipalInvariants:
         with pytest.raises(ValueError, match="tenant_id=None"):
             Principal(
                 agent_id="root",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 tenant_id="some-tenant",
                 key_id="k1",
             )
@@ -81,7 +81,7 @@ class TestPrincipalInvariants:
         with pytest.raises(ValueError, match="tenant_id"):
             Principal(
                 agent_id="x",
-                role=Role.agent,
+                level=PrincipalLevel.agent,
                 tenant_id=None,
                 key_id="k1",
             )
@@ -90,7 +90,7 @@ class TestPrincipalInvariants:
         with pytest.raises(ValueError, match="tenant_id"):
             Principal(
                 agent_id="x",
-                role=Role.service,
+                level=PrincipalLevel.service,
                 tenant_id="",
                 key_id="k1",
             )
@@ -99,7 +99,7 @@ class TestPrincipalInvariants:
         with pytest.raises(ValueError, match="agent_id"):
             Principal(
                 agent_id="",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 tenant_id=None,
                 key_id="k1",
             )
@@ -108,7 +108,7 @@ class TestPrincipalInvariants:
         with pytest.raises(ValueError, match="key_id"):
             Principal(
                 agent_id="root",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 tenant_id=None,
                 key_id="",
             )
@@ -116,7 +116,7 @@ class TestPrincipalInvariants:
     async def test_json_roundtrip(self):
         p = Principal(
             agent_id="tenant-A.agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k-001",
         )
@@ -145,7 +145,7 @@ class TestPrincipalOwns:
     async def test_admin_owns_everything(self):
         admin = Principal(
             agent_id="root",
-            role=Role.admin,
+            level=PrincipalLevel.admin,
             tenant_id=None,
             key_id="k",
         )
@@ -156,7 +156,7 @@ class TestPrincipalOwns:
     async def test_agent_owns_under_its_tenant(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -168,7 +168,7 @@ class TestPrincipalOwns:
     async def test_service_owns_under_its_tenant(self):
         svc = Principal(
             agent_id="tenant-A.consolidator",
-            role=Role.service,
+            level=PrincipalLevel.service,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -185,7 +185,7 @@ class TestDefaultPolicy:
     async def test_admin_cross_tenant_allowed(self):
         admin = Principal(
             agent_id="root",
-            role=Role.admin,
+            level=PrincipalLevel.admin,
             tenant_id=None,
             key_id="k",
         )
@@ -196,7 +196,7 @@ class TestDefaultPolicy:
     async def test_agent_cross_tenant_denied(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -207,7 +207,7 @@ class TestDefaultPolicy:
     async def test_agent_own_tenant_allowed(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -218,7 +218,7 @@ class TestDefaultPolicy:
     async def test_admin_only_action_denied_for_non_admin(self):
         agent = Principal(
             agent_id="tenant-A.agent-1",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -231,7 +231,7 @@ class TestDefaultPolicy:
     async def test_admin_action_allowed_for_admin(self):
         admin = Principal(
             agent_id="root",
-            role=Role.admin,
+            level=PrincipalLevel.admin,
             tenant_id=None,
             key_id="k",
         )
@@ -249,16 +249,16 @@ class TestDefaultPolicy:
         """
         from kntgraph.tools.acl import ToolACL
 
-        acl = ToolACL(required_role=Role.admin)
+        acl = ToolACL(required_level=PrincipalLevel.admin)
         svc = Principal(
             agent_id="tenant-A.svc",
-            role=Role.service,
+            level=PrincipalLevel.service,
             tenant_id="tenant-A",
             key_id="k",
         )
         admin = Principal(
             agent_id="root",
-            role=Role.admin,
+            level=PrincipalLevel.admin,
             tenant_id=None,
             key_id="k",
         )
@@ -272,17 +272,17 @@ class TestDefaultPolicy:
 
 
 class TestToolACL:
-    def _principal(self, role: Role, tenant: str | None) -> Principal:
+    def _principal(self, level: PrincipalLevel, tenant: str | None) -> Principal:
         return Principal(
-            agent_id=("root" if role == Role.admin else f"{tenant}/x"),
-            role=role,
+            agent_id=("root" if level == PrincipalLevel.admin else f"{tenant}/x"),
+            level=level,
             tenant_id=tenant,
             key_id="k",
         )
 
     async def test_default_acl_is_agent_role_unpinned(self):
         acl = ToolACL()
-        assert acl.required_role == Role.agent
+        assert acl.required_level == PrincipalLevel.agent
         assert acl.tenant_pinned is False
         assert acl.tenant_id is None
 
@@ -293,18 +293,18 @@ class TestToolACL:
             ToolACL(tenant_pinned=False, tenant_id="tenant-A")
 
     async def test_role_check(self):
-        acl = ToolACL(required_role=Role.admin)
-        admin = self._principal(Role.admin, None)
-        agent = self._principal(Role.agent, "tenant-A")
+        acl = ToolACL(required_level=PrincipalLevel.admin)
+        admin = self._principal(PrincipalLevel.admin, None)
+        agent = self._principal(PrincipalLevel.agent, "tenant-A")
         assert acl.check(admin)[0] is True
         assert acl.check(agent)[0] is False
         assert "role_insufficient" in acl.check(agent)[1]
 
     async def test_tenant_pinned_blocks_cross_tenant(self):
         acl = ToolACL(tenant_pinned=True, tenant_id="tenant-A")
-        admin = self._principal(Role.admin, None)
-        owner = self._principal(Role.agent, "tenant-A")
-        foreigner = self._principal(Role.agent, "tenant-B")
+        admin = self._principal(PrincipalLevel.admin, None)
+        owner = self._principal(PrincipalLevel.agent, "tenant-A")
+        foreigner = self._principal(PrincipalLevel.agent, "tenant-B")
         # Admin always passes (cross-tenant by definition).
         assert acl.check(admin)[0] is True
         # Owner tenant passes.
@@ -314,8 +314,8 @@ class TestToolACL:
         assert "tenant_violation" in acl.check(foreigner)[1]
 
     async def test_service_role_too_low_for_admin_tool(self):
-        acl = ToolACL(required_role=Role.admin)
-        svc = self._principal(Role.service, "tenant-A")
+        acl = ToolACL(required_level=PrincipalLevel.admin)
+        svc = self._principal(PrincipalLevel.service, "tenant-A")
         assert acl.check(svc)[0] is False
 
 
@@ -339,21 +339,21 @@ class TestToolRegistryACL:
         reg.register(_EchoTool())
         acl = reg.acl_for("echo")
         assert acl is not None
-        assert acl.required_role == Role.agent
+        assert acl.required_level == PrincipalLevel.agent
 
     async def test_custom_acl_applied(self):
         reg = ToolRegistry()
         reg.register(
             _EchoTool(),
-            acl=ToolACL(required_role=Role.admin),
+            acl=ToolACL(required_level=PrincipalLevel.admin),
         )
-        assert reg.acl_for("echo").required_role == Role.admin
+        assert reg.acl_for("echo").required_level == PrincipalLevel.admin
 
     async def test_set_acl_replaces(self):
         reg = ToolRegistry()
         reg.register(_EchoTool())
-        reg.set_acl("echo", ToolACL(required_role=Role.admin))
-        assert reg.acl_for("echo").required_role == Role.admin
+        reg.set_acl("echo", ToolACL(required_level=PrincipalLevel.admin))
+        assert reg.acl_for("echo").required_level == PrincipalLevel.admin
 
     async def test_set_acl_unknown_tool_raises(self):
         reg = ToolRegistry()
@@ -424,7 +424,7 @@ class TestRejectsLegacyBinding:
         verifier = RedisAPIKeyVerifier.from_redis(redis_client)
         result = await verifier.verify(api_key)
         principal = result.ok_value()
-        assert principal.role == Role.admin
+        assert principal.level == PrincipalLevel.admin
         assert principal.tenant_id is None
         assert principal.key_id == "k-001"
 
@@ -469,7 +469,7 @@ class TestEventLogTenantViolation:
         token = principal_ctx.set(
             Principal(
                 agent_id="tenant-A.agent-1",
-                role=Role.agent,
+                level=PrincipalLevel.agent,
                 tenant_id="tenant-A",
                 key_id="k",
             )
@@ -515,7 +515,7 @@ class TestEventLogTenantViolation:
         token = principal_ctx.set(
             Principal(
                 agent_id="root",
-                role=Role.admin,
+                level=PrincipalLevel.admin,
                 tenant_id=None,
                 key_id="k",
             )
@@ -592,13 +592,13 @@ class TestAlwaysAllowPolicy:
         policy = AlwaysAllowPolicy()
         admin = Principal(
             agent_id="root",
-            role=Role.admin,
+            level=PrincipalLevel.admin,
             tenant_id=None,
             key_id="k",
         )
         agent = Principal(
             agent_id="tenant-A/x",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -613,38 +613,32 @@ class TestAlwaysAllowPolicy:
 
 
 class TestRoleComparison:
-    """The ``Role.__lt__`` / ``__le__`` methods return
-    ``NotImplemented`` for non-Role operands so the
-    Python data model can fall back to the right-hand
-    side's comparator. Pinned so a future refactor that
-    raises ``TypeError`` on comparison does not regress
-    this contract.
+    """The ``PrincipalLevel.__lt__`` / ``__le__`` methods
+    return ``NotImplemented`` for non-PrincipalLevel
+    operands so the Python data model can fall back to
+    the right-hand side's comparator. Pinned so a future
+    refactor that raises ``TypeError`` on comparison does
+    not regress this contract.
     """
 
     async def test_role_lt_with_non_role_returns_not_implemented(self):
-        from kntgraph.security.principal import Role
-
         # Direct call to the dunder returns
         # ``NotImplemented``; the branch is pinned.
-        result = Role.admin.__lt__("not-a-role")
+        result = PrincipalLevel.admin.__lt__("not-a-level")
         assert result is NotImplemented
 
     async def test_role_le_with_non_role_returns_not_implemented(self):
-        from kntgraph.security.principal import Role
-
-        result = Role.admin.__le__("not-a-role")
+        result = PrincipalLevel.admin.__le__("not-a-level")
         assert result is NotImplemented
 
     async def test_role_ordering_works(self):
-        """The happy path: ``Role.service < Role.agent <
-        Role.admin``.
+        """The happy path: ``PrincipalLevel.service < PrincipalLevel.agent <
+        PrincipalLevel.admin``.
         """
-        from kntgraph.security.principal import Role
-
-        assert Role.service < Role.agent
-        assert Role.agent < Role.admin
-        assert Role.service <= Role.agent
-        assert Role.admin <= Role.admin
+        assert PrincipalLevel.service < PrincipalLevel.agent
+        assert PrincipalLevel.agent < PrincipalLevel.admin
+        assert PrincipalLevel.service <= PrincipalLevel.agent
+        assert PrincipalLevel.admin <= PrincipalLevel.admin
 
 
 class TestPrincipalFromJson:
@@ -746,7 +740,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
         """
         agent = Principal(
             agent_id="tenant-A/x",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -767,7 +761,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
         # that requires ``agent`` minimum.
         service = Principal(
             agent_id="tenant-A/x",
-            role=Role.service,
+            level=PrincipalLevel.service,
             tenant_id="tenant-A",
             key_id="k",
         )
@@ -776,7 +770,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
         class _ToolResource:
             kind: str = "tool"
             tenant_id: str | None = "tenant-A"
-            min_role: Role = Role.agent
+            min_level: PrincipalLevel = PrincipalLevel.agent
 
         policy = DefaultPolicy()
         # The service role is below the required
@@ -790,7 +784,7 @@ class TestDefaultPolicyResourceAndRoleChecks:
         # The same tool with an agent role → allowed.
         agent = Principal(
             agent_id="tenant-A/x",
-            role=Role.agent,
+            level=PrincipalLevel.agent,
             tenant_id="tenant-A",
             key_id="k",
         )
