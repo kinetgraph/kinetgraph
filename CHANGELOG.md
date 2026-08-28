@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-08-28
+
 ### Added
 - **Pluggable `WorldProjection` interface on `ReactiveDispatcher`.**
   The dispatcher accepts a new `projections=[...]` kwarg that
