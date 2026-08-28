@@ -36,7 +36,7 @@ from kntgraph.knowledge.extraction.argument import (
     SchemaArgumentExtractor,
 )
 from kntgraph.knowledge.extraction import GlinerArgumentAdapter
-from kntgraph.tools.registry import ToolRegistry
+from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.schema import (
     FieldSpec,
     compute_schema_version,
@@ -231,32 +231,46 @@ class _FakeFinder(FieldFinder):
         return self.responses.get(key)
 
 
-def _make_registry_with_tool(
+def _make_manager_with_tool(
     name: str = "tool.x",
     schema: dict | None = None,
-) -> tuple[ToolRegistry, object]:
-    class _T:
-        # Annotations live on the class body so pyright
-        # accepts them (type annotations in an assignment
-        # statement are flagged as ``reportInvalidTypeForm``).
-        invocations: list[dict]
+) -> tuple[WorkerManager, object]:
+    """Build a ``WorkerManager`` with a single stub tool
+    registered. Returns ``(manager, tool_cls)``.
 
-    t = _T()
-    t.name = name
-    t.description = "test"
-    t.input_schema = schema or {}
-    t.invocations = []
+    The stub class carries ``name`` / ``description`` /
+    ``input_schema`` as class attributes so
+    ``WorkerManager.get(name).input_schema`` resolves
+    correctly. The ``invoke`` body is never called in
+    these tests.
+    """
+    from unittest.mock import AsyncMock, MagicMock
 
-    async def _invoke(*, idempotency_key, **kwargs):
-        t.invocations.append({"idempotency_key": idempotency_key, **kwargs})
+    effective_schema = schema or {}
+
+    async def _invoke(self, *, idempotency_key, **kwargs):
         from kntgraph.core.result import Ok
 
         return Ok({"ok": True})
 
-    t.invoke = _invoke
-    reg = ToolRegistry()
-    reg.register(t)  # type: ignore[arg-type]
-    return reg, t
+    _StubTool = type(
+        "_StubTool",
+        (),
+        {
+            "name": name,
+            "description": "test",
+            "input_schema": effective_schema,
+            "invoke": _invoke,
+        },
+    )
+
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    event_log_mock = MagicMock()
+    event_log_mock.append = AsyncMock()
+    mgr = WorkerManager(redis=redis_mock, event_log=event_log_mock)
+    mgr.register(_StubTool, acl=None)
+    return mgr, _StubTool
 
 
 class TestSchemaArgumentExtractor:
@@ -270,7 +284,7 @@ class TestSchemaArgumentExtractor:
             },
             "required": ["cnpj", "amount"],
         }
-        reg, _ = _make_registry_with_tool(schema=schema)
+        mgr, _ = _make_manager_with_tool(schema=schema)
         finder = _FakeFinder()
         cnpj_spec = FieldSpec(
             name="cnpj", json_type="string", required=True, format="cnpj"
@@ -278,7 +292,7 @@ class TestSchemaArgumentExtractor:
         amount_spec = FieldSpec(name="amount", json_type="number", required=True)
         finder.queue(cnpj_spec, "12.345.678/0001-90", confidence=0.9)
         finder.queue(amount_spec, "1500,50", confidence=0.95)
-        ex = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ex = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         r = await ex.extract("text", "tool.x")
         assert r.tool_name == "tool.x"
         assert r.fields == {"cnpj": "12.345.678/0001-90", "amount": 1500.5}
@@ -295,13 +309,13 @@ class TestSchemaArgumentExtractor:
                 "amount": {"type": "number"},
             },
         }
-        reg, _ = _make_registry_with_tool(schema=schema)
+        mgr, _ = _make_manager_with_tool(schema=schema)
         finder = _FakeFinder()
         cnpj_spec = FieldSpec(name="cnpj", json_type="string", required=False)
         amount_spec = FieldSpec(name="amount", json_type="number", required=False)
         finder.queue(cnpj_spec, "ok", confidence=0.2)  # below threshold
         finder.queue(amount_spec, 100, confidence=0.9)
-        ex = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ex = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         r = await ex.extract("text", "tool.x")
         assert "cnpj" not in r.fields
         assert r.fields == {"amount": 100}
@@ -314,11 +328,11 @@ class TestSchemaArgumentExtractor:
             "type": "object",
             "properties": {"amount": {"type": "number"}},
         }
-        reg, _ = _make_registry_with_tool(schema=schema)
+        mgr, _ = _make_manager_with_tool(schema=schema)
         finder = _FakeFinder()
         amount_spec = FieldSpec(name="amount", json_type="number", required=True)
         finder.queue(amount_spec, "dozens", confidence=0.99)
-        ex = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ex = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         r = await ex.extract("text", "tool.x")
         assert r.fields == {}
         assert r.confidences == {}
@@ -331,40 +345,40 @@ class TestSchemaArgumentExtractor:
             "type": "object",
             "properties": {"qtd": {"type": "integer"}},
         }
-        reg, _ = _make_registry_with_tool(schema=schema)
+        mgr, _ = _make_manager_with_tool(schema=schema)
         finder = _FakeFinder()
         qtd_spec = FieldSpec(name="qtd", json_type="integer", required=True)
         finder.queue(qtd_spec, True, confidence=0.9)
-        ex = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ex = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         r = await ex.extract("text", "tool.x")
         assert r.fields == {}
 
     @pytest.mark.asyncio
     async def test_unregistered_tool_raises(self) -> None:
-        reg = ToolRegistry()
+        mgr, _ = _make_manager_with_tool(schema={})
         finder = _FakeFinder()
-        ex = SchemaArgumentExtractor(reg, finder)
+        ex = SchemaArgumentExtractor(mgr, finder)
         with pytest.raises(ToolError, match="not registered"):
             await ex.extract("text", "ghost")
 
     @pytest.mark.asyncio
     async def test_empty_text_returns_empty_fields(self) -> None:
-        reg, _ = _make_registry_with_tool(
+        mgr, _ = _make_manager_with_tool(
             schema={"properties": {"x": {"type": "string"}}}
         )
         finder = _FakeFinder()
-        ex = SchemaArgumentExtractor(reg, finder)
+        ex = SchemaArgumentExtractor(mgr, finder)
         r = await ex.extract("", "tool.x")
         assert r.fields == {}
         assert r.confidences == {}
 
     @pytest.mark.asyncio
     async def test_no_scalar_fields_returns_empty(self) -> None:
-        reg, _ = _make_registry_with_tool(
+        mgr, _ = _make_manager_with_tool(
             schema={"properties": {"flag": {"type": "boolean"}}}
         )
         finder = _FakeFinder()
-        ex = SchemaArgumentExtractor(reg, finder)
+        ex = SchemaArgumentExtractor(mgr, finder)
         r = await ex.extract("any", "tool.x")
         assert r.fields == {}
         # The version is still computed (from the
@@ -373,9 +387,9 @@ class TestSchemaArgumentExtractor:
 
     @pytest.mark.asyncio
     async def test_no_schema_returns_empty(self) -> None:
-        reg, _ = _make_registry_with_tool(schema=None)
+        mgr, _ = _make_manager_with_tool(schema=None)
         finder = _FakeFinder()
-        ex = SchemaArgumentExtractor(reg, finder)
+        ex = SchemaArgumentExtractor(mgr, finder)
         r = await ex.extract("any", "tool.x")
         assert r.fields == {}
 
@@ -389,25 +403,25 @@ class TestSchemaArgumentExtractor:
                 "b": {"type": "string"},
             },
         }
-        reg, _ = _make_registry_with_tool(schema=schema)
+        mgr, _ = _make_manager_with_tool(schema=schema)
         finder = _FakeFinder()
         b_spec = FieldSpec(name="b", json_type="string", required=False)
         finder.queue(b_spec, "found", confidence=0.9)
         finder.raise_for_field("a")
-        ex = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ex = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         r = await ex.extract("any", "tool.x")
         assert r.fields == {"b": "found"}
 
     @pytest.mark.asyncio
     async def test_validates_field_threshold(self) -> None:
-        reg, _ = _make_registry_with_tool()
+        mgr, _ = _make_manager_with_tool()
         finder = _FakeFinder()
         with pytest.raises(ValueError, match="field_threshold"):
-            SchemaArgumentExtractor(reg, finder, field_threshold=1.5)
-        with pytest.raises(ValueError, match="registry is required"):
+            SchemaArgumentExtractor(mgr, finder, field_threshold=1.5)
+        with pytest.raises(ValueError, match="worker_manager is required"):
             SchemaArgumentExtractor(None, finder)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="finder is required"):
-            SchemaArgumentExtractor(reg, None)  # type: ignore[arg-type]
+            SchemaArgumentExtractor(mgr, None)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -426,6 +440,6 @@ class TestGlinerArgumentAdapterConstruction:
         # Make sure `gliner2` cannot be imported in this
         # scope by hiding it.
         monkeypatch.setitem(sys.modules, "gliner2", None)
-        reg, _ = _make_registry_with_tool()
+        mgr, _ = _make_manager_with_tool()
         with pytest.raises(ImportError):
-            GlinerArgumentAdapter(reg)
+            GlinerArgumentAdapter(mgr)

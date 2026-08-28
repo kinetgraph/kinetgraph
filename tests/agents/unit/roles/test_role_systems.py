@@ -156,7 +156,9 @@ def test_has_tool_access_denies_unlisted_tool() -> None:
     assert has_tool_access(role, "chat_llm") is False
 
 
-def test_role_component_in_view_with_chat_llm_in_allow_list_emits_tool_request() -> None:
+def test_role_component_in_view_with_chat_llm_in_allow_list_emits_tool_request() -> (
+    None
+):
     """A role with ``chat_llm`` in ``allowed_tools``
     emits a ``tool.chat_llm.requested`` event
     (gate 2 passes; the request goes through)."""
@@ -171,7 +173,9 @@ def test_role_component_in_view_with_chat_llm_in_allow_list_emits_tool_request()
     assert events[0].event_type == "tool.chat_llm.requested"
 
 
-def test_role_component_in_view_without_chat_llm_in_allow_list_emits_validation_failed() -> None:
+def test_role_component_in_view_without_chat_llm_in_allow_list_emits_validation_failed() -> (
+    None
+):
     """A role that does NOT include ``chat_llm`` in
     ``allowed_tools`` causes the system to emit an
     ``intent.validation_failed`` event instead of a

@@ -220,7 +220,7 @@ class TestGuardFiresOnUse:
         with pytest.raises(ImportError) as exc_info:
             create_app(
                 log=None,  # type: ignore[arg-type]
-                registry=None,  # type: ignore[arg-type]
+                worker_manager=None,  # type: ignore[arg-type]
                 verifier=None,  # type: ignore[arg-type]
             )
         msg = str(exc_info.value)

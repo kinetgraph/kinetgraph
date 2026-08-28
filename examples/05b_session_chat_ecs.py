@@ -128,7 +128,6 @@ from _lib.redis_or_fake import make_redis_client
 # kwarg is omitted.
 
 
-
 # ---------------------------------------------------------------------------
 # 2. Tools (I/O work — registered with the WorkerManager)
 # ---------------------------------------------------------------------------

@@ -181,9 +181,7 @@ class TestFoldWithFilter:
                 "metadata": {},
             },
         )
-        world, _count = fold_with_filter(
-            dispatcher, World.empty(), [session_event]
-        )
+        world, _count = fold_with_filter(dispatcher, World.empty(), [session_event])
         assert "a-1" in world.views
         assert SessionComponent in world.views["a-1"].components
 
@@ -196,9 +194,6 @@ class TestFoldWithFilter:
         ``storage.clone_with_entity`` is what makes the
         state durable across ticks.
         """
-        from kntgraph.core.components.memory import (
-            SessionComponent,
-        )
 
         cap = _Captured()
         log = _FakeEventLog(cap)
@@ -217,9 +212,7 @@ class TestFoldWithFilter:
                 "metadata": {},
             },
         )
-        world, _count = fold_with_filter(
-            dispatcher, World.empty(), [session_event]
-        )
+        world, _count = fold_with_filter(dispatcher, World.empty(), [session_event])
         rebuilt = world.storage.num_archetypes
         # The storage has at least one entity (a-2).
         # If only views were updated, storage would still
@@ -241,9 +234,7 @@ class TestFoldWithFilter:
         store = _FakeWorldStore(cap)
         dispatcher = _build_dispatcher(log=log, store=store)
         plain_event = _seed_event("a-3", "user.intent")
-        world, _count = fold_with_filter(
-            dispatcher, World.empty(), [plain_event]
-        )
+        world, _count = fold_with_filter(dispatcher, World.empty(), [plain_event])
         assert "a-3" in world.views
 
 

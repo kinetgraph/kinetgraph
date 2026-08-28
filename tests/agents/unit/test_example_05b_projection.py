@@ -79,7 +79,9 @@ def test_projection_module_does_not_monkey_patch_reactive_dispatcher(mod_05b):
     )
 
 
-def test_memory_hydration_projection_hydrates_session_component_for_user_intent(mod_05b):
+def test_memory_hydration_projection_hydrates_session_component_for_user_intent(
+    mod_05b,
+):
     """``MemoryHydrationProjection`` installs the
     ``SessionComponent`` on the agent's view when a
     ``session.started`` event lands."""
@@ -186,7 +188,9 @@ def test_memory_hydration_projection_preserves_session_component_across_ticks(mo
     # The new ``intent_event_id`` therefore points
     # to ``intent_ev_2``, the last domain event in
     # tick 2.
-    assert view.components[SessionComponent].intent_event_id == str(intent_ev_2.event_id)
+    assert view.components[SessionComponent].intent_event_id == str(
+        intent_ev_2.event_id
+    )
     # The session identity fields are preserved
     # across ticks (no clobber). The ``session_id``
     # was captured from the ``session.started``
@@ -367,9 +371,7 @@ def test_system_emits_session_recorder_on_completion(mod_05b):
     # request is in flight (no completion
     # yet), so it does nothing.
     request_ev = evs1[0]
-    world_after_request, _ = fold_with_filter(
-        inst, world_after_intent, [request_ev]
-    )
+    world_after_request, _ = fold_with_filter(inst, world_after_intent, [request_ev])
     evs2 = mod_05b.SessionChatSystem()(world_after_request)
     assert evs2 == []
     # Tick 3: the chat_llm completion lands.

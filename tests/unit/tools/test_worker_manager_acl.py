@@ -37,7 +37,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -57,7 +56,6 @@ class TestWorkerManagerACL:
         mock has ``append`` as an AsyncMock. Tests
         patch these to assert on behaviour.
         """
-        from kntgraph.tools.acl import default_acl
         from kntgraph.tools.manager import WorkerManager
 
         redis_mock = MagicMock()
@@ -70,9 +68,7 @@ class TestWorkerManagerACL:
         )
         return manager, redis_mock, event_log_mock
 
-    def _make_request(
-        self, *, producer_principal_id: str | None = None
-    ) -> Any:
+    def _make_request(self, *, producer_principal_id: str | None = None) -> Any:
         """Build a minimal request event shaped like
         what ``ToolRouter.route_batch`` produces."""
         from uuid import UUID
@@ -116,9 +112,7 @@ class TestWorkerManagerACL:
         manager, redis_mock, event_log_mock = self._make_manager()
         manager.register(LiteLLMToolWorker)
 
-        request = self._make_request(
-            producer_principal_id="tenant-a.agent-1"
-        )
+        request = self._make_request(producer_principal_id="tenant-a.agent-1")
         message_id, data = self._stream_message(request)
 
         # Stub the tool invocation so the test
@@ -155,9 +149,7 @@ class TestWorkerManagerACL:
         manager, redis_mock, event_log_mock = self._make_manager()
         manager.register(LiteLLMToolWorker, acl=default_acl())
 
-        request = self._make_request(
-            producer_principal_id="tenant-a.agent-1"
-        )
+        request = self._make_request(producer_principal_id="tenant-a.agent-1")
         message_id, data = self._stream_message(request)
 
         from unittest.mock import patch

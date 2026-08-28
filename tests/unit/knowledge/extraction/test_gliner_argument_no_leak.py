@@ -72,16 +72,21 @@ class TestExtractionPackageNoLeak:
             from kntgraph.knowledge.extraction import (
                 SLMArgumentExtractor,
             )
-            from kntgraph.tools.registry import ToolRegistry
+            from unittest.mock import AsyncMock, MagicMock
+            from kntgraph.tools.manager import WorkerManager
 
             class _StubAdapter:
                 model_name = "stub"
                 async def extract(self, text, tool_name):
                     return None
 
-            reg = ToolRegistry()
+            redis_mock = MagicMock()
+            redis_mock.xack = AsyncMock()
+            event_log_mock = MagicMock()
+            event_log_mock.append = AsyncMock()
+            mgr = WorkerManager(redis=redis_mock, event_log=event_log_mock)
             _ = SLMArgumentExtractor(
-                reg, adapter=_StubAdapter()
+                mgr, adapter=_StubAdapter()
             )
 
             # No kntgraph.agents.knowledge.argument_extractor

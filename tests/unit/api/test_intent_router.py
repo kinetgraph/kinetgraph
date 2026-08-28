@@ -20,8 +20,8 @@ Coverage
     with the same `(agent_id, type, tool, args,
     idempotency_key)` produce the same UUID5.
 
-  `ToolRegistry` lookup
-  - The gateway does NOT consult the registry
+  `WorkerManager` lookup
+  - The gateway does NOT consult the worker manager
     (ADR-065 §3.2). The dispatcher enforces
     registration (gate 1 of the three-gate ACL
     model, ADR-060 §3.0).
@@ -79,9 +79,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 from kntgraph.api import create_app  # noqa: E402
 from kntgraph.api.auth import AuthError  # noqa: E402
 from kntgraph.core.result import Err, Ok  # noqa: E402
-from kntgraph.agents.tools.protocol import Tool, ToolRegistry  # noqa: E402
+from kntgraph.tools.manager import WorkerManager  # noqa: E402
 
 from ._fake_log import FakeEventLog
+from ._fake_worker_manager import build_fake_manager
 
 
 # ---------------------------------------------------------------------------
@@ -122,34 +123,17 @@ class _FakeVerifier:
         return Ok(self._principals[api_key])
 
 
-class _FakeTool(Tool):
-    """Minimal Tool for tests; the body never runs."""
-
-    name = "fake.echo"
-    description = "Echoes the input."
-    input_schema: dict = {
-        "type": "object",
-        "properties": {"msg": {"type": "string"}},
-    }
-
-    async def invoke(
-        self, *, idempotency_key: str, **kwargs: Any
-    ) -> Any:  # pragma: no cover
-        raise NotImplementedError
-
-
 def _build_app(
     *,
     bindings: Optional[dict[str, str]] = None,
     log: Optional[FakeEventLog] = None,
-    registry: Optional[ToolRegistry] = None,
+    worker_manager: Optional[WorkerManager] = None,
 ) -> TestClient:
     bindings = bindings or {"key-for-a1": "agent-1"}
     log = log or FakeEventLog()
-    registry = registry or ToolRegistry()
-    registry.register(_FakeTool())
+    worker_manager = worker_manager or build_fake_manager()
     verifier = _FakeVerifier(bindings)
-    app = create_app(log=log, registry=registry, verifier=verifier)
+    app = create_app(log=log, worker_manager=worker_manager, verifier=verifier)
     return TestClient(app)
 
 
@@ -270,7 +254,7 @@ class TestRejection:
 
     def test_role_invoke_does_not_require_registry(self):
         """
-        Roles live outside the ToolRegistry (ADR-006).
+        Roles live outside the WorkerManager (ADR-006).
         For v1 the router accepts any `role` value and
         emits `tool.{role}.requested`. The Role
         dispatcher downstream validates.

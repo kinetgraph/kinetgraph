@@ -33,7 +33,9 @@ class TestFromAgentId:
     """
 
     def test_dotted_agent_id_derives_tenant(self):
-        p = Principal.from_agent_id("tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1")
+        p = Principal.from_agent_id(
+            "tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1"
+        )
         assert p.agent_id == "tenant-A.agent-1"
         assert p.tenant_id == "tenant-A"
         assert p.level == PrincipalLevel.agent
@@ -44,7 +46,9 @@ class TestFromAgentId:
         single-tenant form. We must NOT silently set
         `tenant_id=None` (admin-only) — the agent
         owns its own tenant."""
-        p = Principal.from_agent_id("solo-agent", level=PrincipalLevel.agent, key_id="k1")
+        p = Principal.from_agent_id(
+            "solo-agent", level=PrincipalLevel.agent, key_id="k1"
+        )
         assert p.agent_id == "solo-agent"
         assert p.tenant_id == "solo-agent"
 
@@ -111,7 +115,9 @@ class TestFromAgentId:
         """`Principal.owns(agent_id)` must work for
         the dotted form (the most common case from
         the factory)."""
-        p = Principal.from_agent_id("tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1")
+        p = Principal.from_agent_id(
+            "tenant-A.agent-1", level=PrincipalLevel.agent, key_id="k1"
+        )
         assert p.owns("tenant-A") is True
         assert p.owns("tenant-A.agent-1") is True
         assert p.owns("tenant-A.other") is True
@@ -121,7 +127,9 @@ class TestFromAgentId:
     def test_owns_works_for_single_segment(self):
         """The legacy `agent_id == tenant_id` form
         must also work for `owns`."""
-        p = Principal.from_agent_id("solo-agent", level=PrincipalLevel.agent, key_id="k1")
+        p = Principal.from_agent_id(
+            "solo-agent", level=PrincipalLevel.agent, key_id="k1"
+        )
         assert p.owns("solo-agent") is True
         # `solo-agent.x` lives "under" the tenant.
         assert p.owns("solo-agent.x") is True
@@ -137,7 +145,9 @@ class TestFromAgentIdRoundTrip:
 
     def test_matches_handwritten_construction(self):
         agent_id = "tenant-A.agent-1"
-        p_factory = Principal.from_agent_id(agent_id, level=PrincipalLevel.agent, key_id="k1")
+        p_factory = Principal.from_agent_id(
+            agent_id, level=PrincipalLevel.agent, key_id="k1"
+        )
         p_hand = Principal(
             agent_id=agent_id,
             level=PrincipalLevel.agent,
@@ -147,7 +157,9 @@ class TestFromAgentIdRoundTrip:
         assert p_factory == p_hand
 
     def test_legacy_form_matches_handwritten(self):
-        p_factory = Principal.from_agent_id("solo", level=PrincipalLevel.agent, key_id="k1")
+        p_factory = Principal.from_agent_id(
+            "solo", level=PrincipalLevel.agent, key_id="k1"
+        )
         p_hand = Principal(
             agent_id="solo",
             level=PrincipalLevel.agent,

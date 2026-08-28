@@ -20,7 +20,7 @@ The class depends on:
 
   - ``kntgraph.knowledge.extraction.base`` (the
     ``ArgumentExtractor`` Protocol + ``ArgExtraction``).
-  - ``kntgraph.tools.registry`` (``ToolRegistry``
+  - ``kntgraph.tools.manager`` (``WorkerManager``
     for schema lookup).
   - ``kntgraph.tools.schema`` (``FieldSpec``,
     ``walk_schema``, ``compute_schema_version``).
@@ -54,7 +54,7 @@ from kntgraph.tools.schema import (
 )
 
 if TYPE_CHECKING:
-    from kntgraph.tools.registry import ToolRegistry
+    from kntgraph.tools.manager import WorkerManager
     from kntgraph.tools.schema import FieldSpec
 
 
@@ -65,7 +65,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
     package the result as an `ArgExtraction`.
 
     Construction takes:
-      - `registry`: the `ToolRegistry` whose tools'
+      - `worker_manager`: the `WorkerManager` whose tools'
         schemas are the source of truth.
       - `finder`: a `FieldFinder`. Production uses
         `GlinerFieldFinder`; tests use a fake.
@@ -81,13 +81,13 @@ class SchemaArgumentExtractor(ArgumentExtractor):
 
     def __init__(
         self,
-        registry: "ToolRegistry",
+        worker_manager: "WorkerManager",
         finder: FieldFinder,
         *,
         field_threshold: Optional[float] = None,
     ) -> None:
-        if registry is None:
-            raise ValueError("registry is required")
+        if worker_manager is None:
+            raise ValueError("worker_manager is required")
         if finder is None:
             raise ValueError("finder is required")
         effective_threshold = (
@@ -99,7 +99,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
             raise ValueError(
                 f"field_threshold must be in [0, 1], got {effective_threshold!r}"
             )
-        self._registry = registry
+        self._worker_manager = worker_manager
         self._finder = finder
         self._field_threshold = effective_threshold
 
@@ -121,7 +121,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
           - empty / whitespace-only `text`;
           - tools with no scalar properties in the schema.
         """
-        tool = self._registry.get(tool_name)
+        tool = self._worker_manager.get(tool_name)
         if tool is None:
             raise ToolError(f"tool {tool_name!r} not registered")
         schema = tool.input_schema

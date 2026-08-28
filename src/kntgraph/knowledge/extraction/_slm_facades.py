@@ -108,7 +108,7 @@ from kntgraph.knowledge.extraction.base import (
 )
 
 if TYPE_CHECKING:
-    from kntgraph.tools.registry import ToolRegistry
+    from kntgraph.tools.manager import WorkerManager
 
 
 class SLMEntityExtractor(EntityExtractorWithMentions):
@@ -289,7 +289,7 @@ class SLMArgumentExtractor(ArgumentExtractor):
 
     def __init__(
         self,
-        registry: "ToolRegistry",
+        worker_manager: "WorkerManager",
         *,
         adapter: Optional[ArgumentExtractor] = None,
         model_name: str | None = None,
@@ -298,7 +298,7 @@ class SLMArgumentExtractor(ArgumentExtractor):
     ) -> None:
         """
         Args:
-          registry: forwarded to the default adapter.
+          worker_manager: forwarded to the default adapter.
             Ignored when ``adapter`` is supplied.
           adapter: the low-level adapter. When ``None``
             (default), the facade instantiates
@@ -324,7 +324,7 @@ class SLMArgumentExtractor(ArgumentExtractor):
             )
 
             self._adapter = GlinerArgumentAdapter(
-                registry,
+                worker_manager,
                 model_name=model_name,
                 device=device,
                 field_threshold=field_threshold,

@@ -45,8 +45,6 @@ from pathlib import Path
 
 import pytest
 
-from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.world import World
 
 # Reuse the existing test harness so the new tests
 # exercise the same projection shim the project uses
@@ -287,5 +285,3 @@ class TestRegisterFromYaml:
         assert rule.message_pattern == ""
         assert rule.response == "fallback defaults"
         assert rule.priority == 0
-
-

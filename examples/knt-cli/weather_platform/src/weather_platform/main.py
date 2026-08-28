@@ -9,7 +9,6 @@ from kntgraph.api import create_app
 from kntgraph.api.auth import APIKeyVerifier, AuthError
 from kntgraph.security import Principal, Role
 from kntgraph.core.result import Ok, Err
-from kntgraph.agents.tools.protocol import ToolRegistry
 from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._pool import create_redis_pool
@@ -85,14 +84,13 @@ def build_monolith():
     for tool in get_weather_tools():
         worker_manager.register(type(tool))
 
-    # Configure API Gateway (Intent Router)
-    registry = ToolRegistry()
-    for tool in get_weather_tools():
-        registry.register(tool)
-
+    # Configure API Gateway (Intent Router).
+    # Tools register exclusively via ``worker_manager``
+    # above (ADR-066 §4.4: the legacy ``ToolRegistry``
+    # was removed in v0.18).
     verifier = StaticAPIKeyVerifier()
 
-    app = create_app(log=log, registry=registry, verifier=verifier)
+    app = create_app(log=log, worker_manager=worker_manager, verifier=verifier)
     app.router.lifespan_context = lifespan
     return app
 

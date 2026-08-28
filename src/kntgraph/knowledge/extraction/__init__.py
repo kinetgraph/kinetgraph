@@ -60,8 +60,10 @@ The argument-extraction subpackage
 :class:`FieldFinder`) used to live in
 :mod:`kntgraph.agents.knowledge.argument_extractor` because
 the historical implementation depended on
-:class:`kntgraph.agents.tools.protocol.ToolRegistry` — a
-vertical concept.
+:class:`kntgraph.tools.manager.WorkerManager` — a
+framework concept (the historical
+:class:`ToolRegistry` was removed in v0.18 per
+ADR-066).
 
 Iter 27: :class:`GlinerArgumentAdapter` (the canonical
 default backing of :class:`SLMArgumentExtractor`)

@@ -335,6 +335,7 @@ class TestInvokeRetryPolicy:
                 _ok_completion(text="hi"),
             ]
         )
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -368,6 +369,7 @@ class TestInvokeRetryPolicy:
                 LLMRateLimitError("provider 429 c"),
             ]
         )
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -393,9 +395,8 @@ class TestInvokeRetryPolicy:
         ``retry_on`` tuple — credentials do not fix
         themselves on retry. The worker surfaces it
         on the first attempt (no second/third call)."""
-        worker, fake_transport = self._patched_worker(
-            [LLMAuthError("bad api key")]
-        )
+        worker, fake_transport = self._patched_worker([LLMAuthError("bad api key")])
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -427,6 +428,7 @@ class TestInvokeRetryPolicy:
         worker, fake_transport = self._patched_worker(
             [asyncio.TimeoutError(), _ok_completion(text="ok")]
         )
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -452,6 +454,7 @@ class TestInvokeRetryPolicy:
         worker, fake_transport = self._patched_worker(
             [_ok_completion(text="fast", model="openai/gpt-4o-mini")]
         )
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -498,6 +501,7 @@ class TestInvokeRetryPolicy:
             max_delay=0.05,
             retry_on=(LLMRateLimitError, asyncio.TimeoutError),
         )
+
         async def go():
             with patch(
                 "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
@@ -575,7 +579,6 @@ class TestDropParamsPerCall:
         a ``git blame`` reveals the intent).
         """
         import inspect
-        import os
 
         from kntgraph.agents.tools import llm
 
@@ -616,9 +619,7 @@ class TestDropParamsPerCall:
                 )
 
 
-def _ok_completion(
-    *, text: str = "ok", model: str = "fake/model"
-) -> dict[str, Any]:
+def _ok_completion(*, text: str = "ok", model: str = "fake/model") -> dict[str, Any]:
     """Helper: a transport-shaped completion dict
     that the worker can parse into the public
     envelope."""

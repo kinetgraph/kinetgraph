@@ -47,7 +47,7 @@ from kntgraph.knowledge.extraction.argument._extractor import (
 from kntgraph.knowledge.extraction import (
     SLMArgumentExtractor,
 )
-from kntgraph.tools.registry import ToolRegistry
+from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.schema import (
     FieldSpec,
 )
@@ -207,10 +207,16 @@ class TestCoerce:
 # ---------------------------------------------------------------------------
 
 
-def _make_registry_with_schema(schema: dict) -> ToolRegistry:
-    """Build a ``ToolRegistry`` with a single Tool that
+def _make_manager_with_schema(schema: dict) -> WorkerManager:
+    """Build a ``WorkerManager`` with a single tool that
     has the given input_schema. Used to exercise
-    ``SchemaArgumentExtractor`` end-to-end."""
+    ``SchemaArgumentExtractor`` end-to-end.
+
+    The stub class is registered with ``acl=None`` (no
+    constraint) so the manager does not warn. The
+    ``invoke`` body never runs.
+    """
+    from unittest.mock import AsyncMock, MagicMock
 
     class _StubTool:
         name = "test.tool"
@@ -222,32 +228,36 @@ def _make_registry_with_schema(schema: dict) -> ToolRegistry:
 
             return Ok({})
 
-    reg = ToolRegistry()
-    reg.register(_StubTool())  # type: ignore[arg-type]
-    return reg
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    event_log_mock = MagicMock()
+    event_log_mock.append = AsyncMock()
+    manager = WorkerManager(redis=redis_mock, event_log=event_log_mock)
+    manager.register(_StubTool, acl=None)
+    return manager
 
 
 class TestSchemaArgumentExtractor:
-    def test_registry_required(self) -> None:
-        with pytest.raises(ValueError, match="registry is required"):
+    def test_worker_manager_required(self) -> None:
+        with pytest.raises(ValueError, match="worker_manager is required"):
             SchemaArgumentExtractor(None, _StubFinder({}))  # type: ignore[arg-type]
 
     def test_finder_required(self) -> None:
-        reg = _make_registry_with_schema({})
+        mgr = _make_manager_with_schema({})
         with pytest.raises(ValueError, match="finder is required"):
-            SchemaArgumentExtractor(reg, None)  # type: ignore[arg-type]
+            SchemaArgumentExtractor(mgr, None)  # type: ignore[arg-type]
 
     def test_field_threshold_bounds(self) -> None:
-        reg = _make_registry_with_schema({})
+        mgr = _make_manager_with_schema({})
         with pytest.raises(ValueError, match=r"field_threshold must be in"):
             SchemaArgumentExtractor(
-                reg,
+                mgr,
                 _StubFinder({}),
                 field_threshold=1.5,
             )
 
     def test_threshold_filter_drops_low_confidence(self) -> None:
-        reg = _make_registry_with_schema(
+        mgr = _make_manager_with_schema(
             {
                 "type": "object",
                 "properties": {"x": {"type": "string"}},
@@ -255,7 +265,7 @@ class TestSchemaArgumentExtractor:
             }
         )
         finder = _StubFinder({"x": ("value", 0.3)})
-        ext = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ext = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         # 0.3 < 0.5, so the field is dropped.
         import asyncio
 
@@ -263,14 +273,14 @@ class TestSchemaArgumentExtractor:
         assert result.fields == {}
 
     def test_threshold_filter_keeps_high_confidence(self) -> None:
-        reg = _make_registry_with_schema(
+        mgr = _make_manager_with_schema(
             {
                 "type": "object",
                 "properties": {"x": {"type": "string"}},
             }
         )
         finder = _StubFinder({"x": ("value", 0.9)})
-        ext = SchemaArgumentExtractor(reg, finder, field_threshold=0.5)
+        ext = SchemaArgumentExtractor(mgr, finder, field_threshold=0.5)
         import asyncio
 
         result = asyncio.run(ext.extract("text", "test.tool"))
@@ -278,21 +288,21 @@ class TestSchemaArgumentExtractor:
         assert result.confidences == {"x": 0.9}
 
     def test_unknown_tool_raises(self) -> None:
-        reg = _make_registry_with_schema({})
-        ext = SchemaArgumentExtractor(reg, _StubFinder({}))
+        mgr = _make_manager_with_schema({})
+        ext = SchemaArgumentExtractor(mgr, _StubFinder({}))
         import asyncio
 
         with pytest.raises(Exception):
             asyncio.run(ext.extract("text", "unregistered-tool"))
 
     def test_empty_text_returns_empty_extraction(self) -> None:
-        reg = _make_registry_with_schema(
+        mgr = _make_manager_with_schema(
             {
                 "type": "object",
                 "properties": {"x": {"type": "string"}},
             }
         )
-        ext = SchemaArgumentExtractor(reg, _StubFinder({}))
+        ext = SchemaArgumentExtractor(mgr, _StubFinder({}))
         import asyncio
 
         result = asyncio.run(ext.extract("", "test.tool"))
@@ -369,9 +379,9 @@ class TestSLMArgumentExtractorAfterIter28:
             GlinerArgumentAdapter,
         )
 
-        reg = _make_registry_with_schema({})
+        mgr = _make_manager_with_schema({})
         with patch.object(GlinerArgumentAdapter, "__init__", return_value=None):
-            facade = SLMArgumentExtractor(reg)
+            facade = SLMArgumentExtractor(mgr)
         assert isinstance(facade._adapter, GlinerArgumentAdapter)
 
 

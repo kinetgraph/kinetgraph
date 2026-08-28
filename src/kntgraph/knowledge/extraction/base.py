@@ -376,7 +376,7 @@ class ArgumentExtractor(Protocol):
     Populate a Tool's `input_schema` from the user's text.
 
     The extractor takes the target tool name (so it can
-    look up the schema in the `ToolRegistry`) and the
+    look up the schema in the `WorkerManager`) and the
     text to extract from. The schema is the source of
     truth for which fields to extract and of which type
     — the extractor must NOT guess at fields that are

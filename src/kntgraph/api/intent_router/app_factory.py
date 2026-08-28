@@ -35,7 +35,7 @@ raises a clear ``ImportError`` pointing at
 
 from __future__ import annotations
 
-from kntgraph.tools.registry import ToolRegistry
+from kntgraph.tools.manager import WorkerManager
 
 from ..._optional import require_optional
 from ...infra.config import fresh_settings
@@ -55,7 +55,7 @@ from .routes import (
 def _create_app(
     *,
     log: EventLog,
-    registry: ToolRegistry,
+    worker_manager: WorkerManager,
     verifier: APIKeyVerifier,
 ):
     """
@@ -67,8 +67,8 @@ def _create_app(
     `import kntgraph.api` itself does not require
     FastAPI to be installed — only the call to
     ``create_app`` / ``_create_app`` does. The
-    :func:`kntgraph._optional.require_optional`
-    helper raises a clear ``ImportError`` pointing at
+    :func:`kntgraph._optional.require_optional` helper
+    raises a clear ``ImportError`` pointing at
     ``kntgraph[api]`` if it is missing.
     """
     fastapi = require_optional(
@@ -106,7 +106,7 @@ def _create_app(
                 "HTTP gateway for the FMH framework. "
                 "Produces `tool.{name}.requested` events "
                 "into the EventLog; consults the "
-                "ToolRegistry to reject unknown tools "
+                "WorkerManager to reject unknown tools "
                 "before they enter the log. See "
                 "ADR-012 for the contract."
             ),
@@ -122,7 +122,7 @@ def _create_app(
             FastAPI,
             Depends=Depends,
             Principal=Principal,
-            registry=registry,
+            worker_manager=worker_manager,
             auth=auth,
         )
         register_post_intent(
@@ -133,7 +133,7 @@ def _create_app(
             HTTPException=HTTPException,
             Principal=Principal,
             log=log,
-            registry=registry,
+            worker_manager=worker_manager,
             auth=auth,
         )
         register_get_status(
@@ -161,39 +161,39 @@ def _create_app(
 def create_app(
     *,
     log: EventLog,
-    registry: ToolRegistry,
+    worker_manager: WorkerManager,
     verifier: APIKeyVerifier,
 ):
     """
-        Public factory. Wraps the internal `_create_app`
-        so the call site reads naturally.
+    Public factory. Wraps the internal `_create_app`
+    so the call site reads naturally.
 
-        `fastapi` is an optional dependency — see
-        :func:`_create_app` for the import strategy. The
-        return type is left unannotated so the module is
-        importable without FastAPI; production callers see
-        a ``fastapi.FastAPI`` instance at runtime.
+    `fastapi` is an optional dependency — see
+    :func:`_create_app` for the import strategy. The
+    return type is left unannotated so the module is
+    importable without FastAPI; production callers see
+    a ``fastapi.FastAPI`` instance at runtime.
 
-        Usage
-        -----
+    Usage
+    -----
 
-        ```python
-        from kntgraph.api import create_app
-        from kntgraph.api.auth import RedisAPIKeyVerifier
-    from kntgraph.tools.registry import ToolRegistry
+    ```python
+    from kntgraph.api import create_app
+    from kntgraph.api.auth import RedisAPIKeyVerifier
+    from kntgraph.tools.manager import WorkerManager
 
-        registry = ToolRegistry()
-        registry.register(my_tool)
-        verifier = RedisAPIKeyVerifier(redis_client)
-        app = create_app(
-            log=event_log,
-            registry=registry,
-            verifier=verifier,
-        )
-        # uvicorn.run(app, host="0.0.0.0", port=8000)
-        ```
+    worker_manager = WorkerManager(...)
+    worker_manager.register(MyWorker, acl=default_acl())
+    verifier = RedisAPIKeyVerifier(redis_client)
+    app = create_app(
+        log=event_log,
+        worker_manager=worker_manager,
+        verifier=verifier,
+    )
+    # uvicorn.run(app, host="0.0.0.0", port=8000)
+    ```
     """
-    return _create_app(log=log, registry=registry, verifier=verifier)
+    return _create_app(log=log, worker_manager=worker_manager, verifier=verifier)
 
 
 __all__ = [

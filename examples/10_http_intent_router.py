@@ -19,12 +19,12 @@ Roles via HTTP. The router:
      to learn of the outcome (success or
      `intent.validation_failed`).
 
-The framework's core (ToolInvoker, ToolRegistry,
-EventLog) is unchanged. The router is **one** HTTP
-adapter; CLI, batch, and replay still work without it.
+The framework's core (WorkerManager, EventLog)
+is unchanged. The router is **one** HTTP adapter;
+CLI, batch, and replay still work without it.
 
 > **Note** — the gateway does not consult the
-> ``ToolRegistry`` (ADR-065 §3.2). The registration
+> ``WorkerManager`` (ADR-065 §3.2). The registration
 > check is the dispatcher's job (gate 1 of the
 > three-gate ACL model, ADR-060 §3.0). The
 > ``echo`` tool below is registered so the example
@@ -51,7 +51,8 @@ from kntgraph.api import create_app
 from kntgraph.api.auth import AuthError
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, Result
-from kntgraph.agents.tools.protocol import Tool, ToolRegistry
+from kntgraph.tools.manager import WorkerManager
+from kntgraph.tools.worker import tool_worker
 
 
 # ---------------------------------------------------------------------------
@@ -82,18 +83,12 @@ class InMemoryEventLog:
 # ---------------------------------------------------------------------------
 
 
-class EchoTool(Tool):
-    """A toy Tool that echoes its input."""
+@tool_worker(name="echo", description="Echoes the input back to the caller.")
+class EchoWorker:
+    """A toy ``@tool_worker`` that echoes its input."""
 
-    name = "echo"
-    description = "Echoes the input back to the caller."
-    input_schema: dict = {
-        "type": "object",
-        "properties": {"msg": {"type": "string"}},
-    }
-
-    async def invoke(self, *, idempotency_key: str, **kwargs) -> dict:
-        return {"echo": kwargs.get("msg", "")}
+    async def invoke(self, *, idempotency_key: str, msg: str = "") -> dict:
+        return {"echo": msg}
 
 
 # ---------------------------------------------------------------------------
@@ -146,11 +141,22 @@ class StaticAPIKeyVerifier:
 
 
 def build_app() -> TestClient:
-    registry = ToolRegistry()
-    registry.register(EchoTool())
+    from unittest.mock import AsyncMock, MagicMock
+
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    worker_manager = WorkerManager(
+        redis=redis_mock,
+        event_log=InMemoryEventLog(),  # type: ignore[arg-type]
+    )
+    worker_manager.register(EchoWorker, acl=None)
     log = InMemoryEventLog()
     verifier = StaticAPIKeyVerifier(key="demo-key", agent_id="demo-agent")
-    app = create_app(log=log, registry=registry, verifier=verifier)
+    app = create_app(
+        log=log,  # type: ignore[arg-type]
+        worker_manager=worker_manager,
+        verifier=verifier,
+    )
     return TestClient(app), log
 
 
@@ -183,9 +189,7 @@ def main() -> None:
         },
     )
     print(f"[3] ghost tool: {r.status_code} {r.json()}")
-    assert r.status_code == 202, (
-        "the gateway no longer 404s on unknown tools"
-    )
+    assert r.status_code == 202, "the gateway no longer 404s on unknown tools"
     assert len(log.events) == 1, "the event IS emitted"
     ghost_event = log.events[0]
     assert ghost_event.event_type == "tool.ghost.tool.requested"

@@ -64,20 +64,9 @@ def _build_app_with_log(log):
     from kntgraph.api import create_app
     from kntgraph.api.auth import AuthError
     from kntgraph.core.result import Err, Ok
-    from kntgraph.agents.tools.protocol import Tool
     from kntgraph.security import Principal, PrincipalLevel
-    from kntgraph.tools.registry import ToolRegistry
 
-    class _FakeTool(Tool):
-        name = "fake.echo"
-        description = "Echoes the input."
-        input_schema: dict = {
-            "type": "object",
-            "properties": {"msg": {"type": "string"}},
-        }
-
-        async def invoke(self, *, idempotency_key: str, **kwargs):
-            raise NotImplementedError
+    from ._fake_worker_manager import build_fake_manager
 
     class _FakeVerifier:
         def __init__(self, bindings):
@@ -99,12 +88,11 @@ def _build_app_with_log(log):
                 return Err(AuthError("forbidden", "key not recognised"))
             return Ok(self._principals[api_key])
 
-    registry = ToolRegistry()
-    registry.register(_FakeTool())
+    worker_manager = build_fake_manager()
     verifier = _FakeVerifier({"key-for-a1": "agent-1"})
     app = create_app(
         log=log,  # type: ignore[arg-type]
-        registry=registry,
+        worker_manager=worker_manager,
         verifier=verifier,
     )
     return app
@@ -382,9 +370,7 @@ class TestSseSubscribe:
             headers={"X-API-Key": "key-for-a1"},
         ) as r:
             assert r.status_code == 200
-            assert r.headers["content-type"].startswith(
-                "text/event-stream"
-            )
+            assert r.headers["content-type"].startswith("text/event-stream")
             assert r.headers["cache-control"] == "no-cache"
             assert r.headers["x-accel-buffering"] == "no"
             # Drain to close cleanly.
@@ -441,11 +427,7 @@ class TestSseSubscribe:
                 headers={"X-API-Key": "key-for-a1"},
             )
         assert r.status_code == 200
-        deprecations = [
-            w
-            for w in caught
-            if issubclass(w.category, DeprecationWarning)
-        ]
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
         assert deprecations, "expected DeprecationWarning"
         msg = str(deprecations[0].message)
         assert "/events/some-pending-id/status" in msg

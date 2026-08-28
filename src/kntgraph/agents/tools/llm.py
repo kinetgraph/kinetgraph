@@ -755,6 +755,7 @@ class LiteLLMToolWorker:
             idempotency_key=idempotency_key,
             extra={"think": think, "stream": stream},
         )
+
         # ``with_timeout_and_retry`` returns the function's
         # result on first success. ``BackoffPolicy`` decides
         # which exceptions trigger a retry (and how long to

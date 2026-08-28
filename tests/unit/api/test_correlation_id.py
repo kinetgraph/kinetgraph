@@ -56,27 +56,13 @@ class TestCorrelationIdDerivation:
         from kntgraph.api import create_app
         from kntgraph.api.auth import AuthError
         from kntgraph.core.result import Err, Ok
-        from kntgraph.agents.tools.protocol import (
-            Tool,
-        )
         from kntgraph.security import (
             Principal,
             PrincipalLevel,
         )
-        from kntgraph.tools.registry import ToolRegistry
 
         from ._fake_log import FakeEventLog
-
-        class _FakeTool(Tool):
-            name = "fake.echo"
-            description = "Echoes the input."
-            input_schema: dict = {
-                "type": "object",
-                "properties": {"msg": {"type": "string"}},
-            }
-
-            async def invoke(self, *, idempotency_key: str, **kwargs):
-                raise NotImplementedError
+        from ._fake_worker_manager import build_fake_manager
 
         class _FakeVerifier:
             def __init__(self, bindings):
@@ -98,13 +84,12 @@ class TestCorrelationIdDerivation:
                     return Err(AuthError("forbidden", "key not recognised"))
                 return Ok(self._principals[api_key])
 
-        registry = ToolRegistry()
-        registry.register(_FakeTool())
+        worker_manager = build_fake_manager()
         log = FakeEventLog()
         verifier = _FakeVerifier({"key-for-a1": "agent-1"})
         app = create_app(
             log=log,  # type: ignore[arg-type]
-            registry=registry,
+            worker_manager=worker_manager,
             verifier=verifier,
         )
         return TestClient(app), log

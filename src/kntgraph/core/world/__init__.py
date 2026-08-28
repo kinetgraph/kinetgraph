@@ -69,5 +69,6 @@ __all__ = [
     "Projection",
     "World",
     "WorldQuery",
+    "domain_component",
     "project_default",
 ]

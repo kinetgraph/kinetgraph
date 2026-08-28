@@ -103,7 +103,7 @@ from kntgraph.knowledge.extraction.base import (
 
 
 if TYPE_CHECKING:
-    from kntgraph.tools.registry import ToolRegistry
+    from kntgraph.tools.manager import WorkerManager
 
 
 class GlinerArgumentAdapter(ArgumentExtractor):
@@ -143,7 +143,7 @@ class GlinerArgumentAdapter(ArgumentExtractor):
 
     def __init__(
         self,
-        registry: "ToolRegistry",
+        worker_manager: "WorkerManager",
         *,
         model_name: str | None = None,
         device: Optional[str] = None,
@@ -160,7 +160,7 @@ class GlinerArgumentAdapter(ArgumentExtractor):
         model_name = self._resolve_model_name(model_name)
         finder = GlinerFieldFinder(model_name=model_name, device=device)
         self._inner = SchemaArgumentExtractor(
-            registry,
+            worker_manager,
             finder,
             field_threshold=field_threshold,
         )
