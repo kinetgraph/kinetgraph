@@ -45,7 +45,7 @@ from typing import Optional
 
 import structlog
 
-from ..core.event import Event
+from ..core.event import Event, correlation_middleware
 from ..core.system import CyclicSystem
 from ..core.world import World
 from ..stream.event_log import EventLog
@@ -106,14 +106,21 @@ class Runner:
         """
         # 1. Pure replay
         world = await self._fold()
-        # 2. Apply cyclic systems (pure)
+        # 2. Apply cyclic systems (pure) — bind a correlation
+        # scope so systems that call
+        # ``correlation_middleware.current()`` (e.g. to build
+        # events via ``Event.domain_from``) receive a
+        # non-None ``CorrelationContext`` per ADR-037. Without
+        # this, the contextvar is empty inside the tick and
+        # ``Event.create`` raises ``TypeError``.
         new_events: list[Event] = []
-        for sys in self._systems:
-            out = sys(world)
-            # Accept both sync returns and awaitables
-            if not isinstance(out, list):
-                out = await out
-            new_events.extend(out)
+        with correlation_middleware.scope():
+            for sys in self._systems:
+                out = sys(world)
+                # Accept both sync returns and awaitables
+                if not isinstance(out, list):
+                    out = await out
+                new_events.extend(out)
         # 3. Append (idempotent side effect)
         if new_events:
             result = await self._log.append_batch(new_events)
