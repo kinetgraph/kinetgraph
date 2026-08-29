@@ -41,7 +41,10 @@ not benefit from archetype indexing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +69,7 @@ class SessionComponent:
     session_id: str
     user_id: str
     tenant_id: str
-    messages: tuple[dict, ...] = ()
+    messages: tuple[dict[str, "JsonValue"], ...] = ()
     context: dict[str, str] = field(default_factory=dict)
     started_at: float = 0.0
     ended_at: Optional[float] = None

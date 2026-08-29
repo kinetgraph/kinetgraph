@@ -210,7 +210,9 @@ class CheckpointStore:
             )
             return {}
         out: dict[str, ReactiveCheckpoint] = {}
-        for agent_id, data in result.ok_value().items():
+        raw = result.ok_value()
+        assert raw is not None  # is_err() guard above ensures this
+        for agent_id, data in raw.items():
             try:
                 out[agent_id] = ReactiveCheckpoint.from_dict(
                     agent_id,
