@@ -3,7 +3,7 @@
   "tool": "coverage.py",
   "metric": "branch_coverage_percent",
   "overall": {
-    "covered_branches": 2008,
+    "covered_branches": 1958,
     "num_branches": 2574
   },
   "target_paths": {

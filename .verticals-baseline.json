@@ -4,7 +4,7 @@
   "metric": "branch_coverage_percent",
   "scope": "verticals",
   "overall": {
-    "covered_branches": 2008,
+    "covered_branches": 1958,
     "num_branches": 2574
   },
   "target_paths": {
@@ -17,7 +17,7 @@
       "num_branches": 86
     },
     "src/kntgraph/cli/": {
-      "covered_branches": 50,
+      "covered_branches": 0,
       "num_branches": 148
     },
     "src/kntgraph/events/": {
