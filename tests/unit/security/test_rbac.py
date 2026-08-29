@@ -48,8 +48,7 @@ from kntgraph.security import (
     Resource,
     principal_ctx,
 )
-from kntgraph.tools.acl import ToolACL
-from kntgraph.agents.tools.protocol import Tool, ToolRegistry
+from kntgraph.tools.acl import ToolACL, default_acl
 
 # Module-wide asyncio mode. Sync tests live inside
 # async-compatible classes (no own event loop); the
@@ -320,11 +319,11 @@ class TestToolACL:
 
 
 # ---------------------------------------------------------------------------
-# ToolRegistry — ACL wiring
+# WorkerManager — ACL wiring (migrated from ToolRegistry in v0.18)
 # ---------------------------------------------------------------------------
 
 
-class _EchoTool(Tool):
+class _EchoTool:
     name = "echo"
     description = "echo"
     input_schema: dict = {}
@@ -333,32 +332,32 @@ class _EchoTool(Tool):
         return {"echo": kwargs}
 
 
-class TestToolRegistryACL:
+class TestWorkerManagerACL:
+    def _make_manager(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from kntgraph.tools.manager import WorkerManager
+
+        redis_mock = MagicMock()
+        redis_mock.xack = AsyncMock()
+        event_log_mock = MagicMock()
+        event_log_mock.append = AsyncMock()
+        return WorkerManager(redis=redis_mock, event_log=event_log_mock)
+
     async def test_default_acl_applied_on_register(self):
-        reg = ToolRegistry()
-        reg.register(_EchoTool())
-        acl = reg.acl_for("echo")
+        mgr = self._make_manager()
+        mgr.register(_EchoTool, acl=default_acl())
+        acl = mgr.acl_for("echo")
         assert acl is not None
         assert acl.required_level == PrincipalLevel.agent
 
     async def test_custom_acl_applied(self):
-        reg = ToolRegistry()
-        reg.register(
-            _EchoTool(),
+        mgr = self._make_manager()
+        mgr.register(
+            _EchoTool,
             acl=ToolACL(required_level=PrincipalLevel.admin),
         )
-        assert reg.acl_for("echo").required_level == PrincipalLevel.admin
-
-    async def test_set_acl_replaces(self):
-        reg = ToolRegistry()
-        reg.register(_EchoTool())
-        reg.set_acl("echo", ToolACL(required_level=PrincipalLevel.admin))
-        assert reg.acl_for("echo").required_level == PrincipalLevel.admin
-
-    async def test_set_acl_unknown_tool_raises(self):
-        reg = ToolRegistry()
-        with pytest.raises(KeyError):
-            reg.set_acl("never-registered", ToolACL())
+        assert mgr.acl_for("echo").required_level == PrincipalLevel.admin
 
 
 # ---------------------------------------------------------------------------

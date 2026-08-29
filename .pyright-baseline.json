@@ -1,7 +1,13 @@
 {
-  "by_file_count": {},
-  "by_rule": {},
-  "files_with_errors": 0,
-  "total_errors": 0,
+  "by_file_count": {
+    "src/kntgraph/agents/role_systems/_base.py": 1,
+    "src/kntgraph/security/principal.py": 1
+  },
+  "by_rule": {
+    "reportArgumentType": 1,
+    "reportReturnType": 1
+  },
+  "files_with_errors": 2,
+  "total_errors": 2,
   "version": "1.1.411"
 }

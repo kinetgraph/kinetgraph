@@ -1,13 +1,14 @@
+---
+name: kntgraph-ci-gate
+description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 12-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Covers py_compile, ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression.
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 kinetgraph
 
 SPDX-License-Identifier: Apache-2.0
 -->
 
----
-name: kntgraph-ci-gate
-description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 12-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Covers py_compile, ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression.
----
 
 # The single CI gate (`scripts/ci.py`)
 

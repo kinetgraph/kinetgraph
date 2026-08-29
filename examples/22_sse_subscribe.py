@@ -62,7 +62,8 @@ import warnings
 
 from fastapi.testclient import TestClient
 
-from kntgraph.agents.tools.protocol import Tool, ToolRegistry
+from kntgraph.tools.manager import WorkerManager
+from kntgraph.tools.worker import tool_worker
 from kntgraph.api import create_app
 from kntgraph.api.auth import AuthError
 from kntgraph.core.event import Event
@@ -112,23 +113,17 @@ class InMemoryEventLog:
 # A minimal echo tool. Production code would import
 # from ``fmh_agents.tools`` or register an
 # ``@tool_worker``-decorated class via
-# ``WorkerManager``. The example uses the legacy
-# ``Tool`` Protocol to keep the wiring minimal.
+# ``WorkerManager``. The example uses a minimal
+# ``@tool_worker`` to keep the wiring minimal.
 # ---------------------------------------------------------------------------
 
 
-class EchoTool(Tool):
+@tool_worker(name="echo", description="Echoes the input back to the caller.")
+class EchoWorker:
     """Echoes the input back to the caller."""
 
-    name = "echo"
-    description = "Echoes the input back to the caller."
-    input_schema: dict = {
-        "type": "object",
-        "properties": {"msg": {"type": "string"}},
-    }
-
-    async def invoke(self, *, idempotency_key: str, **kwargs) -> dict:
-        return {"echo": kwargs.get("msg", "")}
+    async def invoke(self, *, idempotency_key: str, msg: str = "") -> dict:
+        return {"echo": msg}
 
 
 # ---------------------------------------------------------------------------
@@ -179,11 +174,22 @@ class StaticAPIKeyVerifier:
 
 
 def build_client() -> tuple[TestClient, InMemoryEventLog]:
-    registry = ToolRegistry()
-    registry.register(EchoTool())
+    from unittest.mock import AsyncMock, MagicMock
+
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    worker_manager = WorkerManager(
+        redis=redis_mock,
+        event_log=InMemoryEventLog(),  # type: ignore[arg-type]
+    )
+    worker_manager.register(EchoWorker, acl=None)
     log = InMemoryEventLog()
     verifier = StaticAPIKeyVerifier(key="demo-key", agent_id="demo-agent")
-    app = create_app(log=log, registry=registry, verifier=verifier)
+    app = create_app(
+        log=log,  # type: ignore[arg-type]
+        worker_manager=worker_manager,
+        verifier=verifier,
+    )
     return TestClient(app), log
 
 
@@ -411,11 +417,9 @@ def scenario_legacy_status_emits_deprecation() -> None:
             headers={"X-API-Key": "demo-key"},
         )
     assert r.status_code == 200, "legacy endpoint still works"
-    deprecations = [
-        w for w in caught if issubclass(w.category, DeprecationWarning)
-    ]
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
     assert deprecations, "expected DeprecationWarning"
-    print(f"[1] /status still returns 200")
+    print("[1] /status still returns 200")
     print(f"[2] DeprecationWarning: {deprecations[0].message}")
 
 

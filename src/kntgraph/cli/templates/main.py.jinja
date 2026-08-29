@@ -12,7 +12,6 @@ import uvicorn
 
 from kntgraph.api import create_app
 from kntgraph.api.auth import RedisAPIKeyVerifier
-from kntgraph.agents.tools.protocol import ToolRegistry
 from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._pool import create_redis_pool
@@ -66,18 +65,14 @@ def build_monolith():
     # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
 
     # Configure the API Gateway (Intent Router).
-    # NOTE: ``ToolRegistry`` is the v0.17 transitional
-    # path; the API factory will be updated to accept
-    # ``worker_manager=`` in v0.18 (ADR-066 §4.4).
-    # The scaffold keeps the v0.17 form so the
-    # generated project compiles against the current
-    # API factory; new code should register tools via
-    # ``worker_manager.register(tool, acl=...)`` above
-    # and ignore the ``ToolRegistry`` instance below.
-    registry = ToolRegistry()
+    # Tools register exclusively via ``worker_manager``
+    # above (ADR-066 §4.4: the legacy ``ToolRegistry``
+    # was removed in v0.18).
     verifier = RedisAPIKeyVerifier(redis)
 
-    app = create_app(log=log, registry=registry, verifier=verifier)
+    app = create_app(
+        log=log, worker_manager=worker_manager, verifier=verifier
+    )
     app.router.lifespan_context = lifespan
     return app
 

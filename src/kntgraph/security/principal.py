@@ -107,9 +107,7 @@ class PrincipalLevel(str, Enum):
         try:
             return cls(value)
         except ValueError:
-            raise ValueError(
-                f"Cannot convert {value!r} to PrincipalLevel"
-            ) from None
+            raise ValueError(f"Cannot convert {value!r} to PrincipalLevel") from None
 
     def __lt__(self, other: ComparableT) -> bool:
         order = (PrincipalLevel.service, PrincipalLevel.agent, PrincipalLevel.admin)
@@ -463,6 +461,5 @@ __all__ = [
     "Principal",
     "PrincipalLevel",
     "Resource",
-    "Role",
     "principal_ctx",
 ]

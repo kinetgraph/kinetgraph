@@ -15,7 +15,6 @@ Public surface
     -- JSON-Schema view helpers
   - ``ToolDescriptor`` -- the static description of a Tool
   - ``ToolACL``, ``default_acl`` -- per-tool authorisation
-  - ``ToolRegistry`` -- per-process registry with ACL
   - ``LLMTransport``, ``LLMRequest``, ``LLMResponse``,
     ``LLMUsage``, ``LLMChunk`` -- LLM I/O boundary
     (Iter 28 FU 3: LLMTransport is now a sub-Protocol
@@ -49,7 +48,6 @@ The sub-package layout:
   - ``schema.py`` -- JSON-Schema view helpers.
   - ``descriptors.py`` -- ``ToolDescriptor`` dataclass.
   - ``acl.py`` -- ``ToolACL`` dataclass + ``default_acl``.
-  - ``registry.py`` -- ``ToolRegistry``.
   - ``llm_transport.py`` -- LLM I/O boundary (Iter 28 FU 3).
   - ``worker.py`` -- ``@tool_worker`` decorator (ADR-036).
   - ``manager.py`` -- ``WorkerManager`` (ADR-036).
@@ -103,8 +101,8 @@ from .protocol import (
     Tool,
     ToolArgValue,
 )
-from .registry import ToolRegistry
 from .router import ToolRouter
+
 # ``schema`` must be imported before ``arg_validation``
 # so that when ``arg_validation`` triggers the
 # vertical's lazy imports (``infra.hashing`` →
@@ -122,6 +120,7 @@ from .router import ToolRouter
 from .schema import FieldSpec, compute_schema_version, walk_schema
 from .system import ToolAwareSystem
 from .worker import tool_worker
+
 # Imported after ``schema`` to avoid the partial-load
 # cycle (see the comment above).
 from .arg_validation import SchemaValidationError, validate_args
@@ -142,7 +141,6 @@ __all__ = [
     "ToolArgValue",
     "ToolAwareSystem",
     "ToolDescriptor",
-    "ToolRegistry",
     "ToolRouter",
     "WorkerManager",
     "compute_schema_version",

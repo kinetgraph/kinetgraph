@@ -81,31 +81,37 @@ def _mocked_require_optional():
     )
 
 
-def _make_tool_registry():
-    """Build a minimal ToolRegistry for argument-extraction
-    tests. We need at least one tool registered so the
-    argument extractor can resolve a schema. The actual
-    tool body doesn't matter — we never call ``extract``."""
-    from kntgraph.agents.tools.protocol import ToolRegistry
+def _make_worker_manager():
+    """Build a minimal ``WorkerManager`` for argument-
+    extraction tests. We need at least one tool
+    registered so the argument extractor can resolve a
+    schema. The actual tool body doesn't matter — we
+    never call ``extract``.
+    """
+    from unittest.mock import AsyncMock, MagicMock
 
-    reg = ToolRegistry()
-    # Use a SimpleNamespace as a duck-typed Tool — the
-    # registry stores it by name and only reads `name`/
-    # `description`/`input_schema` from the Protocol. The
-    # framework never invokes the test stub.
-    from types import SimpleNamespace
+    from kntgraph.tools.manager import WorkerManager
 
-    stub = SimpleNamespace(
-        name="dummy",
-        description="dummy tool for tests",
-        input_schema={
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    event_log_mock = MagicMock()
+    event_log_mock.append = AsyncMock()
+    mgr = WorkerManager(redis=redis_mock, event_log=event_log_mock)
+
+    class _StubTool:
+        name = "dummy"
+        description = "dummy tool for tests"
+        input_schema = {
             "type": "object",
             "properties": {"x": {"type": "string"}},
             "required": ["x"],
-        },
-    )
-    reg.register(stub)  # type: ignore[arg-type]
-    return reg
+        }
+
+        async def invoke(self, *, idempotency_key, **kwargs):
+            pass
+
+    mgr.register(_StubTool, acl=None)
+    return mgr
 
 
 # ---------------------------------------------------------------------------
@@ -237,9 +243,9 @@ class TestSLMIntentClassifier:
 class TestSLMArgumentExtractor:
     def test_is_a_argument_extractor(self) -> None:
         """The facade IS-A ArgumentExtractor."""
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         with _mocked_require_optional():
-            facade = SLMArgumentExtractor(reg)
+            facade = SLMArgumentExtractor(mgr)
         assert isinstance(facade, ArgumentExtractor)
 
     def test_default_adapter_is_gliner(self) -> None:
@@ -254,9 +260,9 @@ class TestSLMArgumentExtractor:
         shim is GONE. ``GlinerArgumentAdapter`` is
         only available from the framework path.
         """
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         with _mocked_require_optional():
-            facade = SLMArgumentExtractor(reg)
+            facade = SLMArgumentExtractor(mgr)
         from kntgraph.knowledge.extraction import (
             GlinerArgumentAdapter,
         )
@@ -264,45 +270,45 @@ class TestSLMArgumentExtractor:
         assert isinstance(facade._adapter, GlinerArgumentAdapter)
 
     def test_default_model_from_settings(self) -> None:
-        """``SLMArgumentExtractor(reg)`` reads the model
+        """``SLMArgumentExtractor(mgr)`` reads the model
         from ``Settings.arg_extractor_model_id``."""
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         fresh_settings.cache_clear()
         with _mocked_require_optional():
-            facade = SLMArgumentExtractor(reg)
+            facade = SLMArgumentExtractor(mgr)
         assert facade.model_name == "gliner2-base"
         fresh_settings.cache_clear()
 
     def test_env_override_changes_model(self, monkeypatch) -> None:
         """``KNT_ARG_EXTRACTOR_MODEL_ID`` propagates
         through the facade to the adapter."""
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         monkeypatch.setenv(
             "KNT_ARG_EXTRACTOR_MODEL_ID",
             "urchen/gliner-multi-pii-base",
         )
         fresh_settings.cache_clear()
         with _mocked_require_optional():
-            facade = SLMArgumentExtractor(reg)
+            facade = SLMArgumentExtractor(mgr)
         assert facade.model_name == ("urchen/gliner-multi-pii-base")
         fresh_settings.cache_clear()
 
     def test_explicit_adapter_wins(self) -> None:
         """Passing ``adapter=`` swaps the implementation."""
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         sentinel = MagicMock(spec=ArgumentExtractor)
         sentinel.model_name = "injected-model"
-        facade = SLMArgumentExtractor(reg, adapter=sentinel)
+        facade = SLMArgumentExtractor(mgr, adapter=sentinel)
         assert facade._adapter is sentinel
         assert facade.model_name == "injected-model"
 
     @pytest.mark.asyncio
     async def test_extract_delegates(self) -> None:
         """``extract`` is a thin wrapper over the adapter."""
-        reg = _make_tool_registry()
+        mgr = _make_worker_manager()
         sentinel = MagicMock(spec=ArgumentExtractor)
         sentinel.extract = AsyncMock(return_value="arg-extraction-sentinel")
-        facade = SLMArgumentExtractor(reg, adapter=sentinel)
+        facade = SLMArgumentExtractor(mgr, adapter=sentinel)
         result = await facade.extract("text", "dummy")
         sentinel.extract.assert_awaited_once_with("text", "dummy")
         assert result == "arg-extraction-sentinel"

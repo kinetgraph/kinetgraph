@@ -121,7 +121,9 @@ def _migrate_value(raw: bytes) -> bytes | None:
         # Empty value — leave alone, surface as
         # migration failure (we don't write).
         raise ValueError("empty legacy binding")
-    principal = Principal.from_agent_id(decoded, level=PrincipalLevel.agent, key_id="legacy")
+    principal = Principal.from_agent_id(
+        decoded, level=PrincipalLevel.agent, key_id="legacy"
+    )
     payload: dict[str, object] = {
         "agent_id": principal.agent_id,
         "role": principal.level.value,

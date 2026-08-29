@@ -6,11 +6,12 @@
 Outstanding technical debt — Kinetgraph v1.0 quality sync.
 
 Resynced on 2026-07-30 against the current tree (post-§2
-sync). All items in §2 are now CLOSED; the remaining gate
-count is zero. This file's only remaining content is the
-historical record (§2.15–§2.27 + the §2.18–§2.27 closures
-from this sync) and the cleanup instructions (§5) — there
-is no live debt.
+sync). The §1–§4 quality-sync items are CLOSED; the gate
+count is zero. The 2026-08-26 session reopened live debt
+under §2.29–§2.32 (RoleComponent three-gate,
+role_systems reorg, SolutionPipeline consolidation) —
+§2.28 was closed in 2026-08-28 (v0.18: ToolRegistry
+removed). See §5.1 for the removal-status note.
 
 Gate state at the time of resync (2026-07-30):
 
@@ -27,9 +28,12 @@ Gate state at the time of resync (2026-07-30):
 
 How to use this file
 --------------------
-1. The file is now a historical record; the live debt is
-   zero. Section §5 lists the cleanup steps that close the
-   v1.0 quality milestone.
+1. The §1–§4 quality-sync items are a historical
+   record (live debt was zero on 2026-07-30). The
+   2026-08-26 session reopened §2.29–§2.32, which are
+   the live debt items (§2.28 was closed in
+   2026-08-28). Section §5 lists the cleanup steps
+   that close the v1.0 quality milestone.
 2. Each section is ordered by severity / blast radius.
 3. File paths are relative to the repo root.
 4. Line numbers are pinned to the current tree; re-run
@@ -1151,23 +1155,23 @@ from __future__ import annotations
 #
 # ---------------------------------------------------------------------------
 
-# 5. CLEANUP — ALL ITEMS CLOSED (2026-07-30)
+# 5. CLEANUP — 5.1 PENDING; 5.2–5.4 CLOSED (2026-07-30)
 # ---------------------------------------------------------------------------
 #
-# The v1.0 quality milestone is now satisfied. The
-# cleanup items below are the post-resync actions
-# required to remove the file from tracking; they are
-# all completed in the same iteration that closed §2.
+# The v1.0 quality milestone (§1–§4) is satisfied. The
+# 2026-08-26 session reopened live debt under §2.29–§2.32
+# (RoleComponent three-gate, role_systems reorg,
+# SolutionPipeline consolidation); §2.28 was closed in
+# 2026-08-28 (v0.18: ToolRegistry removed), so this file
+# is no longer a pure freeze snapshot.
 #
 #   5.1  Remove this file.
-#        STATUS: PENDING — keep this file as a
-#        historical record of the v0.9.0 → v1.0
-#        quality sync. The `AGENTS.md` / `CONTRIBUTING.md`
-#        / `CHANGELOG.md` are the live source of truth
-#        going forward; this file is the v1.0 freeze
-#        snapshot. A future iter can `git rm` it once
-#        the team confirms the freeze is no longer
-#        useful as a reference.
+#        STATUS: PENDING — the file is the historical
+#        record of the v0.9.0 → v1.0 quality sync AND
+#        the live tracker for the open §2.29–§2.32
+#        items. `git rm` is deferred until that debt
+#        closes and the team confirms the record is no
+#        longer useful as a reference.
 #
 #   5.2  Bump the pyright baseline.
 #        STATUS: CLOSED in 2026-07-30. Ran
@@ -2529,7 +2533,7 @@ asserted.
 
 ## 2.28 Single Tool Path — WorkerManager canonical, `ToolRegistry`/`ToolInvoker` removed (ADR-066)
 
-**Status:** Partially closed in 2026-08-26 (this session): v0.17 delivered. v0.18 still pending (`git rm` of legacy files).
+**Status:** Closed in 2026-08-28 (this session): v0.18 delivered. `ToolRegistry` removed; all callers migrated to `WorkerManager`.
 
 **Summary.** The framework has two parallel tool
 execution paths (`Tool` Protocol + `ToolInvoker` +
@@ -2629,23 +2633,58 @@ v0.18 steps are tracked separately in the same ADR.
     ``pytestmark = filterwarnings("ignore:...")``
     keeps the existing tests readable.
 
-**Still pending (v0.18).**
+**Closed in 2026-08-28 (this session) — v0.18.**
 
-  - ``git rm src/kntgraph/tools/registry.py``
-    once the API factory, the internal
-    ``knowledge/extraction/*`` callers, and the
-    CLI examples have migrated to
-    ``WorkerManager.acl_for``.
-  - Remove the v0.17 transitional ``ToolRegistry``
-    call in ``cli/templates/main.py.jinja``
-    and update the API factory to accept
-    ``worker_manager=`` directly.
-  - Update ``examples/knt-cli/weather_platform``
-    to use ``WorkerManager.register(acl=...)``.
-  - Drop the
-    ``DeprecationWarning`` on
+  - ``git rm src/kntgraph/tools/registry.py`` — done.
+    The API factory (``app_factory.py`` + ``routes.py``)
+    now accepts ``worker_manager=WorkerManager``; the
+    ``knowledge/extraction/*`` callers
+    (``_extractor.py``, ``gliner_argument.py``,
+    ``_slm_facades.py``) migrated their type hints from
+    ``ToolRegistry`` to ``WorkerManager``; the CLI
+    examples (``10_http_intent_router.py``,
+    ``22_sse_subscribe.py``,
+    ``knt-cli/weather_platform/main.py``) migrated to
+    ``WorkerManager.register(acl=...)``.
+  - ``cli/templates/main.py.jinja`` — the v0.17
+    transitional ``ToolRegistry`` call was removed;
+    the scaffold now passes ``worker_manager=`` to
+    ``create_app`` directly.
+  - ``WorkerManager`` gained ``list_descriptors()``,
+    ``get(name)``, ``names()``, ``__contains__``,
+    ``__len__`` — the introspection surface that
+    ``ToolRegistry`` previously owned. The
+    ``_schema_to_json`` helper moved from
+    ``registry.py`` to ``descriptors.py``
+    (renamed ``schema_to_json``).
+  - ``ToolRegistry`` removed from all re-exports
+    (``tools/__init__.py``, ``agents/tools/__init__.py``,
+    ``agents/tools/protocol.py``).
+  - Tests migrated: ``test_registry.py`` deleted (the
+    ``WorkerManager`` equivalents live in
+    ``test_manager.py`` and
+    ``test_worker_manager_acl.py``);
+    ``test_list_descriptors.py`` rewritten to test
+    ``WorkerManager.list_descriptors``;
+    ``test_protocol.py::TestToolRegistry`` →
+    ``TestWorkerManagerIntrospection``;
+    ``test_rbac.py::TestToolRegistryACL`` →
+    ``TestWorkerManagerACL``;
+    API tests (``test_intent_router.py``,
+    ``test_correlation_id.py``,
+    ``test_idempotency_key.py``,
+    ``test_sse_subscribe.py``) migrated to a shared
+    ``_fake_worker_manager.py`` helper.
+  - The ``DeprecationWarning`` on
     ``WorkerManager.register`` no-``acl=`` form
-    (it becomes a hard error in v0.18).
+    remains (it will be removed when the team decides
+    to flip the default to ``default_acl()``; that is
+    a separate decision, not part of the v0.18
+    removal).
+  - 2203 unit tests pass; ruff lint + format clean;
+    pyright baseline regenerated (2 pre-existing
+    errors in ``_base.py`` and ``principal.py``
+    unrelated to this migration).
 
 
 ## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14

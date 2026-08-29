@@ -75,6 +75,7 @@ from kntgraph.core.event import Event
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
+from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
 
 logger = structlog.get_logger()
 
@@ -99,6 +100,7 @@ _UNSET: "object" = object()
 # pulling the rest of the package into the worker.
 __all__ = [
     "ToolACL",
+    "ToolDescriptor",
     "WorkerManager",
     "_invoke_tool_sync",
     "default_acl",
@@ -217,9 +219,7 @@ class WorkerManager:
         if acl is _UNSET:
             self._acls[tool_cls.name] = _UNSET
         else:
-            self._acls[tool_cls.name] = (
-                acl if acl is not None else default_acl()
-            )
+            self._acls[tool_cls.name] = acl if acl is not None else default_acl()
 
     def acl_for(self, name: str) -> Optional[ToolACL]:
         """Return the ``ToolACL`` for ``name`` (or
@@ -238,6 +238,69 @@ class WorkerManager:
         if stored is _UNSET or stored is None:
             return None
         return stored  # type: ignore[return-value]
+
+    def get(self, name: str) -> "Type | None":
+        """Return the registered ``@tool_worker`` class
+        for ``name`` (or ``None`` if not registered).
+
+        Replaces ``ToolRegistry.get(name)`` (removed in
+        v0.18 per ADR-066 §4.4). The returned class
+        carries the ``name`` / ``description`` /
+        ``input_schema`` attributes injected by the
+        ``@tool_worker`` decorator, so callers that
+        previously read ``registry.get(n).input_schema``
+        can read ``wm.get(n).input_schema`` unchanged.
+        """
+        return self._tools.get(name)
+
+    def names(self) -> list[str]:
+        """Return the names of every registered tool.
+
+        Replaces ``ToolRegistry.names()`` (removed in
+        v0.18 per ADR-066 §4.4).
+        """
+        return list(self._tools.keys())
+
+    def list_descriptors(self) -> list[ToolDescriptor]:
+        """Return a :class:`ToolDescriptor` for every
+        registered ``@tool_worker``.
+
+        Replaces ``ToolRegistry.list_descriptors()``
+        (removed in v0.18 per ADR-066 §4.4). Used by
+        the HTTP ``GET /agents/{id}/tools`` endpoint
+        and by the
+        :class:`kntgraph.agents.memory.solutions.SolutionPromoter`
+        to populate ``(:Tool)`` nodes in the Solution
+        sub-graph of FalkorDB.
+
+        The serialisation logic lives in
+        :func:`kntgraph.tools.descriptors.schema_to_json`
+        (moved from ``registry.py`` in the same
+        release). A tool whose schema is not
+        serialisable / not round-trippable is skipped
+        (the operator sees a ``warning`` log line).
+        """
+        out: list[ToolDescriptor] = []
+        for name in self.names():
+            tool_cls = self._tools[name]
+            schema = getattr(tool_cls, "input_schema", None)
+            schema_json = schema_to_json(schema)
+            if schema_json is None:
+                continue
+            out.append(
+                ToolDescriptor(
+                    name=name,
+                    description=getattr(tool_cls, "description", ""),
+                    input_schema_json=schema_json,
+                )
+            )
+        return out
+
+    def __contains__(self, name: str) -> bool:
+        return name in self._tools
+
+    def __len__(self) -> int:
+        return len(self._tools)
 
     async def start(self) -> None:
         """Starts the worker manager."""

@@ -7,14 +7,13 @@ kntgraph.agents.tools — Tool subsystem (F8.2).
 
 Vertical-owned: how agents invoke external capabilities
 (fiscal authority, ERP, bank, etc). The Tool Protocol,
-the Registry, the ACL, and the bundled PII / LLM
-tools all live here.
+the ACL, and the bundled PII / LLM tools all live here.
 
 The framework (kntgraph) owns the **primitives**
 (``kntgraph.tools.protocol``, ``acl.py``,
-``descriptors.py``, ``registry.py``, ``schema.py``).
-This module re-exports them so existing imports
-(``from kntgraph.agents.tools import Tool, ToolRegistry,
+``descriptors.py``, ``schema.py``). This module
+re-exports them so existing imports
+(``from kntgraph.agents.tools import Tool,
 ToolEventType``) keep working. New code should prefer
 the framework path.
 
@@ -25,8 +24,8 @@ Framework-level types (in ``kntgraph.tools``)
 
 * ``protocol`` -- :class:`Describable`, :class:`Callable`,
   :class:`Tool` (the three layered Protocols).
-* ``registry`` -- :class:`ToolRegistry` (per-process
-  registry with ACL).
+* ``manager`` -- :class:`WorkerManager` (the canonical
+  tool registration + execution path; ADR-066).
 * ``acl`` -- :class:`ToolACL`, :func:`default_acl`
   (per-tool authorisation; ADR-017 §5).
 * ``descriptors`` -- :class:`ToolDescriptor` (the
@@ -56,11 +55,15 @@ Concrete tools live in adapters — see
 worked example of writing one.
 
 Iter 25: the framework moved ``walk_schema``,
-``ToolRegistry``, ``ToolACL``, ``default_acl``, and
+``ToolACL``, ``default_acl``, and
 ``ToolDescriptor`` into ``kntgraph.tools``. The
 ``kntgraph.agents.tools.protocol`` re-export shim keeps
 existing imports working; new code should import
 directly from ``kntgraph.tools``.
+
+v0.18 (ADR-066 §4.4): ``ToolRegistry`` was removed.
+The canonical tool registration path is
+:class:`kntgraph.tools.manager.WorkerManager`.
 
 Iter 30 (v0.15): ``arg_validation`` was promoted to
 the framework (it is pure framework code: depends
@@ -77,7 +80,6 @@ from kntgraph.tools import (
     SchemaValidationError,
     ToolACL,
     ToolDescriptor,
-    ToolRegistry,
     default_acl,
     validate_args,
 )
@@ -124,7 +126,6 @@ __all__ = [
     "ToolCall",
     "ToolDescriptor",
     "ToolEventType",
-    "ToolRegistry",
     "default_acl",
     "validate_args",
 ]

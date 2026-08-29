@@ -14,8 +14,8 @@ from kntgraph.core.result import Err, Ok, ToolError
 from kntgraph.agents.tools.protocol import (
     Tool,
     ToolEventType,
-    ToolRegistry,
 )
+from kntgraph.tools.manager import WorkerManager
 
 
 class _HelloTool:
@@ -34,45 +34,48 @@ class _HelloTool:
         return Ok({"greeting": f"hello, {name}"})
 
 
-class TestToolRegistry:
+def _make_manager() -> WorkerManager:
+    """Build a ``WorkerManager`` backed by mocks."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    redis_mock = MagicMock()
+    redis_mock.xack = AsyncMock()
+    event_log_mock = MagicMock()
+    event_log_mock.append = AsyncMock()
+    return WorkerManager(redis=redis_mock, event_log=event_log_mock)
+
+
+class TestWorkerManagerIntrospection:
+    """Tests for ``WorkerManager.get`` / ``names`` /
+    ``__contains__`` / ``__len__`` (the introspection
+    surface migrated from ``ToolRegistry`` in v0.18
+    per ADR-066 §4.4).
+    """
+
     def test_register_and_get(self):
-        r = ToolRegistry()
-        tool = _HelloTool()
-        r.register(tool)
-        assert r.get("hello.greet") is tool
-        assert r.get("nope") is None
+        mgr = _make_manager()
+        mgr.register(_HelloTool, acl=None)
+        assert mgr.get("hello.greet") is _HelloTool
+        assert mgr.get("nope") is None
 
-    def test_duplicate_register_raises(self):
-        r = ToolRegistry()
-        r.register(_HelloTool())
-        with pytest.raises(ValueError):
-            r.register(_HelloTool())
-
-    def test_unregister(self):
-        r = ToolRegistry()
-        r.register(_HelloTool())
-        r.unregister("hello.greet")
-        assert r.get("hello.greet") is None
-
-    def test_names_and_tools(self):
-        r = ToolRegistry()
-        r.register(_HelloTool())
-        assert r.names() == ["hello.greet"]
-        assert len(r.tools()) == 1
+    def test_names(self):
+        mgr = _make_manager()
+        mgr.register(_HelloTool, acl=None)
+        assert mgr.names() == ["hello.greet"]
 
     def test_contains_and_len(self):
-        r = ToolRegistry()
-        assert "x" not in r
-        assert len(r) == 0
-        r.register(_HelloTool())
-        assert "hello.greet" in r
-        assert len(r) == 1
+        mgr = _make_manager()
+        assert "x" not in mgr
+        assert len(mgr) == 0
+        mgr.register(_HelloTool, acl=None)
+        assert "hello.greet" in mgr
+        assert len(mgr) == 1
 
     def test_protocol_satisfied(self):
         """A class with the right attributes satisfies Tool."""
-        r = ToolRegistry()
-        r.register(_HelloTool())
-        assert isinstance(r.get("hello.greet"), Tool)
+        mgr = _make_manager()
+        mgr.register(_HelloTool, acl=None)
+        assert isinstance(mgr.get("hello.greet"), Tool)
 
 
 class TestToolEventType:

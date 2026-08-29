@@ -8,16 +8,16 @@ intent_router.routes -- FastAPI route installers.
 Five installers, each taking the FastAPI primitives
 (`FastAPI`, `Depends`, `Header`, `HTTPException`,
 `Principal`), the framework dependencies (`EventLog`,
-`ToolRegistry`), and the `bind_principal_dependency`
+`WorkerManager`), and the `bind_principal_dependency`
 closure as arguments. This keeps the helpers
 transport-agnostic (they don't import FastAPI
 themselves) and lets tests inject mocks.
 
   - `register_healthz(app, ...)`: ``GET /healthz``
     (the only endpoint that bypasses auth).
-  - `register_list_tools(app, ..., registry, auth)`:
+  - `register_list_tools(app, ..., worker_manager, auth)`:
     ``GET /agents/{id}/tools``.
-  - `register_post_intent(app, ..., log, registry, auth)`:
+  - `register_post_intent(app, ..., log, worker_manager, auth)`:
     ``POST /agents/{id}/intents`` — the main entry:
     validate, resolve target, emit
     `tool.<name>.requested`, return 202.
@@ -55,7 +55,7 @@ from uuid import UUID
 
 import structlog
 
-from kntgraph.tools.registry import ToolRegistry
+from kntgraph.tools.manager import WorkerManager
 
 from ...core._typing import (
     Dependable,
@@ -130,12 +130,13 @@ def register_list_tools(
     *,
     Depends: Dependable,
     Principal: type | None = None,
-    registry: ToolRegistry | None = None,
+    worker_manager: WorkerManager | None = None,
     auth: PrincipalDep,
 ) -> None:
     """
     Install ``GET /agents/{agent_id}/tools`` (list the
-    ToolRegistry, gated by the agent_id binding).
+    WorkerManager's registered tools, gated by the
+    agent_id binding).
     """
 
     @app.get(
@@ -156,7 +157,7 @@ def register_list_tools(
         tools for `agent-Y`.
         """
         check_agent_binding(principal, agent_id)
-        descriptors = registry.list_descriptors()  # type: ignore[union-attr]
+        descriptors = worker_manager.list_descriptors()  # type: ignore[union-attr]
         return [
             ToolDescriptorSchema(
                 name=d.name,
@@ -176,7 +177,7 @@ def register_post_intent(
     HTTPException: type[HTTPExceptionLike],
     Principal: type | None = None,
     log: EventLog | None = None,
-    registry: ToolRegistry | None = None,
+    worker_manager: WorkerManager | None = None,
     auth: PrincipalDep,
 ) -> None:
     """
@@ -235,7 +236,7 @@ def register_post_intent(
             # The gateway emits the
             # ``tool.<name>.requested`` event
             # **unconditionally** — even for tools
-            # not in the ``ToolRegistry``. The
+            # not in the ``WorkerManager``. The
             # registration check (gate 1 of the
             # three-gate ACL model, ADR-060 §3.0)
             # moves to the dispatcher (the
@@ -273,7 +274,7 @@ def register_post_intent(
                     status_code=422,
                     detail=("'role' is required when type='role.invoke'"),
                 )
-            # Roles live outside the ToolRegistry
+            # Roles live outside the WorkerManager
             # (ADR-006). For v1 we treat any
             # `role` as a candidate; consumers
             # downstream (e.g. a Role registry)
@@ -561,6 +562,7 @@ def register_sse_events(
                 "X-Accel-Buffering": "no",
             },
         )
+
 
 def register_get_status(
     app: RouterApp,

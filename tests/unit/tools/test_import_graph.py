@@ -112,10 +112,7 @@ class TestImportGraphNoCycle:
         # The framework module owns the canonical
         # function objects.
         assert validate_args is framework_av.validate_args
-        assert (
-            SchemaValidationError
-            is framework_av.SchemaValidationError
-        )
+        assert SchemaValidationError is framework_av.SchemaValidationError
 
 
 class TestCyclicImportRegression:

@@ -1,13 +1,14 @@
+---
+name: kntgraph-prose-language
+description: Use when writing user-facing prose in kntgraph — docstrings, comments, module docs, ADRs, design notes, error messages, CLI copy. Covers the English-only rule, the do-not-translate-existing-PT-BR-content rule, and the CLI's PT-BR-domain-language exception (LICENÇA, CONFIGURAR in the knt CLI). Trigger keywords: docstring language, English, Portuguese, PT-BR, translate, CLI messages, LICENÇA, CONFIGURAR, knt CLI, user-facing copy.
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 kinetgraph
 
 SPDX-License-Identifier: Apache-2.0
 -->
 
----
-name: kntgraph-prose-language
-description: Use when writing user-facing prose in kntgraph — docstrings, comments, module docs, ADRs, design notes, error messages, CLI copy. Covers the English-only rule, the do-not-translate-existing-PT-BR-content rule, and the CLI's PT-BR-domain-language exception (LICENÇA, CONFIGURAR in the knt CLI). Trigger keywords: docstring language, English, Portuguese, PT-BR, translate, CLI messages, LICENÇA, CONFIGURAR, knt CLI, user-facing copy.
----
 
 # Prose language
 

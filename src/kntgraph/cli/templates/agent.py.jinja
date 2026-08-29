@@ -14,7 +14,7 @@ from typing import Any
 # The historical ``CapabilityPolicy`` decorator class (per-agent
 # allow-list of events) was removed in v0.9.0 (ADR-039). The
 # new architecture enforces access control at the
-# ``ToolRegistry`` level via the ``ToolACL`` Protocol: every
+# ``WorkerManager`` level via the ``ToolACL`` Protocol: every
 # tool invocation is gated by an ``agent_id``-keyed ACL that the
 # framework reads from the ``tools.acl`` configuration. The
 # agent-level "what events may this agent emit" declaration below

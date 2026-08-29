@@ -1,13 +1,14 @@
+---
+name: kntgraph-branch-policy
+description: Use when an AI agent is about to run git push, create a feat/fix/chore branch, open a PR, or commit on the kntgraph repo. Covers the no-direct-push-to-main rule, the human-creates-branch rule, the AI-only-runs-add/diff/status/checkout rule, and the human-reviews-and-commits workflow. Trigger keywords: git push, branch, feat/, fix/, chore/, open PR, create PR, commit, AI agent git, push forbidden.
+---
+
 <!--
 SPDX-FileCopyrightText: 2026 kinetgraph
 
 SPDX-License-Identifier: Apache-2.0
 -->
 
----
-name: kntgraph-branch-policy
-description: Use when an AI agent is about to run git push, create a feat/fix/chore branch, open a PR, or commit on the kntgraph repo. Covers the no-direct-push-to-main rule, the human-creates-branch rule, the AI-only-runs-add/diff/status/checkout rule, and the human-reviews-and-commits workflow. Trigger keywords: git push, branch, feat/, fix/, chore/, open PR, create PR, commit, AI agent git, push forbidden.
----
 
 # Branch policy
 

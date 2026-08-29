@@ -11,15 +11,18 @@ The canonical home of the Tool Protocols is
 the three layered Protocols (``Describable``,
 ``Callable``, ``Tool``), the value objects
 (``ToolEventType``, ``ToolCall``, ``ToolArgValue``),
-the registry (``ToolRegistry``), the descriptor
-(``ToolDescriptor``), and the ACL helpers
-(``ToolACL``, ``default_acl``) for backward
+the descriptor (``ToolDescriptor``), and the ACL
+helpers (``ToolACL``, ``default_acl``) for backward
 compatibility.
 
 The vertical concrete tools (``PiiRedactionTool``,
 ``LiteLLMTool``, ...) live in this package and
 implement the canonical ``Tool`` Protocol from
 ``kntgraph.tools.protocol``.
+
+v0.18 (ADR-066 §4.4): ``ToolRegistry`` was removed.
+The canonical tool registration path is
+:class:`kntgraph.tools.manager.WorkerManager`.
 """
 
 from __future__ import annotations
@@ -34,7 +37,6 @@ from kntgraph.tools.protocol import Callable as Callable
 from kntgraph.tools.protocol import Describable as Describable
 from kntgraph.tools.protocol import Tool as Tool
 from kntgraph.tools.protocol import ToolArgValue as ToolArgValue
-from kntgraph.tools.registry import ToolRegistry as ToolRegistry
 
 
 __all__ = [
@@ -46,7 +48,6 @@ __all__ = [
     "ToolCall",
     "ToolDescriptor",
     "ToolEventType",
-    "ToolRegistry",
     "default_acl",
 ]
 
