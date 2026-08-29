@@ -50,9 +50,12 @@ re-export shim for backward compatibility.
 
 from __future__ import annotations
 
-from typing import ParamSpec, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeVar, runtime_checkable
 
 from kntgraph.core.result import Result, ToolError
+
+if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
 
 
 __all__ = [
@@ -97,7 +100,7 @@ class Describable(Protocol):
 
     name: str
     description: str
-    input_schema: dict
+    input_schema: dict[str, "JsonValue"]
 
 
 # ---------------------------------------------------------------------------
@@ -105,11 +108,13 @@ class Describable(Protocol):
 # ---------------------------------------------------------------------------
 
 
-# ``T_in`` is the input payload type. ``T_out`` is the
-# return value. Concrete callables specialise these via
-# their own type annotations.
-T_in = TypeVar("T_in")
-T_out = TypeVar("T_out")
+# ``T_in`` is the input payload type — contravariant
+# because a ``Callable[Animal, ...]`` can accept a
+# ``Callable[Dog, ...]`` caller (wider input = safe).
+# ``T_out`` is covariant: a ``Callable[..., Dog]``
+# is a ``Callable[..., Animal]`` (narrower output = safe).
+T_in = TypeVar("T_in", contravariant=True)
+T_out = TypeVar("T_out", covariant=True)
 
 
 @runtime_checkable
@@ -223,7 +228,7 @@ class Tool(Describable, Protocol[R]):
 
     name: str
     description: str
-    input_schema: dict
+    input_schema: dict[str, "JsonValue"]
 
     async def invoke(
         self,

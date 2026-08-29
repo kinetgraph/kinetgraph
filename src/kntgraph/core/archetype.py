@@ -30,7 +30,7 @@ class ArchetypeId:
 
     components: FrozenSet[Type[Any]]
 
-    _cache: FrozenSet = field(init=False, repr=False, compare=False)
+    _cache: FrozenSet[tuple[str, str]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         keys = frozenset(

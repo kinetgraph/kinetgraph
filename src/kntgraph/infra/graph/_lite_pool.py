@@ -280,6 +280,7 @@ class LiteGraphPool:
         """
         if self._db is None:
             self.connect()
+        assert self._db is not None  # connect() guarantees this
         sync_graph = self._db.select_graph(graph_name_for_tenant(tenant_id))
         return LiteGraphAdapter(sync_graph)
 

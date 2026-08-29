@@ -253,6 +253,10 @@ class ToolCallTTLSweeperSystem:
         tool_name = request.tool_name or "unknown"
         event_type = f"tool.{tool_name}.failed"
         correlation = CorrelationContext.new(correlation_id=request.correlation_id)
+        # expires_at is guaranteed non-None here: callers check
+        # ``if req.expires_at is None: continue`` before reaching
+        # this method. The assert makes the narrowing explicit for pyright.
+        assert request.expires_at is not None
         return Event.create(
             event_type=event_type,
             agent_id=agent_id,

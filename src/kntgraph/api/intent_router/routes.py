@@ -337,7 +337,7 @@ def register_post_intent(
             # without this pin).
             event_id=UUID(event_id),
         )
-        append_result = await log.append(event)
+        append_result = await log.append(event)  # type: ignore[union-attr]
         if append_result.is_err():
             logger.error(
                 "intent_router.append_failed",
@@ -500,7 +500,7 @@ def register_sse_events(
                         # the cursor); the EventLog's
                         # ``read(start, end)`` honours it.
                         start = "-" if cursor == "0" else f"({cursor}"
-                        events = await log.read(
+                        events = await log.read(  # type: ignore[union-attr]
                             agent_id,
                             start=start,
                             end="+",
@@ -630,7 +630,7 @@ def register_get_status(
             )
 
         terminal = await await_terminal_event(
-            read=lambda: log.read(agent_id),
+            read=lambda: log.read(agent_id),  # type: ignore[union-attr]
             predicate=_match,
             timeout_s=timeout_s,
             poll_interval_s=DEFAULT_POLL_INTERVAL_S,
