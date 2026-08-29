@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import Event, correlation_middleware
 
 from ._folding import fold_with_systems
 
@@ -132,12 +132,19 @@ async def append_system_outgoing(
     from the argument.
     """
     outgoing: list[Event] = []
-    for system in dispatcher._systems:
-        out = system(world)
-        if not isinstance(out, list):
-            out = await out
-        if out:
-            outgoing.extend(out)
+    # Bind a correlation scope so systems that call
+    # ``correlation_middleware.current()`` (e.g. to build
+    # events via ``Event.domain_from``) receive a
+    # non-None ``CorrelationContext`` per ADR-037. Without
+    # this, the contextvar is empty inside the tick and
+    # ``Event.create`` raises ``TypeError``.
+    with correlation_middleware.scope():
+        for system in dispatcher._systems:
+            out = system(world)
+            if not isinstance(out, list):
+                out = await out
+            if out:
+                outgoing.extend(out)
     if outgoing:
         await dispatcher._log.append_batch(outgoing)
         if dispatcher._tool_router is not None:

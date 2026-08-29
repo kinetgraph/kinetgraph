@@ -81,6 +81,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the field round-trips through the EventLog codec.
 
 ### Fixed
+- **Correlation context bound inside dispatcher/runner ticks
+  (ADR-037 follow-up).** `Runner.tick_once` and
+  `_systems_runner.append_system_outgoing` now open a
+  `correlation_middleware.scope()` around the system
+  execution loop. Previously, neither the `ReactiveDispatcher`
+  nor the `Runner` bound a `CorrelationContext` to the
+  contextvar during a tick, so `WorldSystem`/`CyclicSystem`
+  code that called `correlation_middleware.current()` (e.g.
+  to build events via `Event.domain_from`) received `None`
+  and crashed with `TypeError: Event.create requires a
+  non-None 'correlation' (ADR-037)`. Consumers like the
+  `backoffice` project worked around this with a project-
+  local monkey-patch (`correlation_guard.py`); the fix makes
+  that shim unnecessary. 2 new tests in
+  `tests/unit/runner/test_correlation_in_tick.py` reproduce
+  the crash and verify the fix for both loops.
+
 - **`SessionComponent.session_id` honours the
   `session.started` event payload (DEBT §2.33).** Previously,
   the projection derived `session_id` from the `agent_id`
