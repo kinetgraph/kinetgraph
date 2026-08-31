@@ -5,16 +5,25 @@
 """
 GlinerModelRegistry — process-level singleton for loaded GLiNER2 instances.
 
-ADR-055 §2.1. Three existing adapters (``GlinerIntentAdapter``,
-``GlinerFieldFinder``, and the future ``GlinerStructuredAdapter``) all
-call ``GLiNER2.from_pretrained`` in their constructors. In a deployment
-that runs all three with the same checkpoint, that means three cold
-starts and three copies of the same weights in RAM (~500 MB each for the
-205M base model, ~700 MB for the 340M large variant).
+ADR-055 §2.1. The four GLiNER2-backed adapters in the framework
+(``GlinerEntityAdapter``'s subclasses, ``GlinerIntentAdapter``,
+``GlinerFieldFinder``, ``GlinerStructuredAdapter``) used to call
+``GLiNER2.from_pretrained`` directly in their constructors. In a
+deployment that runs all four with the same checkpoint, that meant four
+cold starts and four copies of the same weights in RAM (~500 MB each
+for the 205M base model, ~300 MB on the 74M 2.5-small variant).
 
 This module provides a single class-level dict keyed by
 ``(model_name, device, cache_dir)`` so the first caller pays the load
 cost and every subsequent caller does an O(1) dict lookup.
+
+The loader is ``gliner2.AutoExtractor`` (not ``gliner2.GLiNER2``).
+``AutoExtractor`` dispatches by the checkpoint's saved ``architecture``
+field — gliner2 2.0 (span) returns a ``GLiNER2`` instance, gliner2 2.5
+(boundary) returns a ``BoundaryExtractor``. Both expose the same
+public API (``extract_json``, ``extract_entities``, ``classify_text``,
+``batch_extract_*``), so the rest of the framework stays agnostic to
+the underlying architecture.
 
 Thread-safety
 -------------
@@ -117,24 +126,31 @@ class GlinerModelRegistry:
 
             # Load the optional dependency here, not at module level, so
             # the module is importable without ``gliner2`` installed.
-            GLiNER2 = require_optional(
+            gliner2 = require_optional(
                 "gliner2",
                 "kntgraph[gliner]",
                 purpose="GlinerModelRegistry",
-            ).GLiNER2
+            )
+            # ``AutoExtractor`` dispatches to the right architecture
+            # (span or boundary) from the checkpoint's saved
+            # ``architecture`` field — gliner2 2.0 (span) returns a
+            # ``GLiNER2`` instance, gliner2 2.5 (boundary) returns a
+            # ``BoundaryExtractor``. Both expose the same public API
+            # (``extract_json``, ``extract_entities``, ``classify_text``,
+            # etc.), so the rest of the framework stays agnostic.
+            #
             # Pass kwargs through only when set — gliner2 2.x removed
-            # ``device=`` from the ``from_pretrained`` signature
-            # (and ``None`` is rejected by the upstream validator),
-            # so the registry forwards only what the caller explicitly
-            # provided. The cache key still records the ``None``
-            # distinction because the semantic is different (no
-            # explicit override vs. explicit value).
+            # ``device=`` from the signature (``None`` is rejected by
+            # the upstream validator), so the registry forwards only
+            # what the caller explicitly provided. The cache key still
+            # records the ``None`` distinction because the semantic is
+            # different (no explicit override vs. explicit value).
             load_kwargs: dict[str, str] = {}
             if device is not None:
                 load_kwargs["map_location"] = device
             if cache_dir is not None:
                 load_kwargs["cache_dir"] = cache_dir
-            cls._cache[key] = GLiNER2.from_pretrained(
+            cls._cache[key] = gliner2.AutoExtractor.from_pretrained(
                 model_name,
                 **load_kwargs,
             )

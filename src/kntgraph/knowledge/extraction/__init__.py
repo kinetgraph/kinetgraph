@@ -89,6 +89,7 @@ from .base import (
     ExtractedArg,
     IntentClassifier,
     IntentScore,
+    StructuredExtractor,
     canonicalize,
     dedup_entities,
     parse_payload,
@@ -138,6 +139,19 @@ from ._gliner_model_registry import GlinerModelRegistry
 # ``kntgraph -> kntgraph.agents`` leak in any form.
 from .gliner_argument import GlinerArgumentAdapter
 
+# ADR-055 Fase 2: the fourth GLiNER2-backed adapter for
+# structured extraction (PDF-OCR / RG / CNH / NF-e use
+# case). Lazy import — the symbol stays ``None`` when
+# the ``[gliner]`` extra is missing, mirroring the
+# pattern used by the three existing adapters.
+try:
+    from .gliner_structured import GlinerStructuredAdapter
+
+    _HAS_GLINER_STRUCTURED = True
+except ImportError:  # pragma: no cover
+    GlinerStructuredAdapter = None
+    _HAS_GLINER_STRUCTURED = False
+
 # Iter 28: the argument subpackage is the canonical home
 # of the building blocks (FieldFinder, RegexFieldFinder,
 # coerce, SchemaArgumentExtractor, GlinerFieldFinder).
@@ -166,6 +180,7 @@ try:
         SLMArgumentExtractor,
         SLMEntityExtractor,
         SLMIntentClassifier,
+        SLMStructuredExtractor,
     )
 
     _HAS_SLM = True
@@ -173,6 +188,7 @@ except ImportError:  # pragma: no cover
     SLMArgumentExtractor = None
     SLMEntityExtractor = None
     SLMIntentClassifier = None
+    SLMStructuredExtractor = None
     _HAS_SLM = False
 
 
@@ -187,6 +203,7 @@ __all__ = [
     "ArgumentExtractor",
     "ExtractedArg",
     "ArgExtraction",
+    "StructuredExtractor",
     # Helpers
     "canonicalize",
     "dedup_entities",
@@ -196,6 +213,7 @@ __all__ = [
     "GlinerEntityAdapter",
     "GlinerIntentAdapter",
     "GlinerArgumentAdapter",
+    "GlinerStructuredAdapter",
     # Model registry (ADR-055)
     "GlinerModelRegistry",
     # Argument subpackage (Iter 28: framework-level)
@@ -213,6 +231,7 @@ __all__ = [
     "SLMEntityExtractor",
     "SLMIntentClassifier",
     "SLMArgumentExtractor",
+    "SLMStructuredExtractor",
 ]
 
 
@@ -226,34 +245,59 @@ def _raise_if_missing(name: str, available: bool, message: str) -> None:
         raise ImportError(message)
 
 
+# Sentinel availability table: name -> (flag, error message).
+# The dict comprehension flattens the per-name branches
+# above so ``__getattr__`` stays at CC=4 even as we add
+# new optional symbols (each new entry is a single
+# ``dict.setdefault`` line, not a new ``elif`` branch).
+_OPTIONAL_SYMBOLS: dict[str, tuple[bool, str]] = {
+    "HeuristicEntityExtractor": (
+        _HAS_HEURISTIC,
+        "HeuristicEntityExtractor is unavailable (import failure). "
+        "Check kntgraph.knowledge.extraction.heuristic.",
+    ),
+    "GlinerEntityAdapter": (
+        _HAS_GLINER,
+        "GlinerEntityAdapter requires the 'gliner2' package. "
+        "Install with: uv add 'kntgraph[gliner]'",
+    ),
+    "GlinerIntentAdapter": (
+        _HAS_GLINER_INTENT,
+        "GlinerIntentAdapter requires the 'gliner2' package. "
+        "Install with: uv add 'kntgraph[gliner]'",
+    ),
+    "GlinerStructuredAdapter": (
+        _HAS_GLINER_STRUCTURED,
+        "GlinerStructuredAdapter requires the 'gliner2' package. "
+        "Install with: uv add 'kntgraph[gliner]'",
+    ),
+    "SLMEntityExtractor": (
+        _HAS_SLM,
+        "SLM facades are unavailable (import failure). "
+        "Check kntgraph.knowledge.extraction._slm_facades.",
+    ),
+    "SLMIntentClassifier": (
+        _HAS_SLM,
+        "SLM facades are unavailable (import failure). "
+        "Check kntgraph.knowledge.extraction._slm_facades.",
+    ),
+    "SLMArgumentExtractor": (
+        _HAS_SLM,
+        "SLM facades are unavailable (import failure). "
+        "Check kntgraph.knowledge.extraction._slm_facades.",
+    ),
+    "SLMStructuredExtractor": (
+        _HAS_SLM,
+        "SLM facades are unavailable (import failure). "
+        "Check kntgraph.knowledge.extraction._slm_facades.",
+    ),
+}
+
+
 def __getattr__(name):  # pragma: no cover - sentinel
     """Raise a clear error if a missing optional is requested."""
-    if name == "HeuristicEntityExtractor":
-        _raise_if_missing(
-            name,
-            _HAS_HEURISTIC,
-            "HeuristicEntityExtractor is unavailable (import failure). "
-            "Check kntgraph.knowledge.extraction.heuristic.",
-        )
-    elif name == "GlinerEntityAdapter":
-        _raise_if_missing(
-            name,
-            _HAS_GLINER,
-            "GlinerEntityAdapter requires the 'gliner2' package. "
-            "Install with: uv add 'kntgraph[gliner]'",
-        )
-    elif name == "GlinerIntentAdapter":
-        _raise_if_missing(
-            name,
-            _HAS_GLINER_INTENT,
-            "GlinerIntentAdapter requires the 'gliner2' package. "
-            "Install with: uv add 'kntgraph[gliner]'",
-        )
-    elif name in {"SLMEntityExtractor", "SLMIntentClassifier", "SLMArgumentExtractor"}:
-        _raise_if_missing(
-            name,
-            _HAS_SLM,
-            "SLM facades are unavailable (import failure). "
-            "Check kntgraph.knowledge.extraction._slm_facades.",
-        )
+    entry = _OPTIONAL_SYMBOLS.get(name)
+    if entry is not None:
+        available, message = entry
+        _raise_if_missing(name, available, message)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

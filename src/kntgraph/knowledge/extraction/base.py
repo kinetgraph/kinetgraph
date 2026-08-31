@@ -415,6 +415,91 @@ class ArgumentExtractor(Protocol):
 
 
 # ---------------------------------------------------------------------------
+# Structured extraction (ADR-055)
+# ---------------------------------------------------------------------------
+#
+# The structured path is a fourth consumer of the GLiNER2
+# stack, alongside entity / intent / argument. Its output
+# is JSON-shaped records (e.g. one RG, one CNH, several
+# NF-es parsed out of an OCR blob), NOT graph `Entity`
+# nodes. Keeping the Protocol untyped on the schema lets
+# the caller pick whatever dialect the underlying model
+# accepts (GLiNER2's ``{"<structure>": ["field::str", ...]}``
+# today; possibly a different SLM tomorrow).
+#
+# Why a fourth Protocol (and not `Entity` + attributes)
+# -----------------------------------------------------
+#
+# The `Entity` value object is graph-shaped: it merges on
+# ``(canonical_name, type)`` and is the unit the
+# `FalkorDBProjector` consumes. The structured path feeds
+# a Tool caller that wants JSON-shaped fields keyed by
+# schema field name — a flat dict per record. Forcing this
+# shape through `Entity` would either force every schema
+# field into a "type" (losing the per-field confidence
+# the model returns) or invent a generic
+# `attributes: dict[str, JsonValue]` blob that the
+# projector cannot reason about. The fourth Protocol keeps
+# the contract clean: "structured records, JSON-shaped,
+# not graph nodes".
+
+
+@runtime_checkable
+class StructuredExtractor(Protocol):
+    """
+    Extracts structured records from text against an
+    inline schema.
+
+    The schema is **opaque to the framework**: the adapter
+    passes it verbatim to the underlying model
+    (e.g. ``gliner2``). GLiNER2's dialect is
+    ``{"<structure>": ["field::str", ...]}`` — see ADR-055
+    §2.3; a future backend may use a different dialect.
+
+    The return is a list of records (possibly empty,
+    possibly more than one — e.g. multiple invoices in
+    the same text). Each record is a flat dict keyed by
+    the schema field names. Confidence per field, when
+    the model returns it, lives in a sibling key
+    ``__confidence_<field>`` — see
+    :class:`GlinerStructuredAdapter` for the opt-in.
+
+    Implementations MUST be PURE for the same
+    ``(text, schema)``: deterministic output, no side
+    effects. Implementations SHOULD be non-blocking; the
+    async signature exists so GLiNER2 inference can be
+    wrapped in ``asyncio.to_thread``.
+    """
+
+    async def extract(
+        self,
+        text: str,
+        schema: "dict[str, object]",
+    ) -> "list[dict[str, object]]":
+        """
+        Extract records from ``text`` against ``schema``.
+
+        ``text`` is the source to extract from; the
+        framework passes it through verbatim.
+
+        ``schema`` is whatever the backend accepts; the
+        framework does not inspect it. See ADR-055 §2.3
+        for the design rationale.
+
+        Returns:
+          A list of records (empty when the model finds
+          nothing). Each record is a flat
+          ``dict[str, object]`` keyed by the schema
+          field names. Fields the model marked below the
+          adapter's ``field_threshold`` are dropped before
+          the record is returned — see
+          :class:`GlinerStructuredAdapter` for the
+          threshold semantic.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
 # canonicalize
 # ---------------------------------------------------------------------------
 
@@ -525,6 +610,7 @@ __all__ = [
     "EntityExtractorWithMentions",
     "IntentClassifier",
     "ArgumentExtractor",
+    "StructuredExtractor",
     # Value objects (intent classification — ADR-013)
     "IntentScore",
     "Classification",

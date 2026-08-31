@@ -6,30 +6,32 @@
 ``SLM*`` facades — public surfaces over GLiNER2-backed
 extraction adapters (Iter 21).
 
-The three facades:
+The four facades:
 
   - :class:`SLMEntityExtractor`     — entity extraction
   - :class:`SLMIntentClassifier`    — intent classification
   - :class:`SLMArgumentExtractor`   — argument extraction
+  - :class:`SLMStructuredExtractor` — structured records (ADR-055)
 
-Why three facades (and not one)
--------------------------------
+Why four facades (and not one)
+------------------------------
 
-GLiNER2 is a single zero-shot NLU model, but the **three
+GLiNER2 is a single zero-shot NLU model, but the **four
 extraction tasks have different contracts**:
 
-  - ``EntityExtractor``  — "which spans in the text
+  - ``EntityExtractor``      — "which spans in the text
     match a label?" (many matches per call).
-  - ``IntentClassifier`` — "which of K labels best
+  - ``IntentClassifier``     — "which of K labels best
     describes the WHOLE text?" (one decision per call).
-  - ``ArgumentExtractor`` — "given a Tool's input schema,
+  - ``ArgumentExtractor``    — "given a Tool's input schema,
     what value fills each field?" (schema-driven, per-tool).
+  - ``StructuredExtractor``  — "given a free-form schema,
+    what JSON-shaped records fit?" (record list per call).
 
 The contracts are documented in :mod:`.base` (entity +
-intent) and :mod:`kntgraph.agents.knowledge.argument_extractor`
-(argument). The framework's policy (§13.1 — Simplicidade)
-favors one type per concern, so the three facades stay
-separate.
+intent + argument + structured). The framework's policy
+(§13.1 — Simplicidade) favors one type per concern, so
+the four facades stay separate.
 
 Why ``SLM`` prefix
 ------------------
@@ -96,7 +98,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Optional, cast
 
-from .base import Classification, Entity
+from .base import Classification, Entity, StructuredExtractor
 from .gliner import DEFAULT_LABELS, GlinerEntityAdapter
 from .gliner_intent import GlinerIntentAdapter
 from kntgraph.knowledge.extraction.base import (
@@ -338,8 +340,107 @@ class SLMArgumentExtractor(ArgumentExtractor):
         return await self._adapter.extract(text, tool_name)
 
 
+class SLMStructuredExtractor(StructuredExtractor):
+    """
+    Public facade for SLM-based structured extraction (ADR-055).
+
+    IS-A :class:`StructuredExtractor`. Holds a reference to
+    a low-level adapter (default:
+    :class:`GlinerStructuredAdapter`) and delegates every
+    call.
+
+    Construction loads the model eagerly (delegated to the
+    default adapter's underlying :class:`GlinerModelRegistry`
+    call). For deployments that need lazy loading, inject
+    an already-constructed adapter via ``adapter=``.
+
+    Why a fourth facade (and not a kwarg on an existing one)
+    --------------------------------------------------------
+
+    The four SLM-backed paths are now:
+
+      - ``SLMEntityExtractor``     — graph nodes
+      - ``SLMIntentClassifier``    — routing decision
+      - ``SLMArgumentExtractor``   — Tool slot filling
+      - ``SLMStructuredExtractor`` — JSON-shaped records
+
+    The four return types (``list[Entity]``,
+    ``Classification``, ``ArgExtraction``, ``list[dict]``)
+    are different consumers and different contracts. A
+    facade that returned ``Union[Entity, ArgExtraction,
+    dict]`` would force every caller to type-discriminate;
+    keeping the four facades separate keeps the Protocol
+    each consumer already depends on unchanged.
+    """
+
+    def __init__(
+        self,
+        *,
+        adapter: Optional[StructuredExtractor] = None,
+        model_name: str | None = None,
+        device: Optional[str] = None,
+        field_threshold: float = 0.5,
+        include_confidence: bool = False,
+    ) -> None:
+        """
+        Args:
+          adapter: the low-level adapter. When ``None``
+            (default), the facade instantiates
+            :class:`GlinerStructuredAdapter` (the framework
+            default).
+          model_name: forwarded to the default adapter.
+            ``None`` means "use
+            ``Settings.arg_extractor_model_id``".
+          device: forwarded to the default adapter.
+          field_threshold: forwarded to the default
+            adapter. Per-field confidence floor in
+            [0, 1].
+          include_confidence: forwarded to the default
+            adapter. When ``True``, the returned records
+            carry a sibling ``__confidence_<field>`` key
+            per field. Off by default.
+        """
+        if adapter is not None:
+            self._adapter: StructuredExtractor = adapter
+        else:
+            from kntgraph.knowledge.extraction.gliner_structured import (
+                GlinerStructuredAdapter,
+            )
+
+            self._adapter = GlinerStructuredAdapter(
+                model_name=model_name,
+                device=device,
+                field_threshold=field_threshold,
+                include_confidence=include_confidence,
+            )
+
+    @property
+    def model_name(self) -> str:
+        # The default adapter exposes ``model_name``; a
+        # test double may not. The ``# type: ignore``
+        # narrows to the structural Protocol shape; the
+        # facade delegates via duck-typed access.
+        return self._adapter.model_name  # type: ignore[no-any-return]
+
+    @property
+    def field_threshold(self) -> float:
+        return self._adapter.field_threshold  # type: ignore[no-any-return]
+
+    @property
+    def include_confidence(self) -> bool:
+        return self._adapter.include_confidence  # type: ignore[no-any-return]
+
+    async def extract(
+        self,
+        text: str,
+        schema: "dict[str, object]",
+    ) -> "list[dict[str, object]]":
+        return await self._adapter.extract(text, schema)
+
+
 __all__ = [
     "SLMEntityExtractor",
     "SLMIntentClassifier",
     "SLMArgumentExtractor",
+    "SLMStructuredExtractor",
 ]
