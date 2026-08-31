@@ -37,10 +37,10 @@ importing.
 Threading
 ---------
 
-`GLiNER2.from_pretrained(...)` and `model.extract(...)` are
-PyTorch calls. We wrap the inference call in
-`asyncio.to_thread` so the event loop stays responsive
-under a `ToolInvoker` workload. The model object is
+``GlinerModelRegistry.get`` (ADR-055) loads the model once and caches
+it for the process lifetime. ``model.extract(...)`` is a PyTorch call;
+we wrap inference in ``asyncio.to_thread`` so the event loop stays
+responsive under a ``ToolInvoker`` workload. The model object is
 thread-safe for the inference-only path we use
 (forward pass, no in-place mutation).
 
@@ -153,17 +153,22 @@ class GlinerIntentAdapter(IntentClassifier):
         # stays flat (CC ≤ 2).
         model_name = self._resolve_model_name(model_name)
 
-        # Eager import. If `gliner2` is not installed, fail
-        # HERE with a clear error pointing to the extra.
-        from ..._optional import require_optional
+        # ADR-055: delegate model loading to the process-level
+        # registry so all adapters that share the same
+        # (model_name, device, cache_dir) key reuse one loaded
+        # instance. The registry encapsulates the ``require_optional``
+        # call and raises a clear error when ``gliner2`` is absent.
+        from kntgraph.infra.config import fresh_settings
+        from kntgraph.knowledge.extraction._gliner_model_registry import (
+            GlinerModelRegistry,
+        )
 
-        GLiNER2 = require_optional(
-            "gliner2",
-            "kntgraph[gliner]",
-            purpose="GlinerIntentAdapter",
-        ).GLiNER2
-
-        self._model = GLiNER2.from_pretrained(model_name, device=device)
+        cache_dir = fresh_settings().model_cache_dir
+        self._model = GlinerModelRegistry.get(
+            model_name,
+            device=device,
+            cache_dir=cache_dir,
+        )
         self._threshold = float(threshold)
         self._model_name = model_name
 

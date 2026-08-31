@@ -5,7 +5,7 @@
 """
 Pytest configuration and fixtures.
 
-This conftest provides two autouse fixtures that the test
+This conftest provides three autouse fixtures that the test
 suite depends on:
 
   - ``reset_correlation_context`` (autouse, async): sets
@@ -18,6 +18,11 @@ suite depends on:
     ``fresh_settings`` ``lru_cache`` between tests so a
     ``monkeypatch.setenv(...)`` in test N does not leak
     into test N+1 via the cached singleton.
+  - ``reset_gliner_model_registry`` (autouse, sync): clears
+    the ``GlinerModelRegistry`` class-level ``_cache``
+    between tests so a model instance cached by an early
+    test does not leak into a later test that simulates
+    the absence of the ``gliner2`` package (ADR-055).
 """
 
 import pytest
@@ -58,3 +63,25 @@ def reset_settings_cache():
     fresh_settings.cache_clear()
     yield
     fresh_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def reset_gliner_model_registry():
+    """
+    Drop the ``GlinerModelRegistry`` class-level ``_cache``
+    between tests. ADR-055 turned model loading into a
+    process-level singleton, so once a test populates the
+    cache (directly or via an ``SLM*Extractor`` facade),
+    subsequent tests that simulate the absence of the
+    ``gliner2`` package would get a cache hit and skip the
+    ``require_optional`` call that would have raised
+    ``ImportError``. Clearing between tests restores the
+    pre-ADR-055 isolation semantics.
+    """
+    from kntgraph.knowledge.extraction._gliner_model_registry import (
+        GlinerModelRegistry,
+    )
+
+    GlinerModelRegistry._clear()
+    yield
+    GlinerModelRegistry._clear()

@@ -236,6 +236,13 @@ def step_integration() -> Step:
             "tests/integration/test_event_log.py",
             "tests/integration/test_reactive_dispatcher.py",
             "tests/integration/test_runner.py",
+            # ADR-055 Fase 1: GlinerModelRegistry caching semantics
+            # against a real GLiNER2 model. Skipped automatically when
+            # the ``kntgraph[gliner]`` extra is not installed or the
+            # model cannot be downloaded (the test module's skip guard
+            # handles both cases; pytest reports them as skips and the
+            # step passes).
+            "tests/integration/knowledge/extraction/test_gliner_model_registry.py",
             "-q",
         ),
     )

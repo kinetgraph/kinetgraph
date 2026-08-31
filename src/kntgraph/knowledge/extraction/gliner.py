@@ -81,19 +81,22 @@ default `_run_model` returns an empty list — the
 extractor becomes a no-op pass-through that still
 satisfies the Protocol.
 
-To wire a real model, subclass:
+To wire a real model, subclass and override ``_run_model``. Use
+``GlinerModelRegistry.get`` so the loaded checkpoint is shared across
+all adapters in the same process (one cold start, one copy in RAM,
+N consumers — ADR-055):
 
     class MyGliner(GlinerEntityAdapter):
-        def __init__(self, model_path):
+        def __init__(self, model_name: str) -> None:
             super().__init__()
-            self._model = load_my_model(model_path)
-        async def _run_model(self, text):
-            spans = self._model.predict(text, self._labels)
-            return [(self._span_to_entity(s), s.start) for s in spans]
+            from kntgraph.knowledge.extraction import GlinerModelRegistry
+            self._model = GlinerModelRegistry.get(model_name)
+        async def _run_model(self, text: str):
+            return self._model.predict_entities(text, list(self._labels))
 
-The framework tests exercise the conversion path with a
-fake `_run_model` that returns canned spans. Production
-wiring is a deployment concern.
+The framework tests exercise the conversion path with a fake
+``_run_model`` that returns canned spans. Production wiring is a
+deployment concern (see ``GlinerModelRegistry`` for the full kwargs).
 """
 
 from __future__ import annotations

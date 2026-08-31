@@ -334,15 +334,23 @@ class GlinerFieldFinder(FieldFinder):
         *,
         device: Optional[str] = None,
     ) -> None:
-        from kntgraph._optional import require_optional
+        # ADR-055: delegate model loading to the process-level registry
+        # so all adapters sharing the same (model_name, device, cache_dir)
+        # key reuse one loaded instance instead of each paying the cold
+        # start and holding a separate copy in RAM. The registry
+        # encapsulates ``require_optional`` and raises a clear error when
+        # ``gliner2`` is not installed.
+        from kntgraph.infra.config import fresh_settings
+        from kntgraph.knowledge.extraction._gliner_model_registry import (
+            GlinerModelRegistry,
+        )
 
-        GLiNER2 = require_optional(
-            "gliner2",
-            "kntgraph[gliner]",
-            purpose=("GlinerFieldFinder and GlinerArgumentAdapter"),
-        ).GLiNER2
-
-        self._model = GLiNER2.from_pretrained(model_name, device=device)
+        cache_dir = fresh_settings().model_cache_dir
+        self._model = GlinerModelRegistry.get(
+            model_name,
+            device=device,
+            cache_dir=cache_dir,
+        )
         self._model_name = model_name
 
     @property

@@ -2512,7 +2512,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/infra/config/_knowledge.py:class:KnowledgeSettingsMixin": {
       "complexity": 1,
-      "lineno": 42,
+      "lineno": 56,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/infra/config/_llm.py:class:LLMSettingsMixin": {
@@ -3752,12 +3752,27 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/__init__.py:function:__getattr__": {
       "complexity": 5,
-      "lineno": 220,
+      "lineno": 229,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/__init__.py:function:_raise_if_missing": {
       "complexity": 2,
-      "lineno": 210,
+      "lineno": 219,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_gliner_model_registry.py:class:GlinerModelRegistry": {
+      "complexity": 4,
+      "lineno": 64,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_gliner_model_registry.py:method:_clear": {
+      "complexity": 1,
+      "lineno": 144,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_gliner_model_registry.py:method:get": {
+      "complexity": 4,
+      "lineno": 86,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_slm_facades.py:class:SLMArgumentExtractor": {
@@ -3942,27 +3957,27 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 386,
+      "lineno": 394,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py:method:_entity_name_for": {
       "complexity": 1,
-      "lineno": 352,
+      "lineno": 360,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py:method:_run_inference": {
       "complexity": 1,
-      "lineno": 375,
+      "lineno": 383,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py:method:find": {
       "complexity": 3,
-      "lineno": 361,
+      "lineno": 369,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py:method:model_name": {
       "complexity": 1,
-      "lineno": 349,
+      "lineno": 357,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/base.py:class:ArgExtraction": {
@@ -4052,47 +4067,47 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:class:GLiNERSpan": {
       "complexity": 1,
-      "lineno": 120,
+      "lineno": 133,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:class:GlinerEntityAdapter": {
       "complexity": 5,
-      "lineno": 146,
+      "lineno": 159,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:function:_field": {
       "complexity": 3,
-      "lineno": 323,
+      "lineno": 336,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:__init__": {
       "complexity": 6,
-      "lineno": 165,
+      "lineno": 178,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 315,
+      "lineno": 328,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:_convert_span": {
       "complexity": 7,
-      "lineno": 271,
+      "lineno": 284,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:_run_model": {
       "complexity": 1,
-      "lineno": 242,
+      "lineno": 255,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:extract": {
       "complexity": 6,
-      "lineno": 195,
+      "lineno": 208,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py:method:extract_with_mentions": {
       "complexity": 6,
-      "lineno": 214,
+      "lineno": 227,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_argument.py:class:GlinerArgumentAdapter": {
@@ -4132,7 +4147,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:function:_intent_score_for_winner": {
       "complexity": 3,
-      "lineno": 415,
+      "lineno": 420,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:__init__": {
@@ -4142,42 +4157,42 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 407,
+      "lineno": 412,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:_finalise_classification": {
       "complexity": 1,
-      "lineno": 389,
+      "lineno": 394,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:_parse_output": {
       "complexity": 7,
-      "lineno": 325,
+      "lineno": 330,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:_resolve_model_name": {
       "complexity": 2,
-      "lineno": 171,
+      "lineno": 176,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:_run_inference": {
       "complexity": 3,
-      "lineno": 254,
+      "lineno": 259,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:_score_one_label": {
       "complexity": 7,
-      "lineno": 360,
+      "lineno": 365,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:classify": {
       "complexity": 9,
-      "lineno": 191,
+      "lineno": 196,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py:method:model_name": {
       "complexity": 1,
-      "lineno": 188,
+      "lineno": 193,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/heuristic.py:class:HeuristicEntityExtractor": {
@@ -7056,7 +7071,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/infra/config/_knowledge.py": {
-      "mi": 52.24974049421918,
+      "mi": 34.8722930213667,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/infra/config/_llm.py": {
@@ -7260,7 +7275,11 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/__init__.py": {
-      "mi": 78.52824619480218,
+      "mi": 78.02424782315211,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_gliner_model_registry.py": {
+      "mi": 49.47672806993385,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/_slm_facades.py": {
@@ -7284,7 +7303,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/argument/_gliner_finder.py": {
-      "mi": 53.437914872320405,
+      "mi": 53.09540395064504,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/base.py": {
@@ -7292,7 +7311,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner.py": {
-      "mi": 52.04599964460152,
+      "mi": 49.714382081087535,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_argument.py": {
@@ -7300,7 +7319,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/gliner_intent.py": {
-      "mi": 50.193036499434626,
+      "mi": 50.245472011364086,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/knowledge/extraction/heuristic.py": {

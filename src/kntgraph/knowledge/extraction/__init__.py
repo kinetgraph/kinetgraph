@@ -121,6 +121,13 @@ except ImportError:  # pragma: no cover
     GlinerIntentAdapter = None
     _HAS_GLINER_INTENT = False
 
+# ADR-055: process-level model registry. No optional dependency at
+# import time — the registry itself is always importable; the
+# ``require_optional`` guard fires inside ``get()`` only when a
+# caller tries to load a GLiNER2 model without the ``[gliner]``
+# extra installed.
+from ._gliner_model_registry import GlinerModelRegistry
+
 # Iter 27 + 28: ``GlinerArgumentAdapter`` is the framework-level
 # adapter for argument extraction. The adapter itself is
 # in ``gliner_argument.py``; the pieces it composes
@@ -189,6 +196,8 @@ __all__ = [
     "GlinerEntityAdapter",
     "GlinerIntentAdapter",
     "GlinerArgumentAdapter",
+    # Model registry (ADR-055)
+    "GlinerModelRegistry",
     # Argument subpackage (Iter 28: framework-level)
     "FieldFinder",
     "RegexFieldFinder",
