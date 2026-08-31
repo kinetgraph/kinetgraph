@@ -16,18 +16,35 @@ the application knows the schema it wants — RG has
 and it passes that schema per call. No central catalog,
 no per-schema registration.
 
+Worker pattern (ADR-036, ADR-043, ADR-047)
+-----------------------------------------
+
+This Tool follows the ``@tool_worker`` + ``WorkerManager``
+canonical pattern (ADR-036 §3), the same as
+:class:`LiteLLMToolWorker`. The ``WorkerManager``
+handles:
+
+  - ``tool.extract_structured.requested`` emission
+    before invocation
+  - invocation in a worker subprocess (cross-process,
+    ``ProcessPoolExecutor`` with spawn start method)
+  - ``tool.extract_structured.completed`` /
+    ``tool.extract_structured.failed`` emission after
+    invocation
+  - ``correlation_id`` propagation (ADR-037) via the
+    ``idempotency_key`` argument (= the ``event_id``
+    of the ``tool.<name>.requested`` event)
+
+The Tool itself does NOT emit events — per ADR-047 §2.4:
+"The ToolWorker's ``invoke`` method **only** returns a
+``Result[Payload, ToolError]``; it does not emit events."
+The framework wraps the lifecycle.
+
 The Tool does NOT load the model itself — the application
-constructs an :class:`SLMStructuredExtractor` ( which in
+constructs an :class:`SLMStructuredExtractor` (which in
 turn uses :class:`GlinerModelRegistry` so the model is
 shared with the other GLiNER2-backed adapters) and
-injects the facade here. The Tool's job is the Tool
-Protocol contract:
-
-  1. Validate the schema (regex spot-check, not a full
-     JSON-Schema validation — the schema dialect is
-     GLiNER2's, not the Tool's).
-  2. Delegate to the facade.
-  3. Return :class:`Result[list[dict], ToolError]`.
+injects the facade here.
 
 Failure modes are typed:
 
@@ -42,8 +59,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from kntgraph.agents.tools.protocol import Tool, ToolArgValue
 from kntgraph.core.result import Err, Ok, Result, ToolError
+from kntgraph.tools.worker import tool_worker
 
 if TYPE_CHECKING:
     from kntgraph.knowledge.extraction._slm_facades import (
@@ -78,15 +95,35 @@ _FIELD_SPEC = re.compile(
 _STRUCTURE_KEY = re.compile(r"^[^\s]{1,64}$")
 
 
-class StructuredExtractionTool(Tool):
+@tool_worker(
+    name="extract_structured",
+    description=(
+        "Extract structured records from text against an inline "
+        "GLiNER2 schema. The schema is opaque to the framework; "
+        "the adapter passes it verbatim to the model. Returns a "
+        "list of records (possibly empty, possibly more than one — "
+        "e.g. multiple invoices in the same text)."
+    ),
+)
+class StructuredExtractionTool:
     """
     Extract structured records from text using an inline schema.
 
-    Implements the :class:`kntgraph.tools.protocol.Tool`
-    Protocol. The single capability is
-    ``invoke(idempotency_key=..., text=..., schema=...)``
-    — the schema is inline in the request, not looked up
-    in a catalog.
+    Worker pattern (ADR-036 + ADR-047): the
+    :class:`WorkerManager` consumes
+    ``tool.extract_structured.requested`` events from the
+    EventLog, dispatches this Tool in a worker subprocess,
+    and emits ``tool.extract_structured.completed`` /
+    ``.failed`` based on the :class:`Result` returned by
+    :meth:`invoke`. The Tool itself does NOT emit events.
+
+    The ``input_schema`` is auto-generated from the
+    ``invoke`` signature by the ``@tool_worker`` decorator
+    (Pydantic model introspection). The schema field is
+    intentionally typed as ``dict[str, object]`` rather
+    than ``dict[str, JsonValue]``: the GLiNER2 native
+    dialect (``{"<structure>": ["field::type::anchor", ...]}``)
+    is opaque to the framework — see ADR-055 §2.3.
 
     Args:
       extractor: the :class:`SLMStructuredExtractor` facade
@@ -121,36 +158,6 @@ class StructuredExtractionTool(Tool):
     Tool's job; everything else is the model's.
     """
 
-    name: str = "extract_structured"
-    description: str = (
-        "Extract structured records from text against an inline "
-        "GLiNER2 schema. The schema is opaque to the framework; "
-        "the adapter passes it verbatim to the model. Returns a "
-        "list of records (possibly empty, possibly more than one — "
-        "e.g. multiple invoices in the same text)."
-    )
-    input_schema: dict = {
-        "type": "object",
-        "properties": {
-            "text": {
-                "type": "string",
-                "minLength": 1,
-                "description": ("The source text to extract records from."),
-            },
-            "schema": {
-                "type": "object",
-                "description": (
-                    "The GLiNER2 schema — a dict mapping a structure "
-                    "name to a list of ``field::type[::anchor]`` "
-                    "specs. Example: "
-                    "``{'documento': ['nome::str', 'cpf::str']}``."
-                ),
-            },
-        },
-        "required": ["text", "schema"],
-        "additionalProperties": False,
-    }
-
     def __init__(
         self,
         *,
@@ -167,27 +174,31 @@ class StructuredExtractionTool(Tool):
         """
         self._extractor = extractor
 
-    async def invoke(  # type: ignore[reportIncompatibleMethodOverride]
+    async def invoke(
         self,
         *,
         idempotency_key: str,
         text: str,
-        schema: "dict[str, object]",
-        **kwargs: "ToolArgValue",
+        schema: "dict[str, object]",  # noqa: A002 — intentional name (ADR-055 §2.6)
     ) -> Result[list[dict[str, object]], ToolError]:
         """
-        Tool Protocol entry point.
+        Worker entry point.
 
         Validates the schema (regex spot-check),
         delegates to the facade, and surfaces failures
         as :class:`ToolError` with a stable prefix
         (``invalid_schema:`` or ``extraction_failed:``).
+        The :class:`WorkerManager` translates the
+        returned :class:`Result` into the
+        ``tool.<name>.completed`` / ``tool.<name>.failed``
+        events.
 
-        ``idempotency_key`` is required by the Protocol
-        but unused (the extraction is itself a pure
-        function of ``(text, schema)``). The argument
-        is accepted so the Tool can be invoked via the
-        standard ``ToolInvoker``.
+        ``idempotency_key`` is the ``event_id`` of the
+        ``tool.extract_structured.requested`` event
+        that triggered this call (ADR-047 §2.4). The
+        extraction itself is a pure function of
+        ``(text, schema)`` — the Tool does not persist
+        state across calls.
         """
         # Schema validation happens before the model
         # call — a bad schema is the caller's bug, not

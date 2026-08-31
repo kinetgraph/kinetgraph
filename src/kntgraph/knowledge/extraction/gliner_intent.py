@@ -7,6 +7,30 @@ GlinerIntentAdapter — Intent classifier adapter backed by GLiNER2.
 
 ADR-013 (Semantic Routing via GLiNER2) — Momento 1.
 
+**Future redesign.** This adapter is a candidate for
+revision in a future ADR. Outstanding inconsistencies
+(see ``DEBT.md`` §2.34 for the audit):
+
+  - Documented as "GLiNER2 v1.0 → v1.5 era" — the
+    framework has since moved to ``gliner2 2.0.0``
+    (with ``AutoExtractor`` dispatching to span and
+    2.5-boundary checkpoints).
+  - A ``time.perf_counter()`` measurement of
+    ``elapsed_ms`` is taken inside ``classify`` and
+    then discarded with ``_ = elapsed_ms`` — telemetry
+    dead code that should either be wired into the
+    downstream ``Result.latency_ms`` channel
+    (ADR-036 §3.3) or deleted.
+  - The threshold ``0.0 <= x <= 1.0`` check is
+    duplicated across this module,
+    ``GlinerEntityAdapter``, and
+    ``GlinerStructuredAdapter``; a future ADR should
+    extract a single ``_validate_threshold`` helper.
+
+The class itself functions correctly today; the
+follow-up is purely a polish/cleanup track for a
+future ADR on the framework's GLiNER2 surface.
+
 Shape
 -----
 

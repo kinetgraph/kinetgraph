@@ -3253,3 +3253,143 @@ memory tier; revisit before v1.0).
   - :mod:`tests.agents.unit.test_example_05b_projection`
     updated to assert the wire value is honoured
     across ticks.
+
+## 2.34 GLiNER2 adapter consistency — entity adapter does not use registry
+
+**Status:** Open — flagged 2026-08-30 during the
+ADR-055 Fase 2 audit. **Decision (2026-08-30, same
+session):** no `DeprecationWarning` is emitted on
+runtime; instead each of the three affected modules
+documents the future redesign in its module-level /
+class-level docstring and points to this section. The
+rationale: a deprecation warning without a concrete
+replacement API would be noise that triggers
+`-W error::DeprecationWarning` consumers without
+helping them migrate. The redesign itself will land as
+a dedicated ADR once the replacement design is fleshed
+out — that ADR will then carry the deprecation warning
+(per the precedent set by ADR-041 for
+``kntgraph.agents.roles``).
+
+**Problem.** The four GLiNER2-backed adapters in the
+framework do NOT all follow the same model-loading
+contract (ADR-055 §2.2):
+
+  - `GlinerIntentAdapter` — uses `GlinerModelRegistry.get()` (correct).
+  - `GlinerFieldFinder` — uses `GlinerModelRegistry.get()` (correct).
+  - `GlinerStructuredAdapter` (Fase 2) — uses `GlinerModelRegistry.get()` (correct).
+  - **`GlinerEntityAdapter` — does NOT use the registry.**
+
+The `GlinerEntityAdapter` is a Template Method: the
+framework's `__init__` does not load any model. The
+real model loading is the **subclass's responsibility**
+(see the module docstring example at
+`src/kntgraph/knowledge/extraction/gliner.py:89-95`).
+
+**Why this is a bug (not a feature).**
+
+  1. The other three facades (`SLMIntentClassifier()`,
+     `SLMArgumentExtractor(mgr)`, `SLMStructuredExtractor()`)
+     each return a working default that loads the model
+     on construction. `SLMEntityExtractor()` — built on
+     `GlinerEntityAdapter` — does NOT.
+     A user who writes `SLMEntityExtractor()` and calls
+     `.extract(text)` gets `[]`, not a list of entities.
+     The bug is **silent** — no exception, no log line.
+  2. This violates the skill `kntgraph-testing` §7.4
+     "shims that simulate production behaviour are a
+     smell" rule: the default adapter's `_run_model`
+     returns `[]`, which is exactly a no-op shim that
+     masks the missing model wiring.
+  3. The other 3 adapters (`GlinerIntentAdapter` etc.)
+     load the model via `GlinerModelRegistry.get` and
+     honour `Settings.model_cache_dir`. The entity
+     adapter does neither — operators who set
+     `KNT_MODEL_CACHE_DIR` and instantiate `SLMEntityExtractor()`
+     get a silent no-op.
+
+**Why we are deferring the fix.**
+
+The bug is latent: every existing caller in tree wires
+a real subclass (`KnowledgeTier` consumers, the
+`fmh-backend` vertical). The unit tests cover the
+conversion path with canned spans. Migrating the entity
+adapter to the registry is a structural change (it
+stops being a Template Method and becomes a
+eager-loaded adapter like its three siblings), which
+needs an ADR.
+
+**Other minor inconsistencies surfaced during the
+audit (each is a one-line fix once §2.34 is picked
+up):**
+
+  - **`GlinerFieldFinder.__init__` hard-codes
+    `model_name="gliner2-base"`** (`argument/_gliner_finder.py:333`).
+    The other three adapters accept `model_name: str | None`
+    and fall back to `Settings.arg_extractor_model_id`.
+    A operator who sets `KNT_ARG_EXTRACTOR_MODEL_ID`
+    expects the field finder to honour it — it doesn't.
+
+  - **Threshold validation duplicated 3×**:
+    `if not 0.0 <= threshold <= 1.0: raise ValueError(...)`
+    in `GlinerIntentAdapter` (`gliner_intent.py:148`),
+    `GlinerEntityAdapter` (`gliner.py:191`), and
+    `GlinerStructuredAdapter` (`gliner_structured.py:132`).
+    Should live in a shared `_validate_threshold` helper
+    (or in the `StructuredExtractor` / `IntentClassifier`
+    Protocol's docstring as a pre-condition).
+
+  - **Stale "GLiNER2 v1.0 → v1.5" comments**: the
+    framework is now on `gliner2 2.0.0` (with `AutoExtractor`
+    dispatching to span and 2.5-boundary checkpoints).
+    References to v1.0/v1.5 still appear in:
+      - `gliner.py:67` ("GLiNER2's public API is still
+        moving (v1.0 → v1.5 changed call signatures)")
+      - `gliner_intent.py:50` (same)
+      - `gliner_intent.py:270` ("GLiNER2 1.3.x exposes
+        two relevant primitives")
+      - `gliner.py:281` ("v1.0 used dataclasses, v1.5+
+        uses dicts")
+      - `argument/_gliner_finder.py:377`
+    None of these affect behaviour; they are
+    documentation drift.
+
+  - **Dead instrumentation in `GlinerIntentAdapter`**
+    (`gliner_intent.py:242-254`): measures
+    `elapsed_ms` with `time.perf_counter` then
+    discards (`_ = elapsed_ms`). If the intent is
+    telemetry, expose via a hook; if not, delete.
+
+**Plan for the fix (when picked up):**
+
+  1. **ADR for the entity adapter migration.** The
+     Template Method contract has been useful for
+     domain-specific models (Portuguese fiscal,
+     healthcare), so the new design should preserve
+     "subclass-and-override" — but **eager-load the
+     default model via the registry in the base
+     `__init__`** so `SLMEntityExtractor()` works out
+     of the box. Subclasses that want a different
+     model call `GlinerModelRegistry.get(model_name)`
+     in their `__init__` before calling
+     `super().__init__(...)`.
+
+  2. **Migrate `GlinerFieldFinder.__init__`** to the
+     `model_name: str | None = None` + Settings
+     fallback pattern.
+
+  3. **Extract `_validate_threshold(threshold: float)`
+     helper** into `knowledge/extraction/base.py`
+     and call from all three adapters.
+
+  4. **Sweep the v1.0/v1.5 doc references** to "gliner2
+     2.0.0 (span) / gliner2.5 (boundary via AutoExtractor)".
+
+  5. **Decide on telemetry** in `GlinerIntentAdapter`:
+     emit `elapsed_ms` via the existing
+     `Result.latency_ms` plumbing (ADR-036 §3.3) or
+     delete the measurement.
+
+**Trigger.** Dedicated cleanup minor (post-ADR-055
+acceptance) or whenever `SLMEntityExtractor` becomes
+the default for a new vertical.

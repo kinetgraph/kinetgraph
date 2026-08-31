@@ -30,7 +30,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from kntgraph.agents.tools.protocol import Tool
 from kntgraph.agents.tools.structured_extraction import (
     StructuredExtractionTool,
 )
@@ -61,22 +60,37 @@ def _make_extractor_mock(
 # ---------------------------------------------------------------------------
 
 
-class TestToolProtocol:
-    """``StructuredExtractionTool`` implements the
-    framework ``Tool`` Protocol and exposes the metadata
-    a Tool registry expects."""
+class TestWorkerMetadata:
+    """``StructuredExtractionTool`` is decorated with
+    ``@tool_worker`` (ADR-036 canonical pattern) and
+    exposes the metadata a ``WorkerManager`` expects.
 
-    def test_is_a_tool(self) -> None:
+    The ``input_schema`` is auto-generated from the
+    ``invoke`` signature by the decorator (Pydantic model
+    introspection). The test only pins the parts the
+    framework cares about (name + required fields); the
+    full Pydantic-generated schema is not asserted on
+    to avoid coupling to Pydantic internals."""
+
+    def test_has_worker_metadata(self) -> None:
         tool = StructuredExtractionTool(extractor=_make_extractor_mock())
-        assert isinstance(tool, Tool)
+        # The decorator sets ``name``, ``description``,
+        # ``input_schema``, and the concurrency markers.
+        assert hasattr(tool, "name")
+        assert hasattr(tool, "description")
+        assert hasattr(tool, "input_schema")
 
-    def test_name_and_input_schema(self) -> None:
+    def test_name_and_required_fields(self) -> None:
         tool = StructuredExtractionTool(extractor=_make_extractor_mock())
         assert tool.name == "extract_structured"
-        assert tool.input_schema["required"] == ["text", "schema"]
+        # The required list is what the WorkerManager
+        # validates against — must contain the two
+        # ``invoke`` parameters (excluding
+        # ``idempotency_key``, which the framework
+        # injects).
+        assert set(tool.input_schema["required"]) == {"text", "schema"}
         assert "text" in tool.input_schema["properties"]
         assert "schema" in tool.input_schema["properties"]
-        assert tool.input_schema["additionalProperties"] is False
 
 
 # ---------------------------------------------------------------------------

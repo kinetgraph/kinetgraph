@@ -12,6 +12,25 @@ convention — ``OllamaEmbeddingAdapter``,
 The class is still a ``Template Method`` — production
 users subclass it to wire a real GLiNER2 model.
 
+**Future redesign.** This class is the only GLiNER2-backed
+adapter in the framework that does NOT use the
+``GlinerModelRegistry`` (ADR-055 §2.2) — its ``__init__``
+does not load a model. The default construction
+(``SLMEntityExtractor()`` with no ``adapter=`` arg) is
+**silently a no-op**: ``extract`` returns ``[]``. The
+three sibling adapters (``GlinerIntentAdapter``,
+``GlinerFieldFinder``, ``GlinerStructuredAdapter``) each
+honour ``Settings.arg_extractor_model_id`` and eagerly
+load via the registry. The mismatch is tracked for a
+future ADR (target: reopen the entity extraction design
+in a dedicated ADR; redesign the Template Method into a
+eager-loaded default adapter that uses the registry).
+Until that ADR lands, callers who want a real model
+must inject a subclass that wires the model in its own
+``__init__`` (see the example below). See ``DEBT.md``
+§2.34 for the full set of inconsistencies noted during
+the ADR-055 audit.
+
 Most callers should NOT construct this directly —
 use ``SLMEntityExtractor`` (the facade, in
 ``__init__.py``) which holds a reference to the

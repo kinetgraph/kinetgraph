@@ -19,6 +19,23 @@ to the framework. The module is framework-level because
 ``RegexFieldFinder``); a future ``TinyLLMFieldFinder``
 or ``FastTextFieldFinder`` would land here too.
 
+**Future redesign.** ``GlinerFieldFinder`` is also a
+candidate for revision in a future ADR (see
+``DEBT.md`` §2.34). The known inconsistencies are minor
+and the class functions correctly today:
+
+  - The constructor defaults to
+    ``model_name="gliner2-base"`` instead of accepting
+    ``None`` and falling back to
+    ``Settings.arg_extractor_model_id`` (the contract
+    the three sibling adapters follow).
+  - The docstring says "GLiNER2 v1.5+" — the framework
+    has since moved to ``gliner2 2.0.0``.
+
+The redesign (open the constructor signature, refresh
+the docstring) is a small follow-up to roll into the
+entity-adapter redesign ADR.
+
 The helpers :func:`extract_first` and :func:`match_to_value`
 tolerate multiple GLiNER2 output shapes -- the model has
 changed its return shape across versions (1.3.x canonical
