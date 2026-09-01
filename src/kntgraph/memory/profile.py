@@ -192,6 +192,14 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         Create a profile. Idempotent (the EventLog dedupes
         on event_id, which is a function of the deterministic
         data payload below — no wall-clock in `data`).
+
+        Optional since ADR-067: the fold materialises a state
+        from ANY ``profile.*`` event, so a bare
+        ``profile.preference_set`` without this ``created``
+        event still produces a state (with ``created_at == 0.0``
+        and no seeded preferences / tier). Emit ``created`` when
+        the creation moment and the initial preferences are
+        meaningful for the domain.
         """
         agent_id = self.agent_id_for(tenant_id, user_id)
         ctx = correlation_middleware.current()
@@ -375,10 +383,18 @@ def _fold_profile_events(
     events: Iterable[Event],
 ) -> Optional[ProfileState]:
     """
-    Pure fold of profile events. Returns None if no
-    `profile.created` event is present.
+    Pure fold of profile events.
 
-    `created_at` and `updated_at` come from the Event's
+    Materialisation is **implicit** (ADR-067): the state is
+    produced when the stream carries ANY ``profile.*`` event,
+    even without an explicit ``profile.created``. A profile
+    without ``created`` has ``created_at == 0.0`` — the
+    honest value for "never formally created" — which keeps
+    the Redis tier consistent with the memory-hydration
+    projection (``core.world.projection_memory``). An empty
+    stream still returns ``None``.
+
+    ``created_at`` and ``updated_at`` come from the Event's
     `timestamp` (not from `data`, which is now
     idempotency-stable).
 
@@ -394,12 +410,9 @@ def _fold_profile_events(
         "tier": "standard",
     }
 
-    for e in events:
-        handler = _PROFILE_HANDLERS.get(e.event_type)
-        if handler is not None:
-            handler(e, state)
+    saw_profile_event = _run_profile_handlers(events, state)
 
-    if state["created_at"] is None:
+    if not saw_profile_event:
         return None
 
     return ProfileState(
@@ -407,9 +420,24 @@ def _fold_profile_events(
         user_id=user_id,
         preferences=state["preferences"],
         tier=state["tier"],
-        created_at=state["created_at"],
+        created_at=state["created_at"] or 0.0,
         updated_at=state["updated_at"],
     )
+
+
+def _run_profile_handlers(events: Iterable[Event], state: dict[str, Any]) -> bool:
+    """Run the ``profile.*`` handler table over the stream,
+    mutating ``state`` in place. Returns True when the stream
+    carried at least one ``profile.*`` event (the implicit
+    materialisation signal of ADR-067; an empty or
+    profile-free stream folds to ``None``)."""
+    saw_profile_event = False
+    for e in events:
+        handler = _PROFILE_HANDLERS.get(e.event_type)
+        if handler is not None:
+            saw_profile_event = True
+            handler(e, state)
+    return saw_profile_event
 
 
 def _coerce_profile_scalar_value(

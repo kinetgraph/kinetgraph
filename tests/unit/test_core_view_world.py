@@ -141,3 +141,110 @@ def test_world_fold_with_custom_domain_component_projection():
     comp = view.get_component(MockComponent)
     assert comp is not None
     assert comp.value == 1
+
+
+# ---------------------------------------------------------------------------
+# Ownership rule regression tests (ADR-067): a domain event writes only the
+# component keys it produced itself; every other derived key is untouchable.
+# ---------------------------------------------------------------------------
+
+
+def test_registered_class_key_last_event_wins():
+    """Two events of the same registered event_type on the same
+    agent: the LAST one wins for the typed class key. This is
+    the class-key mirror of ``test_domain_replaces_components``
+    and the regression pin for the First-Event-Wins freeze found
+    in the soldi/backoffice issue (``new_components.update(preserved)``
+    used to let the stale component overwrite the fresh one)."""
+    first = Event.create(
+        event_type="test.component.loaded",
+        agent_id="a-1",
+        event_class="domain",
+        data={"value": 1},
+        correlation=CorrelationContext.new(correlation_id="corr-1"),
+    )
+    second = Event.create(
+        event_type="test.component.loaded",
+        agent_id="a-1",
+        event_class="domain",
+        data={"value": 2},
+        correlation=CorrelationContext.new(correlation_id="corr-2"),
+    )
+
+    world = World.empty().with_event(first).with_event(second)
+
+    comp = world.get_agent("a-1").get_component(MockComponent)
+    assert comp is not None
+    assert comp.value == 2
+
+
+def test_registered_class_key_survives_unrelated_domain_event():
+    """A registered typed component survives a subsequent domain
+    event of a DIFFERENT event_type (the derived-preservation
+    contract), and the unrelated event installs its own slot."""
+    first = _event("a-1", "test.component.loaded")
+    second = _event("a-1", "some.other.event")
+
+    world = World.empty().with_event(first).with_event(second)
+    view = world.get_agent("a-1")
+
+    comp = view.get_component(MockComponent)
+    assert comp is not None
+    assert comp.value == 1
+    assert view.components["some.other.event"]["value"] == 1
+
+
+def test_overlay_owned_string_key_never_overwritten_by_domain_event():
+    """A domain event whose ``event_type`` is literally
+    ``"tool_requests"`` must NOT clobber the overlay-owned slot;
+    the overlay re-derives it from the events after the fold.
+    The collision is surfaced as a WARNING log (A'), not as an
+    error — the fold still succeeds."""
+    existing = AgentView(
+        agent_id="a-1",
+        components={"tool_requests": {"req-1": "in-flight"}},
+    )
+    event = _event("a-1", "tool_requests")
+
+    updated = _apply_event(existing, event)
+
+    assert updated.components["tool_requests"] == {"req-1": "in-flight"}
+
+
+def test_memory_class_key_survives_domain_event():
+    """The legacy memory components (ADR-042) are never re-derived
+    by a domain event (they are not in the ``@domain_component``
+    registry), so a subsequent domain event preserves them."""
+    from kntgraph.core.components.memory import ProfileComponent
+
+    profile = ProfileComponent(
+        tenant_id="t-1",
+        user_id="u-1",
+        preferences={"lang": "pt-BR"},
+        tier="standard",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    existing = AgentView(
+        agent_id="profile:t-1:u-1",
+        components={ProfileComponent: profile},
+    )
+    event = _event("profile:t-1:u-1", "user.intent")
+
+    updated = _apply_event(existing, event)
+
+    assert updated.components[ProfileComponent] is profile
+    assert updated.components["user.intent"]["value"] == 1
+
+
+def test_tool_event_does_not_write_overlay_slot_directly():
+    """A regular ``tool.*`` event does not carry an overlay slot in
+    its payload — the ``tool_requests`` slot is materialised by
+    the overlay projection AFTER the fold (ADR-044), never by
+    ``_apply_event`` itself. The fold result therefore has no
+    ``tool_requests`` key; the overlay owns the write."""
+    event = _event("a-1", "tool.chat_llm.requested")
+
+    world = World.empty().with_event(event)
+
+    assert "tool_requests" not in world.get_agent("a-1").components

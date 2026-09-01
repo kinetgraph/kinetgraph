@@ -576,3 +576,155 @@ class TestProjectMemorySessionIdFromWire:
         view3 = project_memory(tick3, base_views={"agent-x": view2})["agent-x"]
         sc3 = view3.components[SessionComponent]
         assert sc3.session_id == "second"
+
+
+class TestImplicitMaterialisation:
+    """ADR-067: a memory component materialises from ANY event
+    of its tier, without an explicit ``*.created``. This is the
+    regression pin for the soldi/backoffice issue where
+    ``tenant_sync_system`` emits ``profile.preference_set`` onto
+    ``profile:{tenant}`` and no reader ever saw a
+    ``ProfileComponent`` because no ``profile.created`` existed."""
+
+    def test_profile_materialises_without_created(self) -> None:
+        """A bare ``profile.preference_set`` (no ``profile.created``)
+        materialises a ``ProfileComponent`` with the preference and
+        ``created_at == 0.0`` (the honest "never formally created")."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="profile.preference_set",
+                    agent_id="profile:tenant-1",
+                    data={"key": "status", "value": "ACTIVE"},
+                ),
+            ]
+        )
+        pc = out["profile:tenant-1"].components[ProfileComponent]
+        assert pc is not None
+        assert pc.preferences == {"status": "ACTIVE"}
+        assert pc.created_at == 0.0
+
+    def test_profile_identity_from_agent_id_one_part(self) -> None:
+        """The backoffice convention ``profile:{tenant_id}`` (one
+        part) recovers the tenant from the agent_id; ``user_id``
+        stays empty rather than fabricating a value."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="profile.preference_set",
+                    agent_id="profile:tenant-1",
+                    data={"key": "status", "value": "ACTIVE"},
+                ),
+            ]
+        )
+        pc = out["profile:tenant-1"].components[ProfileComponent]
+        assert pc.tenant_id == "tenant-1"
+        assert pc.user_id == ""
+
+    def test_profile_identity_from_agent_id_two_parts(self) -> None:
+        """The canonical convention ``profile:{tenant}:{user}``
+        recovers both identity parts from the agent_id."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="profile.preference_set",
+                    agent_id="profile:tenant-1:user-9",
+                    data={"key": "lang", "value": "pt-BR"},
+                ),
+            ]
+        )
+        pc = out["profile:tenant-1:user-9"].components[ProfileComponent]
+        assert pc.tenant_id == "tenant-1"
+        assert pc.user_id == "user-9"
+
+    def test_profile_unset_without_created(self) -> None:
+        """A ``profile.preference_unset`` without ``created``
+        materialises with empty preferences (the key was never
+        set; HDEL semantics: missing keys are ignored)."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="profile.preference_unset",
+                    agent_id="profile:tenant-1",
+                    data={"key": "missing"},
+                ),
+            ]
+        )
+        pc = out["profile:tenant-1"].components[ProfileComponent]
+        assert pc.preferences == {}
+
+    def test_continuity_materialises_without_created(self) -> None:
+        """A bare ``continuity.tool_used`` (no
+        ``continuity.created``) materialises a
+        ``ContinuityComponent``; identity comes from the
+        agent_id."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="continuity.tool_used",
+                    agent_id="continuity:tenant-1:user-1",
+                    data={
+                        "tool": "fetch_nfe",
+                        "result_signature": "sig",
+                    },
+                ),
+            ]
+        )
+        cc = out["continuity:tenant-1:user-1"].components[ContinuityComponent]
+        assert cc is not None
+        # The value is ``<result_signature>|<event timestamp>`` —
+        # the second ``tool_used`` with the same signature is
+        # idempotent because the timestamp rolls forward.
+        assert "fetch_nfe" in cc.last_tools
+        assert cc.last_tools["fetch_nfe"].startswith("sig|")
+        assert cc.tenant_id == "tenant-1"
+        assert cc.user_id == "user-1"
+        assert cc.created_at == 0.0
+
+    def test_base_profile_survives_batch_without_profile_events(self) -> None:
+        """A tick whose batch carries NO ``profile.*`` event keeps
+        the base component's materialisation signal (the caller
+        threaded the base; the state survives untouched)."""
+        created = _event(
+            event_type="profile.created",
+            agent_id="profile:tenant-1:user-1",
+            data={"tenant_id": "tenant-1", "user_id": "user-1"},
+        )
+        view1 = project_memory([created])["profile:tenant-1:user-1"]
+        pc1 = view1.components[ProfileComponent]
+        assert pc1.created_at > 0.0
+
+        tick2 = [
+            _event(
+                event_type="user.intent",
+                agent_id="profile:tenant-1:user-1",
+                data={"text": "hi"},
+            ),
+        ]
+        view2 = project_memory(tick2, base_views={"profile:tenant-1:user-1": view1})[
+            "profile:tenant-1:user-1"
+        ]
+        pc2 = view2.components[ProfileComponent]
+        # No profile event in the batch AND created_at > 0 from
+        # the base → the component survives.
+        assert pc2 is not None
+        assert pc2.created_at == pc1.created_at
+
+    def test_no_memory_event_and_no_base_returns_none(self) -> None:
+        """No ``profile.*`` event and no base component → no
+        ``ProfileComponent`` (the None contract for agents the
+        projection does not touch). The agent does not even get
+        a projected entry in the output dict."""
+        out = project_memory(
+            [
+                _event(
+                    event_type="user.intent",
+                    agent_id="profile:tenant-1",
+                    data={"text": "hi"},
+                ),
+            ]
+        )
+        # No memory namespace in the batch and no base view →
+        # ``_project_memory_for_agent`` returns None → the agent
+        # is absent from the projected output entirely.
+        assert "profile:tenant-1" not in out

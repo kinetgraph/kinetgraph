@@ -240,6 +240,13 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         (``tenant_id``, ``user_id``): a second call with the
         same identity is a no-op (the EventLog dedupes on
         event_id).
+
+        Optional since ADR-067: the fold materialises a state
+        from ANY ``continuity.*`` event, so a bare
+        ``continuity.tool_used`` without this ``created`` event
+        still produces a state (with ``created_at == 0.0``).
+        Emit ``created`` when the creation moment is meaningful
+        for the domain.
         """
         agent_id = self.agent_id_for(tenant_id, user_id)
         ctx = correlation_middleware.current()

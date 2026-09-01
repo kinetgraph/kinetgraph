@@ -10,8 +10,9 @@ Two helpers:
   - `_fold_continuity_events(tenant_id, user_id,
     events)`: replays a stream of `Event` for one
     continuity and produces the latest
-    `ContinuityState`. Returns `None` when no
-    `continuity.created` event is present.
+    `ContinuityState`. Returns `None` only when the
+    stream carries no `continuity.*` event at all
+    (implicit materialisation — ADR-067).
 
   - `_reset_after_clear(last_tools, last_entities,
     last_categories)`: clears the per-slot dicts
@@ -74,8 +75,16 @@ def _fold_continuity_events(
     events: Iterable[Event],
 ) -> Optional[ContinuityState]:
     """
-    Pure fold of continuity events. Returns ``None`` if no
-    ``continuity.created`` event is present.
+    Pure fold of continuity events.
+
+    Materialisation is **implicit** (ADR-067): the state is
+    produced when the stream carries ANY ``continuity.*``
+    event, even without an explicit ``continuity.created``.
+    A continuity without ``created`` has ``created_at == 0.0``
+    — the honest value for "never formally created" — which
+    keeps the Redis tier consistent with the memory-hydration
+    projection (``core.world.projection_memory``). An empty
+    stream still returns ``None``.
 
     After a ``continuity.cleared`` event, the dicts are
     reset to empty and ``cleared_at`` is set. Events arriving
@@ -88,11 +97,28 @@ def _fold_continuity_events(
     idempotency-stable).
     """
     state = _ContinuityFoldState()
-    for e in events:
-        _apply_continuity_event(state, e)
-    if state.created_at is None:
+    saw_continuity_event = _run_continuity_handlers(events, state)
+    if not saw_continuity_event:
         return None
     return state.to_value(tenant_id, user_id)
+
+
+def _run_continuity_handlers(
+    events: Iterable[Event],
+    state: _ContinuityFoldState,
+) -> bool:
+    """Run the ``continuity.*`` handler table over the stream,
+    mutating ``state`` in place. Returns True when the stream
+    carried at least one ``continuity.*`` event (the implicit
+    materialisation signal of ADR-067; an empty or
+    continuity-free stream folds to ``None``)."""
+    saw_continuity_event = False
+    for e in events:
+        handler = _HANDLERS.get(e.event_type)
+        if handler is not None:
+            saw_continuity_event = True
+            handler(state, e)
+    return saw_continuity_event
 
 
 class _ContinuityFoldState:
@@ -129,20 +155,6 @@ class _ContinuityFoldState:
             updated_at=self.updated_at,
             cleared_at=self.cleared_at,
         )
-
-
-def _apply_continuity_event(state: _ContinuityFoldState, e: Event) -> None:
-    """Dispatch one event into the fold state.
-
-    Each event type has a dedicated handler in
-    ``_HANDLERS``; the handler returns ``True`` when the
-    event touches ``updated_at``. The dispatch is
-    branch-free: a single dict lookup + call.
-    """
-    handler = _HANDLERS.get(e.event_type)
-    if handler is None:
-        return
-    handler(state, e)
 
 
 def _handle_created(state: _ContinuityFoldState, e: Event) -> None:
