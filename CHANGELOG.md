@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-09-01
+
 ### Fixed
 
 - **Ownership rule for derived components in the default fold
