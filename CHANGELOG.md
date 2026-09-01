@@ -15,6 +15,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ownership rule for derived components in the default fold
+  (ADR-067).** `_apply_event` used to merge the previous view's
+  derived components with `dict.update(preserved)`, which let a
+  stale component overwrite the value the current event had just
+  produced. Every subclass of `DomainComponent` passed
+  `_is_derived_component_key`, so a typed component registered
+  via `@domain_component` (ADR-059) was frozen at its FIRST
+  event — a First-Event-Wins that contradicted the documented
+  last-event-wins contract. The fold now applies a single rule:
+  a domain event writes only the component keys it produced
+  itself. Registered class keys follow last-event-wins when the
+  event re-derives the class; every other derived key survives
+  untouched. Overlay-owned string keys (`tool_requests` /
+  `tool_completions`) can never be overwritten by a domain
+  event; a colliding `event_type` is logged at WARNING
+  (`projection.overlay_key_collision`). Regression pins in
+  `tests/unit/test_core_view_world.py`.
+
+- **Implicit materialisation of profile and continuity memory
+  (ADR-067).** `project_memory` and the Redis-tier folds gated
+  `ProfileComponent` / `ContinuityComponent` (and
+  `ProfileState` / `ContinuityState`) on an explicit
+  `profile.created` / `continuity.created` event; verticals
+  that emit bare `profile.preference_set` events never saw a
+  component. The components (and states) now materialise when
+  the batch or stream carries ANY event of the tier, with
+  `created_at == 0.0` when no `created` exists — the honest
+  value for "never formally created". The identity fields are
+  recovered from the agent_id convention when the events do not
+  carry them; a one-part id (`profile:{tenant_id}`) yields an
+  empty `user_id`. Session keeps the explicit gate (its
+  identity is payload-borne). **Contract change:** `read()` on
+  `ProfileManager` / `ContinuityManager` may now return a state
+  with `created_at == 0.0` where it previously returned `None`.
+
 ## [0.14.1] — 2026-08-29
 
 ### Added

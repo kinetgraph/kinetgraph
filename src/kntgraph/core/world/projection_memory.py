@@ -267,26 +267,73 @@ def _fold_profile(
     """Pure fold of ``profile.*`` events → ProfileComponent.
 
     If ``base_profile`` is provided, the fold REUSES
-    the state of the base component for fields that
-    are NOT explicitly re-derived by the events in
-    this batch (preferences, tier, etc.).
+    the state of the base component for fields that are
+    NOT explicitly re-derived by the events in this
+    batch (preferences, tier, etc.).
+
+    Materialisation is **implicit** (ADR-067): the
+    component is materialised when the batch carries
+    ANY ``profile.*`` event, even without an explicit
+    ``profile.created``. A profile without ``created``
+    has ``created_at == 0.0`` — the honest value for
+    "never formally created". The identity fields are
+    recovered from the ``agent_id``
+    (``profile:{tenant_id}:{user_id}``) when the events
+    do not carry them, so a one-part agent_id
+    (``profile:{tenant_id}``) yields an empty
+    ``user_id`` (the vertical owns the convention).
 
     Per-event dispatch is delegated to a small table of
-    handlers (``_PROFILE_HANDLERS``) so the fold itself
-    stays a linear ``for`` loop and under the CC ≤ 10
-    ceiling.
+    handlers (``_PROFILE_HANDLERS``) so the fold
+    itself stays a linear ``for`` loop and under the
+    CC ≤ 10 ceiling.
     """
     state = _init_profile_state(base_profile)
 
+    saw_profile_event = _apply_profile_handlers(events, state)
+
+    # Materialisation gate (ADR-067): the component exists
+    # when the batch carried ANY ``profile.*`` event, or when
+    # the base component was already materialised (a previous
+    # batch created it; this batch may carry no profile event
+    # at all and the state must survive).
+    if not saw_profile_event and state["created_at"] == 0.0:
+        return None
+    if saw_profile_event:
+        _seed_identity_from_agent_id(agent_id, state)
+    return _build_profile_component(state)
+
+
+def _apply_profile_handlers(
+    events: Sequence[Event],
+    state: dict[str, Any],
+) -> bool:
+    """Run the ``profile.*`` handler table over the batch,
+    mutating ``state`` in place. Returns True when the batch
+    carried at least one ``profile.*`` event (the implicit
+    materialisation signal of ADR-067)."""
+    saw_profile_event = False
     for e in events:
         handler = _PROFILE_HANDLERS.get(e.event_type)
         if handler is not None:
+            saw_profile_event = True
             handler(e, state)
+    return saw_profile_event
 
-    if state["created_at"] == 0.0:
-        return None
 
-    return _build_profile_component(state)
+def _seed_identity_from_agent_id(agent_id: str, state: dict[str, Any]) -> None:
+    """Recover the identity (``tenant_id`` / ``user_id``) from the
+    memory agent_id convention when the events did not carry
+    them. Tolerates a one-part id (``profile:{tenant_id}``) — the
+    ``user_id`` stays empty rather than fabricating a value."""
+    prefix, sep, rest = agent_id.partition(":")
+    if not sep or not rest:
+        return
+    parts = rest.split(":")
+    if not state.get("tenant_id") and len(parts) >= 1:
+        state["tenant_id"] = parts[0]
+    if not state.get("user_id") and len(parts) >= 2:
+        state["user_id"] = parts[1]
 
 
 def _init_profile_state(
@@ -390,28 +437,56 @@ def _fold_continuity(
 ) -> ContinuityComponent | None:
     """Pure fold of ``continuity.*`` events → ContinuityComponent.
 
-    If ``base_continuity`` is provided, the fold
-    REUSES the state of the base component for
-    fields that are NOT explicitly re-derived by
-    the events in this batch (last_tools /
-    last_entities / last_categories / cleared_at).
+    If ``base_continuity`` is provided, the fold REUSES
+    the state of the base component for fields that are
+    NOT explicitly re-derived by the events in this
+    batch (last_tools / last_entities / last_categories /
+    cleared_at).
+
+    Materialisation is **implicit** (ADR-067): the
+    component is materialised when the batch carries
+    ANY ``continuity.*`` event, even without an explicit
+    ``continuity.created``. A continuity without
+    ``created`` has ``created_at == 0.0`` — the honest
+    value for "never formally created". The identity
+    fields are recovered from the ``agent_id``
+    (``continuity:{tenant_id}:{user_id}``) when the
+    events do not carry them.
 
     Per-event dispatch is delegated to a small table of
     handlers (``_CONTINUITY_HANDLERS``) so the fold
-    itself stays a linear ``for`` loop and under the
-    CC ≤ 10 ceiling.
+    itself stays a linear ``for`` loop and under the CC
+    ≤ 10 ceiling.
     """
     state = _init_continuity_state(base_continuity)
 
+    saw_continuity_event = _apply_continuity_handlers(events, state)
+
+    # Materialisation gate (ADR-067): mirror of the profile
+    # gate — ANY ``continuity.*`` event materialises; a base
+    # component survives a batch with no continuity event.
+    if not saw_continuity_event and state["created_at"] == 0.0:
+        return None
+    if saw_continuity_event:
+        _seed_identity_from_agent_id(agent_id, state)
+    return _build_continuity_component(state)
+
+
+def _apply_continuity_handlers(
+    events: Sequence[Event],
+    state: dict[str, Any],
+) -> bool:
+    """Run the ``continuity.*`` handler table over the batch,
+    mutating ``state`` in place. Returns True when the batch
+    carried at least one ``continuity.*`` event (the implicit
+    materialisation signal of ADR-067)."""
+    saw_continuity_event = False
     for e in events:
         handler = _CONTINUITY_HANDLERS.get(e.event_type)
         if handler is not None:
+            saw_continuity_event = True
             handler(e, state)
-
-    if state["created_at"] == 0.0:
-        return None
-
-    return _build_continuity_component(state)
+    return saw_continuity_event
 
 
 def _init_continuity_state(

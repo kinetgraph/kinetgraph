@@ -37,6 +37,7 @@ The framework categorizes memory into three distinct, Redis-backed short-term ti
 - **Cache Strategy**: Redis Hash mapping.
 - **Lifecycle**: Persistent (no TTL). Changes occur mostly via backend administrative events or explicit preference updates, not through frequent user interaction.
 - **Identity**: Bound to a two-part identity `(tenant_id, user_id)`.
+- **Materialisation (implicit, ADR-067)**: The state materialises from ANY `profile.*` event — an explicit `profile.created` is optional. A profile without `created` carries `created_at == 0.0` ("never formally created"); the identity is recovered from the agent_id convention when the events do not carry it.
 - **Selection Criteria**: Used for state that changes *without* active user interaction within a session.
 
 ### 3. Continuity Tier (`ContinuityManager`)
@@ -45,6 +46,7 @@ The framework categorizes memory into three distinct, Redis-backed short-term ti
 - **Lifecycle**: Ephemeral but prolonged via a **sliding TTL** (the TTL resets on every write).
 - **Identity**: Bound to `(tenant_id, user_id)`.
 - **Privacy (LGPD)**: Because this tier often captures Third-Party Personally Identifiable Information (PII) from active tool usage, all PII is stored strictly as hashes and is marked as `cleared` in accordance with LGPD data policies.
+- **Materialisation (implicit, ADR-067)**: The state materialises from ANY `continuity.*` event — an explicit `continuity.created` is optional (same contract as the profile tier).
 - **Selection Criteria**: Used for state that changes *in response to a tool call*.
 
 ### 4. Knowledge Tier (Long-Term Semantic/Episodic Memory)
@@ -58,7 +60,7 @@ The framework categorizes memory into three distinct, Redis-backed short-term ti
 - **Purpose**: Permanent, structural domain facts derived from the event stream (e.g., a company's legal size, a validation outcome, an aggregate's snapshot).
 - **Storage Strategy**: Pure in-memory ECS (Entity-Component-System). The framework natively reconstructs these components directly from the EventLog during the `World.fold()` operation.
 - **Usage (Auto-Hydration)**: Kinetgraph utilizes an inverted-control registry. By simply inheriting from `DomainComponent` and applying the `@domain_component("your.event.type")` decorator to a `@dataclass`, the component is automatically intercepted and hydrated by the framework. No manual loops or extractions are required.
-- **Update Semantics (Last-Event-Wins)**: Because the component is keyed by its class identity in the `AgentView`, any subsequent event with the same `event_type` will automatically overwrite the previous state of that component. This guarantees that the component always reflects the most recent fact without requiring manual merging logic.
+- **Update Semantics (Last-Event-Wins)**: Because the component is keyed by its class identity in the `AgentView`, any subsequent event with the same `event_type` will automatically overwrite the previous state of that component. This guarantees that the component always reflects the most recent fact without requiring manual merging logic. (Enforced by the ownership rule of ADR-067: an event writes only the component keys it produced; overlay-owned slots are never clobbered.)
 - **Lifecycle**: Permanent (bound to the immutable `EventLog`). These components do not suffer from "sliding window amnesia" and never expire.
 - **Identity**: Bound to `agent_id` (the aggregate root instance).
 - **Selection Criteria**: Used for data that is the direct, structural result of a business process, which systems must rely on indefinitely without arbitrary TTLs.

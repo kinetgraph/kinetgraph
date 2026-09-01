@@ -1956,43 +1956,63 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_apply_event": {
-      "complexity": 5,
-      "lineno": 122,
+      "complexity": 2,
+      "lineno": 141,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_extract_components_from_event": {
       "complexity": 2,
-      "lineno": 269,
+      "lineno": 319,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_is_derived_component_key": {
       "complexity": 6,
-      "lineno": 85,
+      "lineno": 89,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_is_tool_event": {
       "complexity": 6,
-      "lineno": 194,
+      "lineno": 244,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_lifecycle_phase_from_event": {
       "complexity": 2,
-      "lineno": 239,
+      "lineno": 289,
       "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_log_overlay_key_collision": {
+      "complexity": 1,
+      "lineno": 126,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_preserve_derived_components": {
+      "complexity": 6,
+      "lineno": 205,
+      "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:project_default": {
       "complexity": 3,
-      "lineno": 216,
+      "lineno": 266,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_apply_continuity_handlers": {
+      "complexity": 3,
+      "lineno": 475,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_apply_profile_handlers": {
+      "complexity": 3,
+      "lineno": 307,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_build_continuity_component": {
       "complexity": 1,
-      "lineno": 519,
+      "lineno": 594,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_build_profile_component": {
       "complexity": 1,
-      "lineno": 370,
+      "lineno": 417,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_build_session_component": {
@@ -2007,12 +2027,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_fold_continuity": {
       "complexity": 4,
-      "lineno": 386,
+      "lineno": 433,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_fold_memory_components": {
       "complexity": 1,
-      "lineno": 602,
+      "lineno": 677,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_fold_profile": {
@@ -2027,17 +2047,17 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_group_events_by_agent": {
       "complexity": 2,
-      "lineno": 568,
+      "lineno": 643,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_init_continuity_state": {
       "complexity": 2,
-      "lineno": 417,
+      "lineno": 492,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_init_profile_state": {
       "complexity": 2,
-      "lineno": 292,
+      "lineno": 339,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_init_session_state": {
@@ -2047,47 +2067,47 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_continuity_category_chosen": {
       "complexity": 2,
-      "lineno": 486,
+      "lineno": 561,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_continuity_cleared": {
       "complexity": 1,
-      "lineno": 497,
+      "lineno": 572,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_continuity_created": {
       "complexity": 1,
-      "lineno": 448,
+      "lineno": 523,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_continuity_entity_seen": {
       "complexity": 3,
-      "lineno": 473,
+      "lineno": 548,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_continuity_tool_used": {
       "complexity": 2,
-      "lineno": 459,
+      "lineno": 534,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_profile_created": {
       "complexity": 4,
-      "lineno": 319,
+      "lineno": 366,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_profile_preference_set": {
       "complexity": 2,
-      "lineno": 333,
+      "lineno": 380,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_profile_preference_unset": {
       "complexity": 2,
-      "lineno": 344,
+      "lineno": 391,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_profile_tier_changed": {
       "complexity": 1,
-      "lineno": 354,
+      "lineno": 401,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_on_session_context": {
@@ -2112,17 +2132,22 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_project_memory_for_agent": {
       "complexity": 4,
-      "lineno": 583,
+      "lineno": 658,
       "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_seed_identity_from_agent_id": {
+      "complexity": 7,
+      "lineno": 324,
+      "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_with_memory_components": {
       "complexity": 4,
-      "lineno": 626,
+      "lineno": 701,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:project_memory": {
       "complexity": 4,
-      "lineno": 537,
+      "lineno": 612,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_tool_calls.py:function:_assemble_overlay": {
@@ -4747,62 +4772,62 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:class:_ContinuityFoldState": {
       "complexity": 3,
-      "lineno": 98,
-      "rank": "A"
-    },
-    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_apply_continuity_event": {
-      "complexity": 2,
-      "lineno": 134,
+      "lineno": 124,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_fold_continuity_events": {
-      "complexity": 3,
-      "lineno": 71,
+      "complexity": 2,
+      "lineno": 72,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_handle_category_chosen": {
       "complexity": 2,
-      "lineno": 175,
+      "lineno": 187,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_handle_cleared": {
       "complexity": 1,
-      "lineno": 185,
+      "lineno": 197,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_handle_created": {
       "complexity": 1,
-      "lineno": 148,
+      "lineno": 160,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_handle_entity_seen": {
       "complexity": 3,
-      "lineno": 165,
+      "lineno": 177,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_handle_tool_used": {
       "complexity": 2,
-      "lineno": 154,
+      "lineno": 166,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_maybe_resume_after_clear": {
       "complexity": 2,
-      "lineno": 191,
+      "lineno": 203,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_reset_after_clear": {
       "complexity": 1,
-      "lineno": 44,
+      "lineno": 45,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:function:_run_continuity_handlers": {
+      "complexity": 3,
+      "lineno": 106,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:method:__init__": {
       "complexity": 1,
-      "lineno": 113,
+      "lineno": 139,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py:method:to_value": {
       "complexity": 2,
-      "lineno": 121,
+      "lineno": 147,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:class:ContinuityManager": {
@@ -4827,17 +4852,17 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:_fold_from_log": {
       "complexity": 1,
-      "lineno": 452,
+      "lineno": 459,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:_read_cache": {
       "complexity": 7,
-      "lineno": 408,
+      "lineno": 415,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:_serialize_for_cache": {
       "complexity": 1,
-      "lineno": 446,
+      "lineno": 453,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:cache_key": {
@@ -4847,7 +4872,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:clear": {
       "complexity": 1,
-      "lineno": 349,
+      "lineno": 356,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:create": {
@@ -4862,12 +4887,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:list_for_tenant": {
       "complexity": 5,
-      "lineno": 381,
+      "lineno": 388,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:read": {
       "complexity": 1,
-      "lineno": 375,
+      "lineno": 382,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:recency_suggest": {
@@ -4877,17 +4902,17 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:record_category_chosen": {
       "complexity": 3,
-      "lineno": 324,
+      "lineno": 331,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:record_entity_seen": {
       "complexity": 3,
-      "lineno": 289,
+      "lineno": 296,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:record_tool_used": {
       "complexity": 2,
-      "lineno": 257,
+      "lineno": 264,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py:method:refresh_cache": {
@@ -4957,47 +4982,52 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_build_profile_state": {
       "complexity": 5,
-      "lineno": 529,
+      "lineno": 557,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_coerce_profile_float": {
       "complexity": 5,
-      "lineno": 513,
+      "lineno": 541,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_coerce_profile_scalar": {
       "complexity": 3,
-      "lineno": 495,
+      "lineno": 523,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_coerce_profile_scalar_value": {
       "complexity": 3,
-      "lineno": 415,
+      "lineno": 443,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_fold_profile_events": {
-      "complexity": 4,
-      "lineno": 372,
+      "complexity": 3,
+      "lineno": 380,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_on_profile_created": {
       "complexity": 4,
-      "lineno": 434,
+      "lineno": 462,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_on_profile_preference_set": {
       "complexity": 2,
-      "lineno": 450,
+      "lineno": 478,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_on_profile_preference_unset": {
       "complexity": 2,
-      "lineno": 460,
+      "lineno": 488,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_on_profile_tier_changed": {
       "complexity": 1,
-      "lineno": 468,
+      "lineno": 496,
+      "rank": "A"
+    },
+    "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:function:_run_profile_handlers": {
+      "complexity": 3,
+      "lineno": 428,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:__init__": {
@@ -5012,17 +5042,17 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:_fold_from_log": {
       "complexity": 1,
-      "lineno": 364,
+      "lineno": 372,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:_read_cache": {
       "complexity": 7,
-      "lineno": 307,
+      "lineno": 315,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:_serialize_for_cache": {
       "complexity": 2,
-      "lineno": 351,
+      "lineno": 359,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:cache_key": {
@@ -5032,7 +5062,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:change_tier": {
       "complexity": 1,
-      "lineno": 246,
+      "lineno": 254,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:create": {
@@ -5042,12 +5072,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:list_for_tenant": {
       "complexity": 5,
-      "lineno": 280,
+      "lineno": 288,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:read": {
       "complexity": 1,
-      "lineno": 274,
+      "lineno": 282,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:refresh_cache": {
@@ -5057,12 +5087,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:set_preference": {
       "complexity": 1,
-      "lineno": 211,
+      "lineno": 219,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:unset_preference": {
       "complexity": 1,
-      "lineno": 229,
+      "lineno": 237,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py:method:write_cache": {
@@ -6984,11 +7014,11 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py": {
-      "mi": 59.463776133219476,
+      "mi": 57.55246392050516,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py": {
-      "mi": 54.42232377763533,
+      "mi": 50.269216380530594,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_tool_calls.py": {
@@ -7388,11 +7418,11 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/fold.py": {
-      "mi": 73.33514573825617,
+      "mi": 73.05445109622597,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/manager.py": {
-      "mi": 58.870111712304194,
+      "mi": 58.77934063295217,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/continuity/pii.py": {
@@ -7420,7 +7450,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/profile.py": {
-      "mi": 55.451313312404494,
+      "mi": 54.97092980916932,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/memory/session.py": {

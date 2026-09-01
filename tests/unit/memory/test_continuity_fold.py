@@ -89,6 +89,26 @@ class TestContinuityFold:
         state = _fold_continuity_events("t", "u", [])
         assert state is None
 
+    def test_tool_used_without_created_materialises(self):
+        """Implicit materialisation (ADR-067): a bare
+        ``continuity.tool_used`` (no ``continuity.created``)
+        still produces a state, with ``created_at == 0.0``."""
+        events = [
+            _make_tool_used(
+                "t",
+                "u",
+                "invoice.issue",
+                "sig-1",
+                "res-1",
+                42,
+            )
+        ]
+        state = _fold_continuity_events("t", "u", events)
+        assert state is not None
+        assert state.created_at == 0.0
+        assert "invoice.issue" in state.last_tools
+        assert state.updated_at > 0.0
+
     def test_created_only(self):
         e = _make_continuity_created("t", "u")
         state = _fold_continuity_events("t", "u", [e])

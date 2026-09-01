@@ -251,8 +251,12 @@ class TestProjectorAllBranches:
     ):
         from kntgraph.memory.consolidation import Projector
 
-        # A profile agent with only a non-created event →
-        # fold returns None → project_profile returns False.
+        # Implicit materialisation (ADR-067): a profile agent
+        # with ONLY a ``profile.preference_set`` now folds to a
+        # state (created_at == 0.0) → project_profile returns
+        # True. The skip branch is exercised by a profile agent
+        # with NO profile.* event at all (the ``profile.<x>``
+        # namespace below never materialises).
         await event_log.append(
             Event.domain_from(
                 agent_id="profile:t:u",
@@ -261,9 +265,19 @@ class TestProjectorAllBranches:
                 correlation=CorrelationContext.new(),
             )
         )
+        await event_log.append(
+            Event.domain_from(
+                agent_id="profile:ghost:u",
+                type="user.intent",
+                data={"text": "hi"},
+                correlation=CorrelationContext.new(),
+            )
+        )
         proj = Projector(event_log, session_manager, profile_manager)
         counts = await proj.project_all()
-        assert counts["profiles"] == 0
+        # The implicit-materialisation agent projects (1); the
+        # ghost agent (no profile.* event) is skipped (0 for it).
+        assert counts["profiles"] == 1
 
     async def test_project_all_skips_continuity_with_no_state(
         self,
@@ -274,8 +288,11 @@ class TestProjectorAllBranches:
     ):
         from kntgraph.memory.consolidation import Projector
 
-        # A continuity agent with only a non-created event →
-        # fold returns None → project_continuity returns False.
+        # Implicit materialisation (ADR-067): a continuity
+        # agent with ONLY a ``continuity.tool_used`` now folds
+        # to a state → project_continuity returns True. The
+        # skip branch is exercised by a continuity agent with
+        # NO continuity.* event at all.
         await event_log.append(
             Event.domain_from(
                 agent_id="continuity:t:u",
@@ -289,11 +306,21 @@ class TestProjectorAllBranches:
                 correlation=CorrelationContext.new(),
             )
         )
+        await event_log.append(
+            Event.domain_from(
+                agent_id="continuity:ghost:u",
+                type="user.intent",
+                data={"text": "hi"},
+                correlation=CorrelationContext.new(),
+            )
+        )
         proj = Projector(
             event_log, session_manager, profile_manager, continuity_manager
         )
         counts = await proj.project_all()
-        assert counts["continuity"] == 0
+        # The implicit-materialisation agent projects (1); the
+        # ghost agent (no continuity.* event) is skipped.
+        assert counts["continuity"] == 1
 
     async def test_project_all_skips_business_kind(
         self,

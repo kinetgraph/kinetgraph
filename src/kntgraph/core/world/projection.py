@@ -31,10 +31,14 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Any
 
+import structlog
+
 from ..event import Event
 from ..event.operational import OPERATIONAL_EVENT_TO_PHASE
 from ..lifecycle import OperationalPhase
 from .view import AgentView
+
+logger = structlog.get_logger()
 
 # A projection is any callable from sequence[Event] to dict[agent_id, AgentView].
 Projection = Callable[[Sequence[Event]], dict[str, AgentView]]
@@ -119,6 +123,21 @@ def _is_derived_component_key(key: Any) -> bool:
     return False
 
 
+def _log_overlay_key_collision(event: "Event", key: str) -> None:
+    """Log a caller mistake: a domain event whose ``event_type``
+    collides with an overlay-owned component key
+    (``tool_requests`` / ``tool_completions``). The overlay
+    re-derives the slot from the events after the fold, so the
+    event's payload is ignored — but the mistake should be
+    visible, not silent."""
+    logger.warning(
+        "projection.overlay_key_collision",
+        agent_id=event.agent_id,
+        event_type=event.event_type,
+        overlay_key=key,
+    )
+
+
 def _apply_event(prev: AgentView, event: Event) -> AgentView:
     """
     Build the new ``AgentView`` for ``event`` by folding
@@ -170,15 +189,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         )
     # "domain"
     new_components: dict[Any, Any] = dict(_extract_components_from_event(event))
-    # Preserve derived components (tool slots,
-    # memory components) from the previous view.
-    # See :data:`_DERIVED_COMPONENT_KEYS` and
-    # :func:`_is_derived_component_key`.
-    preserved: dict[Any, Any] = {
-        k: v for k, v in prev.components.items() if _is_derived_component_key(k)
-    }
-    if preserved:
-        new_components.update(preserved)
+    _preserve_derived_components(prev, event, new_components)
     return AgentView(
         agent_id=event.agent_id,
         components=new_components,
@@ -189,6 +200,45 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         last_event_id=str(event.event_id),
         last_event_at=event.timestamp,
     )
+
+
+def _preserve_derived_components(
+    prev: AgentView,
+    event: Event,
+    new_components: dict[Any, Any],
+) -> None:
+    """Apply the ownership rule (ADR-067) to the new components
+    dict, in place: a domain event may only write the component
+    keys it produced itself via ``_extract_components_from_event``.
+    Every other derived key on ``prev`` survives untouched:
+
+      - String keys in ``_DERIVED_COMPONENT_KEYS`` are
+        overlay-owned (``tool_requests`` / ``tool_completions``).
+        A domain event NEVER overwrites them, even when its
+        ``event_type`` is literally ``"tool_requests"`` —
+        emitting such an event is a caller mistake, and the
+        overlay re-derives the slot from the events after the
+        fold anyway. The collision is logged at WARNING so the
+        mistake is visible without failing the fold.
+      - Class keys are typed components. When the event
+        re-derives the class (``@domain_component`` registry),
+        the event's own value wins — last-event-wins for the
+        event's own slot (the class-key mirror of
+        ``test_domain_replaces_components``). When it does
+        not, the previous component survives (memory
+        components installed by ``project_memory``, or any
+        typed component a previous event installed).
+    """
+    for key, value in prev.components.items():
+        if not _is_derived_component_key(key):
+            continue
+        if isinstance(key, type):
+            if key not in new_components:
+                new_components[key] = value
+        else:
+            if key in new_components:
+                _log_overlay_key_collision(event, key)
+            new_components[key] = value
 
 
 def _is_tool_event(event_type: str) -> bool:

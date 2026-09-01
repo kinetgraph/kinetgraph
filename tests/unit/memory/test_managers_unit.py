@@ -679,8 +679,12 @@ class TestProfileManagerBranchCoverage:
     async def test_fold_returns_none_when_no_created_event(
         self, event_log, profile_storage
     ):
-        """``_fold_profile_events`` returns ``None`` when
-        there is no ``profile.created`` event (line 402-403)."""
+        """Implicit materialisation (ADR-067): a
+        ``profile.preference_set`` without a
+        ``profile.created`` still produces a state —
+        with ``created_at == 0.0`` (the honest "never
+        formally created"). Only a stream with NO
+        ``profile.*`` event returns ``None``."""
         from kntgraph.core.event import Event
         from kntgraph.memory.profile import _fold_profile_events
 
@@ -695,7 +699,13 @@ class TestProfileManagerBranchCoverage:
         await event_log.append(event)
         events = await event_log.read(agent_id)
         result = _fold_profile_events("t1", "u1", events)
-        assert result is None
+        assert result is not None
+        assert result.preferences == {"lang": "pt"}
+        assert result.created_at == 0.0
+
+        # And a stream with no profile event at all → None.
+        empty_events: list[Event] = []
+        assert _fold_profile_events("t1", "u1", empty_events) is None
 
     async def test_fold_drops_non_dict_preferences(self):
         """``_on_profile_created`` does not crash when

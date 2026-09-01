@@ -162,6 +162,17 @@ class TestProfileFold:
         state = _fold_profile_events("t", "u", [])
         assert state is None
 
+    def test_preference_set_without_created_materialises(self):
+        """Implicit materialisation (ADR-067): a bare
+        ``profile.preference_set`` (no ``profile.created``)
+        still produces a state, with ``created_at == 0.0``."""
+        events = [_make_pref_set("t", "u", "lang", "pt-BR")]
+        state = _fold_profile_events("t", "u", events)
+        assert state is not None
+        assert state.preferences == {"lang": "pt-BR"}
+        assert state.created_at == 0.0
+        assert state.updated_at > 0.0
+
     def test_created_only(self):
         e = _make_profile_created("t", "u", {"lang": "pt-BR"}, tier="vip")
         state = _fold_profile_events("t", "u", [e])
