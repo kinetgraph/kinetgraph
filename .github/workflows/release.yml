@@ -218,9 +218,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           body=$(awk '
-              /^## \[${{ steps.bump.outputs.new_version }}\]/ { found=1 }
+              /^## \[${{ steps.bump.outputs.new_version }}\]/ { found=1; next }
+              found && /^## \[/ { exit }
               found { print }
-              /^## \[/ && !/^## \[${{ steps.bump.outputs.new_version }}\]/ && NR>1 && found { exit }
           ' CHANGELOG.md)
           gh release create \
               "${{ steps.bump.outputs.new_tag }}" \
