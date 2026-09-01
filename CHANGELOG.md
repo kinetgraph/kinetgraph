@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-08-31
+
 ### Fixed
 
 - **Ownership rule for derived components in the default fold
@@ -51,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity is payload-borne). **Contract change:** `read()` on
   `ProfileManager` / `ContinuityManager` may now return a state
   with `created_at == 0.0` where it previously returned `None`.
+
 
 ## [0.14.1] — 2026-08-29
 
