@@ -28,6 +28,18 @@ Redis checkpoint. If cross-version migration becomes a
 concern, switching to ``msgpack`` with a versioned schema is
 a drop-in change.
 
+Why zlib-compress the payload?
+------------------------------
+
+The checkpoint is a pickled World — mostly repeated
+component-class references and field-name strings. zlib
+level 6 halves-to-quarters the wire payload at microseconds
+of CPU per save (ADR-068 §3.5). The wire format is
+self-describing: ``load`` sniffs the zlib magic bytes
+(``\x78``) and falls back to raw pickle for checkpoints
+written by an uncompressed predecessor, so a rolling
+upgrade never breaks.
+
 Why not save the stream cursor alone?
 -------------------------------------
 
@@ -64,6 +76,7 @@ from __future__ import annotations
 # operator-level access. Bandit's B403 / B301 warnings
 # don't apply to this use case.
 import pickle  # nosec B403 - internal-to-framework serialisation
+import zlib
 from dataclasses import dataclass
 
 import structlog
@@ -77,6 +90,18 @@ from kntgraph.infra.redis._world_checkpoint import (
 
 # 7 days matches the continuity default (ADR-014).
 DEFAULT_WORLD_CHECKPOINT_TTL_S = 7 * 24 * 60 * 60
+
+# zlib compression level for the pickled checkpoint. Level 6
+# is the library default trade-off: the World payload is
+# dominated by repeated strings (component keys), so higher
+# levels buy little; level 1 would leave ~30% on the table.
+# ADR-068 §3.5.
+_CHECKPOINT_ZLIB_LEVEL = 6
+
+# First byte of a zlib stream (RFC 1950 CMF byte: deflate
+# with a 32K window). ``load`` sniffs this to distinguish a
+# compressed checkpoint from a legacy raw-pickle one.
+_ZLIB_MAGIC: int = 0x78
 
 
 logger = structlog.get_logger()
@@ -158,6 +183,15 @@ class IncrementalWorldStore:
         raw = result.ok_value()
         if raw is None:
             return WorldCheckpoint(world=World.empty(), last_stream_id="-")
+        # Wire-format sniffing (ADR-068 §3.5): a zlib stream
+        # starts with the 0x78 CMF byte; a raw pickle starts
+        # with a protocol opcode (0x80 on protocol >= 2, or an
+        # ASCII document header on protocol 0). A compressed
+        # payload from the current writer decompresses first;
+        # anything else is treated as legacy raw pickle so a
+        # rolling upgrade reads old checkpoints unchanged.
+        if raw[0] == _ZLIB_MAGIC:
+            raw = zlib.decompress(raw)
         tick, storage, views, last_stream_id = pickle.loads(  # nosec B301 - internal-to-framework load
             raw
         )
@@ -175,19 +209,23 @@ class IncrementalWorldStore:
         last_stream_id)`` tuple. ``World.__init__`` rebuilds
         the structure on load without further ceremony.
 
-        Format: ``pickle.dumps((tick, storage, views, stream_id))``.
-        Pickle is the MVP format. Trade-offs documented in
-        ADR-018 §5 — when the system outgrows single-process
-        pickle (cross-language, schema versioning, human-readable
-        inspection), swap this for a Pydantic + JSON snapshot.
+        Format: ``zlib(pickle.dumps((tick, storage, views,
+        stream_id)))`` (ADR-068 §3.5). The compression is
+        transparent: ``load`` sniffs the zlib magic byte and
+        decompresses before unpickling, so checkpoints written
+        by a pre-compression build stay readable during a
+        rolling upgrade.
         """
-        payload = pickle.dumps(
-            (
-                ckpt.world.tick,
-                ckpt.world.storage,
-                dict(ckpt.world.views),
-                ckpt.last_stream_id,
-            )
+        payload = zlib.compress(
+            pickle.dumps(
+                (
+                    ckpt.world.tick,
+                    ckpt.world.storage,
+                    dict(ckpt.world.views),
+                    ckpt.last_stream_id,
+                )
+            ),
+            _CHECKPOINT_ZLIB_LEVEL,
         )
         result = await self._storage.save(agent_id, payload, ttl_seconds=self._ttl_s)
         if result.is_err():

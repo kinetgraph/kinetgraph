@@ -375,6 +375,12 @@ class WorkerManager:
 
     async def _consume_loop(self, tool_name: str) -> None:
         stream_key = f"knt:tools:{tool_name}:queue"
+        # Batch size per blocking read (ADR-068 §3.7): each
+        # ``XREADGROUP`` round-trip now carries up to N messages
+        # instead of exactly one, cutting the per-message RTT
+        # cost under bursty load. The loop still processes
+        # sequentially, so ack ordering is unchanged.
+        read_batch_size = 8
         while self._running:
             try:
                 # Block for 1 second waiting for new messages
@@ -382,7 +388,7 @@ class WorkerManager:
                     groupname=self._group_name,
                     consumername=self._consumer_name,
                     streams={stream_key: ">"},
-                    count=1,
+                    count=read_batch_size,
                     block=1000,
                 )
 

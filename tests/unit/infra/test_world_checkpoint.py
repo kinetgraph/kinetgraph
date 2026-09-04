@@ -134,3 +134,73 @@ async def test_world_checkpoint_storage_load_returns_ok_none_on_miss():
 
     assert result.is_ok()
     assert result.ok_value() is None
+
+
+@pytest.mark.asyncio
+async def test_world_checkpoint_payload_is_zlib_compressed():
+    """ADR-068 §3.5: the checkpoint payload is zlib-compressed
+    on write. The stored bytes must NOT be a raw pickle (a raw
+    pickle of a non-empty tuple starts with the protocol-2
+    opcode 0x80 or an ASCII header); it must start with the
+    zlib CMF magic byte."""
+    import zlib
+
+    client = FakeRedisClient()
+    storage = RedisWorldCheckpointStorage(client=client)
+    store = IncrementalWorldStore(storage=storage)
+
+    event = Event.create(
+        event_type="document.received",
+        agent_id="agent-1",
+        event_class="domain",
+        data={"doc_id": "A1"},
+        correlation=CorrelationContext.new(correlation_id="corr-1"),
+    )
+    checkpoint = WorldCheckpoint(world=World.fold([event], tick=1), last_stream_id="5")
+
+    await store.save("agent-1", checkpoint)
+
+    raw = client.data[storage_key("agent-1")]
+    assert raw is not None
+    assert raw[0] == 0x78  # zlib CMF byte (deflate, 32K window)
+    # Decompressing must yield a parseable pickle (the legacy
+    # inner format is unchanged).
+    inner = zlib.decompress(raw)
+    import pickle  # nosec B403 - test asserts the writer's own format
+
+    tick, _storage, views, stream_id = pickle.loads(inner)  # nosec B301
+    assert tick == 1
+    assert stream_id == "5"
+    assert "agent-1" in views
+
+
+@pytest.mark.asyncio
+async def test_world_checkpoint_load_reads_legacy_raw_pickle():
+    """ADR-068 §3.5 wire-format compatibility: a checkpoint
+    written by a pre-compression build (raw pickle, no zlib
+    wrapper) must still load. The sniffing path treats any
+    non-0x78 first byte as legacy raw pickle."""
+    import pickle  # nosec B403 - legacy-format fixture
+
+    client = FakeRedisClient()
+    storage = RedisWorldCheckpointStorage(client=client)
+    store = IncrementalWorldStore(storage=storage)
+
+    event = Event.create(
+        event_type="document.received",
+        agent_id="agent-legacy",
+        event_class="domain",
+        data={"doc_id": "L1"},
+        correlation=CorrelationContext.new(correlation_id="corr-legacy"),
+    )
+    world = World.fold([event], tick=3)
+    legacy_payload = pickle.dumps(
+        (world.tick, world.storage, dict(world.views), "42-0")  # nosec B301
+    )
+    client.data[storage_key("agent-legacy")] = legacy_payload
+
+    loaded = await store.load("agent-legacy")
+
+    assert loaded.world.tick == 3
+    assert loaded.world.agents["agent-legacy"].domain_phase == "document.received"
+    assert loaded.last_stream_id == "42-0"

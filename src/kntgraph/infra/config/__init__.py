@@ -86,6 +86,7 @@ from kntgraph.infra.config._knowledge import KnowledgeSettingsMixin
 from kntgraph.infra.config._llm import LLMSettingsMixin
 from kntgraph.infra.config._memory import MemorySettingsMixin
 from kntgraph.infra.config._pii import PiiSettingsMixin
+from kntgraph.infra.config._reactive import ReactiveSettingsMixin
 from kntgraph.infra.config._redis import RedisSettingsMixin
 from kntgraph.infra.config._resilience import ResilienceSettingsMixin
 from kntgraph.infra.config._runner import RunnerSettingsMixin
@@ -106,6 +107,7 @@ class Settings(
     RedisSettingsMixin,
     FalkordbSettingsMixin,
     RunnerSettingsMixin,
+    ReactiveSettingsMixin,
     ResilienceSettingsMixin,
     TimeoutsSettingsMixin,
     StreamsSettingsMixin,
@@ -126,6 +128,8 @@ class Settings(
       - ``KnowledgeSettingsMixin`` (``_knowledge.py``)
         — consolidator cadence, review queue,
         argument extractor.
+      - ``ReactiveSettingsMixin`` (``_reactive.py``)
+        — EventLog observer loop cadences (ADR-068 §3.8).
       - Plus the legacy mixins (Redis, FalkorDB, HTTP,
         PII, CORS, etc.) that predate the split.
     """

@@ -15,6 +15,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **ADR-068 Phase 0 (P8 + P5a):** idle-traffic mitigation.
+  New `ReactiveSettingsMixin` (`infra/config/_reactive.py`)
+  exposes the observer-loop cadences as `KNT_` env knobs —
+  `KNT_REACTIVE_POLL_INTERVAL` (default 0.25), 
+  `KNT_REACTIVE_REDISCOVERY_SECONDS` (default 5.0),
+  `KNT_WARMER_PUMP_INTERVAL` (default 0.25) and
+  `KNT_FALLBACK_POLL_INTERVAL` (default 5.0, reserved for
+  Phase 1) — all validated positive. `ReactiveDispatcher`
+  and `CacheWarmer.run_forever` resolve their defaults
+  through the knobs when the caller passes `None`
+  (explicit values keep the legacy behaviour). The
+  `IncrementalWorldStore` checkpoint payload is now
+  zlib-compressed (level 6) with wire-format sniffing on
+  load, so pre-compression checkpoints stay readable
+  during a rolling upgrade. `WorkerManager._consume_loop`
+  reads up to 8 messages per `XREADGROUP` round-trip
+  (was exactly 1), cutting the per-message RTT cost under
+  bursty load.
+
+### Added (documentation)
+
+- **ADR-068 (Proposed):** idle Redis traffic — the
+  `EventLog.subscribe` primitive and the incremental read
+  paths. Audits every polling loop that touches Redis
+  (ReactiveDispatcher at 4 Hz per agent, Runner's
+  per-tick full-history re-fold, the
+  Consolidator/CacheWarmer full-stream refresh, the SSE
+  100 ms per-client poll) and proposes the push-first
+  read model: blocking `XREAD` wake-up with a durable
+  cursor + 5 s fallback poll, cursor-in-cache incremental
+  memory refresh, dirty-only checkpoint saves, and
+  `KNT_`-owned cadences. Phased plan P0–P4; Phase 0 (env
+  knobs, `count>1`, checkpoint compression) is the
+  immediate mitigation.
+
+## [0.14.2] — 2026-08-31
+
 ### Fixed
 
 - **Ownership rule for derived components in the default fold

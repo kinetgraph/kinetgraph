@@ -179,14 +179,22 @@ class CacheWarmer:
                 )
         return len(requests)
 
-    async def run_forever(self, interval: float = 0.25) -> None:
+    async def run_forever(self, interval: Optional[float] = None) -> None:
         """
         Cooperative loop: pump the bus every `interval`
         seconds. Cancelled cleanly on `asyncio.CancelledError`.
 
+        `interval=None` reads the ``KNT_WARMER_PUMP_INTERVAL``
+        knob (ADR-068 §3.8; default 0.25). Explicit values keep
+        the legacy behaviour.
+
         Intended for production deployments where the
         warmer runs as a long-lived background task.
         """
+        if interval is None:
+            from kntgraph.infra.config import fresh_settings
+
+            interval = fresh_settings().warmer_pump_interval
         try:
             while True:
                 await self.pump_once()

@@ -128,19 +128,29 @@ class ReactiveDispatcher:
         log: EventLog,
         *,
         systems: Optional[list[WorldSystem]] = None,
-        poll_interval: float = 0.25,
+        poll_interval: Optional[float] = None,
         filter_fn: Optional[Callable[[Event], bool]] = None,
         world_store: Optional[IncrementalWorldStore] = None,
         redis: Optional["Redis"] = None,
         tool_router: Optional["ToolRouter"] = None,
         tool_ttls: Optional[ToolCallTTL] = None,
-        rediscovery_interval_seconds: float = 5.0,
+        rediscovery_interval_seconds: Optional[float] = None,
         heartbeat_interval_seconds: float = 30.0,
         projections: Optional[list["WorldProjection"]] = None,
     ) -> None:
         """
         Args:
             (existing args unchanged)
+            poll_interval: how often ``_loop`` calls
+                ``dispatch_once`` (seconds). ``None`` reads the
+                ``KNT_REACTIVE_POLL_INTERVAL`` knob (ADR-068 §3.8;
+                default 0.25). Explicit values keep the legacy
+                behaviour (tests tighten this to 0.05).
+            rediscovery_interval_seconds: how often the
+                dispatcher re-runs ``EventLog.list_agents()`` to
+                pick up brand-new tenants. ``None`` reads the
+                ``KNT_REACTIVE_REDISCOVERY_SECONDS`` knob (default
+                5.0). Explicit values keep the legacy behaviour.
             projections: optional list of
                 :class:`WorldProjection` objects to run
                 **after the base fold and before the
@@ -162,7 +172,8 @@ class ReactiveDispatcher:
             systems: list of ``WorldSystem`` callables to run
                 once per tick.
             poll_interval: how often ``_loop`` calls
-                ``dispatch_once`` (seconds).
+                ``dispatch_once`` (seconds). ``None`` reads the
+                ``KNT_REACTIVE_POLL_INTERVAL`` knob (ADR-068 §3.8).
             filter_fn: optional pre-filter for events. Events
                 that fail the filter are still folded into the
                 World (so the World reflects the full history)
@@ -191,18 +202,14 @@ class ReactiveDispatcher:
                 loose TTL for long-running batch tools).
             rediscovery_interval_seconds: how often the
                 dispatcher re-runs ``EventLog.list_agents()``
-                to pick up brand-new tenants. The first
-                discovery runs in ``start()``/the first tick;
-                this knob bounds the staleness of subsequent
-                ones. Defaults to ``5.0s`` which is the right
-                ballpark for production deployments; tight
-                it (e.g. ``0.05s``) for E2E tests so a
-                newcomer is picked up within one or two polls.
-                Implementation note: the rediscovery is a
-                cheap ``SCAN`` over ``knt:agents:*:events``
-                (or the equivalent ``list_agents()`` thin
-                delegation); the cost is dominated by
-                network round-trips, not Redis CPU.
+                to pick up brand-new tenants. ``None`` reads the
+                ``KNT_REACTIVE_REDISCOVERY_SECONDS`` knob. The
+                first discovery runs in ``start()``/the first
+                tick; this knob bounds the staleness of
+                subsequent ones (the rediscovery is a cheap
+                ``SCAN`` over ``knt:agents:*:events``; the cost
+                is dominated by network round-trips, not Redis
+                CPU).
             heartbeat_interval_seconds: how often the
                 dispatcher's background loop emits a
                 structured heartbeat log line carrying
@@ -216,6 +223,18 @@ class ReactiveDispatcher:
         """
         self._log = log
         self._systems: list[WorldSystem] = list(systems or [])
+        # Cadence knobs resolve through Settings when the
+        # caller leaves them unset (ADR-068 §3.8). Explicit
+        # values keep the legacy behaviour (tests tighten
+        # these to sub-second values).
+        if poll_interval is None:
+            from kntgraph.infra.config import fresh_settings
+
+            poll_interval = fresh_settings().reactive_poll_interval
+        if rediscovery_interval_seconds is None:
+            from kntgraph.infra.config import fresh_settings
+
+            rediscovery_interval_seconds = fresh_settings().reactive_rediscovery_seconds
         self._interval = poll_interval
         self._filter = filter_fn
         self._tool_router = tool_router
