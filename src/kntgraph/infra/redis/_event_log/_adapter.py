@@ -94,6 +94,15 @@ class EventLogStorage(Protocol):
 
     async def delete(self, agent_id: str) -> None: ...
 
+    async def subscribe(
+        self,
+        agent_ids: list[str],
+        *,
+        cursors: dict[str, str] | None = None,
+        block_ms: int = 30_000,
+        count: int | None = None,
+    ) -> tuple[dict[str, str], list[Event]]: ...
+
 
 @dataclass(frozen=True)
 class RedisEventLogAdapter:
@@ -212,12 +221,89 @@ class RedisEventLogAdapter:
     async def delete(self, agent_id: str) -> None:
         await self.client.delete(stream_key_for_agent(agent_id))
 
+    async def subscribe(
+        self,
+        agent_ids: list[str],
+        *,
+        cursors: dict[str, str] | None = None,
+        block_ms: int = 30_000,
+        count: int | None = None,
+    ) -> tuple[dict[str, str], list[Event]]:
+        """Blocking multi-stream read — the wake-up primitive.
+
+        One round-trip over up to N agent streams (fan-in:
+        one held connection serves all of them, ADR-068
+        §3.2). Cursor semantics per agent:
+
+          - ``cursors[agent_id]`` present (or ``None`` cursor
+            map, meaning "read everything, including the
+            backlog"): the read starts strictly after the
+            cursor via the Redis ``(`` exclusive-id form.
+          - cursor absent from the map: the caller has never
+            seen this agent — the read returns the whole
+            existing backlog plus new entries (mirrors
+            ``read_with_cursor(agent_id, "-")``).
+
+        Returns ``(new_cursors, events)``: per-agent stream
+        ids to persist as the next cursor, and the events in
+        arrival order. An empty stream (timeout with no
+        arrivals) yields ``({}, [])`` — the caller falls
+        back to its periodic poll, keeping the
+        notification-is-a-hint invariant of ADR-068 §3.1.
+        """
+        # Per-stream start id: the exclusive form of the
+        # caller's cursor, or the full-history sentinel when
+        # the agent was never consumed by this subscriber.
+        streams: dict[str, str] = {}
+        for agent_id in agent_ids:
+            cursor = (cursors or {}).get(agent_id)
+            streams[stream_key_for_agent(agent_id)] = (
+                "-" if not cursor or cursor == "-" else f"({cursor}"
+            )
+
+        response = await self.client.xread(streams=streams, count=count, block=block_ms)
+        return _flatten_xread_response(response)
+
     @staticmethod
     def _response_error() -> type[Exception]:
         """Return the ResponseError type without importing at module top."""
         from redis.exceptions import ResponseError
 
         return ResponseError
+
+
+def _flatten_xread_response(response: list) -> tuple[dict[str, str], list[Event]]:
+    """Decode an ``xread`` response into ``(new_cursors, events)``.
+
+    The wire shape is
+    ``[[stream_key_bytes, [(id_bytes, fields_dict), ...]], ...]``.
+    Each stream key is decoded back to an agent_id; each
+    entry is parsed into an ``Event``; the agent's cursor
+    advances to the last entry's stream id. A stream key
+    outside the ``knt:agents:*:events`` convention cannot
+    happen (the adapter built the stream dict), but is
+    skipped silently rather than crashing the consumer.
+    """
+    new_cursors: dict[str, str] = {}
+    events: list[Event] = []
+    for raw_key, entries in response:
+        raw_key_str = (
+            raw_key.decode("utf-8") if isinstance(raw_key, bytes) else raw_key
+        )
+        agent_id = parse_agent_id_from_stream_key(raw_key_str)
+        if agent_id is None:
+            continue
+        last_entry_id: bytes | str | None = None
+        for mid, mdata in entries:
+            events.append(_parse_event(mid, mdata))
+            last_entry_id = mid
+        if last_entry_id is not None:
+            new_cursors[agent_id] = (
+                last_entry_id.decode("utf-8")
+                if isinstance(last_entry_id, bytes)
+                else last_entry_id
+            )
+    return new_cursors, events
 
 
 __all__ = ["EventLogStorage", "RedisEventLogAdapter"]

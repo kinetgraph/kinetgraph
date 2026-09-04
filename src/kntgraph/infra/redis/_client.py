@@ -143,6 +143,18 @@ class RedisLike(Protocol):
     async def xinfo_stream(self, name: str) -> dict: ...
     async def xdel(self, name: str, *ids: str) -> int: ...
 
+    # Streams -- blocking read (ADR-068 Phase 1). One held
+    # connection per subscriber; the read waits up to ``block``
+    # milliseconds for an entry strictly after the given
+    # per-stream id, then returns ``[]`` on timeout. This is
+    # the wake-up transport behind ``EventLog.subscribe``.
+    async def xread(
+        self,
+        streams: dict[str, str],
+        count: int | None = None,
+        block: int | None = None,
+    ) -> list: ...
+
     # Streams -- Consumer Groups (ADR-036 / Tool Worker Pattern).
     # Method coverage matches ``redis.asyncio.Redis`` v7.x.
     async def xgroup_create(

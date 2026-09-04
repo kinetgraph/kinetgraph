@@ -391,6 +391,50 @@ class EventLog:
             return [], cursor
         return events, str(events[-1].event_id)
 
+    # ------------------------------------------------------------------ subscribe
+
+    async def subscribe(
+        self,
+        agent_ids: list[str],
+        *,
+        cursors: dict[str, str] | None = None,
+        block_ms: int = 30_000,
+        count: int | None = None,
+    ) -> tuple[dict[str, str], list[Event]]:
+        """
+        Blocking read across one or more agent streams — the
+        notification primitive of ADR-068 §3.1.
+
+        The subscriber holds ONE connection for up to
+        ``block_ms`` milliseconds, waking as soon as any of
+        the named agents' streams receives an entry (fan-in:
+        N agents, one connection — the pool-pressure answer
+        of ADR-068 §3.2). The returned ``(new_cursors,
+        events)`` pair feeds the next call:
+
+          - ``new_cursors[agent_id]`` is the stream id to
+            persist as that agent's durable cursor;
+          - ``events`` are the parsed events in arrival
+            order (interleaved across agents).
+
+        Cursor semantics mirror ``read_after_cursor``:
+
+          - agent present in ``cursors`` → strictly after
+            that cursor (exclusive ``(`` form);
+          - agent absent (or ``cursors=None``) → the full
+            existing backlog plus new entries.
+
+        The notification is a HINT, never a correctness
+        dependency: a dropped or missed wake-up is closed by
+        the caller's fallback poll (``KNT_FALLBACK_POLL_INTERVAL``,
+        ADR-068 §3.8) reading from the same durable cursor.
+        A timeout with no arrivals returns ``({}, [])`` —
+        idle cost of one held connection, zero round-trips.
+        """
+        return await self._storage.subscribe(
+            agent_ids, cursors=cursors, block_ms=block_ms, count=count
+        )
+
     # ------------------------------------------------------------------ delete
 
     async def delete_agent_stream(self, agent_id: str) -> None:

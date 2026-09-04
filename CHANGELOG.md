@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ADR-068 Phase 1 (P1):** the `EventLog.subscribe`
+  notification primitive. New `xread` on the `RedisLike`
+  Protocol (blocking multi-stream read); new
+  `EventLog.subscribe(agent_ids, cursors=..., block_ms=...,
+  count=...)` delegating to the storage adapter, returning
+  `(new_cursors, events)` — one held connection serves N
+  agent streams (fan-in), per-agent cursor semantics
+  (present → strictly-after via the exclusive `(` form;
+  absent → full backlog), timeout → `({}, [])` so the
+  notification stays a hint closed by the caller's fallback
+  poll. Backed by blocking-faithful fakeredis `xread` in
+  unit tests (behaviour tests, not mock-heavy).
+
 - **ADR-068 Phase 0 (P8 + P5a):** idle-traffic mitigation.
   New `ReactiveSettingsMixin` (`infra/config/_reactive.py`)
   exposes the observer-loop cadences as `KNT_` env knobs —
