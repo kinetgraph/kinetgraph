@@ -84,6 +84,14 @@ async def run_systems_and_persist(
     check on the EventLog/router side only (the router
     fan-out happens once per batch; the system pipeline
     is decoupled from the per-batch new-event count).
+
+    Checkpoint save is dirty-only (ADR-068 §3.5 P5c): the
+    save runs when the cursor advanced (new events were
+    consumed) or the systems emitted events (the World was
+    re-folded by ``fold_with_systems``). A tick where both
+    are empty skips the re-SET of an unchanged pickled
+    World — the checkpoint on disk is already exactly what
+    would be written.
     """
     from ._checkpoint_io import save_checkpoint
 
@@ -94,7 +102,16 @@ async def run_systems_and_persist(
     )
     if system_events:
         world = fold_with_systems(dispatcher, world, system_events)
-    await save_checkpoint(dispatcher, agent_id, world, last_stream_id)
+    # Dirty-only save (ADR-068 §3.5 P5c): the checkpoint is
+    # re-persisted only when something actually changed — the
+    # cursor advanced past consumed entries, or a system
+    # emitted events that mutated the World (the ADR-045 Slot
+    # GC re-fold). An idle tick with zero new events and zero
+    # emitted events leaves the pickled World bit-for-bit
+    # identical to the stored one; re-SETing it every tick
+    # was the dominant idle payload of the dispatcher.
+    if new_event_count > 0 or system_events:
+        await save_checkpoint(dispatcher, agent_id, world, last_stream_id)
 
 
 async def append_system_outgoing(

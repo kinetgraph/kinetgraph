@@ -47,10 +47,32 @@ class WorldCheckpointStorage(Protocol):
         """
         ...
 
+    async def load_cursor(
+        self, agent_id: str
+    ) -> Result[Optional[str], MemoryError]:
+        """Load the agent's stream cursor (P5b split).
+
+        The cheap probe: a small ``GET`` that answers "is
+        there anything new?" without the pickled World.
+        ``Ok(None)`` on miss; ``Ok(str)`` on hit;
+        ``Err(MemoryError)`` on Redis failure.
+        """
+        ...
+
     async def save(
-        self, agent_id: str, payload: bytes, *, ttl_seconds: Optional[int] = None
+        self,
+        agent_id: str,
+        payload: bytes,
+        *,
+        ttl_seconds: Optional[int] = None,
+        cursor: Optional[str] = None,
     ) -> Result[None, MemoryError]:
-        """Persist a pickled checkpoint payload with sliding TTL."""
+        """Persist a pickled checkpoint payload with sliding TTL.
+
+        When ``cursor`` is given, the companion cursor key is
+        written in the same transaction so the pair never
+        disagrees.
+        """
         ...
 
     async def discard(self, agent_id: str) -> Result[None, MemoryError]:

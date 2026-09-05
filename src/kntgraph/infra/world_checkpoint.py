@@ -77,7 +77,9 @@ from __future__ import annotations
 # don't apply to this use case.
 import pickle  # nosec B403 - internal-to-framework serialisation
 import zlib
+import inspect
 from dataclasses import dataclass
+from typing import Optional
 
 import structlog
 
@@ -157,6 +159,29 @@ class IncrementalWorldStore:
         """The Redis key for an agent's checkpoint."""
         return WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id)
 
+    async def load_cursor(self, agent_id: str) -> Optional[str]:
+        """
+        Read the agent's stream cursor WITHOUT the World
+        payload (ADR-068 §3.5 P5b).
+
+        The cheap probe: a ~20-byte ``GET`` that answers "is
+        there anything new for this agent?". The dispatcher
+        reads the full pickled World (``load``) only when the
+        cursor says there is work past it. ``None`` means the
+        cursor key is absent — either the agent has never been
+        checkpointed or the write predates the cursor split
+        (callers then fall back to a full ``load``).
+        """
+        result = await self._storage.load_cursor(agent_id)
+        if result.is_err():
+            logger.warning(
+                "incremental_world_store.load_cursor.storage_error",
+                agent_id=agent_id,
+                error=str(result.err_value()),
+            )
+            return None
+        return result.ok_value()
+
     async def load(self, agent_id: str) -> WorldCheckpoint:
         """
         Load the agent's checkpoint or return an empty one.
@@ -227,7 +252,20 @@ class IncrementalWorldStore:
             ),
             _CHECKPOINT_ZLIB_LEVEL,
         )
-        result = await self._storage.save(agent_id, payload, ttl_seconds=self._ttl_s)
+        # Write the companion cursor key in the same
+        # transaction when the storage supports it (P5b): the
+        # wake-up path reads this small key instead of the
+        # World payload. Legacy storages (no ``cursor=`` kwarg)
+        # keep the payload-only write; their cursor reads
+        # return ``None`` and the dispatcher falls back to a
+        # full ``load``.
+        save = self._storage.save
+        if "cursor" in inspect.signature(save).parameters:
+            result = await save(
+                agent_id, payload, ttl_seconds=self._ttl_s, cursor=ckpt.last_stream_id
+            )
+        else:
+            result = await save(agent_id, payload, ttl_seconds=self._ttl_s)
         if result.is_err():
             logger.warning(
                 "incremental_world_store.save.storage_error",

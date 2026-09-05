@@ -297,28 +297,22 @@ class TestDispatchForAgentBranches:
         # The dispatcher auto-registered the sweeper
         # in __init__; with ``tool_ttls`` set, the
         # early-return is skipped and the sweeper
-        # runs. The exact post-state is that
-        # ``_run_systems_and_persist_fn`` was called,
-        # which means the checkpoint was saved by the
-        # append_system_outgoing path (no events
-        # flowed through, but the persist always
-        # saves). The ``_save_checkpoint_fn`` was
-        # NOT called by the early-return.
+        # runs. ADR-068 §3.5 P5c: the checkpoint save
+        # is DIRTY-ONLY — this tick consumed no new
+        # events (the filter rejected everything) and
+        # the systems emitted none, so the stored
+        # checkpoint is already exactly what would be
+        # written and the re-SET is skipped. The
+        # cursor does not need to advance either: the
+        # filtered-out batch was never consumed
+        # (``_dispatch_for_agent`` only saves on the
+        # ``new_event_count == 0 and tool_ttls is None``
+        # branch, which does not fire here). Pinned so
+        # a future refactor does not silently regress
+        # to the save-every-tick behaviour.
         processed = await dispatcher.dispatch_once()
         assert processed == 0
-        # The checkpoint was saved exactly once.
-        # The path matters: the early-return path
-        # saves the checkpoint (filtered-out
-        # exhaustion) and the systems path saves
-        # the checkpoint (TTL sweeper ran). Both
-        # paths save once; the difference is
-        # whether the sweeper had a chance to
-        # emit. We assert the observable side
-        # effect (checkpoint saved) without
-        # depending on the TTL sweeper's emission
-        # logic — that is exercised separately in
-        # ``test_tool_call_ttl_sweeper.py``.
-        assert len(cap.saved) >= 1
+        assert len(cap.saved) == 0
 
 
 # ---------------------------------------------------------------------------

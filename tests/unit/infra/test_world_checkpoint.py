@@ -17,17 +17,56 @@ from kntgraph.infra.world_checkpoint import IncrementalWorldStore, WorldCheckpoi
 
 
 class FakeRedisClient:
+    """Minimal in-process Redis: GET/SET/DELETE/UNLINK plus
+    the transactional pipeline the P5b cursor split writes
+    through. Each op mutates ``data``; ``ops`` records the
+    sequence for assertions."""
+
     def __init__(self) -> None:
         self.data: dict[str, bytes | None] = {}
+        self.ops: list[tuple] = []
 
     async def get(self, key: str) -> bytes | None:
+        self.ops.append(("get", key))
         return self.data.get(key)
 
     async def set(self, key: str, value: bytes, *, ex: int | None = None) -> None:
+        self.ops.append(("set", key, ex))
         self.data[key] = value
 
     async def delete(self, key: str) -> None:
+        self.ops.append(("delete", key))
         self.data[key] = None
+
+    async def unlink(self, *keys: str) -> None:
+        self.ops.append(("unlink", keys))
+        for key in keys:
+            self.data[key] = None
+
+    def pipeline(self, transaction: bool = True) -> "_FakePipeline":
+        self.ops.append(("pipeline", transaction))
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    """Collects SET ops and applies them atomically on
+    ``execute`` — the behaviour the cursor-key transaction
+    depends on."""
+
+    def __init__(self, client: FakeRedisClient) -> None:
+        self._client = client
+        self._queued: list[tuple[str, bytes, int | None]] = []
+
+    def set(
+        self, key: str, value: bytes, *, ex: int | None = None
+    ) -> "_FakePipeline":
+        self._queued.append((key, value, ex))
+        return self
+
+    async def execute(self) -> list:
+        for key, value, ex in self._queued:
+            self._client.data[key] = value
+        return [True] * len(self._queued)
 
 
 class FailingRedisClient(FakeRedisClient):

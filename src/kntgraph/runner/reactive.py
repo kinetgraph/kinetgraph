@@ -137,6 +137,8 @@ class ReactiveDispatcher:
         rediscovery_interval_seconds: Optional[float] = None,
         heartbeat_interval_seconds: float = 30.0,
         projections: Optional[list["WorldProjection"]] = None,
+        fallback_poll_interval: Optional[float] = None,
+        wake_on_event: bool = True,
     ) -> None:
         """
         Args:
@@ -151,6 +153,18 @@ class ReactiveDispatcher:
                 pick up brand-new tenants. ``None`` reads the
                 ``KNT_REACTIVE_REDISCOVERY_SECONDS`` knob (default
                 5.0). Explicit values keep the legacy behaviour.
+            fallback_poll_interval: how long a silent wake-up is
+                tolerated before the fallback poll runs (the
+                notification-is-a-hint correctness net, ADR-068
+                §3.1). ``None`` reads the
+                ``KNT_FALLBACK_POLL_INTERVAL`` knob (default 5.0).
+            wake_on_event: when True (default), the loop's idle
+                path blocks in ``subscribe_many`` (one held
+                connection for all tracked agents) instead of
+                sleeping the poll interval; a lost notification
+                converges via the fallback poll. Set False to
+                force the legacy pure-poll cadence (deployments
+                whose pool budget forbids a held connection).
             projections: optional list of
                 :class:`WorldProjection` objects to run
                 **after the base fold and before the
@@ -235,7 +249,15 @@ class ReactiveDispatcher:
             from kntgraph.infra.config import fresh_settings
 
             rediscovery_interval_seconds = fresh_settings().reactive_rediscovery_seconds
+        if fallback_poll_interval is None:
+            from kntgraph.infra.config import fresh_settings
+
+            fallback_poll_interval = fresh_settings().fallback_poll_interval
         self._interval = poll_interval
+        # Push-first switch (ADR-068 §3.2). ``subscribe`` is
+        # duck-typed so legacy storages without the primitive
+        # transparently fall back to the pure-poll cadence.
+        self._wake_on_event = wake_on_event and hasattr(log, "subscribe")
         self._filter = filter_fn
         self._tool_router = tool_router
         # ADR-042 §6.1 follow-up: caller-supplied
@@ -299,6 +321,20 @@ class ReactiveDispatcher:
         self._bootstrapped: bool = False
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        # Push-first wake-up state (ADR-068 §3.2): per-agent
+        # durable cursors the ``subscribe_many`` fan-in read
+        # starts from, plus the fallback-poll deadline that
+        # guarantees convergence when a notification is lost.
+        # Populated on the first full sweep (bootstrap) and
+        # updated on every successful dispatch.
+        self._subscribe_cursors: dict[str, str] = {}
+        # Deadline (monotonic) after which a full dispatch_once
+        # runs even when no wake-up arrived.
+        self._next_fallback_at: float = 0.0
+        # How long a silent wake-up is tolerated before the
+        # fallback poll runs (ADR-068 §3.8 knob). Read once at
+        # construction; the operator restarts to re-tune.
+        self._fallback_interval: float = fallback_poll_interval
         # Observability surface (ADR-style): counters and timestamps
         # that ``_loop`` turns into a periodic heartbeat log entry.
         # Without this, a "loop silently stuck on the same exception"
@@ -392,6 +428,20 @@ class ReactiveDispatcher:
         processed = 0
         for agent_id in list(self._tracked_agents):
             processed += await self._dispatch_for_agent(agent_id)
+            # Seed the wake-up cursor (ADR-068 §3.2): after the
+            # dispatch, the cheap cursor key knows the agent's
+            # committed position. Storages without the P5b
+            # ``load_cursor`` primitive (legacy fakes, pre-P5b
+            # adapters) keep the agent out of the fan-in set;
+            # the wake path degrades to the poll cadence for
+            # them.
+            load_cursor = getattr(self._world_store, "load_cursor", None)
+            if load_cursor is not None:
+                seeded = await load_cursor(agent_id)
+                if seeded is not None:
+                    self._subscribe_cursors[agent_id] = seeded
+                else:
+                    self._subscribe_cursors.pop(agent_id, None)
         # Observability: refresh the activity timestamp on every
         # successful tick (even if processed == 0, the tick ran;
         # the heartbeat distinguishes "loop is alive but idle" from
@@ -493,8 +543,17 @@ class ReactiveDispatcher:
         self._last_loop_error: Optional[str] = None
         while self._running:
             try:
-                await self.dispatch_once()
+                if self._wake_on_event:
+                    await self._wake_once()
+                else:
+                    await self.dispatch_once()
+                    # Legacy poll cadence: sleep between
+                    # sweeps (the wake path's sleep is the
+                    # blocking subscribe read itself).
+                    await asyncio.sleep(self._interval)
                 self._last_loop_error = None
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 # ``exc_info=True`` routes the full traceback to the
                 # log handler. Without it, the operator sees only
@@ -503,8 +562,86 @@ class ReactiveDispatcher:
                 # same code path.
                 logger.error("reactive.loop.error", error=str(e), exc_info=True)
                 self._last_loop_error = repr(e)
+                # Back off before the next attempt — a crash inside
+                # the wake path would otherwise spin on a broken
+                # connection at the poll interval's rate.
+                await asyncio.sleep(self._interval)
+                self._maybe_emit_heartbeat()
+                continue
             self._maybe_emit_heartbeat()
-            await asyncio.sleep(self._interval)
+
+    async def _wake_once(self) -> None:
+        """One iteration of the push-first loop (ADR-068 §3.2).
+
+        Idle path: block in ``subscribe_many`` on all tracked
+        agents (ONE held connection) until any of them
+        receives an event or ``fallback_poll_interval``
+        elapses. The timeout arm runs the full
+        ``dispatch_once`` — the convergence net that closes
+        lost notifications and picks up rediscovered agents.
+        The wake arm dispatches only the agents whose cursor
+        moved, then loops straight back into the blocking
+        read: zero round-trips while silent.
+        """
+        now = time.monotonic()
+        # Bootstrap: the first sweep populates the tracked
+        # agents AND the per-agent cursors the wake-up read
+        # starts from.
+        if not self._bootstrapped or now >= self._next_rediscovery_at:
+            await _bootstrap_agents_fn(self)
+            self._bootstrapped = True
+            self._next_rediscovery_at = now + self._rediscovery_interval_seconds
+
+        if not self._tracked_agents or not self._has_subscribable_agents():
+            # Nothing to fan-in on yet (no agent has a durable
+            # cursor). The full sweep also seeds the cursors.
+            await self.dispatch_once()
+            self._next_fallback_at = time.monotonic() + self._fallback_interval
+            return
+
+        block_ms = int(self._fallback_interval * 1000)
+        try:
+            new_cursors, _wake_events = await self._log.subscribe(  # type: ignore[union-attr]
+                self._subscribable_agents(),
+                cursors=self._subscribe_cursors,
+                block_ms=block_ms,
+            )
+        except (asyncio.CancelledError,):
+            raise
+        except Exception as e:
+            # A failed wake-up is an I/O crash signal: log, then
+            # let the fallback poll below converge the state.
+            # Swallowing without logging would turn a Redis
+            # outage into a silent stall.
+            logger.warning("reactive.wake.subscribe_failed", error=str(e))
+            await self.dispatch_once()
+            self._next_fallback_at = time.monotonic() + self._fallback_interval
+            return
+
+        # The subscribe cursors advanced for the agents that
+        # woke; merge them before the dispatch so the dispatch
+        # cycle reads strictly-after-what-we-already-saw. The
+        # per-agent dispatch still owns the durable checkpoint
+        # (the subscribe cursor is the wake-up hint position;
+        # the checkpoint cursor is the commit point).
+        self._subscribe_cursors.update(new_cursors)
+        self._last_activity_at = time.monotonic()
+        self._events_processed_total += await self.dispatch_once()
+
+    def _subscribable_agents(self) -> list[str]:
+        """Tracked agents that have a known durable cursor.
+
+        The ``subscribe_many`` call subscribes only these; an
+        agent without a cursor (never dispatched, or its
+        storage lacks the cursor key) is covered by the full
+        sweep, which seeds its cursor on completion.
+        """
+        return [a for a in self._tracked_agents if a in self._subscribe_cursors]
+
+    def _has_subscribable_agents(self) -> bool:
+        """True when at least one tracked agent has a seeded
+        cursor (the wake-up read can include it)."""
+        return bool(self._subscribe_cursors)
 
     def _maybe_emit_heartbeat(self) -> None:
         """Emit a structured liveness line on the cadence
