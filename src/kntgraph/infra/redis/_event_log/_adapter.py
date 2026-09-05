@@ -254,12 +254,15 @@ class RedisEventLogAdapter:
         # Per-stream start id: the exclusive form of the
         # caller's cursor, or the full-history sentinel when
         # the agent was never consumed by this subscriber.
+        # Uses "0-0" for beginning-of-stream (Redis 8.x compatible)
+        # and the raw cursor ID for exclusive reads.
         streams: dict[str, str] = {}
         for agent_id in agent_ids:
             cursor = (cursors or {}).get(agent_id)
-            streams[stream_key_for_agent(agent_id)] = (
-                "-" if not cursor or cursor == "-" else f"({cursor}"
-            )
+            if not cursor or cursor == "-":
+                streams[stream_key_for_agent(agent_id)] = "0-0"
+            else:
+                streams[stream_key_for_agent(agent_id)] = cursor
 
         response = await self.client.xread(streams=streams, count=count, block=block_ms)
         return _flatten_xread_response(response)
