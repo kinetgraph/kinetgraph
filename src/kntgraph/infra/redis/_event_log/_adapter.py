@@ -290,9 +290,7 @@ def _flatten_xread_response(response: list) -> tuple[dict[str, str], list[Event]
     new_cursors: dict[str, str] = {}
     events: list[Event] = []
     for raw_key, entries in response:
-        raw_key_str = (
-            raw_key.decode("utf-8") if isinstance(raw_key, bytes) else raw_key
-        )
+        raw_key_str = raw_key.decode("utf-8") if isinstance(raw_key, bytes) else raw_key
         agent_id = parse_agent_id_from_stream_key(raw_key_str)
         if agent_id is None:
             continue

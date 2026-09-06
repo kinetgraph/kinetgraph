@@ -47,9 +47,7 @@ class WorldCheckpointStorage(Protocol):
         """
         ...
 
-    async def load_cursor(
-        self, agent_id: str
-    ) -> Result[Optional[str], MemoryError]:
+    async def load_cursor(self, agent_id: str) -> Result[Optional[str], MemoryError]:
         """Load the agent's stream cursor (P5b split).
 
         The cheap probe: a small ``GET`` that answers "is

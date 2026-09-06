@@ -57,9 +57,7 @@ class _FakePipeline:
         self._client = client
         self._queued: list[tuple[str, bytes, int | None]] = []
 
-    def set(
-        self, key: str, value: bytes, *, ex: int | None = None
-    ) -> "_FakePipeline":
+    def set(self, key: str, value: bytes, *, ex: int | None = None) -> "_FakePipeline":
         self._queued.append((key, value, ex))
         return self
 

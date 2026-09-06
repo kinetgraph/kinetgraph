@@ -1,13 +1,17 @@
 {
   "by_file_count": {
     "src/kntgraph/agents/role_systems/_base.py": 1,
+    "src/kntgraph/infra/redis/_world_checkpoint/_redis.py": 2,
+    "src/kntgraph/runner/reactive.py": 1,
     "src/kntgraph/security/principal.py": 1
   },
   "by_rule": {
     "reportArgumentType": 1,
-    "reportReturnType": 1
+    "reportCallIssue": 2,
+    "reportReturnType": 1,
+    "reportUnnecessaryTypeIgnoreComment": 1
   },
-  "files_with_errors": 2,
-  "total_errors": 2,
+  "files_with_errors": 4,
+  "total_errors": 5,
   "version": "1.1.411"
 }

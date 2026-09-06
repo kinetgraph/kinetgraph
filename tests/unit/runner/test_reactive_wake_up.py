@@ -30,7 +30,6 @@ client contract).
 
 from __future__ import annotations
 
-import asyncio
 import os
 import time
 from typing import Optional
@@ -174,9 +173,8 @@ class TestCursorKeySplit:
 
             assert agent_id in dispatcher._subscribe_cursors
             # The seeded cursor equals the cursor key's value.
-            assert (
-                dispatcher._subscribe_cursors[agent_id]
-                == await store.load_cursor(agent_id)
+            assert dispatcher._subscribe_cursors[agent_id] == await store.load_cursor(
+                agent_id
             )
         finally:
             await store.discard(agent_id)
@@ -221,9 +219,7 @@ class TestDirtyOnlySave:
         log = EventLog(storage=RedisEventLogAdapter(client=_IdleLog()))
         dispatcher = ReactiveDispatcher(log=log, world_store=store)  # type: ignore[arg-type]
 
-        await run_systems_and_persist(
-            dispatcher, "a-1", World.empty(), "1-0", 0, []
-        )
+        await run_systems_and_persist(dispatcher, "a-1", World.empty(), "1-0", 0, [])
         assert calls == []
 
     async def test_consumed_batch_saves(self):
@@ -248,9 +244,7 @@ class TestDirtyOnlySave:
             return [_seed_event("a-1", {"emitted": True})]
 
         dispatcher._systems = [_emitting_system]
-        await run_systems_and_persist(
-            dispatcher, "a-1", World.empty(), "1-0", 0, []
-        )
+        await run_systems_and_persist(dispatcher, "a-1", World.empty(), "1-0", 0, [])
         assert calls == ["a-1"]
 
 
@@ -301,7 +295,6 @@ class TestWakeUpLoop:
         client = Redis.from_url(_redis_url(), decode_responses=False)
         log = EventLog(storage=RedisEventLogAdapter(client=client))
         store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
-        processed: list[Event] = []
 
         def recording_system(world: World) -> list[Event]:
             return []
@@ -346,6 +339,7 @@ class TestWakeUpLoop:
         storage, custom fakes) keeps the legacy pure-poll
         cadence: ``_wake_on_event`` is False and ``_loop``
         sleeps the poll interval between sweeps."""
+
         class _LegacyLog:
             async def read_after_cursor(self, agent_id, cursor):
                 return [], cursor or "-"
