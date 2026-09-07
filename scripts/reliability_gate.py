@@ -13,9 +13,12 @@ consequences. Per the type-discipline skill (§1.2), verticals
 own their own semantics and are deliberately excluded from the
 structural coverage gate.
 
-    src/kntgraph/stream/    — reactive dispatch + event log
-    src/kntgraph/runner/    — worker selection, retry, sweeper
-    src/kntgraph/security/  — auth, signing, key registry
+    src/kntgraph/stream/      — reactive dispatch + event log
+    src/kntgraph/runner/      — worker selection, retry, sweeper
+    src/kntgraph/security/    — auth, signing, key registry
+    src/kntgraph/resilience/  — bulkhead, circuit breaker,
+                                 rate limit, retry, timeout,
+                                 fallback, edge
 
 Branch coverage (not line) is the metric because branch coverage is
 the floor for any future MC/DC work. The follow-up mutmut step will
@@ -52,6 +55,7 @@ TARGET_PATHS = (
     "src/kntgraph/stream/",
     "src/kntgraph/runner/",
     "src/kntgraph/security/",
+    "src/kntgraph/resilience/",
 )
 
 # Tests that exercise the target paths. Same set the
@@ -211,7 +215,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print(">>> reliability (branch coverage on stream + runner + security)")
+    print(">>> reliability (branch coverage on stream + runner + security + resilience)")
     rc = _run_coverage()
     if rc == 5:
         print(

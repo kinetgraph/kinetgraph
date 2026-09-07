@@ -38,7 +38,17 @@ There are **two legitimate exceptions**:
 
 ## 1.2 Framework never depends on vertical
 
-`src/kntgraph/core/`, `src/kntgraph/tools/`, `src/kntgraph/infra/`, `src/kntgraph/stream/`, `src/kntgraph/security/`, `src/kntgraph/runner/` must **NOT** import from:
+Framework code is everything under:
+
+- `src/kntgraph/core/`
+- `src/kntgraph/tools/`
+- `src/kntgraph/infra/`
+- `src/kntgraph/stream/`
+- `src/kntgraph/security/`
+- `src/kntgraph/runner/`
+- `src/kntgraph/resilience/`
+
+Framework MUST NOT import from the verticals:
 
 - `src/kntgraph/agents/`
 - `src/kntgraph/api/`
@@ -48,6 +58,47 @@ There are **two legitimate exceptions**:
 - `src/kntgraph/memory/`
 
 The verticals own the domain semantics; the framework owns the primitives.
+
+### The `memory/` confusion
+
+The `memory` name appears in **two** places with
+opposite roles, and this is the single most common
+import mistake in the codebase. Read this section
+before touching anything memory-related.
+
+| Path | Role | What lives there | Framework can import? |
+|------|------|------------------|-----------------------|
+| `src/kntgraph/core/components/memory.py` | **Framework** | The frozen-dataclass ECS projections of the three memory tiers: `SessionComponent`, `ProfileComponent`, `ContinuityComponent` (ADR-042). These are the ECS slot shapes systems read by class — framework primitives, on the same plane as `ToolCallRequest` / `ToolCallCompletion` (ADR-034). | **Yes** |
+| `src/kntgraph/memory/` | **Vertical** | The domain memory tier: `SessionState` / `ProfileState` / `ContinuityState` dataclasses (the mutable source-of-truth pre-projection), plus the Redis adapters (`_store.py`), the cache warmer, the consolidator, the continuity sub-package. The vertical owns the storage layer; the framework owns only the projection. | **No** |
+
+The projection (in `core/`) is a **view** of the
+state (in `memory/`). The state knows how to
+write to Redis; the projection knows how to be
+read by a `WorldSystem`. The framework imports the
+projection and never the state.
+
+A grep for the canonical patterns:
+
+```bash
+# Framework-correct (uses the projection):
+from kntgraph.core.components.memory import SessionComponent
+
+# Vertical-correct (uses the state / adapter):
+from kntgraph.memory.session import SessionState
+
+# Framework FORBIDDEN (would couple framework to
+# the vertical's storage layer):
+from kntgraph.memory.session import SessionState
+# ↑ same import name, different layer — the path
+# is what matters.
+```
+
+The naming collision is intentional (the framework
+projection mirrors the vertical state shape), but
+the path is the source of truth. When in doubt,
+open both files and read the docstring: framework
+files say "ECS component (ADR-042)"; vertical
+files say "session state / Redis adapter".
 
 ## 1.3 `Event` / `Result` / `JsonValue` are public framework types
 
