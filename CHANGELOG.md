@@ -15,8 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.0] — 2026-09-07
-
 ### Added
 
 - **ADR-068 Phase 4 (P4):** incremental cache refresh via
@@ -126,7 +124,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `KNT_`-owned cadences. Phased plan P0–P4; Phase 0 (env
   knobs, `count>1`, checkpoint compression) is the
   immediate mitigation.
-
 
 ## [0.14.2] — 2026-08-31
 
