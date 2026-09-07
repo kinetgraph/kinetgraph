@@ -57,10 +57,16 @@ from kntgraph.stream.event_log import EventLog
 pytestmark = pytest.mark.asyncio
 
 
-def _redis_url() -> str:
-    """The CI/dev Redis server; the integration test env
-    default matches the docker run command in the skill."""
-    return os.environ.get("KNT_REDIS_URL", "redis://:redispassword@localhost:6379/0")
+def _make_client():
+    """Create a Redis client using real Redis or fakeredis fallback."""
+    if os.environ.get("KNT_REDIS_FAKE") == "1":
+        import fakeredis.aioredis
+
+        return fakeredis.aioredis.FakeRedis(decode_responses=False)
+    url = os.environ.get("KNT_REDIS_URL", "redis://:redispassword@127.0.0.1:6379/0")
+    from redis.asyncio import Redis
+
+    return Redis.from_url(url, decode_responses=False)
 
 
 def _seed_event(agent_id: str, payload: Optional[dict] = None) -> Event:
@@ -78,9 +84,7 @@ class TestCursorKeySplit:
     the checkpoint payload and read without the payload."""
 
     async def test_save_writes_companion_cursor_key(self):
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         storage = RedisWorldCheckpointStorage(client=client)
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-{uuid4().hex[:8]}"
@@ -103,9 +107,7 @@ class TestCursorKeySplit:
             await client.aclose()
 
     async def test_load_cursor_returns_none_for_missing_key(self):
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         storage = RedisWorldCheckpointStorage(client=client)
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-none-{uuid4().hex[:8]}"
@@ -124,9 +126,7 @@ class TestCursorKeySplit:
         import pickle  # nosec B403 - legacy-format fixture
         import zlib
 
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         storage = RedisWorldCheckpointStorage(client=client)
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-legacy-{uuid4().hex[:8]}"
@@ -156,9 +156,8 @@ class TestCursorKeySplit:
         ``dispatch_once``, the wake-up cursor set knows the
         agent's committed position (read from the cheap
         key)."""
-        from redis.asyncio import Redis
 
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         log = EventLog(storage=RedisEventLogAdapter(client=client))
         store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
         agent_id = f"p5b-seed-{uuid4().hex[:8]}"
@@ -269,9 +268,7 @@ class TestWakeUpLoop:
     wakes on arrival; legacy EventLogs degrade to polling."""
 
     def _real_dispatcher(self, agent_id: str):
-        from redis.asyncio import Redis
-
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         log = EventLog(storage=RedisEventLogAdapter(client=client))
         store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
         seen: list[Event] = []
@@ -289,10 +286,9 @@ class TestWakeUpLoop:
         the loop blocks, another task appends, the dispatch
         cycle processes the event, the loop returns to the
         blocking read."""
-        from redis.asyncio import Redis
 
         agent_id = f"wake-{uuid4().hex[:8]}"
-        client = Redis.from_url(_redis_url(), decode_responses=False)
+        client = _make_client()
         log = EventLog(storage=RedisEventLogAdapter(client=client))
         store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
 

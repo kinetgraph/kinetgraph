@@ -110,3 +110,49 @@ class TestRunnerStartStopBranches:
         await asyncio.sleep(0.05)
         # We manually cancelled the running flag, so the task should naturally exit
         assert runner._task.done() if runner._task else True
+
+
+class TestRunnerIncrementalFold:
+    async def test_incremental_fold_only_reads_delta(self):
+        log = _make_log()
+        ev1 = _dummy_event()
+        await log.append(ev1)
+
+        runner = Runner(log=log, incremental=True)
+        # First tick: bootstrap full fold
+        await runner.tick_once()
+        assert runner._cached_world is not None
+        assert "test.agent" in runner._cached_world.views
+
+        # Append second event
+        ev2 = Event(
+            event_id=uuid4(),
+            event_type="test",
+            agent_id="test.agent",
+            event_class="domain",
+            data={"counter": 2},
+            timestamp=datetime.now(timezone.utc),
+            correlation=CorrelationContext(
+                causation_id=uuid4(), correlation_id=uuid4()
+            ),
+        )
+        await log.append(ev2)
+
+        # Second tick: delta fold
+        await runner.tick_once()
+        assert runner.tick == 2
+        assert runner._cached_world is not None
+        assert "test.agent" in runner._cached_world.views
+
+    async def test_custom_fold_bypasses_incremental(self):
+        log = _make_log()
+        custom_called = False
+
+        async def custom_fold():
+            nonlocal custom_called
+            custom_called = True
+            return World.empty()
+
+        runner = Runner(log=log, fold=custom_fold)
+        await runner.tick_once()
+        assert custom_called is True

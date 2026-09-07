@@ -319,6 +319,26 @@ class EventLog:
         """Read the last N events for an agent (most recent first)."""
         return await self._storage.read_latest(agent_id, n)
 
+    async def latest_stream_id(self, agent_id: str) -> str | None:
+        """
+        Return the Redis Stream id of the last entry in
+        the agent's stream, or ``None`` when the stream is
+        empty or absent (ADR-068 §3.4 P4 — fold cursor).
+
+        The Consolidator does NOT use this method (it
+        derives the per-tick work signal from the
+        ``AgentView`` only). The base class uses it on
+        the cold ``refresh_cache`` path to stamp the
+        fold cursor on the parallel Redis key so the
+        next incremental call can take the warm path.
+        The cost is one ``XREVRANGE COUNT 1`` per
+        cold-refresh call — negligible (the cold path
+        runs at most once per identity).
+        """
+        if not hasattr(self._storage, "latest_stream_id"):
+            return None
+        return await self._storage.latest_stream_id(agent_id)  # type: ignore[attr-defined]
+
     async def stream_len(self, agent_id: str) -> int:
         """Return the number of events in an agent's stream."""
         return await self._storage.stream_len(agent_id)

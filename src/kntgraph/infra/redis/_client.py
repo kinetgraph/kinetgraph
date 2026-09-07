@@ -57,6 +57,7 @@ class PipelineLike(Protocol):
         value: str,
         *,
         nx: bool = False,
+        ex: int | None = None,
     ) -> "PipelineLike": ...
 
     def delete(self, *keys: str) -> "PipelineLike": ...

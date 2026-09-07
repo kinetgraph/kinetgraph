@@ -425,23 +425,24 @@ class ReactiveDispatcher:
             self._bootstrapped = True
             self._next_rediscovery_at = now + self._rediscovery_interval_seconds
 
-        processed = 0
-        for agent_id in list(self._tracked_agents):
-            processed += await self._dispatch_for_agent(agent_id)
-            # Seed the wake-up cursor (ADR-068 §3.2): after the
-            # dispatch, the cheap cursor key knows the agent's
-            # committed position. Storages without the P5b
-            # ``load_cursor`` primitive (legacy fakes, pre-P5b
-            # adapters) keep the agent out of the fan-in set;
-            # the wake path degrades to the poll cadence for
-            # them.
-            load_cursor = getattr(self._world_store, "load_cursor", None)
-            if load_cursor is not None:
-                seeded = await load_cursor(agent_id)
-                if seeded is not None:
-                    self._subscribe_cursors[agent_id] = seeded
-                else:
-                    self._subscribe_cursors.pop(agent_id, None)
+        sem = asyncio.Semaphore(50)
+
+        async def _dispatch_sem(aid: str) -> int:
+            async with sem:
+                res = await self._dispatch_for_agent(aid)
+                load_cursor = getattr(self._world_store, "load_cursor", None)
+                if load_cursor is not None:
+                    seeded = await load_cursor(aid)
+                    if seeded is not None:
+                        self._subscribe_cursors[aid] = seeded
+                    else:
+                        self._subscribe_cursors.pop(aid, None)
+                return res
+
+        results = await asyncio.gather(
+            *(_dispatch_sem(aid) for aid in list(self._tracked_agents))
+        )
+        processed = sum(results)
         # Observability: refresh the activity timestamp on every
         # successful tick (even if processed == 0, the tick ran;
         # the heartbeat distinguishes "loop is alive but idle" from
@@ -626,7 +627,28 @@ class ReactiveDispatcher:
         # the checkpoint cursor is the commit point).
         self._subscribe_cursors.update(new_cursors)
         self._last_activity_at = time.monotonic()
-        self._events_processed_total += await self.dispatch_once()
+        if new_cursors:
+            woken_agents = list(new_cursors.keys())
+            sem = asyncio.Semaphore(50)
+
+            async def _dispatch_sem(aid: str) -> int:
+                async with sem:
+                    res = await self._dispatch_for_agent(aid)
+                    load_cursor = getattr(self._world_store, "load_cursor", None)
+                    if load_cursor is not None:
+                        seeded = await load_cursor(aid)
+                        if seeded is not None:
+                            self._subscribe_cursors[aid] = seeded
+                        else:
+                            self._subscribe_cursors.pop(aid, None)
+                    return res
+
+            results = await asyncio.gather(
+                *(_dispatch_sem(aid) for aid in woken_agents)
+            )
+            self._events_processed_total += sum(results)
+        else:
+            self._events_processed_total += await self.dispatch_once()
 
     def _subscribable_agents(self) -> list[str]:
         """Tracked agents that have a known durable cursor.

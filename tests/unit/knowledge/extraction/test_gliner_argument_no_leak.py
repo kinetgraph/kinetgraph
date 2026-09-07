@@ -100,13 +100,20 @@ class TestExtractionPackageNoLeak:
                 sys.exit(0)
             """
         )
+        import os
+        from pathlib import Path
+
+        src_dir = str(Path(__file__).parent.parent.parent.parent.parent / "src")
+        existing_pp = os.environ.get("PYTHONPATH", "")
+        pythonpath = f"{src_dir}:{existing_pp}" if existing_pp else src_dir
+
         result = subprocess.run(
             [sys.executable, "-c", script],
             capture_output=True,
             text=True,
             env={
-                **__import__("os").environ,
-                "PYTHONPATH": "kntgraph/src:kntgraph.agents/src",
+                **os.environ,
+                "PYTHONPATH": pythonpath,
             },
         )
         assert result.returncode == 0, (

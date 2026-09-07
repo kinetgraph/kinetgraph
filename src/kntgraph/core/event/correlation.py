@@ -88,8 +88,9 @@ class CorrelationContext:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CorrelationContext":
+        corr_id_raw = data.get("correlation_id")
         return cls(
-            correlation_id=UUID(data["correlation_id"]),
+            correlation_id=UUID(corr_id_raw) if corr_id_raw else uuid4(),
             causation_id=UUID(data["causation_id"])
             if data.get("causation_id")
             else None,

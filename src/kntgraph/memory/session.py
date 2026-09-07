@@ -163,6 +163,33 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         """
         await super().refresh_cache(session_id)
 
+    async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
+        self, session_id: str
+    ) -> None:
+        """
+        Incremental refresh for one session (ADR-068
+        §3.4 P4). Reads the fold cursor from the
+        parallel Redis key; falls back to the full
+        :meth:`refresh_cache` when the cursor is missing
+        (cold / legacy cache).
+
+        The base default
+        :meth:`BaseShortTermMemory._fold_incremental`
+        raises ``NotImplementedError`` because no
+        sensible per-event delta-merge exists at the
+        base level. Session subclasses that want the
+        per-event optimisation (append MESSAGE, merge
+        CONTEXT, stamp ENDED) override
+        :meth:`_fold_incremental`; otherwise this
+        method falls back to the full refold over
+        ``existing state + delta`` via the existing
+        session fold handler — correct but not the
+        cheapest path. The P4 gain on Session comes
+        primarily from the O(delta) EventLog read, not
+        from the merge step.
+        """
+        await super().refresh_cache_incremental(session_id)
+
     # ------------------------------------------------------------------ write (domain)
 
     async def _emit_and_refresh(

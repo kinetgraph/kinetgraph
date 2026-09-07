@@ -104,11 +104,12 @@ class TestToolsCacheImportChain:
             print("OK")
             """
         )
-        workspace_root = Path(__file__).parent.parent.parent.parent
+        workspace_root = Path(__file__).parent.parent.parent
         pythonpath = ":".join(
             [
-                str(workspace_root / "kntgraph" / "src"),
+                str(workspace_root / "src"),
                 str(workspace_root / "kntgraph.agents" / "src"),
+                os.environ.get("PYTHONPATH", ""),
             ]
         )
         env = {**os.environ, "PYTHONPATH": pythonpath}

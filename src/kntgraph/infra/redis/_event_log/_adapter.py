@@ -88,6 +88,21 @@ class EventLogStorage(Protocol):
 
     async def read_latest(self, agent_id: str, n: int = 1) -> list[Event]: ...
 
+    async def latest_stream_id(self, agent_id: str) -> str | None:
+        """
+        Return the Redis Stream id of the last entry in the
+        agent's stream, or ``None`` if the stream is empty
+        or absent. Cheaper than ``read_latest`` — a single
+        ``XREVRANGE COUNT 1`` that skips Event decoding.
+
+        Used by the Consolidator to publish the fold cursor
+        for the incremental refresh path (ADR-068 §3.4
+        P4): the cursor MUST be the Redis Stream id (not
+        the Event UUID) because the warmer passes it
+        straight to ``XRANGE (cursor``.
+        """
+        ...
+
     async def stream_len(self, agent_id: str) -> int: ...
 
     async def list_agents(self) -> list[str]: ...
@@ -199,6 +214,33 @@ class RedisEventLogAdapter:
             count=n,
         )
         return [_parse_event(mid, mdata) for mid, mdata in messages]
+
+    async def latest_stream_id(self, agent_id: str) -> str | None:
+        """
+        Cheaper cousin of :meth:`read_latest`: a single
+        ``XREVRANGE COUNT 1`` returning the last stream id
+        without decoding the Event payload.
+
+        Used by the Consolidator (ADR-068 §3.4 P4) to
+        anchor the incremental refresh on the EventLog.
+        Returns ``None`` when the stream is missing or
+        empty.
+        """
+        try:
+            messages = await self.client.xrevrange(
+                stream_key_for_agent(agent_id),
+                min="-",
+                max="+",
+                count=1,
+            )
+        except Exception:
+            return None
+        if not messages:
+            return None
+        mid = messages[0][0]
+        if isinstance(mid, bytes):
+            mid = mid.decode("utf-8")
+        return str(mid)
 
     async def stream_len(self, agent_id: str) -> int:
         try:

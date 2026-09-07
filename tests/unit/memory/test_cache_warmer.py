@@ -247,12 +247,14 @@ class TestCacheWarmerPumpOnce:
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, session_manager, profile_manager)
         warmer._sessions = AsyncMock()
-        warmer._sessions.refresh_cache = AsyncMock(side_effect=RuntimeError("boom"))
+        warmer._sessions.refresh_cache_incremental = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-1"))
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-2"))
 
         assert await warmer.pump_once() == 2
-        assert warmer._sessions.refresh_cache.await_count == 2
+        assert warmer._sessions.refresh_cache_incremental.await_count == 2
 
     async def test_pump_drains_bus_after_processing(
         self, event_log, session_manager, profile_manager

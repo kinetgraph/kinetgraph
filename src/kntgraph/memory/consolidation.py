@@ -294,6 +294,11 @@ class Consolidator:
         self._bus = bus
         self._sessions = session_manager
         self._profiles = profile_manager
+        # ``last_event_id`` is the Event UUID (ADR-068
+        # §3.4 P4 short-circuit); the fold cursor (Redis
+        # Stream id) lives on the cache and is read by
+        # the warmer, not here.
+        self._last_seen_views: dict[str, str] = {}
 
     def refresh_all(self, world: World) -> list[Event]:
         """
@@ -305,11 +310,26 @@ class Consolidator:
         Pure: no I/O, no side effects beyond the bus
         mutation. The bus itself is in-memory and intended
         to be consumed in the same process.
+
+        Short-circuit (ADR-068 §3.4 P4): an agent whose
+        view's ``last_event_id`` has not advanced since
+        the last tick is skipped. The ``AgentView``
+        carries the Event UUID (not the Redis Stream id);
+        the cold/warm path of the actual refresh is
+        decided by the warmer from the fold cursor on
+        the parallel Redis key
+        (``<cache_key>:fold_cursor``), not from the
+        request. This keeps the Consolidator free of any
+        Redis I/O.
         """
-        for agent_id in world.agents:
+        for agent_id, view in world.agents.items():
             mem = parse_agent_id(agent_id)
             if mem is None:
                 continue
+            view_signature = str(view.last_event_id) if view.last_event_id else ""
+            if self._last_seen_views.get(agent_id) == view_signature:
+                continue
+            self._last_seen_views[agent_id] = view_signature
             self._bus.publish(
                 CacheRefreshRequest(
                     kind=mem.kind,  # type: ignore[arg-type]
