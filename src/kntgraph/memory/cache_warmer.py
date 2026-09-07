@@ -147,6 +147,23 @@ class CacheWarmer:
         """
         Drain the bus and apply all pending requests.
         Returns the number of refreshes applied.
+
+        ADR-068 §3.4 P4: every request flows through
+        :meth:`BaseShortTermMemory.refresh_cache_incremental`.
+        That method reads the fold cursor from the
+        parallel Redis key ``<cache_key>:fold_cursor``;
+        if the cursor is missing it falls back to the
+        full :meth:`BaseShortTermMemory.refresh_cache`
+        which seeds the cursor for the next call. The
+        dispatcher does not need to carry a cursor on
+        the request — the cache owns that state.
+
+        ``pump_once`` is the single sink for the
+        cache-write I/O. It is idempotent: re-running
+        it on the same bus with no new requests is a
+        no-op; re-running it on the same requests is
+        also a no-op because the underlying
+        refresh path is itself idempotent.
         """
         requests = self._bus.drain()
         if not requests:
@@ -155,9 +172,9 @@ class CacheWarmer:
         for req in requests:
             try:
                 if req.kind == "session":
-                    await self._sessions.refresh_cache(req.id1)
+                    await self._sessions.refresh_cache_incremental(req.id1)
                 elif req.kind == "profile":
-                    await self._profiles.refresh_cache(req.id1, req.id2)
+                    await self._profiles.refresh_cache_incremental(req.id1, req.id2)
                 elif req.kind == "continuity":
                     if self._continuity is None:
                         logger.warning(
@@ -166,7 +183,7 @@ class CacheWarmer:
                             id2=req.id2,
                         )
                         continue
-                    await self._continuity.refresh_cache(req.id1, req.id2)
+                    await self._continuity.refresh_cache_incremental(req.id1, req.id2)
             except Exception as e:  # noqa: BLE001
                 # I/O failure on one request must not abort
                 # the rest of the batch. Log and continue.
@@ -179,14 +196,22 @@ class CacheWarmer:
                 )
         return len(requests)
 
-    async def run_forever(self, interval: float = 0.25) -> None:
+    async def run_forever(self, interval: Optional[float] = None) -> None:
         """
         Cooperative loop: pump the bus every `interval`
         seconds. Cancelled cleanly on `asyncio.CancelledError`.
 
+        `interval=None` reads the ``KNT_WARMER_PUMP_INTERVAL``
+        knob (ADR-068 §3.8; default 0.25). Explicit values keep
+        the legacy behaviour.
+
         Intended for production deployments where the
         warmer runs as a long-lived background task.
         """
+        if interval is None:
+            from kntgraph.infra.config import fresh_settings
+
+            interval = fresh_settings().warmer_pump_interval
         try:
             while True:
                 await self.pump_once()

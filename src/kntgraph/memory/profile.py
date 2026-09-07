@@ -165,6 +165,18 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         """
         await super().refresh_cache(tenant_id, user_id)
 
+    async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> None:
+        """
+        Incremental refresh for one profile (ADR-068
+        §3.4 P4). See
+        :meth:`SessionManager.refresh_cache_incremental`
+        for the general contract; same caveats apply
+        here.
+        """
+        await super().refresh_cache_incremental(tenant_id, user_id)
+
     # ------------------------------------------------------------------ write (domain)
 
     async def _emit_and_refresh(

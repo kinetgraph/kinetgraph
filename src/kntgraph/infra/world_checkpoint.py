@@ -28,6 +28,18 @@ Redis checkpoint. If cross-version migration becomes a
 concern, switching to ``msgpack`` with a versioned schema is
 a drop-in change.
 
+Why zlib-compress the payload?
+------------------------------
+
+The checkpoint is a pickled World — mostly repeated
+component-class references and field-name strings. zlib
+level 6 halves-to-quarters the wire payload at microseconds
+of CPU per save (ADR-068 §3.5). The wire format is
+self-describing: ``load`` sniffs the zlib magic bytes
+(``\x78``) and falls back to raw pickle for checkpoints
+written by an uncompressed predecessor, so a rolling
+upgrade never breaks.
+
 Why not save the stream cursor alone?
 -------------------------------------
 
@@ -64,7 +76,10 @@ from __future__ import annotations
 # operator-level access. Bandit's B403 / B301 warnings
 # don't apply to this use case.
 import pickle  # nosec B403 - internal-to-framework serialisation
+import zlib
+import inspect
 from dataclasses import dataclass
+from typing import Optional
 
 import structlog
 
@@ -77,6 +92,18 @@ from kntgraph.infra.redis._world_checkpoint import (
 
 # 7 days matches the continuity default (ADR-014).
 DEFAULT_WORLD_CHECKPOINT_TTL_S = 7 * 24 * 60 * 60
+
+# zlib compression level for the pickled checkpoint. Level 6
+# is the library default trade-off: the World payload is
+# dominated by repeated strings (component keys), so higher
+# levels buy little; level 1 would leave ~30% on the table.
+# ADR-068 §3.5.
+_CHECKPOINT_ZLIB_LEVEL = 6
+
+# First byte of a zlib stream (RFC 1950 CMF byte: deflate
+# with a 32K window). ``load`` sniffs this to distinguish a
+# compressed checkpoint from a legacy raw-pickle one.
+_ZLIB_MAGIC: int = 0x78
 
 
 logger = structlog.get_logger()
@@ -132,6 +159,29 @@ class IncrementalWorldStore:
         """The Redis key for an agent's checkpoint."""
         return WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id)
 
+    async def load_cursor(self, agent_id: str) -> Optional[str]:
+        """
+        Read the agent's stream cursor WITHOUT the World
+        payload (ADR-068 §3.5 P5b).
+
+        The cheap probe: a ~20-byte ``GET`` that answers "is
+        there anything new for this agent?". The dispatcher
+        reads the full pickled World (``load``) only when the
+        cursor says there is work past it. ``None`` means the
+        cursor key is absent — either the agent has never been
+        checkpointed or the write predates the cursor split
+        (callers then fall back to a full ``load``).
+        """
+        result = await self._storage.load_cursor(agent_id)
+        if result.is_err():
+            logger.warning(
+                "incremental_world_store.load_cursor.storage_error",
+                agent_id=agent_id,
+                error=str(result.err_value()),
+            )
+            return None
+        return result.ok_value()
+
     async def load(self, agent_id: str) -> WorldCheckpoint:
         """
         Load the agent's checkpoint or return an empty one.
@@ -158,6 +208,15 @@ class IncrementalWorldStore:
         raw = result.ok_value()
         if raw is None:
             return WorldCheckpoint(world=World.empty(), last_stream_id="-")
+        # Wire-format sniffing (ADR-068 §3.5): a zlib stream
+        # starts with the 0x78 CMF byte; a raw pickle starts
+        # with a protocol opcode (0x80 on protocol >= 2, or an
+        # ASCII document header on protocol 0). A compressed
+        # payload from the current writer decompresses first;
+        # anything else is treated as legacy raw pickle so a
+        # rolling upgrade reads old checkpoints unchanged.
+        if raw[0] == _ZLIB_MAGIC:
+            raw = zlib.decompress(raw)
         tick, storage, views, last_stream_id = pickle.loads(  # nosec B301 - internal-to-framework load
             raw
         )
@@ -175,21 +234,38 @@ class IncrementalWorldStore:
         last_stream_id)`` tuple. ``World.__init__`` rebuilds
         the structure on load without further ceremony.
 
-        Format: ``pickle.dumps((tick, storage, views, stream_id))``.
-        Pickle is the MVP format. Trade-offs documented in
-        ADR-018 §5 — when the system outgrows single-process
-        pickle (cross-language, schema versioning, human-readable
-        inspection), swap this for a Pydantic + JSON snapshot.
+        Format: ``zlib(pickle.dumps((tick, storage, views,
+        stream_id)))`` (ADR-068 §3.5). The compression is
+        transparent: ``load`` sniffs the zlib magic byte and
+        decompresses before unpickling, so checkpoints written
+        by a pre-compression build stay readable during a
+        rolling upgrade.
         """
-        payload = pickle.dumps(
-            (
-                ckpt.world.tick,
-                ckpt.world.storage,
-                dict(ckpt.world.views),
-                ckpt.last_stream_id,
-            )
+        payload = zlib.compress(
+            pickle.dumps(
+                (
+                    ckpt.world.tick,
+                    ckpt.world.storage,
+                    dict(ckpt.world.views),
+                    ckpt.last_stream_id,
+                )
+            ),
+            _CHECKPOINT_ZLIB_LEVEL,
         )
-        result = await self._storage.save(agent_id, payload, ttl_seconds=self._ttl_s)
+        # Write the companion cursor key in the same
+        # transaction when the storage supports it (P5b): the
+        # wake-up path reads this small key instead of the
+        # World payload. Legacy storages (no ``cursor=`` kwarg)
+        # keep the payload-only write; their cursor reads
+        # return ``None`` and the dispatcher falls back to a
+        # full ``load``.
+        save = self._storage.save
+        if "cursor" in inspect.signature(save).parameters:
+            result = await save(
+                agent_id, payload, ttl_seconds=self._ttl_s, cursor=ckpt.last_stream_id
+            )
+        else:
+            result = await save(agent_id, payload, ttl_seconds=self._ttl_s)
         if result.is_err():
             logger.warning(
                 "incremental_world_store.save.storage_error",

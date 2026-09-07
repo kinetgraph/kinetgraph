@@ -246,7 +246,15 @@ class TestSlotGCRemovesOrphanRequest:
     async def test_fresh_request_is_not_evicted(self) -> None:
         """A fresh request (TTL not yet past) is NOT
         touched by the GC step — the sweeper emits
-        nothing; the slot is preserved.
+        nothing; the slot is preserved. The evict
+        behaviour is verified through the tick-N+1
+        pipeline below (``run_systems_and_persist``
+        with a REAL consumed batch), not through an
+        idle call: ADR-068 §3.5 P5c makes the save
+        dirty-only, so an idle call (zero consumed,
+        zero emitted) is a no-op by design — the old
+        "always saves" assertion pinned the wasteful
+        behaviour.
         """
         req = _request_event(tool_name="chat_llm", ts=_ts(0))
         from kntgraph.core.world.projection_tool_calls import (
@@ -280,13 +288,17 @@ class TestSlotGCRemovesOrphanRequest:
             tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
             world_store=store,  # type: ignore[arg-type]
         )
+        # A REAL tick: the request event was consumed in
+        # this batch (``new_event_count > 0``), so the
+        # save is dirty and runs — the sweeper must NOT
+        # evict the fresh request.
         await run_systems_and_persist(
             dispatcher,
             agent_id="a-1",
             world=post_tick_n_world,
             last_stream_id="1-0",
-            new_event_count=0,
-            new_events=[],
+            new_event_count=1,
+            new_events=[req],
         )
         # No TTL-failure event was emitted.
         assert all(not e.event_type.endswith(".failed") for e in cap2.appended)
@@ -335,13 +347,16 @@ class TestSlotGCRemovesOrphanRequest:
             redis=AsyncMock(),
             world_store=store,  # type: ignore[arg-type]
         )
+        # A REAL tick: the request was consumed in this
+        # batch (dirty save — ADR-068 §3.5 P5c), so the
+        # checkpoint carries the slot forward untouched.
         await run_systems_and_persist(
             dispatcher,
             agent_id="a-1",
             world=world,
             last_stream_id="1-0",
-            new_event_count=0,
-            new_events=[],
+            new_event_count=1,
+            new_events=[req],
         )
         # No events were appended.
         assert cap2.appended == []
@@ -424,14 +439,28 @@ class TestSlotGCIsCheapForNonToolBatches:
     @pytest.mark.asyncio
     async def test_no_system_events_skips_gc_pass(self) -> None:
         """When the systems emit nothing, no re-fold
-        is needed. The saved World is the same
-        ``world_in`` (no allocation).
+        is needed. With a REAL consumed batch (dirty
+        save — ADR-068 §3.5 P5c) the checkpoint saves
+        the same ``world_in`` object (no allocation);
+        with an idle call (zero consumed, zero
+        emitted) the save is skipped entirely — the
+        wasteful re-SET of an unchanged pickled World
+        is the very thing P5c removes. Both branches
+        pinned.
         """
+        # Branch 1: consumed batch → save runs, same object.
         cap = _Captured(appended=[], saved=[])
         dispatcher = _dispatcher(
             tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
             sweeper=_sweeper_at(_ts(600)),
             cap=cap,
+        )
+        consumed = Event.create(
+            event_type="user.intent",
+            agent_id="a-1",
+            event_class="domain",
+            data={"intent": "x"},
+            correlation=_ctx(),
         )
         world_in = World.empty()
         await run_systems_and_persist(
@@ -439,14 +468,33 @@ class TestSlotGCIsCheapForNonToolBatches:
             agent_id="a-1",
             world=world_in,
             last_stream_id="1-0",
-            new_event_count=0,
-            new_events=[],
+            new_event_count=1,
+            new_events=[consumed],
         )
         # No events were appended.
         assert cap.appended == []
         # The saved World is the same object the caller
         # passed in (no allocation).
         assert cap.saved[0] is world_in
+
+        # Branch 2: idle call → save skipped (no re-SET of
+        # the unchanged World).
+        cap_idle = _Captured(appended=[], saved=[])
+        dispatcher_idle = _dispatcher(
+            tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
+            sweeper=_sweeper_at(_ts(600)),
+            cap=cap_idle,
+        )
+        await run_systems_and_persist(
+            dispatcher_idle,
+            agent_id="a-1",
+            world=World.empty(),
+            last_stream_id="1-0",
+            new_event_count=0,
+            new_events=[],
+        )
+        assert cap_idle.appended == []
+        assert cap_idle.saved == []
 
 
 class TestSlotGCRoutesViaRouter:

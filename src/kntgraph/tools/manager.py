@@ -55,11 +55,12 @@ input to ``acl.check``. Events that predate v0.16
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import multiprocessing
 import time
 from concurrent.futures import ProcessPoolExecutor
-from typing import Optional, Type
+from typing import Any, Optional, Type, cast
 
 import uuid
 from typing import TYPE_CHECKING
@@ -71,11 +72,14 @@ if TYPE_CHECKING:
 
 import structlog
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
+
+_ORIGINAL_INVOKE_TOOL_SYNC = _invoke_tool_sync
 
 logger = structlog.get_logger()
 
@@ -314,7 +318,7 @@ class WorkerManager:
             getattr(t, "__tool_worker_max_concurrency__", 1)
             for t in self._tools.values()
         )
-        max_workers = max(2, max_workers)
+        max_workers = max(2, min(32, max_workers))
 
         # Always use ``spawn`` — container runtimes (and
         # any process that has imported ``threading`` +
@@ -375,6 +379,17 @@ class WorkerManager:
 
     async def _consume_loop(self, tool_name: str) -> None:
         stream_key = f"knt:tools:{tool_name}:queue"
+        tool_cls = self._tools[tool_name]
+        max_concurrency = getattr(tool_cls, "__tool_worker_max_concurrency__", 16)
+        sem = asyncio.Semaphore(max_concurrency)
+        read_batch_size = max(1, min(max_concurrency, 32))
+
+        async def _process_with_sem(msg_id: str, msg_data: dict) -> None:
+            async with sem:
+                await self._process_message(tool_name, stream_key, msg_id, msg_data)
+
+        in_flight: set[asyncio.Task] = set()
+
         while self._running:
             try:
                 # Block for 1 second waiting for new messages
@@ -382,7 +397,7 @@ class WorkerManager:
                     groupname=self._group_name,
                     consumername=self._consumer_name,
                     streams={stream_key: ">"},
-                    count=1,
+                    count=read_batch_size,
                     block=1000,
                 )
 
@@ -400,9 +415,12 @@ class WorkerManager:
 
                 for _, messages in response:
                     for message_id, message_data in messages:
-                        await self._process_message(
-                            tool_name, stream_key, message_id.decode(), message_data
+                        task = asyncio.create_task(
+                            _process_with_sem(message_id.decode(), message_data)
                         )
+                        in_flight.add(task)
+                        task.add_done_callback(in_flight.discard)
+
                 # Refresh liveness on every successful read; the
                 # heartbeat distinguishes "loop idle because the
                 # stream is empty" from "loop stuck because Redis
@@ -427,6 +445,9 @@ class WorkerManager:
                 self._last_error = repr(e)
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
+
+        if in_flight:
+            await asyncio.gather(*in_flight, return_exceptions=True)
 
     def _maybe_emit_heartbeat(self, tool_name: str) -> None:
         """Emit a structured liveness line on the cadence
@@ -472,8 +493,11 @@ class WorkerManager:
             self._messages_failed_total += 1
             return
 
-        tool_params = (
+        raw_params = (
             request_event.data.get("params") or request_event.data.get("args") or {}
+        )
+        tool_params = cast(
+            dict[str, Any], raw_params if isinstance(raw_params, dict) else {}
         )
         idempotency_key = str(request_event.event_id)
 
@@ -556,22 +580,35 @@ class WorkerManager:
             return
 
         try:
-            # We use asyncio.get_running_loop().run_in_executor to run the tool synchronously
-            # in a separate process. The wrapper _invoke_tool_sync will handle the asyncio loop inside the process.
-            loop = asyncio.get_running_loop()
-            # ``run_in_executor`` is typed strictly (``args: _Ts``);
-            # we wrap the call in ``cast(Any, (...))`` so the
-            # executor accepts the heterogeneous tuple
-            # ``(Type[X], str, dict[str, JsonValue])``. The
-            # wrapper signature is enforced at runtime by
-            # ``_invoke_tool_sync``.
-            result_dict = await loop.run_in_executor(
-                self._pool,
-                _invoke_tool_sync,  # type: ignore[arg-type]
-                tool_cls,
-                idempotency_key,
-                tool_params,
+            tool_instance = tool_cls()
+            invoke_fn = getattr(tool_instance, "invoke", None)
+            is_coro = inspect.iscoroutinefunction(invoke_fn)
+            is_cpu = (
+                getattr(tool_cls, "__tool_worker_cpu_bound__", False)
+                or not is_coro
+                or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
             )
+
+            if is_cpu:
+                loop = asyncio.get_running_loop()
+                result_dict = await loop.run_in_executor(
+                    self._pool,
+                    _invoke_tool_sync,  # type: ignore[arg-type]
+                    tool_cls,
+                    idempotency_key,
+                    tool_params,
+                )
+            else:
+                result = await tool_instance.invoke(
+                    idempotency_key=idempotency_key, **tool_params
+                )
+                if result.is_ok():
+                    result_dict = {"status": "ok", "value": result.unwrap()}
+                else:
+                    result_dict = {
+                        "status": "err",
+                        "error": str(result.err_value_or_raise()),
+                    }
 
             # Translate to Domain Events. ADR-037: pass
             # ``correlation=request_event.correlation`` so
@@ -581,12 +618,16 @@ class WorkerManager:
             # it MUST thread the correlation through the
             # event object directly.
             if result_dict["status"] == "ok":
+                val = result_dict["value"]
+                evt_data: dict[str, JsonValue] = (
+                    val if isinstance(val, dict) else {"result": val}
+                )
                 completed_evt = Event.create(
                     event_type=f"tool.{tool_name}.completed",
                     agent_id=request_event.agent_id,
                     event_class="domain",
                     causation_id=uuid.UUID(idempotency_key),
-                    data=result_dict["value"],
+                    data=evt_data,
                     correlation=request_event.correlation,
                 )
                 await self._event_log.append(completed_evt)

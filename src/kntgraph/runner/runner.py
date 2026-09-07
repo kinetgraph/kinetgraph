@@ -77,11 +77,15 @@ class Runner:
         cyclic_systems: Optional[list[CyclicSystem]] = None,
         tick_interval: float = 1.0,
         fold: Optional[Callable[[], "asyncio.Future[World]"]] = None,
+        incremental: bool = True,
     ) -> None:
         self._log = log
         self._systems: list[CyclicSystem] = list(cyclic_systems or [])
         self._interval = tick_interval
-        self._fold = fold or (lambda: fold_world(self._log))
+        self._custom_fold = fold
+        self._incremental = incremental and (fold is None)
+        self._cached_world: Optional[World] = None
+        self._cursors: dict[str, str] = {}
         self._running = False
         self._tick = 0
         self._task: Optional[asyncio.Task] = None
@@ -97,6 +101,51 @@ class Runner:
     def add_cyclic_system(self, system: CyclicSystem) -> None:
         self._systems.append(system)
 
+    async def _fold_incremental(self) -> World:
+        """Incremental fold of the log (ADR-068 §3.3 P3).
+
+        On the first call (or when unseeded), performs a full fold
+        to seed ``_cached_world`` and the per-agent stream cursors.
+        On subsequent ticks, reads only events strictly after each
+        agent's cursor (exclusive ``(`` form), folds the delta O(M)
+        into the cached World, and advances the cursors.
+        """
+        if self._cached_world is None:
+            # Bootstrap: full fold
+            events: list[Event] = []
+            agents = await self._log.list_agents()
+            for aid in agents:
+                agent_events, cursor = await self._log.read_after_cursor(aid, "-")
+                events.extend(agent_events)
+                if cursor and cursor != "-":
+                    self._cursors[aid] = cursor
+            self._cached_world = World.fold(events, tick=self._tick)
+            return self._cached_world
+
+        # Incremental: poll deltas across known and new agents
+        agents = await self._log.list_agents()
+        world = self._cached_world.with_tick(self._tick)
+        for aid in agents:
+            cursor = self._cursors.get(aid, "-")
+            new_events, new_cursor = await self._log.read_after_cursor(aid, cursor)
+            if new_events:
+                for ev in new_events:
+                    world = world.with_event(ev)
+                self._cursors[aid] = new_cursor
+
+        self._cached_world = world
+        return world
+
+    async def _fold(self) -> World:
+        if self._custom_fold is not None:
+            out = self._custom_fold()
+            if hasattr(out, "__await__"):
+                return await out
+            return out  # type: ignore[return-value]
+        if self._incremental:
+            return await self._fold_incremental()
+        return await fold_world(self._log, tick=self._tick)
+
     async def tick_once(self) -> int:
         """
         Runs a single tick: replay + apply systems + append.
@@ -104,7 +153,7 @@ class Runner:
         Returns the new tick number. Safe to call directly from
         tests.
         """
-        # 1. Pure replay
+        # 1. Pure replay (incremental when default)
         world = await self._fold()
         # 2. Apply cyclic systems (pure) — bind a correlation
         # scope so systems that call

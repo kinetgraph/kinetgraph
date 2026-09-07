@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -53,9 +54,20 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "quality.md"
 DEFAULT_JSON = REPO_ROOT / ".quality-report.json"
 
 
-def _run(cmd: list[str], *, timeout: int = 180) -> tuple[int, str, float]:
-    """Run ``cmd`` and return (returncode, stdout, duration_s)."""
+def _run(
+    cmd: list[str], *, timeout: int = 180, extra_env: dict | None = None
+) -> tuple[int, str, float]:
+    """Run ``cmd`` and return (returncode, stdout, duration_s).
+
+    ``extra_env`` is merged on top of the current process
+    environment (the existing ``PATH`` / ``HOME`` etc.
+    survive; only the keys present in ``extra_env`` are
+    overridden). Used by ``gate_tests`` to inject
+    ``KNT_REDIS_FAKE=1`` so unit tests don't try to
+    connect to a live Redis.
+    """
     start = time.monotonic()
+    env = {**os.environ, **(extra_env or {})}
     try:
         proc = subprocess.run(
             cmd,
@@ -63,6 +75,7 @@ def _run(cmd: list[str], *, timeout: int = 180) -> tuple[int, str, float]:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
         stdout = (proc.stdout or "") + (proc.stderr or "")
         return proc.returncode, stdout, time.monotonic() - start
@@ -341,15 +354,28 @@ def _run_with_env(cmd: list[str], *, env: dict, timeout: int) -> tuple[int, str,
 
 def gate_tests() -> dict:
     py = _py()
+    # ``KNT_REDIS_FAKE=1`` switches the EventLog to an
+    # in-process fakeredis client so the unit tests do
+    # not need a live Redis on localhost:6379. Without
+    # it, tests like ``test_reactive_wake_up`` that
+    # open a real ``Redis.from_url`` client fail with
+    # ``ConnectionError 111`` and the gate reports
+    # flake failures (the ``quality_report.py`` runs
+    # pytest directly via subprocess and does not
+    # inherit the env from the user's shell the way
+    # ``uv run pytest`` does).
+    env = {"KNT_REDIS_FAKE": "1"}
     code_unit, out_unit, dt_unit = _vrun(
         py,
         ["-m", "pytest", "tests/unit", "-q", "--no-header"],
         timeout=600,
+        extra_env=env,
     )
     code_agents, out_agents, dt_agents = _vrun(
         py,
         ["-m", "pytest", "tests/agents", "-q", "--no-header"],
         timeout=600,
+        extra_env=env,
     )
     return {
         "tool": "pytest",

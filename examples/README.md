@@ -19,27 +19,25 @@ gateway, multi-agent coordination, continuity).
 Each file is self-contained and can be run
 directly with `python` or via `uv run`.
 
-| #  | File                                  | What it shows                                                                                     | Layer                |
-| -- | ------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------- |
-| 01 | `01_llm_basic.py`                     | `LiteLLMTool` — simplest call, 1 request                                                          | `agents`             |
-| 02 | `02_llm_with_rate_limit.py`           | `LLMConfig` with rate limit + cost budget                                                         | `agents`             |
-| 03 | `03_role_usage.py`                    | `SummarizerRole` / `PlannerRole` in action                                                        | `agents`             |
-| 04 | `04_reactive_system_with_llm.py`      | LLM called from a reactive system, via EventLog                                                   | `agents`             |
-| 05 | `05_session_chat.py`                  | Multi-turn conversation with `SessionManager` + `ChatRole`                                        | `agents`             |
-| 06 | `06_profile_preferences.py`           | Personalised responses via `ProfileManager` + `PersonalizedRole`                                  | `agents`             |
-| 07 | `07_caching_transport.py`             | `CachingLLMTransport` for at-most-once LLM calls                                                   | `agents`             |
-| 08 | `08_falkordb_projection.py`           | FalkorDB projection of the Document subgraph + `vector_search`                                    | core                 |
-| 09 | `09_knowledge_consolidation.py`       | `SolutionExtractor` + PII gate + hybrid retrieval (ADR-010)                                       | core                 |
+| #   | File                                  | What it shows                                                                                     | Layer                |
+| --  | ------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------- |
+| 01  | `01_llm_basic.py`                     | `LiteLLMTool` — simplest call, 1 request                                                          | `agents`             |
+| 05b | `05b_session_chat_ecs.py`             | Multi-turn conversation via `SessionManager` + ECS components                                     | `agents`             |
+| 05c | `05c_session_chat_ecs_roles.py`       | Same as 05b but routing the turns through `ChatRoleSystem` (ECS-shaped role)                     | `agents`             |
+| 08  | `08_falkordb_projection.py`           | FalkorDB projection of the Document subgraph + `vector_search`                                    | core                 |
+| 09  | `09_knowledge_consolidation.py`       | `SolutionExtractor` + PII gate + hybrid retrieval (ADR-010)                                       | core                 |
 | 09b | `09b_solution_lookup_zta.py`         | Zero Token Architecture: `RuleBasedChatSystem` + `SolutionLookupSystem` (ADR-049)                  | core + `agents`      |
-| 10 | `10_http_intent_router.py`            | External HTTP gateway: `tool.{name}.requested` via REST + API key (ADR-012)                       | core                 |
-| 11 | `11_tool_invoker.py`                  | `ToolInvoker` consuming `tool.{name}.requested` from EventLog, dispatching to `LiteLLMTool`     | core + `agents`      |
-| 12 | `12_semantic_routing.py`              | `SemanticRoutingRole` (M1) + M2 hook + 4 scenarios (routed/extracted, routed/empty, …)            | core + `agents`      |
-| 13 | `13_multi_agent.py`                   | Cooperation between independent `World -> list[Event]` systems on the same agent (producer + approver + consumer) | core                 |
-| 14 | `14_sales_logistics.py`               | Per-stream isolation: each `agent_id` is its own stream; changing one order's qty does not leak into another | core                 |
-| 15 | `15_audit_supervisor.py`              | Supervisor pattern: an audit system inspects per-agent Worlds and emits `audit.flagged` on inconsistency | core                 |
-| 16 | `16_continuity_recency.py`            | `ContinuityManager` (ADR-014): recency-suggest + LGPD `clear`                                     | core                 |
-| 21 | `21_domain_memory_ecs.py`             | Durable Domain Memory using pure ECS Components (ADR-059)                                         | core                 |
-| 22 | `22_sse_subscribe.py`                | SSE subscribe to a request's result: `GET /agents/{id}/events` (ADR-065 §3.1) — replaces long-poll | core                 |
+| 09c | `09c_solution_lookup_zta_redis.py`    | Same as 09b but with a live Redis on `localhost:6379` (no FalkorDB)                              | core + `agents`      |
+| 10  | `10_http_intent_router.py`            | External HTTP gateway: `tool.{name}.requested` via REST + API key (ADR-012)                       | core                 |
+| 14  | `14_sales_logistics.py`               | Per-stream isolation: each `agent_id` is its own stream; changing one order's qty does not leak into another | core                 |
+| 15  | `15_audit_supervisor.py`              | Supervisor pattern: an audit system inspects per-agent Worlds and emits `audit.flagged` on inconsistency | core                 |
+| 16  | `16_continuity_recency.py`            | `ContinuityManager` (ADR-014): recency-suggest + LGPD `clear`                                     | core                 |
+| 17  | `17_graphrag_retrieval.py`            | GraphRAG retrieval over the FalkorDB Document subgraph                                            | core                 |
+| 18  | `18_security_signing.py`              | Ed25519 event signing (ADR-016): producer principal + tamper-evident verify path                  | core                 |
+| 19  | `19_tool_worker_pattern.py`           | `tool_worker` decorator + `ToolAwareSystem` + `WorkerManager` fan-out (ADR-036) — **canonical system+tool pattern** | core                 |
+| 20  | `20_security_authorization.py`        | Three-Gate authorisation: `PrincipalLevel` + `ToolACL` + worker-level check (ADR-066)              | core                 |
+| 21  | `21_domain_memory_ecs.py`             | Durable Domain Memory using pure ECS Components (ADR-059)                                         | core                 |
+| 22  | `22_sse_subscribe.py`                 | SSE subscribe to a request's result: `GET /agents/{id}/events` (ADR-065 §3.1) — replaces long-poll | core                 |
 
 ## Setup
 

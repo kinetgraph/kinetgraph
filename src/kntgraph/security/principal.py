@@ -362,8 +362,7 @@ class Policy(Protocol):
         principal: Principal,
         resource: Resource,
         action: Action,
-    ) -> bool:
-        pass  # pragma: no cover
+    ) -> bool: ...  # Protocol: body lives in concrete subclasses.
 
 
 class AlwaysAllowPolicy:

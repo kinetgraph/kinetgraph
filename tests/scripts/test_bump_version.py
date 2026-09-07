@@ -31,6 +31,7 @@ git history is not mutated.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -53,6 +54,14 @@ RE_NEXT = re.compile(r"^next:\s*(\S+)\s*$", re.MULTILINE)
 RE_TAG = re.compile(r"^tag:\s*(\S+)\s*$", re.MULTILINE)
 
 
+def _clean_git_env() -> dict[str, str]:
+    """Return a clean environment dict free of parent GIT_* overrides."""
+    env = os.environ.copy()
+    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        env.pop(var, None)
+    return env
+
+
 def _make_temp_git_repo(tmp_path: Path, *, tag: str | None) -> Path:
     """Initialise a temporary git repo with one
     commit and (optionally) one tag.
@@ -61,15 +70,18 @@ def _make_temp_git_repo(tmp_path: Path, *, tag: str | None) -> Path:
     the ``git describe`` it runs reads from the
     test repo, not the production one.
     """
-    _env = {
-        "GIT_AUTHOR_NAME": "test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-        # Make annotated tags deterministic.
-        "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
-        "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
-    }
+    _env = _clean_git_env()
+    _env.update(
+        {
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+            # Make annotated tags deterministic.
+            "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+            "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+        }
+    )
     subprocess.run(
         ["git", "init", "--initial-branch=main"],
         cwd=tmp_path,
@@ -84,12 +96,14 @@ def _make_temp_git_repo(tmp_path: Path, *, tag: str | None) -> Path:
     subprocess.run(
         ["git", "config", "commit.gpgsign", "false"],
         cwd=tmp_path,
+        env=_env,
         check=True,
         capture_output=True,
     )
     subprocess.run(
         ["git", "config", "tag.gpgsign", "false"],
         cwd=tmp_path,
+        env=_env,
         check=True,
         capture_output=True,
     )
@@ -101,12 +115,14 @@ def _make_temp_git_repo(tmp_path: Path, *, tag: str | None) -> Path:
     subprocess.run(
         ["git", "config", "user.name", "test"],
         cwd=tmp_path,
+        env=_env,
         check=True,
         capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
         cwd=tmp_path,
+        env=_env,
         check=True,
         capture_output=True,
     )
@@ -115,6 +131,7 @@ def _make_temp_git_repo(tmp_path: Path, *, tag: str | None) -> Path:
     subprocess.run(
         ["git", "add", "marker.txt"],
         cwd=tmp_path,
+        env=_env,
         check=True,
         capture_output=True,
     )
@@ -141,6 +158,7 @@ def _run_bump(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT_PATH), *args],
         cwd=tmp_path,
+        env=_clean_git_env(),
         capture_output=True,
         text=True,
     )
@@ -155,7 +173,9 @@ class TestBumpArithmetic:
     def test_bump_patch_increments_micro(self, tmp_path: Path) -> None:
         _make_temp_git_repo(tmp_path, tag="v1.2.3")
         result = _run_bump(tmp_path, "--level", "patch", "--dry-run")
-        assert result.returncode == 0
+        assert result.returncode == 0, (
+            f"returncode={result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
         m = RE_NEXT.search(result.stdout)
         assert m is not None, f"could not parse next: {result.stdout}"
         assert Version(m.group(1)) == Version("1.2.4")

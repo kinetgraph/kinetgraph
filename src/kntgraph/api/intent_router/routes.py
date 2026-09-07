@@ -483,35 +483,36 @@ def register_sse_events(
             # heartbeat so idle connections stay alive.
             last_heartbeat = asyncio.get_event_loop().time()
             heartbeat_interval_s = 15.0
-            poll_interval_s = DEFAULT_POLL_INTERVAL_S
+            block_ms = 15_000
             try:
                 while True:
                     events: list[Event] = []
                     try:
-                        # ``read(agent_id, start="(",
-                        # end="+")`` returns events
-                        # strictly after ``from_``. When
-                        # ``from_ == "0"``, we want the
-                        # whole history, so ``start="-"
-                        # end="+"``. Otherwise the
-                        # ``start="("`` is the Redis
-                        # Stream exclusive-id convention
-                        # (``(`` + cursor = strictly after
-                        # the cursor); the EventLog's
-                        # ``read(start, end)`` honours it.
-                        start = "-" if cursor == "0" else f"({cursor}"
-                        events = await log.read(  # type: ignore[union-attr]
-                            agent_id,
-                            start=start,
-                            end="+",
-                        )
+                        if hasattr(log, "subscribe"):
+                            cursors = (
+                                {agent_id: cursor} if cursor and cursor != "0" else None
+                            )
+                            _new_cursors, events = await log.subscribe(
+                                [agent_id],
+                                cursors=cursors,
+                                block_ms=block_ms,
+                            )
+                        else:
+                            start = "-" if cursor == "0" else f"({cursor}"
+                            events = await log.read(  # type: ignore[union-attr]
+                                agent_id,
+                                start=start,
+                                end="+",
+                            )
+                    except asyncio.CancelledError:
+                        raise
                     except Exception as e:
                         logger.warning(
                             "intent_router.sse_read_failed",
                             agent_id=agent_id,
                             error=str(e),
                         )
-                        await asyncio.sleep(poll_interval_s)
+                        await asyncio.sleep(DEFAULT_POLL_INTERVAL_S)
                         continue
                     if not events:
                         # Test hook: when the
@@ -519,17 +520,12 @@ def register_sse_events(
                         # global is set, the generator
                         # closes after the first batch
                         # of events has been yielded.
-                        # Production never sets this; the
-                        # generator keeps polling
-                        # indefinitely until the client
-                        # disconnects.
                         if _sse_test_close_after_first_batch:
                             return
                         now = asyncio.get_event_loop().time()
                         if now - last_heartbeat >= heartbeat_interval_s:
                             yield b":heartbeat\n\n"
                             last_heartbeat = now
-                        await asyncio.sleep(poll_interval_s)
                         continue
                     for ev in events:
                         if causation_filter is not None:

@@ -136,5 +136,58 @@ class RedisSessionStorage:
             if decoded.startswith(prefix):
                 yield decoded
 
+    # ------------------------------------------------------------ fold cursor (P4)
+
+    async def read_fold_cursor(self, key: str) -> str | None:
+        """
+        Read the fold cursor from a plain string key.
+
+        Session tier uses ``GET <key>:fold_cursor`` —
+        the cursor is a string (Redis Stream id), not
+        part of the JSON payload. No TTL is checked
+        here (the parallel key inherits the cache's
+        TTL on write).
+        """
+        try:
+            raw = await self.client.get(key)
+        except Exception as e:
+            logger.warning(
+                "session_storage.read_fold_cursor.redis_error",
+                key=key,
+                error=str(e),
+            )
+            return None
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return str(raw)
+
+    async def write_fold_cursor(
+        self,
+        key: str,
+        cursor: str,
+        *,
+        ttl_seconds: Optional[int] = None,
+    ) -> Result[None, MemoryError]:
+        """
+        Persist the fold cursor at the parallel
+        ``<key>:fold_cursor`` with the same TTL policy
+        as the cache payload (honour
+        ``ttl_seconds`` first, then
+        ``self.ttl_seconds``, then no TTL).
+        """
+        effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
+        try:
+            await self.client.set(key, cursor, ex=effective_ttl)
+        except Exception as e:
+            logger.warning(
+                "session_storage.write_fold_cursor.redis_error",
+                key=key,
+                error=str(e),
+            )
+            return Err(MemoryError(f"redis error: {e}", key=key))
+        return Ok(None)
+
 
 __all__ = ["RedisSessionStorage"]

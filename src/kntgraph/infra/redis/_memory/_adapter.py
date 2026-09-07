@@ -86,6 +86,25 @@ class ShortMemoryStorage(Protocol):
     Three tiers (Session, Profile, Continuity) plug concrete
     implementations; ``BaseShortTermMemory`` consumes the
     Protocol.
+
+    The Protocol stays at the **domain boundary** — every
+    method here is a domain-level verb (``get_record``,
+    ``put_record``, ``delete_record``, ``iter_keys``,
+    ``read_fold_cursor``, ``write_fold_cursor``). It does
+    NOT expose the raw Redis client; that belongs to the
+    concrete adapter, which can pick the right wire
+    primitive per tier (Hash vs JSON, sliding vs fixed
+    TTL). The base does not need to know which
+    primitive to use — it delegates.
+
+    P4 surface (``ADR-068 §3.4``): the fold cursor lives
+    on a parallel Redis key (``<cache_key>:fold_cursor``,
+    plain ``GET``/``SET``), not inside the cache payload.
+    The Protocol gains two methods that read / write the
+    parallel key. They are deliberately separate from
+    ``get_record`` / ``put_record`` so the payload shape
+    (Hash field vs JSON document) is irrelevant — the
+    cursor is always a plain string.
     """
 
     async def get_record(
@@ -129,6 +148,48 @@ class ShortMemoryStorage(Protocol):
 
     def iter_keys(self, prefix: str) -> AsyncIterator[str]:
         """Yield keys matching the prefix (used by ``list_for_tenant``)."""
+        ...
+
+    # ----------------------------------------------------------- fold cursor (P4)
+
+    async def read_fold_cursor(self, key: str) -> str | None:
+        """Read the fold cursor stored at
+        ``<key>:fold_cursor``.
+
+        ADR-068 §3.4 P4: the cursor is the Redis Stream
+        id of the last event consumed by the fold that
+        wrote the cache. Returns ``None`` on miss /
+        failure — the caller falls back to the cold
+        rebuild when the cursor is missing.
+
+        Concrete impls choose the right Redis primitive
+        (``GET`` for plain string keys — all three tiers
+        use the same shape, since the cursor is a single
+        opaque stream id).
+        """
+        ...
+
+    async def write_fold_cursor(
+        self,
+        key: str,
+        cursor: str,
+        *,
+        ttl_seconds: Optional[int] = None,
+    ) -> Result[None, MemoryError]:
+        """Persist the fold cursor at
+        ``<key>:fold_cursor``.
+
+        ``ttl_seconds`` is the cursor's own TTL — each
+        tier picks its own (Session: same as cache;
+        Profile: no TTL; Continuity: sliding TTL). The
+        base does not enforce the contract; it forwards
+        whatever TTL the manager configured. Concrete
+        impls honour or ignore the argument depending on
+        the tier policy.
+
+        Returns ``Ok(None)`` on success,
+        ``Err(MemoryError)`` on Redis-side failure.
+        """
         ...
 
 

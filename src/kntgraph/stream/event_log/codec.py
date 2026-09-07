@@ -31,8 +31,10 @@ signature defensively (treats as absent so downstream
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 from typing import Any, Optional
+from uuid import uuid4
 
 from ...core.event import Event
 from ...infra.redis._codec import decode_value
@@ -80,6 +82,7 @@ def event_to_redis(event: Event) -> dict[str, Any]:
             if event.signature is not None
             else ""
         ),
+        "producer_principal_id": event.producer_principal_id or "",
     }
     return payload
 
@@ -101,20 +104,25 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
     """
 
     def s(key: bytes, default: str = "") -> str:
-        v = mdata.get(key, default)
+        v = mdata.get(key)
+        if v is None:
+            v = mdata.get(key.decode("utf-8"), default)
         decoded = decode_value(v)
-        return decoded if decoded is not None else ""
+        return decoded if decoded is not None else default
 
-    # The Redis stream entries encode the correlation metadata
-    # as a JSON string and the event data as a JSON string.
-    # Decode them here so the in-process to_dict/from_dict
-    # contract (dicts, not strings) holds.
-    correlation_dict = {
-        "correlation_id": s(b"correlation_id"),
-        "causation_id": s(b"causation_id"),
-        "span_id": s(b"span_id"),
-        "metadata": json.loads(s(b"metadata", "{}")),
-    }
+    corr_json = s(b"correlation", "")
+    if corr_json:
+        try:
+            correlation_dict = json.loads(corr_json)
+        except Exception:
+            correlation_dict = {}
+    else:
+        correlation_dict = {
+            "correlation_id": s(b"correlation_id"),
+            "causation_id": s(b"causation_id"),
+            "span_id": s(b"span_id"),
+            "metadata": json.loads(s(b"metadata", "{}")),
+        }
     sig_raw = s(b"signature", "")
     sig_obj: Optional[dict[str, Any]] = None
     if sig_raw:
@@ -125,18 +133,21 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
             # so downstream verify_event sees signature=None
             # and returns False (defensive default).
             sig_obj = None
+    event_id_str = s(b"event_id") or str(uuid4())
+    timestamp_str = s(b"timestamp") or datetime.now(timezone.utc).isoformat()
     return Event.from_dict(
         {
-            "event_id": s(b"event_id"),
-            "agent_id": s(b"agent_id"),
-            "event_type": s(b"event_type"),
-            "event_class": s(b"event_class"),
-            "timestamp": s(b"timestamp"),
+            "event_id": event_id_str,
+            "agent_id": s(b"agent_id", "legacy.agent"),
+            "event_type": s(b"event_type", "legacy.event"),
+            "event_class": s(b"event_class", "domain"),
+            "timestamp": timestamp_str,
             "data": json.loads(s(b"data", "{}")),
             "correlation": correlation_dict,
             "causation_id": s(b"causation_id"),
             "version": s(b"version", "1"),
             "signature": sig_obj,
+            "producer_principal_id": s(b"producer_principal_id") or None,
         }
     )
 

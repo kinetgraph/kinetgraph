@@ -207,7 +207,7 @@ class _BaseRoleSystem(ToolAwareSystem):
                 "tool": tool_name,
                 "role_persona": role_persona,
             },
-            causation_id=str(last_eid) if last_eid else None,
+            causation_id=UUID(str(last_eid)) if last_eid else None,
             correlation=correlation,
         )
 

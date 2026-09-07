@@ -158,6 +158,23 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         """
         await super().refresh_cache(tenant_id, user_id)
 
+    async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
+        self, tenant_id: str, user_id: str
+    ) -> None:
+        """
+        Incremental refresh for one continuity (ADR-068
+        §3.4 P4). Continuity is the natural place to
+        override :meth:`_fold_incremental` because the
+        fold is a small handler table
+        (``continuity/fold.py:_apply_continuity_events``)
+        that already supports incremental state
+        updates — but for now we keep the base
+        default behaviour (full refold over the cached
+        state + delta) to ship P4 without per-tier
+        overrides.
+        """
+        await super().refresh_cache_incremental(tenant_id, user_id)
+
     async def recency_suggest(
         self,
         tenant_id: str,

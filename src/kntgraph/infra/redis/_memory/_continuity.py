@@ -124,5 +124,66 @@ class RedisContinuityStorage:
             if decoded.startswith(prefix):
                 yield decoded
 
+    # ------------------------------------------------------------ fold cursor (P4)
+
+    async def read_fold_cursor(self, key: str) -> str | None:
+        """
+        Read the fold cursor from a plain string key.
+
+        Continuity tier uses sliding TTL — every write
+        resets ``EXPIRE`` on both the cache and the
+        parallel cursor key, so the cursor tracks the
+        cache's freshness.
+        """
+        try:
+            raw = await self.client.get(key)
+        except Exception as e:
+            logger.warning(
+                "continuity_storage.read_fold_cursor.redis_error",
+                key=key,
+                error=str(e),
+            )
+            return None
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8")
+        return str(raw)
+
+    async def write_fold_cursor(
+        self,
+        key: str,
+        cursor: str,
+        *,
+        ttl_seconds: Optional[int] = None,
+    ) -> Result[None, MemoryError]:
+        """
+        Persist the fold cursor at the parallel
+        ``<key>:fold_cursor`` with sliding TTL (mirrors
+        the cache payload's policy): every write
+        refreshes the EXPIRE so the cursor and the
+        cache age out together.
+
+        The TTL priority is: explicit ``ttl_seconds``
+        first (the base forwards the manager config),
+        then ``self.ttl_seconds`` (the storage's own
+        configured sliding window — typically 90 days),
+        then no TTL.
+        """
+        effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
+        try:
+            if effective_ttl:
+                await self.client.set(key, cursor, ex=effective_ttl)
+            else:
+                await self.client.set(key, cursor)
+        except Exception as e:
+            logger.warning(
+                "continuity_storage.write_fold_cursor.redis_error",
+                key=key,
+                error=str(e),
+            )
+            return Err(MemoryError(f"redis error: {e}", key=key))
+        return Ok(None)
+
 
 __all__ = ["RedisContinuityStorage"]

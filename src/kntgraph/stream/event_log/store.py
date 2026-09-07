@@ -319,6 +319,26 @@ class EventLog:
         """Read the last N events for an agent (most recent first)."""
         return await self._storage.read_latest(agent_id, n)
 
+    async def latest_stream_id(self, agent_id: str) -> str | None:
+        """
+        Return the Redis Stream id of the last entry in
+        the agent's stream, or ``None`` when the stream is
+        empty or absent (ADR-068 §3.4 P4 — fold cursor).
+
+        The Consolidator does NOT use this method (it
+        derives the per-tick work signal from the
+        ``AgentView`` only). The base class uses it on
+        the cold ``refresh_cache`` path to stamp the
+        fold cursor on the parallel Redis key so the
+        next incremental call can take the warm path.
+        The cost is one ``XREVRANGE COUNT 1`` per
+        cold-refresh call — negligible (the cold path
+        runs at most once per identity).
+        """
+        if not hasattr(self._storage, "latest_stream_id"):
+            return None
+        return await self._storage.latest_stream_id(agent_id)  # type: ignore[attr-defined]
+
     async def stream_len(self, agent_id: str) -> int:
         """Return the number of events in an agent's stream."""
         return await self._storage.stream_len(agent_id)
@@ -390,6 +410,50 @@ class EventLog:
         if not events:
             return [], cursor
         return events, str(events[-1].event_id)
+
+    # ------------------------------------------------------------------ subscribe
+
+    async def subscribe(
+        self,
+        agent_ids: list[str],
+        *,
+        cursors: dict[str, str] | None = None,
+        block_ms: int = 30_000,
+        count: int | None = None,
+    ) -> tuple[dict[str, str], list[Event]]:
+        """
+        Blocking read across one or more agent streams — the
+        notification primitive of ADR-068 §3.1.
+
+        The subscriber holds ONE connection for up to
+        ``block_ms`` milliseconds, waking as soon as any of
+        the named agents' streams receives an entry (fan-in:
+        N agents, one connection — the pool-pressure answer
+        of ADR-068 §3.2). The returned ``(new_cursors,
+        events)`` pair feeds the next call:
+
+          - ``new_cursors[agent_id]`` is the stream id to
+            persist as that agent's durable cursor;
+          - ``events`` are the parsed events in arrival
+            order (interleaved across agents).
+
+        Cursor semantics mirror ``read_after_cursor``:
+
+          - agent present in ``cursors`` → strictly after
+            that cursor (exclusive ``(`` form);
+          - agent absent (or ``cursors=None``) → the full
+            existing backlog plus new entries.
+
+        The notification is a HINT, never a correctness
+        dependency: a dropped or missed wake-up is closed by
+        the caller's fallback poll (``KNT_FALLBACK_POLL_INTERVAL``,
+        ADR-068 §3.8) reading from the same durable cursor.
+        A timeout with no arrivals returns ``({}, [])`` —
+        idle cost of one held connection, zero round-trips.
+        """
+        return await self._storage.subscribe(
+            agent_ids, cursors=cursors, block_ms=block_ms, count=count
+        )
 
     # ------------------------------------------------------------------ delete
 

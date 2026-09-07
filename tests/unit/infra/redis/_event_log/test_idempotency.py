@@ -100,7 +100,7 @@ class TestClaimPhase:
         )
         redis.pipeline.assert_called_once_with(transaction=True)
         pipe.xadd.assert_called_once()
-        pipe.set.assert_called_once_with(IDEM_KEY, PLACEHOLDER, nx=True)
+        pipe.set.assert_called_once_with(IDEM_KEY, PLACEHOLDER, nx=True, ex=60)
         pipe.execute.assert_awaited_once()
 
     async def test_returns_stream_id_from_first_result(self):

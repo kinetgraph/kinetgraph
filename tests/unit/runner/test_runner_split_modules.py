@@ -426,7 +426,13 @@ class TestRunSystemsAndPersist:
         )
         # ``new_event_count == 0`` short-circuits the
         # router call even when one is wired in.
-        assert cap.saved
+        # ADR-068 §3.5 P5c: the checkpoint save is
+        # dirty-only. Here the batch was delivered
+        # through ``new_events`` but the dispatcher was
+        # told ``new_event_count=0`` (the legacy test
+        # shape); the systems are silent, so nothing is
+        # dirty and the save is skipped.
+        assert cap.saved == []
 
     async def test_silent_systems_skip_fold_with_systems(self) -> None:
         """The branch ``if system_events:`` when the

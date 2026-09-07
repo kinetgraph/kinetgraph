@@ -53,6 +53,32 @@ docker run -d -p 6379:6379 --name kntgraph-redis redis:latest
 docker ps | grep kntgraph-redis
 ```
 
+
+
+## 1.5 KNT Environment Variables (ADR-068)
+
+The following environment variables control the reactive dispatcher behavior (ADR-068 §3.8):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KNT_REACTIVE_POLL_INTERVAL` | `0.25` | Poll interval for the reactive dispatcher (seconds) |
+| `KNT_REACTIVE_REDISCOVERY_SECONDS` | `5` | How often the dispatcher re-discovers agents (seconds) |
+| `KNT_WARMER_PUMP_INTERVAL` | `0.25` | Pump interval for the cache warmer (seconds) |
+| `KNT_FALLBACK_POLL_INTERVAL` | `5` | Fallback poll interval when no events are received (seconds) |
+
+These can be set in a `.env` file or exported directly:
+
+```bash
+export KNT_REACTIVE_POLL_INTERVAL=0.5
+export KNT_FALLBACK_POLL_INTERVAL=10
+```
+
+They can also be verified at runtime:
+
+```bash
+python -c "from kntgraph.infra.config import Settings; s = Settings(); print(s.reactive_poll_interval)"
+```
+
 ## 2. Hello world
 
 A minimal agent that produces two events and

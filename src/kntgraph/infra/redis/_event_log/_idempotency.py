@@ -84,7 +84,7 @@ async def _claim_phase(
     """
     pipe = redis.pipeline(transaction=True)
     pipe.xadd(stream_key, payload, maxlen=maxlen)
-    pipe.set(idem_key, PLACEHOLDER, nx=True)
+    pipe.set(idem_key, PLACEHOLDER, nx=True, ex=60)
     results = await pipe.execute()
 
     stream_id = decode_value(results[0])
