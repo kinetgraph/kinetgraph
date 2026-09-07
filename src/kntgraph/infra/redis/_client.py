@@ -54,7 +54,7 @@ class PipelineLike(Protocol):
     def set(
         self,
         key: str,
-        value: str,
+        value: str | bytes,
         *,
         nx: bool = False,
         ex: int | None = None,

@@ -17,6 +17,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ADR-068 Phase 4 (P4):** incremental cache refresh via
+  a **parallel fold-cursor key** (`<cache_key>:fold_cursor`),
+  not inside the cache payload. `BaseShortTermMemory`
+  gains `refresh_cache_incremental(*key_parts)` that:
+  - reads the cursor from the parallel key (missing →
+    cold fallback `refresh_cache` — auto-seeds the cursor
+    for the next call);
+  - reads the EventLog delta via
+    `read_after_cursor(agent_id, cursor)` (empty → no-op,
+    zero Redis writes);
+  - delegates the merge to the subclass's
+    `_fold_incremental(existing, delta)` hook (default
+    returns `None` → cold fallback; subclasses MAY
+    override for per-event delta merge).
+
+  The cache payload wire format (Hash for
+  Profile/Continuity, JSON for Session) is **bit-identical
+  to legacy** — no `__fold_cursor__` injection, no
+  `delete_first` flag leaks, no payload-mutation. Legacy
+  caches and `Projector.write_cache` keep working without
+  migration. Two new Protocol methods on
+  `ShortMemoryStorage`
+  (`read_fold_cursor` / `write_fold_cursor`) keep the
+  domain / infra separation explicit; the base never
+  touches the raw Redis client. Each adapter owns its
+  TTL policy for the parallel key: Session honours the
+  manager TTL, Profile uses no TTL (matches the cache
+  payload), Continuity uses sliding TTL (matches the
+  cache payload). `CacheWarmer.pump_once` always calls
+  `refresh_cache_incremental`; the Consolidator zero
+  Redis I/O on the hot path (it only dedups by
+  `view.last_event_id`).
+
 - **ADR-068 Phase 1 (P1):** the `EventLog.subscribe`
   notification primitive. New `xread` on the `RedisLike`
   Protocol (blocking multi-stream read); new
@@ -33,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ADR-068 Phase 0 (P8 + P5a):** idle-traffic mitigation.
   New `ReactiveSettingsMixin` (`infra/config/_reactive.py`)
   exposes the observer-loop cadences as `KNT_` env knobs —
-  `KNT_REACTIVE_POLL_INTERVAL` (default 0.25), 
+  `KNT_REACTIVE_POLL_INTERVAL` (default 0.25),
   `KNT_REACTIVE_REDISCOVERY_SECONDS` (default 5.0),
   `KNT_WARMER_PUMP_INTERVAL` (default 0.25) and
   `KNT_FALLBACK_POLL_INTERVAL` (default 5.0, reserved for
@@ -48,6 +81,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads up to 8 messages per `XREADGROUP` round-trip
   (was exactly 1), cutting the per-message RTT cost under
   bursty load.
+
+### Fixed
+
+- **Pyright baseline cleared.** Five pre-existing pyright
+  errors closed (none caused by this release's code):
+  - `agents/role_systems/_base.py:210` — `causation_id`
+    now passed as `UUID(str(last_eid))` instead of a
+    bare `str` (matches `Event.causation_id: Optional[UUID]`).
+  - `infra/redis/_client.py:54` —
+    `PipelineLike.set.value` widened from `str` to
+    `str | bytes` (matches `RedisLike.set`).
+  - `runner/reactive.py:605` — obsolete `# type: ignore`
+    removed now that `EventLog.subscribe` is a formal
+    Protocol method (not a union).
+  - `security/principal.py:365` — `Policy.allows` uses
+    `...` (canonical Protocol body) instead of
+    `pass` so the declared `-> bool` is satisfied.
+  Net effect: pyright drops from 5 baseline errors to 0.
+
+- **`scripts/quality_report.py` flake in `gate_tests`.**
+  When invoked directly (not via `uv run`), the
+  subprocess did not inherit `KNT_REDIS_FAKE=1` and four
+  tests in `tests/unit/runner/test_reactive_wake_up.py`
+  failed with `ConnectionError 111` against
+  `127.0.0.1:6379`. `gate_tests` now injects
+  `KNT_REDIS_FAKE=1` via `subprocess.run(env=...)` so the
+  gate is CI-stable.
 
 ### Added (documentation)
 

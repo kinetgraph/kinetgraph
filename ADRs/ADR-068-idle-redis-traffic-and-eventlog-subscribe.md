@@ -6,8 +6,8 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-068: Idle Redis traffic — the EventLog subscribe primitive and the incremental read paths
 
-- **Status:** Proposed
-- **Date:** 2026-09-04
+- **Status:** Partially implemented (P1, P2, P3, P4-parallel-cursor, P5-compression, P6, P8 merged in monorepo; P5b open)
+- **Date:** 2026-09-04 (updated 2026-09-06 with §9 measurement; 2026-09-07 with §3.4 parallel-key redesign and P4 implementation)
 - **Author:** kinetgraph architecture team
 - **Related to:**
   - [ADR-002](./ADR-002-Replay-Puro.md) — pure replay; EventLog as source of truth
@@ -285,22 +285,99 @@ Today `refresh_cache` (`memory/base.py:211–228`) is
 `_continuity.py:94`). Called for every memory agent on
 every tick, regardless of delta.
 
-- **Store the fold cursor in the cache payload itself**
-  (one new hash field, e.g. `fold_cursor`, written
-  atomically in the same pipeline as the state fields).
-- **Refresh reads the delta**: `XRANGE (cursor` → apply →
-  `HSET` only the mutated fields + `EXPIRE` (drop the
-  `DEL`; the write-through is already idempotent per
-  ADR-005 reasoning — the cache is derived data, ADR-014).
-- **The `CacheRefreshRequest` gains an `events_since`
-  short-circuit**: the Consolidator knows the World's
-  view of the agent; if no memory-namespace event for
-  that identity arrived since the last published request,
-  do not enqueue (the request bus is in-memory and
-  lossy-safe by design — `cache_warmer.py:16–22` — so a
-  skipped request only means the next real event
-  refreshes; correctness stays with the read-through
-  miss path).
+**Decision (2026-09-06, with §9 measurement feedback
+from the soldi-backoffice baseline capture)**:
+the fold cursor lives on a **parallel Redis key** —
+``<cache_key>:fold_cursor`` — not inside the cache
+payload. The cache payload stays bit-identical to the
+legacy wire format (Hash for Profile/Continuity, JSON
+for Session); the cursor is a plain string at the
+parallel key. Three consequences fall out:
+
+- **No migration needed.** Legacy caches written by
+  `refresh_cache` / `Projector.write_cache` keep working
+  — the incremental path detects a missing cursor on
+  the parallel key and falls back to the cold rebuild,
+  which seeds the cursor for the next call.
+- **Domain / infra separation.** The base
+  (`BaseShortTermMemory`) talks only to the
+  `ShortMemoryStorage` Protocol; the parallel-key
+  cursor I/O goes through two new Protocol methods
+  (`read_fold_cursor`, `write_fold_cursor`). The base
+  never touches the raw Redis client. Each concrete
+  adapter owns its TTL policy for the parallel key
+  (Session: same as cache; Profile: no TTL; Continuity:
+  sliding TTL — same as the cache payload).
+- **Auto-correction on cache / cursor drift.** If the
+  cache is wiped under the cursor (or vice-versa), the
+  next incremental call sees the inconsistency and
+  falls back to the cold rebuild — no manual repair, no
+  orphan cursor surviving forever.
+
+**Incremental path** (ADR-068 §3.4 P4, implemented in
+`memory/base.py`):
+
+1. `CacheWarmer.pump_once` calls
+   `refresh_cache_incremental(*key_parts)` (no cursor
+   on the request — the cache owns that state).
+2. Base reads the parallel-key cursor; missing → cold
+   fallback `refresh_cache(...)`.
+3. Base reads the EventLog delta via
+   `read_after_cursor(agent_id, cursor)`; empty → no-op.
+4. Base asks the subclass `_fold_incremental(existing,
+   delta)` to merge; the default returns `None` (no
+   per-event merge — falls back to cold). Subclasses
+   MAY override to apply the delta directly onto the
+   cached state (the optimisation that unlocks the full
+   P4 gain beyond the EventLog read).
+5. On merge success, the base writes the new state
+   (legacy `_write_cache_for_key` — payload unchanged)
+   and stamps the new cursor on the parallel key.
+
+**`CacheRefreshRequest` short-circuit** (Consolidator,
+`memory/consolidation.py:299–345`): the Consolidator
+walks `world.agents` and skips identities whose
+`view.last_event_id` (the Event UUID) did not advance
+since the last tick. The dedup is in-memory
+(`_last_seen_views: dict[str, str]`), no Redis I/O on
+the Consolidator hot path — that is the point: the
+Consolidator does zero Redis reads per tick. The fold
+cursor is read once per identity by the warmer, on the
+parallel key, when the warmer picks up the request.
+
+**Cost summary** (per identity per tick, idle):
+
+| Operation | Before P4 | After P4 |
+|---|---|---|
+| Consolidator dedup | n/a | `view.last_event_id` compare (in-memory, free) |
+| CacheWarmer (warm) | `XRANGE -` (full stream) + `DEL`+`HSET`+`EXPIRE` | `GET cursor` + `XRANGE (cursor` (delta) + `DEL`+`HSET`+`EXPIRE` + `SET cursor` |
+| CacheWarmer (cold / first call) | same as legacy | legacy + `SET cursor` (one extra round-trip, one-off per identity) |
+| CacheWarmer (no delta) | still does the full cycle | `GET cursor` returns same id → no-op (zero writes) |
+
+The dominant win on the idle path is the no-op case:
+the cache stop being rewritten every tick. Under zero
+event emission, the warmer now does one `GET cursor`
+per identity per tick and nothing else. The measurement
+in §9 captures this baseline against the published
+0.14.2 (legacy) deployment; the monorepo source ships
+P1+P2+P3+P5+P8 already, and P4 closes the residual
+`DEL`+`HSET`+`EXPIRE` per-tick writes.
+
+**Why not the cursor-in-payload alternative** (and
+why we rejected it during implementation): the cursor
+on the payload would require the base to mix domain
+shape (Hash / JSON) with cursor metadata; the
+`_apply_cursor_to_payload` and `delete_first` flags on
+`put_record` would have to leak across the ADR-019
+domain/infra boundary. The parallel key keeps the cache
+payload identical to the legacy wire format, makes the
+cursor observable via `KEYS knt:*:fold_cursor` /
+`SCAN MATCH` for ops, and gives each tier independent
+control over cursor TTL (Profile has no TTL on the
+cache, so it has no TTL on the cursor either; Continuity
+slides both together). The trade-off is the +1 round-trip
+on the cold path and the dual-key invariant — both are
+small and self-correcting.
 
 ### 3.5 P5 — Dirty-only checkpoint save
 
@@ -399,15 +476,28 @@ P1 lands before anything depends on it.
 |---|---|---|---|
 | **0 (mitigation, one minor)** | P8 env knobs at conservative defaults + `count>1` in `XREADGROUP` + P5 compression | — | ~6 files, no behaviour change |
 | **1 (primitive)** | P1: `xread` in `RedisLike`; `EventLog.subscribe`/`subscribe_many`; unit tests with `KNT_REDIS_FAKE` blocking semantics | — | `infra/redis/_client.py`, `_event_log/`, `stream/event_log/` |
-| **2 (dispatcher)** | P2 wake-up + fallback (**incl. `subscribe_many` fan-in — hard requirement, §6 connection pressure**); P5 dirty-only save + cursor-key split | P1 | `runner/reactive.py`, `_checkpoint_io.py`, `_systems_runner.py` |
-| **3 (runner + memory)** | P3 incremental `Runner`; P4 cursor-in-cache refresh | P1 (for wake-up optional), none for the cursor work | `runner/runner.py`, `memory/base.py`, `infra/redis/_memory/` |
+| **2 (dispatcher)** | P2 wake-up + fallback (**incl. `subscribe_many` fan-in — hard requirement, §6 connection pressure**); P5 dirty-only save | P1 | `runner/reactive.py`, `_checkpoint_io.py`, `_systems_runner.py` |
+| **3 (runner + memory)** | P3 incremental `Runner`; P4 **parallel-key** incremental refresh (cursor on `<key>:fold_cursor`, payload untouched) | P1 (for wake-up optional), none for the cursor work | `runner/runner.py`, `memory/base.py`, `infra/redis/_memory/` |
 | **4 (gateway)** | P6 SSE over `subscribe`; re-point deprecated long-poll | P1 | `api/intent_router/routes.py`, `core/long_poll.py` |
 
 Each phase keeps the existing public contracts: the
 `EventLog` read API, the SSE wire format, the
 `WorldCheckpoint` durability ordering (append-before-save,
-ADR-018), and the `Result`/typed-error contracts
-(`kntgraph-typed-errors` discipline) are untouched.
+ADR-018), the cache payload wire format (Hash for
+Profile/Continuity, JSON for Session — bit-identical
+to the legacy, no `__fold_cursor__` injected), and the
+`Result`/typed-error contracts (`kntgraph-typed-errors`
+discipline) are untouched.
+
+**P4 design note** (added 2026-09-07): the original
+ADR §3.4 sketch embedded the cursor in the cache
+payload (`__fold_cursor__` field). The implementation
+chose a **parallel Redis key** instead — see §3.4 for
+the rationale (zero migration, domain/infra
+separation, per-tier TTL policy). The cache payload
+wire format is unchanged; `Projector.write_cache`,
+`refresh_cache` legacy callers, and tests written
+before 2026-09-07 keep working without modification.
 
 ## 6. Risks and invariants
 

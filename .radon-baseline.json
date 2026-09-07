@@ -6182,12 +6182,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py:class:AlwaysAllowPolicy": {
       "complexity": 2,
-      "lineno": 369,
+      "lineno": 368,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py:class:DefaultPolicy": {
       "complexity": 10,
-      "lineno": 388,
+      "lineno": 387,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py:class:Policy": {
@@ -6242,7 +6242,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py:method:allows": {
       "complexity": 1,
-      "lineno": 378,
+      "lineno": 377,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py:method:from_agent_id": {
@@ -7680,7 +7680,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/runner/reactive.py": {
-      "mi": 40.50820942823475,
+      "mi": 40.57911894148251,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/runner/reactive_extensions.py": {
@@ -7732,7 +7732,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/principal.py": {
-      "mi": 48.99763658522222,
+      "mi": 48.85766884213778,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/security/signing/__init__.py": {

@@ -602,7 +602,7 @@ class ReactiveDispatcher:
 
         block_ms = int(self._fallback_interval * 1000)
         try:
-            new_cursors, _wake_events = await self._log.subscribe(  # type: ignore[union-attr]
+            new_cursors, _wake_events = await self._log.subscribe(
                 self._subscribable_agents(),
                 cursors=self._subscribe_cursors,
                 block_ms=block_ms,
