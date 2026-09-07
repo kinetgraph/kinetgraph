@@ -3253,3 +3253,55 @@ memory tier; revisit before v1.0).
   - :mod:`tests.agents.unit.test_example_05b_projection`
     updated to assert the wire value is honoured
     across ticks.
+
+    across ticks.
+
+## 5 Release-process incident — v0.15.0 release workflow refused (2026-09-07)
+
+**Status:** Closed (CHANGELOG restored on a manual commit
+by the operator; tag `v0.15.0` then published cleanly via
+`.github/workflows/release.yml` on the second dispatch).
+
+**Symptom.** The first manual dispatch of the release
+workflow (run id `34117459271`, dispatched at
+2026-09-07T11:36:08Z) failed at the **Rewrite CHANGELOG**
+step:
+
+```
+changelog_release: '## [Unreleased]' is empty. Add the
+release notes under it, then re-run.
+```
+
+**Root cause.** During the AI-assisted pre-flight of the
+release, I ran
+`scripts/changelog_release.py --new-version 0.15.0
+--date 2026-09-07` locally **before** the workflow was
+dispatched. The script consumed `[Unreleased]` (moved the
+block to `[0.15.0] — 2026-09-07`) and left `[Unreleased]`
+empty. When the workflow dispatched, it ran the same
+script — which validates that `[Unreleased]` is
+non-empty and refused to proceed.
+
+The workflow's CHANGELOG step assumes the operator has
+**not** pre-moved `[Unreleased]`; it expects the
+unpublished notes to still live under `[Unreleased]`. My
+local pre-execution broke that assumption.
+
+**Lesson.** **Never run `changelog_release.py` locally
+between the moment `[Unreleased]` is staged and the moment
+the `release.yml` workflow is dispatched.** The script is
+the workflow's job, not the human/AI's. If the operator
+needs to stage the notes first, the correct order is:
+
+  1. Write the notes under `[Unreleased]` in
+     `CHANGELOG.md` and commit.
+  2. Dispatch `release.yml` with `level=<major|minor|patch>`.
+  3. The workflow owns the `[Unreleased] → [X.Y.Z]`
+     rewrite, the commit, and the tag.
+
+Local pre-flight that moves the section is a regression.
+If a dry-run is genuinely needed, restore the body to
+`[Unreleased]` before the dispatch — that is what the
+operator did in this incident (commit restored the
+release notes under `[Unreleased]`; the second dispatch
+succeeded).
