@@ -76,10 +76,17 @@ def _write_stub_test(package_name: str, concordo_name: str) -> Path:
     test_file = test_dir / f"test_{snake}.py"
     if test_file.exists():
         return test_file
+    # The SPDX header is assembled at runtime for the generated stub
+    # test. The literal is wrapped in REUSE-IgnoreStart/End so the
+    # REUSE linter does not mistake it for a license expression.
+    # REUSE-IgnoreStart
+    spdx_copyright = "# SPDX-FileCopyrightText: 2026 kinetgraph"
+    spdx_license = "# SPDX-License-Identifier: Apache-2.0"
+    # REUSE-IgnoreEnd
     test_file.write_text(
-        f"# SPDX-FileCopyrightText: 2026 kinetgraph\n"
+        f"{spdx_copyright}\n"
         f"#\n"
-        f"# SPDX-License-Identifier: Apache-2.0\n"
+        f"{spdx_license}\n"
         f"\n"
         f"from {package_name}.concordos.{snake} import {concordo_name}\n"
         f"\n"

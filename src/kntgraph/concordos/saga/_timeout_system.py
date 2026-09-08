@@ -26,6 +26,7 @@ from ._components import SagaProgressComponent
 from ._config import SagaConfig
 
 if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
     from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.world import World
@@ -77,7 +78,7 @@ class SagaTimeoutSystem:
             elapsed_ms = (now - saga.started_at).total_seconds() * 1000
             if elapsed_ms <= config.saga_timeout_ms:
                 continue
-            data = {
+            data: dict[str, "JsonValue"] = {
                 "saga_id": saga.saga_id,
                 "elapsed_ms": elapsed_ms,
                 "stuck_at_step": saga.current_step,

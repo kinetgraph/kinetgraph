@@ -103,18 +103,9 @@ class SagaSystem:
         # from the middleware (non-None inside a tick, ADR-037).
         # No ``view.last_event`` envelope is required (ADR-069
         # §11.16).
-        trigger_type = view.domain_phase
-        if trigger_type is None:
+        trigger = self._build_trigger(view)
+        if trigger is None:
             return []
-        trigger = ViewTrigger(
-            agent_id=view.agent_id,
-            event_type=trigger_type,
-            event_id=UUID(str(view.last_event_id))
-            if view.last_event_id is not None
-            else None,
-            data=view.components.get(trigger_type, {}),
-            correlation=correlation_middleware.current(),
-        )
 
         # Saga start
         if trigger.event_type == f"saga.{self._cfg.name}.started":
@@ -122,11 +113,7 @@ class SagaSystem:
 
         # Saga-level timeout (from SagaTimeoutSystem)
         if trigger.event_type == f"saga.{self._cfg.name}.timed_out":
-            if saga.direction == "forward":
-                return self._begin_compensation(
-                    world, view, saga, trigger, reason="saga_timeout"
-                )
-            return []
+            return self._on_saga_timeout(world, view, saga, trigger)
 
         # Compensation failure (§4.5.1): escalate to DLQ.
         if trigger.event_type == f"saga.{self._cfg.name}.compensation_failed":
@@ -138,20 +125,10 @@ class SagaSystem:
         if saga.direction == "compensating" and self._is_compensation_failure(
             trigger, saga
         ):
-            return [
-                self._emit(
-                    trigger,
-                    event_type=f"saga.{self._cfg.name}.compensation_failed",
-                    data={"saga_id": saga.saga_id, "stuck_step": saga.current_step},
-                ),
-                self._dlq_event(saga, trigger),
-            ]
+            return self._on_compensation_failure(saga, trigger)
 
         # Tool completion / failure / timeout
-        if not (
-            trigger.event_type.startswith("tool.")
-            and trigger.event_type.endswith((".completed", ".failed", ".timed_out"))
-        ):
+        if not self._is_tool_trigger(trigger):
             return []
 
         step_config = self._match_step(view, trigger, saga)
@@ -159,6 +136,64 @@ class SagaSystem:
             return []
 
         return self._handle_completion(view, world, saga, step_config, trigger)
+
+    def _build_trigger(self, view: "AgentView") -> "ViewTrigger | None":
+        """Derive the trigger from the view's existing fields
+        (ADR-069 §11.16). ``None`` when the agent has no domain
+        event yet."""
+        trigger_type = view.domain_phase
+        if trigger_type is None:
+            return None
+        return ViewTrigger(
+            agent_id=view.agent_id,
+            event_type=trigger_type,
+            event_id=UUID(str(view.last_event_id))
+            if view.last_event_id is not None
+            else None,
+            data=view.components.get(trigger_type, {}),
+            correlation=correlation_middleware.current(),
+        )
+
+    def _on_saga_timeout(
+        self,
+        world: "World",
+        view: "AgentView",
+        saga: SagaProgressComponent,
+        trigger: "ViewTrigger",
+    ) -> list["Event"]:
+        """Handle a saga-level timeout: begin compensation when the
+        saga is still moving forward, otherwise ignore."""
+        if saga.direction == "forward":
+            return self._begin_compensation(
+                world, view, saga, trigger, reason="saga_timeout"
+            )
+        return []
+
+    def _on_compensation_failure(
+        self,
+        saga: SagaProgressComponent,
+        trigger: "ViewTrigger",
+    ) -> list["Event"]:
+        """Emit ``compensation_failed`` then ``dlq`` so the operator
+        can intervene (§4.5.1)."""
+        return [
+            self._emit(
+                trigger,
+                event_type=f"saga.{self._cfg.name}.compensation_failed",
+                data={
+                    "saga_id": saga.saga_id,
+                    "stuck_step": saga.current_step,
+                },
+            ),
+            self._dlq_event(saga, trigger),
+        ]
+
+    def _is_tool_trigger(self, trigger: "ViewTrigger") -> bool:
+        """True when the trigger is a tool completion / failure /
+        timeout event."""
+        return trigger.event_type.startswith("tool.") and trigger.event_type.endswith(
+            (".completed", ".failed", ".timed_out")
+        )
 
     # ------------------------------------------------------------------
     # _match_step — the join key for saga ↔ tool completion.
@@ -649,7 +684,7 @@ class SagaSystem:
         trigger: "ViewTrigger",
         *,
         event_type: str,
-        data: dict[str, "JsonValue"],
+        data: Mapping[str, "JsonValue"],
     ) -> "Event":
         from kntgraph.core.event.event import Event
 
