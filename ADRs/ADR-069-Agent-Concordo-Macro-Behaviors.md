@@ -651,8 +651,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from kntgraph.core.event.constants import EventClass  # "domain" | "lifecycle"
+from kntgraph.core.event.correlation import correlation_middleware
+from kntgraph.core.clock import injectable_clock
 from kntgraph.core.world.component import DomainComponent
 
 if TYPE_CHECKING:
@@ -660,10 +663,13 @@ if TYPE_CHECKING:
         ContinuityComponent,
         ProfileComponent,
     )
+    from kntgraph.core.clock import Clock
     from kntgraph.core.event.correlation import CorrelationContext
+    from kntgraph.core._typing import JsonValue
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.world import World
     from kntgraph.core.world.view import AgentView
+    from .base import ViewTrigger
 
 
 @dataclass(frozen=True, slots=True)
@@ -684,20 +690,20 @@ class FSMSystem:
       failed guard, or terminal-state violation
 
     The system is **pure**: same ``World`` ⇒ same
-    ``list[Event]``. ``now`` is read from the
-    dispatcher's injected clock (see ``__init__``);
-    tests inject a fixed ``datetime`` for
-    deterministic replay.
+    ``list[Event]``. ``now`` is injected (see
+    ``__init__``); it defaults to the framework clock so
+    tests inject a fixed ``datetime`` for deterministic
+    replay.
     """
 
     def __init__(
         self,
         config: FSMConfig,
         *,
-        now: Callable[[], datetime] | None = None,
+        now: "Clock | None" = None,
     ) -> None:
         self._cfg = config
-        self._now = now or utcnow
+        self._now = injectable_clock(now)
 
     def __call__(self, world: "World") -> list["Event"]:
         out: list[Event] = []
@@ -714,17 +720,55 @@ class FSMSystem:
             return []
         current_state: str = getattr(component, self._cfg.state_field)
 
-        # ``view.last_event`` is the envelope of the
-        # agent's most recent domain event. It is
-        # populated by the dispatcher (NOT by the
-        # ``World`` projection — see §11.17) and is
-        # ``None`` outside a tick (e.g. in tests that
-        # build a ``World`` by hand). See §9.2 item 5
-        # for the broader "recent events buffer"
-        # question; this ADR only needs the last event.
-        trigger = view.last_event
-        if trigger is None:
+        # The trigger (the event that MAY justify a
+        # transition) is derived from the existing view
+        # fields — the framework does NOT add a
+        # ``view.last_event`` envelope (see §11.16 for
+        # why that extension was dropped). The default
+        # projection already records the trigger's
+        # event_type in ``view.domain_phase`` (the last
+        # domain event) and its id in ``view.last_event_id``
+        # (see ``core/world/projection.py``). This mirrors
+        # the ``_BaseRoleSystem`` precedent
+        # (``agents/role_systems/_base.py``), which reads
+        # ``view.last_event_id`` + ``view.components`` and
+        # never needs the envelope.
+        #
+        # The correlation for events this system emits is
+        # taken from ``correlation_middleware.current()``
+        # (ADR-037): the Runner / ReactiveDispatcher wrap
+        # every tick in ``correlation_middleware.scope()``,
+        # so inside a tick a non-None context is guaranteed.
+        # A ``ViewTrigger`` is a tiny read-only carrier of
+        # the trigger surface the emit helpers need; it is
+        # NOT a framework type and holds no event history.
+        # The FSM leaves ``data``/``causation_id`` at their
+        # defaults — only the Saga reads them.
+        trigger_type = view.domain_phase
+        if trigger_type is None:
+            # No domain event yet for this agent — the
+            # FSM has nothing to react to.
             return []
+
+        # Single-slot caveat (see §11.18.1): when the fold
+        # surfaces more than one domain event in the same
+        # tick, ``view.last_event_id`` is the LAST one. The
+        # FSM follows the ``ToolCallTTLSweeperSystem``
+        # precedent: it keeps a ``last_processed_event_id``
+        # cursor on ``FSMAuditComponent`` and re-derives
+        # missed triggers from the EventLog between the
+        # cursor and ``view.last_event_id``. On the happy
+        # path (one event per tick, the common case) the
+        # cursor matches and no scan runs. The scan is
+        # sketched at the end of §11.16.
+        trigger = ViewTrigger(
+            agent_id=view.agent_id,
+            event_type=trigger_type,
+            event_id=UUID(str(view.last_event_id))
+            if view.last_event_id is not None
+            else None,
+            correlation=correlation_middleware.current(),
+        )
 
         if current_state in self._cfg.terminal:
             return [self._rejected(
@@ -766,56 +810,56 @@ class FSMSystem:
 
     def _transitioned(
         self,
-        event: "Event",
+        trigger: "ViewTrigger",
         from_state: str,
         to_state: str,
     ) -> "Event":
         return Event.create(
-            agent_id=event.agent_id,
+            agent_id=trigger.agent_id,
             event_type="fsm.transitioned",
             event_class="domain",
             data={
                 "from": from_state,
                 "to": to_state,
-                "trigger": event.event_type,
-                "trigger_event_id": str(event.event_id),
+                "trigger": trigger.event_type,
+                "trigger_event_id": str(trigger.event_id),
             },
-            causation_id=event.event_id,
-            correlation=event.correlation,
+            causation_id=trigger.event_id,
+            correlation=trigger.correlation,
         )
 
     def _rejected(
         self,
-        event: "Event",
+        trigger: "ViewTrigger",
         current_state: str,
         reason: str,
     ) -> "Event":
         return Event.create(
-            agent_id=event.agent_id,
+            agent_id=trigger.agent_id,
             event_type="fsm.transition_rejected",
             event_class="domain",
             data={
                 "current_state": current_state,
-                "trigger": event.event_type,
+                "trigger": trigger.event_type,
                 "reason": reason,
             },
-            causation_id=event.event_id,
-            correlation=event.correlation,
+            causation_id=trigger.event_id,
+            correlation=trigger.correlation,
         )
 
     def _entry_event(
         self,
-        event: "Event",
+        trigger: "ViewTrigger",
         state: str,
         entry_type: str,
     ) -> "Event":
         return Event.create(
-            agent_id=event.agent_id,
+            agent_id=trigger.agent_id,
             event_type=entry_type,
             event_class="domain",
             data={"state": state},
-            causation_id=event.event_id,
-            correlation=event.correlation,
+            causation_id=trigger.event_id,
+            correlation=trigger.correlation,
         )
 ```
 
@@ -828,6 +872,56 @@ contract the FSM claims to honour. Injecting the
 clock follows the precedent of
 ``ToolCallTTLSweeperSystem.__init__(now=...)`` in
 ``src/kntgraph/runner/tool_call_ttl_sweeper.py``.
+
+**Clock module.** The ``now: Callable[[], datetime] |
+None`` injection, the ``now or utcnow`` fallback, and the
+``utcnow`` default are defined once in a new framework
+module, ``src/kntgraph/core/clock.py`` (see §12). All
+Concordo systems import their clock source from there;
+they do not re-declare the type or the fallback inline.
+
+**`ViewTrigger`.** The FSM never reads the full event
+envelope; it needs only ``agent_id``, ``event_type``,
+``event_id`` and ``correlation``. These are carried by a
+tiny read-only dataclass:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ViewTrigger:
+    """Read-only carrier of the trigger surface the
+    FSM/Saga emit helpers consume. Built by the system
+    from the view (``domain_phase`` / ``last_event_id`` /
+    the component keyed by ``domain_phase``) and
+    ``correlation_middleware.current()``.
+
+    ``data`` mirrors the last domain event's payload (the
+    default fold installs it under the component keyed by
+    ``event_type``), so ``_dispatch_step`` can read
+    ``trigger.data["saga_id"]`` and the ``enrich_from``
+    enrichment reads ``trigger.data["step_results"]``.
+
+    ``causation_id`` is the id of the event that caused
+    this trigger. The view does not carry it for tool
+    completions; ``SagaSystem._match_step`` recovers it
+    from the ``tool_completions`` slot instead (the
+    request's ``event_id``). For saga-start /
+    timeout / compensation events it equals ``event_id``.
+
+    NOT a framework type and holds no event history.
+    """
+    agent_id: str
+    event_type: str
+    event_id: UUID | None
+    data: Mapping[str, "JsonValue"]
+    correlation: "CorrelationContext"
+    causation_id: UUID | None = None
+```
+
+The type is private to ``concordos/base.py``; the FSM and
+Saga systems share it. It exists so the emit helpers take
+one small argument instead of four, and so the ADR does
+not couple the systems to ``Event`` for reading a trigger
+that never came from a live envelope.
 
 ### 3.5 Concordo class
 
@@ -937,10 +1031,7 @@ reasoning.
 from datetime import datetime, timezone
 from kntgraph.core.world.component import DomainComponent
 from kntgraph.core.world.world import World
-from kntgraph.runner.world_test_helpers import (
-    make_world_with_components,
-    make_last_event,
-)
+from kntgraph.runner.world_test_helpers import make_world_with_components
 
 
 @dataclass(frozen=True, slots=True)
@@ -955,9 +1046,9 @@ FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 def test_fsm_allows_valid_transition() -> None:
     """
     Given:  InvoiceDomainComponent.status = "validating".
-    When:   invoice.approved arrives; NfeRequired satisfied
-            and the nfe_emitter tool is NOT in the
-            recent-continuity window.
+    When:   the last domain event is invoice.approved;
+            NfeRequired satisfied and the nfe_emitter tool
+            is NOT in the recent-continuity window.
     Then:   fsm.transitioned + invoice.issuance_confirmed.
     """
     view = make_world_with_components(
@@ -967,10 +1058,10 @@ def test_fsm_allows_valid_transition() -> None:
                 status="validating", tax_regime="lucro_real"
             ),
         },
-        last_event=make_last_event(
-            agent_id="inv-1",
-            event_type="invoice.approved",
-        ),
+        # The trigger is derived from ``domain_phase``
+        # (the last domain event's type); no envelope is
+        # needed. ``last_event_id`` seeds the cursor.
+        last_event_type="invoice.approved",
     )
     world = World.empty().with_agent(view)
     out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
@@ -982,7 +1073,7 @@ def test_fsm_allows_valid_transition() -> None:
 def test_fsm_rejects_terminal_state() -> None:
     """
     Given:  InvoiceDomainComponent.status = "paid" (terminal).
-    When:   invoice.submitted arrives.
+    When:   the last domain event is invoice.submitted.
     Then:   fsm.transition_rejected with reason="terminal_state".
     """
     view = make_world_with_components(
@@ -990,10 +1081,7 @@ def test_fsm_rejects_terminal_state() -> None:
         components={
             InvoiceDomainComponent: InvoiceDomainComponent(status="paid"),
         },
-        last_event=make_last_event(
-            agent_id="inv-1",
-            event_type="invoice.submitted",
-        ),
+        last_event_type="invoice.submitted",
     )
     world = World.empty().with_agent(view)
     out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
@@ -1006,7 +1094,7 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
     """
     Given:  ContinuityComponent.last_tools contains "nfe_emitter"
             (i.e. it was the most recent tool invoked).
-    When:   invoice.approved arrives.
+    When:   the last domain event is invoice.approved.
     Then:   fsm.transition_rejected with reason="guard_failed".
     """
     from kntgraph.core.components.memory import ContinuityComponent
@@ -1021,10 +1109,7 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
                 last_tools={"nfe_emitter": "2026-09-07T11:59:00Z"},
             ),
         },
-        last_event=make_last_event(
-            agent_id="inv-1",
-            event_type="invoice.approved",
-        ),
+        last_event_type="invoice.approved",
     )
     world = World.empty().with_agent(view)
     out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
@@ -1032,15 +1117,32 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
     assert out[0].data["reason"] == "guard_failed"
 ```
 
-The ``make_world_with_components`` and
-``make_last_event`` helpers are introduced in the
-same PR as the FSM/Saga systems
-(`src/kntgraph/runner/world_test_helpers.py`); they
-build a ``World` with one agent and attach the
-given components + ``last_event`` (see §11.16)
-without going through Redis. The
-``now=lambda: FIXED_NOW`` injection ensures the
-guard's ``now`` is deterministic.
+The ``make_world_with_components`` helper is introduced
+in the same PR as the FSM/Saga systems
+(`src/kntgraph/runner/world_test_helpers.py`); it
+builds a ``World`` with one agent and attaches the given
+components plus the trigger surface directly on the
+view — without going through Redis or building an event
+envelope (see §11.16):
+
+  - ``last_event_type``: seeds ``view.domain_phase``
+    (the last domain event's type, which the FSM/Saga
+    use as the trigger predicate).
+  - ``last_event_data``: optional dict attached as the
+    component keyed by ``last_event_type`` (the default
+    fold installs the event payload there); the Saga
+    reads it for ``data.get("saga_id")`` and
+    ``enrich_from``.
+  - ``tool_completions``: optional mapping of
+    ``request_event_id -> ToolCallCompletion`` installed
+    in the ``tool_completions`` slot so the Saga's
+    ``_match_step`` / ``_completion_for_step`` can join.
+
+A unique ``last_event_id`` is generated when
+``last_event_type`` is set, so a cursor-aware system
+sees a move and processes the trigger once. The
+``now=lambda: FIXED_NOW`` injection ensures the guard's
+``now`` is deterministic.
 
 ---
 
@@ -1245,18 +1347,20 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Callable
 
 from kntgraph.core.event.event import Event
-from kntgraph.core.event.validators import utcnow
+from kntgraph.core.clock import injectable_clock
 from kntgraph.core.world.component import DomainComponent
 from kntgraph.core.world.components import ToolCallCompletion
 
-from .base import StepContext
+from .base import StepContext, ViewTrigger
 from ._components import SagaProgressComponent
 
 if TYPE_CHECKING:
+    from kntgraph.core.clock import Clock
     from kntgraph.core.components.memory import (
         ContinuityComponent,
         ProfileComponent,
     )
+    from kntgraph.core._typing import JsonValue
     from kntgraph.core.world.world import World
     from kntgraph.core.world.view import AgentView
 
@@ -1293,11 +1397,11 @@ class SagaSystem:
         self,
         config: "SagaConfig",
         *,
-        now: Callable[[], datetime] | None = None,
+        now: "Clock | None" = None,
     ) -> None:
         self._cfg = config
         self._step_map = {s.name: s for s in config.steps}
-        self._now = now or utcnow
+        self._now = injectable_clock(now)
 
     def __call__(self, world: "World") -> list["Event"]:
         out: list[Event] = []
@@ -1312,42 +1416,71 @@ class SagaSystem:
         if saga is None:
             return []
 
-        last = view.last_event
-        if last is None:
+        # The trigger is derived from the view, exactly as
+        # the FSM does (§3.4): ``view.domain_phase`` is the
+        # last domain event's type, ``view.last_event_id``
+        # its id, and ``view.components[trigger_type]`` its
+        # data (the default fold installs the event payload
+        # under a component keyed by the event_type —
+        # ``core/world/projection.py``). The correlation is
+        # taken from ``correlation_middleware.current()``
+        # (non-None inside a tick, ADR-037). No
+        # ``view.last_event`` envelope is required (see
+        # §11.16 for why that extension was dropped).
+        #
+        # The saga's ``_match_step`` needs the trigger's
+        # ``causation_id`` (the join key against the
+        # ``tool_completions`` slot). The view does not
+        # carry causation; for a completion event the
+        # ``causation_id`` is the request's event_id, which
+        # we recover from the ``tool_completions`` slot
+        # when available (see ``_match_step``). For the
+        # start/timeout events it is the trigger itself.
+        trigger_type = view.domain_phase
+        if trigger_type is None:
             return []
+        trigger = ViewTrigger(
+            agent_id=view.agent_id,
+            event_type=trigger_type,
+            event_id=UUID(str(view.last_event_id))
+            if view.last_event_id is not None
+            else None,
+            data=view.components.get(trigger_type, {}),
+            correlation=correlation_middleware.current(),
+        )
 
         # Saga start
-        if last.event_type == f"saga.{self._cfg.name}.started":
-            return self._start(view, last, saga)
+        if trigger.event_type == f"saga.{self._cfg.name}.started":
+            return self._start(view, trigger, saga)
 
         # Saga-level timeout (from SagaTimeoutSystem)
-        if last.event_type == f"saga.{self._cfg.name}.timed_out":
+        if trigger.event_type == f"saga.{self._cfg.name}.timed_out":
             if saga.direction == "forward":
                 return self._begin_compensation(
-                    world, view, saga, last, reason="saga_timeout"
+                    world, view, saga, trigger, reason="saga_timeout"
                 )
             return []
 
         # Compensation failure (§4.5.1): escalate to DLQ.
-        if last.event_type == (
+        if trigger.event_type == (
             f"saga.{self._cfg.name}.compensation_failed"
         ):
-            return [self._dlq_event(saga, last)]
+            return [self._dlq_event(saga, trigger)]
 
         # Tool completion / failure / timeout
         if not (
-            last.event_type.startswith("tool.")
-            and last.event_type.endswith(
+            trigger.event_type.startswith("tool.")
+            and trigger.event_type.endswith(
                 (".completed", ".failed", ".timed_out")
             )
         ):
             return []
 
-        step_config = self._match_step(view, last, saga)
+        step_config = self._match_step(view, trigger, saga)
         if step_config is None:
             return []
 
-        return self._handle_completion(view, world, saga, step_config, last)
+        return self._handle_completion(view, world, saga, step_config, trigger)
 
     # ------------------------------------------------------------------
     # _match_step — the join key for saga ↔ tool completion.
@@ -1355,44 +1488,48 @@ class SagaSystem:
     def _match_step(
         self,
         view: "AgentView",
-        event: "Event",
+        trigger: "ViewTrigger",
         saga: SagaProgressComponent,
     ) -> "SagaStepConfig | None":
         """
         Find the saga step that the incoming tool-completion
-        event belongs to.
+        trigger belongs to.
 
-        The join key is the event's ``causation_id``
+        The join key is the trigger's ``causation_id``
         (== the originating ``tool.<name>.requested``
-        event's ``event_id``). The dispatcher's
+        event's ``event_id``). The view does not carry
+        causation on the trigger; we recover it from the
+        ``tool_completions`` slot by matching the step
+        currently in flight. The dispatcher's
         ``project_tool_calls`` (ADR-034) materialises
         the resulting ``ToolCallCompletion`` in the
         agent's ``tool_completions`` slot, keyed by
         ``request_event_id``. We therefore:
 
-          1. Look up the completion by the event's
-             ``causation_id`` (the request's eid).
-          2. Match the completion's ``tool_name``
-             against the saga step currently in
+          1. Find the completion whose ``tool_name``
+             matches the saga step currently in
              flight (per ``saga.current_step``).
+          2. Return that step's config; ``_handle_completion``
+             reads the same slot for the result.
 
         If the completion is not in the slot (it has
         not yet been folded) the system emits no
         events; the next tick will re-run and pick it
         up. This is idempotent.
         """
-        if event.causation_id is None:
-            return None
         completions: "Mapping[str, ToolCallCompletion]" = (
             view.components.get("tool_completions", {})
         )
-        completion = completions.get(str(event.causation_id))
-        if completion is None:
-            # Completion not yet folded into the view.
-            # Wait for the next tick; do nothing this
-            # tick to avoid double-dispatch on races.
+        step_cfg = self._step_map.get(saga.current_step)
+        if step_cfg is None:
             return None
-        return self._step_map.get(saga.current_step)
+        for completion in completions.values():
+            if completion.tool_name == step_cfg.tool_name:
+                return step_cfg
+        # Completion not yet folded into the view.
+        # Wait for the next tick; do nothing this
+        # tick to avoid double-dispatch on races.
+        return None
 
     # ------------------------------------------------------------------
     # _start / _handle_completion / _advance / _handle_failure
@@ -1400,17 +1537,17 @@ class SagaSystem:
     def _start(
         self,
         view: "AgentView",
-        event: "Event",
+        trigger: "ViewTrigger",
         saga: SagaProgressComponent,
     ) -> list[Event]:
         """Dispatch the first non-skipped step."""
-        step_config = self._first_non_skipped_step(saga, event)
+        step_config = self._first_non_skipped_step(saga, trigger)
         if step_config is None:
             # All steps skipped: saga completes immediately
-            return [self._saga_completed(event, saga)]
+            return [self._saga_completed(trigger, saga)]
         return [
-            self._record_start(event, saga, step_config),
-            self._dispatch_step(step_config, event),
+            self._record_start(trigger, saga, step_config),
+            self._dispatch_step(step_config, trigger),
         ]
 
     def _handle_completion(
@@ -1419,14 +1556,14 @@ class SagaSystem:
         world: "World",
         saga: SagaProgressComponent,
         step_config: "SagaStepConfig",
-        event: "Event",
+        trigger: "ViewTrigger",
     ) -> list[Event]:
-        status = event.event_type.rsplit(".", 1)[-1]
-        # ToolCallCompletion already in AgentView (ADR-034)
-        completions: "Mapping[str, ToolCallCompletion]" = (
-            view.components.get("tool_completions", {})
-        )
-        completion = completions.get(str(event.causation_id))
+        status = trigger.event_type.rsplit(".", 1)[-1]
+        # ToolCallCompletion already in AgentView (ADR-034).
+        # The completion for this step's dispatch is found
+        # by matching the step's tool_name against the
+        # ``tool_completions`` slot (see ``_match_step``).
+        completion = self._completion_for_step(view, step_config)
         result: dict = dict(completion.result or {}) if completion else {}
 
         new_states = dict(saga.step_states)
@@ -1459,24 +1596,45 @@ class SagaSystem:
                     step_states=MappingProxyType(new_states),
                 )
                 return self._handle_failure(
-                    world, view, saga, step_config, event, ctx,
+                    world, view, saga, step_config, trigger, ctx,
                     new_states, new_results,
                 )
             return self._advance(
-                saga, step_config, event, ctx, new_states, new_results
+                saga, step_config, trigger, ctx, new_states, new_results
             )
 
         # Failure or timeout
         return self._handle_failure(
-            world, view, saga, step_config, event, ctx,
+            world, view, saga, step_config, trigger, ctx,
             new_states, new_results,
         )
+
+    def _completion_for_step(
+        self,
+        view: "AgentView",
+        step_config: "SagaStepConfig",
+    ) -> "ToolCallCompletion | None":
+        """Return the ``ToolCallCompletion`` whose
+        ``tool_name`` matches ``step_config.tool_name``
+        and whose ``request_event_id`` is still in the
+        ``tool_completions`` slot. ``None`` when the
+        completion has not yet been folded (the next
+        tick re-runs and picks it up)."""
+        if step_config.tool_name is None:
+            return None
+        completions: "Mapping[str, ToolCallCompletion]" = (
+            view.components.get("tool_completions", {})
+        )
+        for completion in completions.values():
+            if completion.tool_name == step_config.tool_name:
+                return completion
+        return None
 
     def _advance(
         self,
         saga: SagaProgressComponent,
         current_step: "SagaStepConfig",
-        event: "Event",
+        trigger: "ViewTrigger",
         ctx: StepContext,
         new_states: dict,
         new_results: dict,
@@ -1484,11 +1642,11 @@ class SagaSystem:
         """Move to the next non-skipped step or complete the saga."""
         next_step = self._next_non_skipped_step(current_step, ctx)
         record = self._record_step_completed(
-            saga, current_step, event, new_states, new_results
+            saga, current_step, trigger, new_states, new_results
         )
         if next_step is None:
-            return [record, self._saga_completed(event, saga)]
-        return [record, self._dispatch_step(next_step, event)]
+            return [record, self._saga_completed(trigger, saga)]
+        return [record, self._dispatch_step(next_step, trigger)]
 
     def _handle_failure(
         self,
@@ -1496,7 +1654,7 @@ class SagaSystem:
         view: "AgentView",
         saga: SagaProgressComponent,
         step_config: "SagaStepConfig",
-        event: "Event",
+        trigger: "ViewTrigger",
         ctx: StepContext,
         new_states: dict,
         new_results: dict,
@@ -1509,17 +1667,17 @@ class SagaSystem:
             else True  # default: fail on first failure
         )
         record = self._record_step_failed(
-            saga, step_config, event, new_states, new_results
+            saga, step_config, trigger, new_states, new_results
         )
         if should_fail:
             return [record] + self._begin_compensation(
-                world, view, saga, event, reason="step_failure"
+                world, view, saga, trigger, reason="step_failure"
             )
         # continue to next step despite this step's failure
         next_step = self._next_non_skipped_step(step_config, ctx)
         if next_step is None:
-            return [record, self._saga_completed(event, saga)]
-        return [record, self._dispatch_step(next_step, event)]
+            return [record, self._saga_completed(trigger, saga)]
+        return [record, self._dispatch_step(next_step, trigger)]
 
     # ------------------------------------------------------------------
     # _begin_compensation — LIFO with per-step compensate_when
@@ -1529,7 +1687,7 @@ class SagaSystem:
         world: "World",
         view: "AgentView",
         saga: SagaProgressComponent,
-        event: "Event",
+        trigger: "ViewTrigger",
         reason: str,
     ) -> list[Event]:
         """
@@ -1550,12 +1708,12 @@ class SagaSystem:
         """
         out: list[Event] = [
             Event.create(
-                agent_id=event.agent_id,
+                agent_id=trigger.agent_id,
                 event_type=f"saga.{self._cfg.name}.compensating",
                 event_class="domain",
                 data={"reason": reason, "saga_id": saga.saga_id},
-                causation_id=event.event_id,
-                correlation=event.correlation,
+                causation_id=trigger.event_id,
+                correlation=trigger.correlation,
             )
         ]
         ctx = StepContext(
@@ -1578,7 +1736,7 @@ class SagaSystem:
             ):
                 continue
             out.append(Event.create(
-                agent_id=event.agent_id,
+                agent_id=trigger.agent_id,
                 event_type=f"tool.{step_cfg.compensate_tool}.requested",
                 event_class="domain",
                 data={
@@ -1586,8 +1744,8 @@ class SagaSystem:
                     "compensating_step": step_name,
                     **dict(saga.step_results.get(step_name, {})),
                 },
-                causation_id=event.event_id,
-                correlation=event.correlation,
+                causation_id=trigger.event_id,
+                correlation=trigger.correlation,
             ))
         return out
 
@@ -1597,7 +1755,7 @@ class SagaSystem:
     def _dispatch_step(
         self,
         step_config: "SagaStepConfig",
-        trigger: "Event",
+        trigger: "ViewTrigger",
     ) -> "Event":
         """
         Emit ``tool.<name>.requested`` for the step.
@@ -1666,7 +1824,7 @@ class SagaSystem:
     def _dlq_event(
         self,
         saga: SagaProgressComponent,
-        trigger: "Event",
+        trigger: "ViewTrigger",
     ) -> "Event":
         """
         Build the DLQ-emission domain event for a saga
@@ -1700,6 +1858,11 @@ class SagaSystem:
 from kntgraph.core.event.id_helpers import (
     generate_deterministic_event_id,
 )
+from kntgraph.core.clock import injectable_clock
+from kntgraph.core.event.correlation import correlation_middleware
+
+if TYPE_CHECKING:
+    from kntgraph.core.clock import Clock
 
 
 @dataclass(frozen=True, slots=True)
@@ -1729,10 +1892,10 @@ class SagaTimeoutSystem:
         self,
         configs: "Mapping[str, SagaConfig]",
         *,
-        now: Callable[[], datetime] | None = None,
+        now: "Clock | None" = None,
     ) -> None:
         self._configs = configs
-        self._now = now or utcnow
+        self._now = injectable_clock(now)
 
     def __call__(self, world: "World") -> list["Event"]:
         now = self._now()
@@ -1826,24 +1989,28 @@ class WorkflowSagaConcordo:
         self.version = "1.0.0"
 
     def install(self, dispatcher: "ReactiveDispatcher") -> None:
-        now = dispatcher.clock  # shared clock injection
-        dispatcher.add_system(SagaSystem(self._config, now=now))
+        # ``injectable_clock()`` defaults both systems to
+        # the framework's canonical ``utcnow``. A vertical
+        # that wants a shared fixed clock across the two
+        # systems (e.g. for replay tests) constructs both
+        # from the same injected ``now``.
+        dispatcher.add_system(SagaSystem(self._config))
         dispatcher.add_system(SagaTimeoutSystem(
             {self._config.name: self._config},
-            now=now,
         ))
 ```
 
-The ``dispatcher.clock`` attribute is the
-canonical tick clock; it defaults to ``utcnow``
-and can be overridden via the dispatcher's
-constructor (``clock=...``). It is **NOT** a new
-framework surface — the ``ReactiveDispatcher`` is
-extended with an optional ``clock`` keyword in
-the same PR that introduces ``SagaTimeoutSystem``.
-Systems that do not pass a clock fall back to
-``utcnow`` (the framework's canonical timestamp
-source, see ``src/kntgraph/core/event/validators.py``).
+There is **no** ``dispatcher.clock`` attribute. The
+earlier draft invented a shared tick clock on the
+``ReactiveDispatcher``; that surface is dropped in
+favour of `core/clock` (see §12). ``SagaSystem`` and
+``SagaTimeoutSystem`` each default to the framework's
+canonical ``utcnow`` via ``injectable_clock()``; a
+vertical that needs them aligned passes the same
+``now`` callable to both constructors explicitly. This
+matches the framework precedent —
+``ToolCallTTLSweeperSystem.__init__(now=...)`` — and
+keeps the dispatcher's constructor unchanged.
 
 ### 4.8 Example — NF-e emission saga
 
@@ -1918,7 +2085,7 @@ FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 def test_saga_dispatches_first_step_on_start() -> None:
     """
     Given:  World with one agent; SagaProgressComponent set,
-            last_event == saga.nfe_emission.started.
+            the last domain event is saga.nfe_emission.started.
     When:   SagaSystem runs.
     Then:   tool.sefaz_validator.requested is emitted.
     """
@@ -1937,11 +2104,11 @@ def test_saga_dispatches_first_step_on_start() -> None:
                 started_at=FIXED_NOW,
             ),
         },
-        last_event=make_last_event(
-            agent_id="agent-1",
-            event_type="saga.nfe_emission.started",
-            data={"saga_id": "saga-001"},
-        ),
+        # The trigger's data is read from the component
+        # keyed by the trigger's event_type (the default
+        # fold installs the event payload under that key).
+        last_event_type="saga.nfe_emission.started",
+        last_event_data={"saga_id": "saga-001"},
     )
     world = World.empty().with_agent(view)
     out = SagaSystem(
@@ -1955,8 +2122,9 @@ def test_saga_dispatches_first_step_on_start() -> None:
 def test_saga_skips_nfe_when_not_required() -> None:
     """
     Given:  validate_fiscal completed with nfe_required=False;
-            tool_completions[causation_id] is present in the view.
-    When:   tool.sefaz_validator.completed arrives.
+            tool_completions contains the sefaz_validator
+            completion keyed by request_event_id.
+    When:   the last domain event is tool.sefaz_validator.completed.
     Then:   tool.nfe_emitter.requested is NOT emitted.
     """
     req_eid = str(uuid4())
@@ -1982,15 +2150,12 @@ def test_saga_skips_nfe_when_not_required() -> None:
         tool_completions={
             req_eid: ToolCallCompletion(
                 request_event_id=req_eid,
+                tool_name="sefaz_validator",
                 status="completed",
                 result={"nfe_required": False},
             ),
         },
-        last_event=make_last_event(
-            agent_id="agent-1",
-            event_type="tool.sefaz_validator.completed",
-            causation_id=req_eid,
-        ),
+        last_event_type="tool.sefaz_validator.completed",
     )
     world = World.empty().with_agent(view)
     out = SagaSystem(
@@ -2031,15 +2196,12 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
         tool_completions={
             req_eid: ToolCallCompletion(
                 request_event_id=req_eid,
+                tool_name="nfe_emitter",
                 status="timed_out",
                 error="ttl_expired",
             ),
         },
-        last_event=make_last_event(
-            agent_id="agent-1",
-            event_type="tool.nfe_emitter.timed_out",
-            causation_id=req_eid,
-        ),
+        last_event_type="tool.nfe_emitter.timed_out",
     )
     world = World.empty().with_agent(view)
     out = SagaSystem(
@@ -2072,10 +2234,7 @@ def test_saga_timeout_system_emits_timed_out() -> None:
                 started_at=past,
             ),
         },
-        last_event=make_last_event(
-            agent_id="agent-1",
-            event_type="saga.nfe_emission.started",
-        ),
+        last_event_type="saga.nfe_emission.started",
     )
     world = World.empty().with_agent(view)
     system = SagaTimeoutSystem(
@@ -2091,7 +2250,7 @@ def test_saga_timeout_system_emits_timed_out() -> None:
 def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
     """
     Given:  SagaProgressComponent.direction == "compensating";
-            the last emitted event was
+            the last domain event is
             ``tool.nfe_canceller.failed``.
     When:   SagaSystem runs.
     Then:   ``saga.nfe_emission.dlq`` is emitted so the
@@ -2118,15 +2277,12 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
         tool_completions={
             req_eid: ToolCallCompletion(
                 request_event_id=req_eid,
+                tool_name="nfe_canceller",
                 status="failed",
                 error="se_faz_offline",
             ),
         },
-        last_event=make_last_event(
-            agent_id="agent-1",
-            event_type="tool.nfe_canceller.failed",
-            causation_id=req_eid,
-        ),
+        last_event_type="tool.nfe_canceller.failed",
     )
     world = World.empty().with_agent(view)
     out = SagaSystem(
@@ -2158,16 +2314,17 @@ invoice.issuance_confirmed         ←  triggers saga
                                    saga.nfe_emission.completed
         ← saga.nfe_emission.completed
 [FSMSystem] scans the agent on the next tick:
-  no transition declared for this event — the
-  FSM walks ``view.last_event`` and emits no
+  no transition declared for this trigger — the
+  FSM reads ``view.domain_phase`` (which is now
+  ``saga.nfe_emission.completed``) and emits no
   events; business systems may react
 ```
 
 Note that the FSM is **idempotent under repeated
 runs**: when ``SagaSystem`` dispatches
 ``saga.nfe_emission.completed`` and ``FSMSystem``
-runs on the next tick, the FSM walks the same
-``view.last_event`` and either emits a transition
+runs on the next tick, the FSM reads the same
+``view.domain_phase`` and either emits a transition
 (declared) or emits nothing (no transition
 declared). There is no "subscribe to event_type X"
 filter — every system reads the post-fold view and
@@ -2305,7 +2462,7 @@ src/kntgraph/concordos/
 +-- __init__.py              # Concordo Protocol; ConcordoCatalog
 +-- _private.py              # Module-private helpers (nothing exported)
 +-- base.py                  # Specification, StepContext,
-│                            # Composable mixin (≤ 200 lines)
+│                            # ViewTrigger, Composable mixin (≤ 200 lines)
 +-- specs.py                 # Built-in Specifications (StepCompleted,
 │                            #   StepFailed, StepTimedOut, StepResultEquals,
 │                            #   DomainStateIs, ProfileTierIs, ContinuityToolUsed)
@@ -2484,10 +2641,9 @@ Each command generates:
 5. **Per-agent recent-events buffer for the FSM.**
    The FSM needs to react to the agent's most recent
    domain event (the trigger for a potential state
-   transition). ``AgentView.last_event`` is the
-   obvious source, but ``World.query_agents`` returns
-   a single ``AgentView`` whose ``last_event`` is the
-   very last domain event observed. For agents that
+   transition). The trigger is derived from
+   ``view.domain_phase`` (the very last domain event
+   observed; see §11.16). For agents that
    receive multiple events per tick (e.g. a saga
    completion + an FSM transition in the same fold),
    the FSM may need to scan more than one event. The
@@ -2501,9 +2657,13 @@ Each command generates:
    - (c) Keep the FSM as the only transition owner
      and forbid it from coexisting with systems that
      emit multiple events per agent per tick.
-   Option (a) is the lowest-cost resolution; the
-   tuple can default to empty and the projection
-   fills it on the base fold.
+   The current ADR does NOT extend ``AgentView``; the
+   FSM/Saga use the single-slot ``domain_phase`` plus a
+   ``last_processed_event_id`` cursor and the delta-scan
+   pattern (§11.16, §11.18.1). Option (a) remains a
+   low-cost future resolution if the cursor alone proves
+   insufficient; the tuple can default to empty and the
+   projection fills it on the base fold.
 
 6. **Reconciling ``SagaProgressComponent`` from the log.**
    The component carries both execution fields
@@ -2607,9 +2767,12 @@ resolved (this ADR) or open (§9.2).
   deprecated that signature; the framework's
   canonical shape is `(world) -> list[Event]`.
 - **Resolution.** Every system now follows the
-  post-ADR-018 shape. The `trigger` event is read
-  from `view.last_event` instead of being passed as
-  a parameter. The legacy aliases
+  post-ADR-018 shape. The `trigger` is derived from the
+  existing view fields (`domain_phase` + `last_event_id`
+  + the component keyed by `domain_phase`) rather than
+  being passed as a parameter or read from a new
+  `view.last_event` envelope (see §11.16 for the
+  reworked trigger derivation). The legacy aliases
   `ReactiveSystem`/`CyclicSystem` from
   `src/kntgraph/core/system.py` are kept for
   historical imports but the new code uses
@@ -2656,11 +2819,11 @@ resolved (this ADR) or open (§9.2).
   different `now`, breaking the "same World ⇒ same
   list[Event]" contract.
 - **Resolution.** Every system accepts an optional
-  `now: Callable[[], datetime]` in the constructor
-  (defaults to `utcnow`). Tests inject a fixed
-  clock; production passes `dispatcher.clock` (a
-  new dispatcher attribute, added in the same PR).
-  This follows the precedent of
+  `now: Clock | None` in the constructor, which
+  defaults to the framework's canonical `utcnow` via
+  the `injectable_clock()` helper in `core/clock`
+  (§12). Tests inject a fixed clock; production uses
+  the default. This follows the precedent of
   `ToolCallTTLSweeperSystem.__init__(now=...)`.
 
 ### 11.8 `SagaTimeoutSystem` deterministic `event_id` (§4.6)
@@ -2848,7 +3011,7 @@ resolved (this ADR) or open (§9.2).
   varies per evaluation belongs in the `StepContext`
   (e.g. `now`), not in the Specification.
 
-### 11.14 `view.last_correlation` and `dispatcher.clock` (§4.6, §4.7)
+### 11.14 `view.last_correlation` and the dispatcher clock (§4.6, §4.7)
 
 - **Issue.** The previous draft referenced
   `view.last_correlation` (a field on `AgentView`)
@@ -2856,14 +3019,8 @@ resolved (this ADR) or open (§9.2).
   defining either. They were invented at the ADR
   level with no plan for the supporting framework
   changes.
-- **Resolution.** Two changes, one kept, one
+- **Resolution.** Three changes, one kept, two
   reversed:
-  - `dispatcher.clock` — kept. The dispatcher is
-    extended with an optional ``clock: Callable[[],
-    datetime]`` keyword that defaults to
-    ``utcnow``. Tests inject a fixed clock; the
-    change is additive and lives in the same PR
-    that introduces ``SagaTimeoutSystem``.
   - `view.last_correlation` — **rejected**. The
     canonical way to obtain a ``CorrelationContext``
     for a freshly-built event is
@@ -2874,6 +3031,18 @@ resolved (this ADR) or open (§9.2).
     ``correlation_middleware.scope()``; systems
     just call ``current()``. No new field on
     ``AgentView`` is added.
+  - `dispatcher.clock` — **reversed** in this
+    revision. The earlier draft kept a shared tick
+    clock on the ``ReactiveDispatcher``. That surface
+    is dropped in favour of ``core/clock`` (§12);
+    each system injects its ``now`` independently and
+    defaults to the framework's canonical ``utcnow``
+    via ``injectable_clock()``. See §4.7.
+  - `core/clock` — **added**. The framework now
+    centralises the wall-clock source (``utcnow``),
+    the ``Clock`` type alias, and the
+    ``injectable_clock`` fallback in
+    ``src/kntgraph/core/clock.py`` (§12).
 
 ### 11.15 Items still open
 
@@ -2884,57 +3053,63 @@ resolved (this ADR) or open (§9.2).
   proposals that need a follow-up ADR before
   implementation.
 
-### 11.16 `view.last_event_type` (§3.4, §4.5)
+### 11.16 Trigger derivation — NO `AgentView` extension (§3.4, §4.5)
 
-- **Issue.** Both systems (FSM and Saga) reach for
-  ``view.last_event`` (the most recent domain
-  event for the agent). The current ``AgentView``
-  exposes only ``last_event_id`` (a string) and
-  ``last_event_at`` (a timestamp); there is no
-  per-agent event buffer.
-- **Resolution.** Two additive extensions to
-  ``AgentView`` (in the same PR that introduces
-  the FSM/Saga systems):
+- **Issue.** Both systems (FSM and Saga) need to know
+  *which* domain event arrived for the agent (the
+  trigger). The earliest draft proposed extending
+  ``AgentView`` with ``last_event`` (an event envelope)
+  and ``last_event_type`` (a string). Both were
+  redundant: the default projection already surfaces
+  exactly the trigger surface the systems need, without
+  touching the ``AgentView`` schema.
 
-  1. ``last_event_type: Optional[str]`` — the
-     event_type of the most recent domain event
-     for the agent. Populated by the existing
-     ``project_default`` projection. Used by the
-     FSM and Saga systems as the trigger
-     predicate.
+- **Resolution.** No change to ``AgentView``. The FSM
+  and Saga derive the trigger from the existing view
+  fields:
 
-  2. ``last_event: Optional["Event"]`` — the
-     event envelope itself. Populated lazily
-     during the dispatcher's tick (NOT by the
-     projection — the projection keeps the
-     ``World`` pure; the dispatcher annotates the
-     views after the fold). The field is
-     ``None`` outside the tick (e.g. when tests
-     build a ``World`` by hand without going
-     through the dispatcher). Systems that need
-     ``correlation`` / ``causation_id`` /
-     ``event_id`` read this field; systems that
-     only need a type predicate use
-     ``last_event_type``. The field is for
-     convenience; the source of truth for the
-     event stream is still the ``EventLog``.
+  1. ``view.domain_phase`` — the **type** of the most
+     recent domain event (populated by
+     ``project_default`` / ``projection.py:198``). This
+     is the trigger predicate the FSM/Saga branch on.
+  2. ``view.last_event_id`` — the **id** of that event,
+     used as the ``causation_id`` of the events the
+     systems emit.
+  3. ``view.components[domain_phase]`` — the **data**
+     of that event (the default fold installs the event
+     payload under a component keyed by ``event_type``;
+     ``projection.py:334``). The Saga reads
+     ``data["saga_id"]`` and ``data["step_results"]``
+     here.
+  4. ``correlation_middleware.current()`` — the
+     correlation for freshly-emitted events (ADR-037).
+     The ``Runner`` / ``ReactiveDispatcher`` already
+     scope the tick, so inside a tick this is non-None.
 
-  The fuller "recent events buffer" question
-  is open (§9.2 item 5) and tracked separately.
+  These four are carried on a tiny private dataclass,
+  ``ViewTrigger`` (see §3.4), so the emit helpers take
+  one small argument instead of four and the systems do
+  not couple to the ``Event`` envelope.
 
-  **Important caveat — single-slot semantics.**
-  ``view.last_event`` is a single slot. When an
-  agent produces more than one domain event in
-  a single tick (e.g. an external adapter emits
-  both ``invoice.created`` and ``invoice.validated``
-  for the same agent in the same fold), only
-  the last event survives the fold; any FSM or
-  Saga trigger that would have matched the
-  earlier event is silently dropped. The
-  triggering system **must not** rely on the
-  fold to surface every event — it must maintain
-  a ``last_processed_event_id`` cursor in its
-  own component and detect deltas against the
+  This mirrors the framework's existing
+  ``_BaseRoleSystem`` precedent
+  (`agents/role_systems/_base.py`), which routes on
+  ``view.last_event_id`` + ``view.components`` and never
+  needs the envelope. The "recent events buffer"
+  question is unrelated to the trigger derivation; it
+  remains open (§9.2 item 5).
+
+  **Single-slot caveat.** ``view.domain_phase`` is a
+  single slot. When an agent produces more than one
+  domain event in a single tick (e.g. an external
+  adapter emits both ``invoice.created`` and
+  ``invoice.validated`` for the same agent in the same
+  fold), only the last event survives the fold; any FSM
+  or Saga trigger that would have matched the earlier
+  event is silently dropped. The triggering system
+  **must not** rely on the fold to surface every event —
+  it must maintain a ``last_processed_event_id`` cursor
+  in its own component and detect deltas against the
   EventLog.
 
   **Precedent in the framework.**
@@ -2957,7 +3132,7 @@ resolved (this ADR) or open (§9.2).
       # FSM emits a ``fsm.transitioned`` for this
       # agent. On the next tick, the FSM compares
       # against the EventLog to detect transitions
-      # that ``view.last_event`` would have hidden.
+      # that ``view.domain_phase`` would have hidden.
   ```
 
   The FSM and Saga systems compare
@@ -3000,9 +3175,8 @@ resolved (this ADR) or open (§9.2).
      and is cheaper as a Redis counter checked by
      `WorkerManager`.
 
-  3. **`AgentView.last_event` is a single slot.**
-     The `view.last_event` extension added in §11.16
-     covers a single most-recent event. A stage that
+  3. **The "recent events buffer" does not exist.**
+     The trigger slot is a single value. A stage that
      emits two events per item (e.g. `document.validated`
      + `document.rejected`) overwrites itself; the
      next stage never sees the second event. The
@@ -3037,14 +3211,14 @@ review of the revision above. Each is addressed
 in the corresponding section; the summary below
 maps feedback → resolution.
 
-#### 11.18.1 Single-slot `view.last_event` (§11.16)
+#### 11.18.1 Single-slot trigger slot (§11.16)
 
-- **Concern.** `AgentView.last_event` is a single
-  slot. An agent that produces two domain events
-  in the same tick (e.g. `invoice.created` then
-  `invoice.validated`) leaves only the second
-  visible to the trigger predicate; the FSM /
-  Saga that would have matched the first event
+- **Concern.** ``AgentView.domain_phase`` (the trigger
+  predicate) is a single slot. An agent that produces
+  two domain events in the same tick (e.g.
+  `invoice.created` then `invoice.validated`) leaves
+  only the second visible to the trigger predicate; the
+  FSM / Saga that would have matched the first event
   silently drops it.
 - **Resolution.** Systems MUST maintain a
   ``last_processed_event_id`` cursor in their
@@ -3154,3 +3328,141 @@ maps feedback → resolution.
   ``_begin_compensation`` signatures have been
   updated to thread the ``world`` through to
   ``StepContext``.
+
+### 11.19 Clock unification and `AgentView` non-enrichment (2026-09-07)
+
+Architectural review feedback on this revision. Two
+changes were made, both additive to the framework and
+both simplifying the Concordo systems.
+
+#### 11.19.1 The dual clock rule (§3.4, §4.5, §12)
+
+- **Concern.** The ADR now has five systems injecting
+  `now`; the framework already has two `utcnow`
+  definitions (`core/event/validators.py:28` and
+  `infra/checkpoint.py:245`) and three distinct clock
+  usages (wall-clock `Event.create`, injected
+  `ToolCallTTLSweeperSystem`, and `time.monotonic()` in
+  `resilience/circuit_breaker`). Without a single home,
+  the `now: Callable[[], datetime] | None` type and the
+  `now or utcnow` fallback would be re-declared by hand
+  in every Concordo system.
+- **Resolution.** A new framework module
+  `src/kntgraph/core/clock.py` (§12) centralises:
+  - `utcnow()` — the canonical wall-clock (the single
+    source; `infra/checkpoint.utcnow` becomes a
+    re-export).
+  - `Clock = Callable[[], datetime]` — the typed
+    injectable.
+  - `injectable_clock(now: Clock | None) -> Clock` — the
+    `now or utcnow` fallback, defined once.
+  - `monotonic()` — re-export of `time.monotonic()`, with
+    a docstring stating the rule: **wall-clock** for
+    absolute instants that are persisted or compared
+    against domain values; **monotonic** only for pure
+    durations on a hot path (resilience), where it is not
+    injected and never persisted.
+  The `dispatcher.clock` attribute from earlier drafts is
+  dropped (§11.14, §4.7); systems inject their own clock
+  and default via `injectable_clock()`. The
+  `circuit_breaker` is NOT migrated — it is already
+  correct with monotonic inline, and its determinism is
+  by construction, not by injection.
+
+#### 11.19.2 No `AgentView` enrichment (§11.16)
+
+- **Concern.** The earlier revision enriched `AgentView`
+  with `last_event` / `last_event_type` so the FSM/Saga
+  could read the trigger envelope. That touches a frozen
+  framework dataclass, the default projection, the
+  dispatcher tick, and every test that builds a `World`
+  by hand — for information the default fold already
+  provides.
+- **Resolution.** The trigger is derived from the
+  existing view surface (`domain_phase` + `last_event_id`
+  + the component keyed by `domain_phase`) carried on a
+  private `ViewTrigger`, with correlation from
+  `correlation_middleware.current()`. No `AgentView`
+  field is added. §3.4, §4.5, §3.7, §4.9, §9.2 item 5,
+  §11.16, §11.17 item 3 and §11.18.1 are amended
+  accordingly. The `make_last_event` test helper is
+  dropped; `make_world_with_components` seeds the view
+  surface directly.
+
+---
+
+## 12. Clock module (`src/kntgraph/core/clock.py`)
+
+The specification-pattern and systems sections reference
+a single clock source. This section defines it.
+
+```python
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+core.clock -- the framework clock.
+
+Centralises the clock sources used across systems so the
+"now" type, the canonical ``utcnow``, and the
+"inject a clock or default to utcnow" fallback are
+declared once. Before this module the framework had two
+``utcnow`` definitions (``core/event/validators.py`` and
+``infra/checkpoint.py``) and systems re-declared the
+``now: Callable[[], datetime] | None = None`` signature
+and the ``now or utcnow`` fallback by hand.
+
+Clock rule
+----------
+
+| Use | Clock | Injected? | Persisted? |
+|-----|-------|-----------|------------|
+| Absolute instants, event timestamps, guards, saga deadlines | ``utcnow`` (wall-clock) | Yes | Yes |
+| Pure duration on a hot path (resilience) | ``monotonic()`` | No | No |
+
+Wall-clock (``utcnow``) is injectable so a replayed log
+re-evaluates guards / timeouts with the same ``now`` as
+the original run ("same World ⇒ same list[Event]").
+Monotonic (``time.monotonic()``) is NEVER injected and
+NEVER persisted: it measures a pure elapsed duration that
+would be meaningless across a restart or a replay. The
+``resilience/circuit_breaker`` is the precedent — its
+``recovery_timeout`` is measured against monotonic and it
+calls it inline (deterministic by construction, not by
+injection).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timezone
+from time import monotonic
+
+Clock = Callable[[], datetime]
+
+__all__ = ["Clock", "injectable_clock", "monotonic", "utcnow"]
+
+
+def utcnow() -> datetime:
+    """Timezone-aware UTC ``datetime`` — the framework's
+    canonical wall-clock source. The single definition;
+    ``infra.checkpoint.utcnow`` re-exports this."""
+    return datetime.now(timezone.utc)
+
+
+def injectable_clock(now: Clock | None) -> Clock:
+    """Return ``now`` if given, else the canonical
+    ``utcnow``. The one-line "inject or default" helper
+    that Concordo systems call in ``__init__``:
+    ``self._now = injectable_clock(now)``."""
+    return now or utcnow
+```
+
+The module is framework-owned (`core/`), has no I/O and
+no dependencies beyond stdlib, so it is trivially
+unit-testable. `infra.checkpoint.utcnow` is changed to a
+re-export of the definition here (kept as a name for
+compatibility; no behaviour change).
+
+
