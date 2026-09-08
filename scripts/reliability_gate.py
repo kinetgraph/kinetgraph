@@ -215,7 +215,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print(">>> reliability (branch coverage on stream + runner + security + resilience)")
+    print(
+        ">>> reliability (branch coverage on stream + runner + security + resilience)"
+    )
     rc = _run_coverage()
     if rc == 5:
         print(

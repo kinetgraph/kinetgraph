@@ -1022,16 +1022,14 @@ reasoning.
 #
 # These tests follow the project's behaviour-test
 # convention (AGENTS.md §7): they construct a real
-# ``World`` via ``project_tool_calls`` (or its
-# composition with ``MemoryHydrationProjection``)
+# ``World`` via the SUT builders in ``kntgraph.testing``
 # and call the system against it. No mocks on
 # ``ReactiveDispatcher``. They run with
 # ``KNT_REDIS_FAKE=1``.
 
 from datetime import datetime, timezone
 from kntgraph.core.world.component import DomainComponent
-from kntgraph.core.world.world import World
-from kntgraph.runner.world_test_helpers import make_world_with_components
+from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
 
 
 @dataclass(frozen=True, slots=True)
@@ -1051,20 +1049,19 @@ def test_fsm_allows_valid_transition() -> None:
             is NOT in the recent-continuity window.
     Then:   fsm.transitioned + invoice.issuance_confirmed.
     """
-    view = make_world_with_components(
-        agent_id="inv-1",
-        components={
-            InvoiceDomainComponent: InvoiceDomainComponent(
-                status="validating", tax_regime="lucro_real"
-            ),
-        },
+    view = (
+        AgentViewBuilder("inv-1")
+        .with_component(
+            InvoiceDomainComponent(status="validating", tax_regime="lucro_real")
+        )
         # The trigger is derived from ``domain_phase``
         # (the last domain event's type); no envelope is
         # needed. ``last_event_id`` seeds the cursor.
-        last_event_type="invoice.approved",
+        .with_trigger("invoice.approved")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
     types = [e.event_type for e in out]
     assert "fsm.transitioned" in types
     assert "invoice.issuance_confirmed" in types
@@ -1076,15 +1073,14 @@ def test_fsm_rejects_terminal_state() -> None:
     When:   the last domain event is invoice.submitted.
     Then:   fsm.transition_rejected with reason="terminal_state".
     """
-    view = make_world_with_components(
-        agent_id="inv-1",
-        components={
-            InvoiceDomainComponent: InvoiceDomainComponent(status="paid"),
-        },
-        last_event_type="invoice.submitted",
+    view = (
+        AgentViewBuilder("inv-1")
+        .with_component(InvoiceDomainComponent(status="paid"))
+        .with_trigger("invoice.submitted")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
     assert len(out) == 1
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "terminal_state"
@@ -1099,48 +1095,34 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
     """
     from kntgraph.core.components.memory import ContinuityComponent
 
-    view = make_world_with_components(
-        agent_id="inv-1",
-        components={
-            InvoiceDomainComponent: InvoiceDomainComponent(
-                status="validating"
-            ),
-            ContinuityComponent: ContinuityComponent(
+    view = (
+        AgentViewBuilder("inv-1")
+        .with_component(InvoiceDomainComponent(status="validating"))
+        .with_component(
+            ContinuityComponent(
+                tenant_id="t-1",
+                user_id="u-1",
                 last_tools={"nfe_emitter": "2026-09-07T11:59:00Z"},
-            ),
-        },
-        last_event_type="invoice.approved",
+            )
+        )
+        .with_trigger("invoice.approved")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW)(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "guard_failed"
 ```
 
-The ``make_world_with_components`` helper is introduced
-in the same PR as the FSM/Saga systems
-(`src/kntgraph/runner/world_test_helpers.py`); it
-builds a ``World`` with one agent and attaches the given
-components plus the trigger surface directly on the
-view — without going through Redis or building an event
-envelope (see §11.16):
-
-  - ``last_event_type``: seeds ``view.domain_phase``
-    (the last domain event's type, which the FSM/Saga
-    use as the trigger predicate).
-  - ``last_event_data``: optional dict attached as the
-    component keyed by ``last_event_type`` (the default
-    fold installs the event payload there); the Saga
-    reads it for ``data.get("saga_id")`` and
-    ``enrich_from``.
-  - ``tool_completions``: optional mapping of
-    ``request_event_id -> ToolCallCompletion`` installed
-    in the ``tool_completions`` slot so the Saga's
-    ``_match_step`` / ``_completion_for_step`` can join.
-
-A unique ``last_event_id`` is generated when
-``last_event_type`` is set, so a cursor-aware system
-sees a move and processes the trigger once. The
+The ``AgentViewBuilder`` / ``WorldBuilder`` / ``run_system``
+helpers are the framework's SUT builders
+(`src/kntgraph/testing/world_builder.py`). They assemble a
+``World`` (and its ``AgentView``s) without mocks, Redis, or
+fabricated ``Event`` envelopes: ``with_trigger`` seeds
+``domain_phase`` + ``last_event_id`` together (the trigger
+surface the FSM reads, §11.16), ``with_component`` attaches
+typed ECS components, and ``run_system`` invokes the system
+inside a correlation scope (ADR-037). The
 ``now=lambda: FIXED_NOW`` injection ensures the guard's
 ``now`` is deterministic.
 
@@ -2078,6 +2060,8 @@ nfe_emission_saga = WorkflowSagaConcordo(SagaConfig(
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
+
 
 FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -2089,10 +2073,10 @@ def test_saga_dispatches_first_step_on_start() -> None:
     When:   SagaSystem runs.
     Then:   tool.sefaz_validator.requested is emitted.
     """
-    view = make_world_with_components(
-        agent_id="agent-1",
-        components={
-            SagaProgressComponent: SagaProgressComponent(
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            SagaProgressComponent(
                 saga_id="saga-001",
                 saga_name="nfe_emission",
                 current_step="validate_fiscal",
@@ -2102,18 +2086,21 @@ def test_saga_dispatches_first_step_on_start() -> None:
                 step_results=MappingProxyType({}),
                 compensate_stack=(),
                 started_at=FIXED_NOW,
-            ),
-        },
+            )
+        )
         # The trigger's data is read from the component
         # keyed by the trigger's event_type (the default
         # fold installs the event payload under that key).
-        last_event_type="saga.nfe_emission.started",
-        last_event_data={"saga_id": "saga-001"},
+        .with_trigger(
+            "saga.nfe_emission.started", data={"saga_id": "saga-001"}
+        )
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = SagaSystem(
-        nfe_emission_saga._config, now=lambda: FIXED_NOW
-    )(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(
+        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        world,
+    )
     assert any(
         e.event_type == "tool.sefaz_validator.requested" for e in out
     )
@@ -2128,10 +2115,10 @@ def test_saga_skips_nfe_when_not_required() -> None:
     Then:   tool.nfe_emitter.requested is NOT emitted.
     """
     req_eid = str(uuid4())
-    view = make_world_with_components(
-        agent_id="agent-1",
-        components={
-            SagaProgressComponent: SagaProgressComponent(
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            SagaProgressComponent(
                 saga_id="saga-001",
                 saga_name="nfe_emission",
                 current_step="emit_nfe",
@@ -2145,22 +2132,25 @@ def test_saga_skips_nfe_when_not_required() -> None:
                 }),
                 compensate_stack=(),
                 started_at=FIXED_NOW,
-            ),
-        },
-        tool_completions={
-            req_eid: ToolCallCompletion(
+            )
+        )
+        .with_tool_completion(
+            req_eid,
+            ToolCallCompletion(
                 request_event_id=req_eid,
                 tool_name="sefaz_validator",
                 status="completed",
                 result={"nfe_required": False},
             ),
-        },
-        last_event_type="tool.sefaz_validator.completed",
+        )
+        .with_trigger("tool.sefaz_validator.completed")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = SagaSystem(
-        nfe_emission_saga._config, now=lambda: FIXED_NOW
-    )(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(
+        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        world,
+    )
     assert not any(
         e.event_type == "tool.nfe_emitter.requested" for e in out
     )
@@ -2173,10 +2163,10 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
     Then:   nfe_canceller is NOT dispatched (compensate_when blocks it).
     """
     req_eid = str(uuid4())
-    view = make_world_with_components(
-        agent_id="agent-1",
-        components={
-            SagaProgressComponent: SagaProgressComponent(
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            SagaProgressComponent(
                 saga_id="saga-001",
                 saga_name="nfe_emission",
                 current_step="emit_nfe",
@@ -2191,22 +2181,25 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
                 }),
                 compensate_stack=("validate_fiscal", "emit_nfe"),
                 started_at=FIXED_NOW,
-            ),
-        },
-        tool_completions={
-            req_eid: ToolCallCompletion(
+            )
+        )
+        .with_tool_completion(
+            req_eid,
+            ToolCallCompletion(
                 request_event_id=req_eid,
                 tool_name="nfe_emitter",
                 status="timed_out",
                 error="ttl_expired",
             ),
-        },
-        last_event_type="tool.nfe_emitter.timed_out",
+        )
+        .with_trigger("tool.nfe_emitter.timed_out")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = SagaSystem(
-        nfe_emission_saga._config, now=lambda: FIXED_NOW
-    )(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(
+        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        world,
+    )
     assert not any(
         e.event_type == "tool.nfe_canceller.requested" for e in out
     )
@@ -2219,10 +2212,10 @@ def test_saga_timeout_system_emits_timed_out() -> None:
     Then:   saga.nfe_emission.timed_out is emitted.
     """
     past = FIXED_NOW - timedelta(minutes=6)
-    view = make_world_with_components(
-        agent_id="agent-1",
-        components={
-            SagaProgressComponent: SagaProgressComponent(
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            SagaProgressComponent(
                 saga_id="saga-001",
                 saga_name="nfe_emission",
                 current_step="emit_nfe",
@@ -2232,16 +2225,17 @@ def test_saga_timeout_system_emits_timed_out() -> None:
                 step_results=MappingProxyType({}),
                 compensate_stack=("validate_fiscal",),
                 started_at=past,
-            ),
-        },
-        last_event_type="saga.nfe_emission.started",
+            )
+        )
+        .with_trigger("saga.nfe_emission.started")
+        .build()
     )
-    world = World.empty().with_agent(view)
+    world = WorldBuilder().with_agent(view).build()
     system = SagaTimeoutSystem(
         {"nfe_emission": nfe_emission_saga._config},
         now=lambda: FIXED_NOW,
     )
-    out = system(world)
+    out = run_system(system, world)
     assert any(
         e.event_type == "saga.nfe_emission.timed_out" for e in out
     )
@@ -2257,10 +2251,10 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
             DLQ adapter picks it up on the next tick.
     """
     req_eid = str(uuid4())
-    view = make_world_with_components(
-        agent_id="agent-1",
-        components={
-            SagaProgressComponent: SagaProgressComponent(
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            SagaProgressComponent(
                 saga_id="saga-001",
                 saga_name="nfe_emission",
                 current_step="emit_nfe",
@@ -2272,22 +2266,25 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
                 step_results=MappingProxyType({}),
                 compensate_stack=("emit_nfe",),
                 started_at=FIXED_NOW,
-            ),
-        },
-        tool_completions={
-            req_eid: ToolCallCompletion(
+            )
+        )
+        .with_tool_completion(
+            req_eid,
+            ToolCallCompletion(
                 request_event_id=req_eid,
                 tool_name="nfe_canceller",
                 status="failed",
                 error="se_faz_offline",
             ),
-        },
-        last_event_type="tool.nfe_canceller.failed",
+        )
+        .with_trigger("tool.nfe_canceller.failed")
+        .build()
     )
-    world = World.empty().with_agent(view)
-    out = SagaSystem(
-        nfe_emission_saga._config, now=lambda: FIXED_NOW
-    )(world)
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(
+        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        world,
+    )
     assert any(
         e.event_type == "saga.nfe_emission.dlq" for e in out
     )
@@ -3385,9 +3382,11 @@ both simplifying the Concordo systems.
   `correlation_middleware.current()`. No `AgentView`
   field is added. §3.4, §4.5, §3.7, §4.9, §9.2 item 5,
   §11.16, §11.17 item 3 and §11.18.1 are amended
-  accordingly. The `make_last_event` test helper is
-  dropped; `make_world_with_components` seeds the view
-  surface directly.
+  accordingly. The `make_last_event` / `make_world_with_components`
+  test helpers are dropped in favour of the framework's
+  SUT builders (`AgentViewBuilder` / `WorldBuilder` /
+  `run_system` in `kntgraph.testing`, §13), which seed the
+  view surface directly.
 
 ---
 
@@ -3464,5 +3463,64 @@ no dependencies beyond stdlib, so it is trivially
 unit-testable. `infra.checkpoint.utcnow` is changed to a
 re-export of the definition here (kept as a name for
 compatibility; no behaviour change).
+
+---
+
+## 13. SUT builders (`src/kntgraph/testing/world_builder.py`)
+
+The FSM/Saga unit tests (§3.7, §4.9) build a `World` and
+call the system against it. To standardise that and
+eliminate per-test `make_world` helpers, the framework
+ships fluent SUT (System Under Test) builders in
+`kntgraph.testing`:
+
+```python
+from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
+
+view = (
+    AgentViewBuilder("inv-1")
+    .with_component(InvoiceDomainComponent(status="validating"))
+    .with_component(ContinuityComponent(tenant_id="t-1", user_id="u-1"))
+    .with_trigger("invoice.approved", data={"nfe_required": True})
+    .with_tool_completion(req_eid, ToolCallCompletion(...))
+    .build()
+)
+world = WorldBuilder().with_agent(view).build()
+events = run_system(FSMSystem(config, now=lambda: FIXED_NOW), world)
+```
+
+Design rules (they are what make the builders "SUT" and
+not just a convenience):
+
+- **No mocks, no monkey-patches.** The builders only
+  assemble state; the system runs against the real
+  `World`. This follows the `kntgraph-testing` skill §7.4
+  rule — a test that needs a shim to make a system
+  observable is hiding a production bug.
+- **No fabricated `Event` envelopes.** `with_trigger`
+  seeds `domain_phase` + `last_event_id` together (the
+  trigger surface the FSM/Saga read, §11.16) and installs
+  `data` under the component keyed by the event_type. The
+  test exercises the same read path as production.
+- **Storage kept in sync.** `WorldBuilder.build()`
+  populates the `ArchetypeStorage` from the views, so
+  `world.query_agents(...)` and `world.get_agent(...)`
+  behave exactly as in production.
+- **Correlation scope.** `run_system` invokes the system
+  inside `correlation_middleware.scope()` (ADR-037), so a
+  system that calls `correlation_middleware.current()` to
+  build events does not raise.
+- **Determinism.** The system's injected `now` is passed
+  explicitly; the builder does not touch the clock.
+
+The builders live in `kntgraph.testing` (the framework's
+shared test surface, alongside `FakeEmbeddingProvider`),
+not in `runner/`, so they are available to any vertical
+without importing a runner-private module. They replace
+the `make_world_with_components` / `make_last_event`
+helpers that earlier drafts placed in
+`src/kntgraph/runner/world_test_helpers.py` (that module
+is not introduced).
+
 
 
