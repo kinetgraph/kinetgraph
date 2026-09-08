@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-069: Agent Concordo — BusinessFSM and WorkflowSaga
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-07
 - **Author:** kinetgraph architecture team
 - **Supersedes:** initial draft (changes from review tracked in §11)

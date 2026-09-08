@@ -3256,6 +3256,76 @@ memory tier; revisit before v1.0).
 
     across ticks.
 
+## 2.34 ADR-069 Concordos — open items (§9.2)
+
+**Status:** Open (ADR-069 implemented; follow-ups tracked).
+
+**Problem:**
+The ADR-069 implementation (BusinessFSM + WorkflowSaga +
+Specification Pattern + Concordo Protocol/Catalog + CLI
+scaffold + SUT builders) is complete and the CI gate
+passes. The ADR's §9.2 lists open questions that are
+deliberately NOT implemented in the first pass. They are
+tracked here so a future session can pick them up without
+re-reading the whole ADR.
+
+**Open items (ADR-069 §9.2):**
+
+  1. **FSM state update and DomainComponent projection.**
+     The FSM emits ``fsm.transitioned``; the
+     ``DomainComponent`` projection (ADR-059) must know to
+     update ``state_field`` when it sees that event. Two
+     options: (a) FSMSystem also emits a standard
+     ``domain.state_updated`` event; (b) a new
+     ``FSMProjection`` overlays the default projection.
+     Option (a) is simpler; option (b) keeps the FSM
+     namespace clean. Not decided.
+
+  2. **Saga enrichment from ContinuityComponent.**
+     ``enrich_from`` currently reads only from previous
+     step results. Should it also read directly from
+     ``ContinuityComponent``? The ``SagaSystem`` already
+     has the ``AgentView`` at dispatch time.
+
+  3. **Long-running Sagas and the Scheduler.**
+     A saga waiting for human approval between steps may
+     idle for hours. ``SagaTimeoutSystem`` handles the
+     overall deadline, but per-step timeouts for
+     human-approval steps (``tool_name=None``) need a
+     dedicated timer, not ADR-045 TTL.
+
+  4. **Worker-level back-pressure (deferred to ADR-070).**
+     The back-pressure concern that motivated the removed
+     C-03 Pipeline is real; ADR-070 extends
+     ``@tool_worker`` / ``WorkerManager`` with
+     ``max_in_flight``. Out of scope here.
+
+  5. **Per-agent recent-events buffer for the FSM.**
+     The trigger is derived from ``view.domain_phase`` (a
+     single slot). The FSM/Saga use a
+     ``last_processed_event_id`` cursor + delta-scan
+     (§11.16, §11.18.1). A ``recent_events`` tuple on
+     ``AgentView`` remains a low-cost future resolution if
+     the cursor alone proves insufficient.
+
+  6. **Reconciling ``SagaProgressComponent`` from the log.**
+     The component carries execution fields (written by
+     saga events) and history fields (derived from the
+     EventLog). The reconciliation logic lives in
+     ``concordos/saga/_state.py`` but is not yet drafted;
+     a reconciliation test against a re-folded EventLog
+     is the next gate.
+
+**Why we are deferring:**
+  - Items 1-3 need a design decision (ADR or follow-up)
+    before implementation; they are not bugs.
+  - Item 4 is explicitly deferred to ADR-070.
+  - Items 5-6 are refinements; the current cursor +
+    delta-scan pattern is correct for the common case.
+
+**Trigger:** a vertical adopts a Concordo and hits one of
+these gaps, or a dedicated ADR-069 follow-up session.
+
 ## 5 Release-process incident — v0.15.0 release workflow refused (2026-09-07)
 
 **Status:** Closed (CHANGELOG restored on a manual commit
