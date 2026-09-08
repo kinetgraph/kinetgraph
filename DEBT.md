@@ -2689,8 +2689,9 @@ v0.18 steps are tracked separately in the same ADR.
 
 ## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14
 
-**Status:** Open — moved from ROADMAP v0.14 #4, #5,
-#12 on 2026-08-26 (consolidated).
+**Status:** Partially closed 2026-09-08 — gate 2
+centralised + applied to `SolutionLookupSystem`; gate 3
+deprioritised (no demand).
 
 **Summary.** Three v0.14 items depend on a
 `RoleComponent` class that **does not exist in
@@ -2732,6 +2733,29 @@ class — which the framework does not yet support.
     é vertical separada" (ROADMAP §"Decisão de
     escopo"); demand for cross-agent handoff has
     not surfaced since.
+
+**Resolution (2026-09-08).** The premise of this
+debt item is stale: `RoleComponent` now exists in
+framework code (`core/components/role.py`) and gate 2
+is enforced in `_BaseRoleSystem._build_request_event`
+(`agents/role_systems/_base.py:167`). The remaining
+work was:
+
+  - **#5 — DONE.** `SolutionLookupSystem` now applies
+    gate 2 before synthesizing a `tool.<name>.completed`:
+    when the agent's `RoleComponent` does not admit the
+    tool, it emits `tool.<name>.failed` with
+    `error="permission_denied"` instead of fabricating a
+    completion. `has_tool_access` is the canonical
+    validation point; the convention is documented on
+    `ToolAwareSystem` (the mixin every tool-emitting
+    system uses). Tests in
+    `tests/unit/memory/test_solution_lookup.py` cover
+    both the block and allow paths.
+  - **#12 — DEPRIORITISED.** `SwitcherSystem` (gate 3,
+    cross-agent handoff) is not implemented. No demand
+    has surfaced; the ADR-060 §3.1 design remains the
+    reference if it is ever picked up.
 
 **Why not in v0.14.** Each item, implemented
 standalone, requires the same three pieces of new

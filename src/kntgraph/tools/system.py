@@ -23,6 +23,17 @@ class ToolAwareSystem:
     Provides methods to check tool call state in an AgentView and emit
     ``tool.<name>.requested`` events (the canonical ADR-036 form;
     see ``request_tool``).
+
+    **Gate 2 (ADR-060 §3.0).** A system that emits a tool event
+    (``tool.<name>.requested``, or a synthetic
+    ``tool.<name>.completed`` / ``tool.<name>.failed``) MUST consult
+    the agent's ``RoleComponent`` and call ``has_tool_access`` before
+    emitting. When the view carries a ``RoleComponent`` and the tool
+    is not in ``allowed_tools``, the emission is blocked (the role
+    systems emit ``intent.validation_failed``; the SolutionLookup
+    emits ``tool.<name>.failed`` with ``error="permission_denied"``).
+    This is the canonical point of validation; every tool-emitting
+    system applies it.
     """
 
     def request_tool(
