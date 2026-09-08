@@ -53,7 +53,10 @@ from kntgraph.core.world.view import AgentView
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
-    from kntgraph.core.world.components import ToolCallCompletion
+    from kntgraph.core.world.components import (
+        ToolCallCompletion,
+        ToolCallRequest,
+    )
 
 __all__ = ["AgentViewBuilder", "WorldBuilder", "run_system"]
 
@@ -84,6 +87,7 @@ class AgentViewBuilder:
     _trigger_type: str | None = None
     _trigger_data: Mapping[str, "JsonValue"] = field(default_factory=dict)
     _tool_completions: Mapping[str, "ToolCallCompletion"] = field(default_factory=dict)
+    _tool_requests: Mapping[str, "ToolCallRequest"] = field(default_factory=dict)
     _last_event_id: str | None = None
 
     def with_component(self, component: Any) -> "AgentViewBuilder":
@@ -124,6 +128,20 @@ class AgentViewBuilder:
         self._tool_completions = merged
         return self
 
+    def with_tool_request(
+        self,
+        request: "ToolCallRequest",
+    ) -> "AgentViewBuilder":
+        """Attach a ``ToolCallRequest`` to the ``tool_requests``
+        slot, keyed by ``request_event_id`` (ADR-034). The saga's
+        ``_completion_for_step`` joins the request's ``tool_name``
+        to the completion via this slot. Returns ``self`` for
+        chaining."""
+        merged = dict(self._tool_requests)
+        merged[request.request_event_id] = request
+        self._tool_requests = merged
+        return self
+
     def with_last_event_id(self, event_id: str) -> "AgentViewBuilder":
         """Override the ``last_event_id`` explicitly (e.g. to seed a
         cursor-aware system's delta-scan). Returns ``self`` for
@@ -142,6 +160,8 @@ class AgentViewBuilder:
         components: dict[Any, Any] = dict(self._components)
         if self._tool_completions:
             components["tool_completions"] = self._tool_completions
+        if self._tool_requests:
+            components["tool_requests"] = self._tool_requests
         last_event_id = self._last_event_id
         if last_event_id is None and self._trigger_type is not None:
             last_event_id = _deterministic_id(self.agent_id, self._trigger_type)
