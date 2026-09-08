@@ -45,6 +45,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping
+from uuid import UUID
 
 from kntgraph.core.event.correlation import correlation_middleware
 from kntgraph.core.world import World
@@ -197,10 +198,15 @@ class WorldBuilder:
 def _deterministic_id(agent_id: str, event_type: str) -> str:
     """A stable, readable id for a trigger, so a cursor-aware system
     sees a move and processes the trigger once. Not a real event id;
-    it only needs to be unique per (agent, event_type)."""
-    import hashlib
+    it only needs to be unique per (agent, event_type). It is a
+    valid UUID (uuid5) so systems that parse ``last_event_id`` as a
+    UUID (e.g. ``FSMSystem`` building a ``causation_id``) do not
+    fail."""
+    from uuid import uuid5
 
-    return hashlib.sha1(f"{agent_id}|{event_type}".encode()).hexdigest()
+    return str(
+        uuid5(UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), f"{agent_id}|{event_type}")
+    )
 
 
 def run_system(system: Any, world: World) -> list[Any]:

@@ -135,3 +135,37 @@ def test_world_builder_multiple_agents() -> None:
     world = WorldBuilder().with_agent(a).with_agent(b).build()
     assert set(world.views) == {"a-1", "a-2"}
     assert world.get_agent("a-2").get_component(ContinuityComponent) is not None
+
+
+def test_agent_view_builder_with_last_event_id_override() -> None:
+    """``with_last_event_id`` overrides the auto-generated id."""
+    view = (
+        AgentViewBuilder("inv-1")
+        .with_trigger("invoice.approved")
+        .with_last_event_id("custom-id")
+        .build()
+    )
+    assert view.last_event_id == "custom-id"
+
+
+def test_world_builder_skips_agent_without_components() -> None:
+    """An agent view with no components is still added to the
+    views dict, but contributes nothing to the storage."""
+    view = AgentViewBuilder("empty-1").build()
+    world = WorldBuilder().with_agent(view).build()
+    assert world.get_agent("empty-1") is view
+    assert world.storage.num_entities == 0
+
+
+def test_run_system_awaits_async_system() -> None:
+    """``run_system`` awaits a system that returns an awaitable."""
+
+    class AsyncSystem:
+        """A WorldSystem whose ``__call__`` is async."""
+
+        async def __call__(self, world: World) -> list[Event]:
+            return []
+
+    view = AgentViewBuilder("inv-1").with_trigger("invoice.approved").build()
+    world = WorldBuilder().with_agent(view).build()
+    assert run_system(AsyncSystem(), world) == []
