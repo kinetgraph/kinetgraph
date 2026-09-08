@@ -602,7 +602,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_base.py:function:_emit_chat_completion": {
       "complexity": 5,
-      "lineno": 297,
+      "lineno": 301,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_base.py:method:__call__": {
@@ -637,7 +637,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_base.py:method:_consume_completion": {
       "complexity": 5,
-      "lineno": 284,
+      "lineno": 288,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_base.py:method:_consume_pending_completions": {
@@ -1882,12 +1882,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/components/role.py:class:RoleComponent": {
       "complexity": 1,
-      "lineno": 67,
+      "lineno": 69,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/components/role.py:function:has_tool_access": {
       "complexity": 2,
-      "lineno": 95,
+      "lineno": 97,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/event/codec.py:function:event_from_dict": {
@@ -2397,7 +2397,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_extract_components_from_event": {
       "complexity": 2,
-      "lineno": 319,
+      "lineno": 321,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_is_derived_component_key": {
@@ -2407,12 +2407,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_is_tool_event": {
       "complexity": 6,
-      "lineno": 244,
+      "lineno": 246,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_lifecycle_phase_from_event": {
       "complexity": 2,
-      "lineno": 289,
+      "lineno": 291,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_log_overlay_key_collision": {
@@ -2422,12 +2422,12 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:_preserve_derived_components": {
       "complexity": 6,
-      "lineno": 205,
+      "lineno": 207,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py:function:project_default": {
       "complexity": 3,
-      "lineno": 266,
+      "lineno": 268,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py:function:_apply_continuity_handlers": {
@@ -2692,17 +2692,17 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/view.py:method:get_component": {
       "complexity": 4,
-      "lineno": 109,
+      "lineno": 117,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/view.py:method:is_running": {
       "complexity": 1,
-      "lineno": 106,
+      "lineno": 114,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/view.py:method:is_terminated": {
       "complexity": 1,
-      "lineno": 102,
+      "lineno": 110,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/world.py:class:World": {
@@ -7307,22 +7307,22 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py:method:get_completion": {
       "complexity": 1,
-      "lineno": 102,
+      "lineno": 114,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py:method:get_request": {
       "complexity": 1,
-      "lineno": 93,
+      "lineno": 105,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py:method:has_requested": {
       "complexity": 1,
-      "lineno": 111,
+      "lineno": 123,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py:method:is_pending": {
       "complexity": 2,
-      "lineno": 117,
+      "lineno": 129,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py:method:request_tool": {
@@ -7426,7 +7426,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_base.py": {
-      "mi": 57.12121935785658,
+      "mi": 57.2493670311015,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/agents/role_systems/_prompts.py": {
@@ -7650,7 +7650,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/components/role.py": {
-      "mi": 39.948025403840084,
+      "mi": 36.51798149297192,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/event/__init__.py": {
@@ -7730,7 +7730,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection.py": {
-      "mi": 57.55246392050516,
+      "mi": 57.967165614823784,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/projection_memory.py": {
@@ -7746,7 +7746,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/view.py": {
-      "mi": 56.4106867129223,
+      "mi": 52.911044243974494,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/core/world/world.py": {
@@ -8394,7 +8394,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/system.py": {
-      "mi": 77.63400137079049,
+      "mi": 75.4415987983289,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/tools/worker.py": {

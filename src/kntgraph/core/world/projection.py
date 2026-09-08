@@ -186,6 +186,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
             domain_at=prev.domain_at,
             last_event_id=str(event.event_id),
             last_event_at=event.timestamp,
+            last_event_principal_id=prev.last_event_principal_id,
         )
     # "domain"
     new_components: dict[Any, Any] = dict(_extract_components_from_event(event))
@@ -199,6 +200,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         domain_at=event.timestamp,
         last_event_id=str(event.event_id),
         last_event_at=event.timestamp,
+        last_event_principal_id=event.producer_principal_id,
     )
 
 

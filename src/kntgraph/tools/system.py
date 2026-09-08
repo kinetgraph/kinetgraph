@@ -43,6 +43,7 @@ class ToolAwareSystem:
         params: Mapping[str, JsonValue],
         causation_id: Optional[str] = None,
         correlation: Optional[CorrelationContext] = None,
+        producer_principal_id: Optional[str] = None,
     ) -> Event:
         """
         Builds a ``tool.<name>.requested`` event (the canonical
@@ -61,6 +62,16 @@ class ToolAwareSystem:
         determine the correlation, pass
         ``CorrelationContext.new(correlation_id=uuid4())``
         to start a fresh flow.
+
+        ``producer_principal_id`` (ADR-066 §4.1) is the
+        identity of the inbound ``Principal`` that triggered
+        the request. A system that reacts to an inbound
+        event SHOULD propagate the triggering event's
+        ``producer_principal_id`` (via ``view.last_event_principal_id``)
+        so the WorkerManager's gate-1 ACL check sees the
+        original caller. ``None`` when the request is not
+        attributable to a principal (e.g. a system-initiated
+        call).
         """
         if correlation is None:
             raise TypeError(
@@ -88,6 +99,7 @@ class ToolAwareSystem:
             data=payload,
             causation_id=cast("Optional[UUID]", causation_id),
             correlation=correlation,
+            producer_principal_id=producer_principal_id,
         )
 
     def get_request(

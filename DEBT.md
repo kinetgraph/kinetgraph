@@ -3350,6 +3350,44 @@ re-reading the whole ADR.
 **Trigger:** a vertical adopts a Concordo and hits one of
 these gaps, or a dedicated ADR-069 follow-up session.
 
+## 4.1 Agent discovery — `agent.spawned` push rejected, poll kept (2026-09-08)
+
+**Status:** Decided (no code change).
+
+**Problem.**
+A proposal suggested making `agent.spawned` the primary
+discovery path for brand-new agents (the dispatcher would
+subscribe to a global spawn stream instead of polling
+`EventLog.list_agents()`).
+
+**Investigation.**
+- `agent.spawned` is only an enum value
+  (`OperationalEventType.SPAWNED`); it is **never emitted**
+  anywhere in the framework (`runner/`, `stream/`,
+  `infra/`).
+- Streams are per-agent (`knt:agents:{agent_id}:events`);
+  there is no global spawn stream to subscribe to.
+- `EventLog.subscribe` (ADR-068) is a fan-in over
+  *already-tracked* agents — it cannot discover newcomers.
+- Discovery today is `bootstrap_agents` →
+  `EventLog.list_agents()` (SCAN), run on first dispatch
+  and then on `reactive_rediscovery_seconds` (5.0s).
+
+**Decision.**
+Keep the poll-based discovery as the sole mechanism, at the
+existing 5.0s cadence. Do **not** add a global spawn stream
+or emit `agent.spawned` on first append. ADR-068 §3.2
+already names ADR-035 shard coordination as the follow-up
+owner if discovery ever needs to become push-driven.
+
+**Why.**
+- A global spawn stream adds a new key convention, emission
+  semantics in `EventLog.append`, and ordering concerns
+  relative to the agent's own stream — for a latency win
+  (5s → near-zero) that the current cadence already bounds.
+- The 5.0s SCAN is cheap and correct; newcomers are picked
+  up within one rediscovery interval.
+
 ## 5 Release-process incident — v0.15.0 release workflow refused (2026-09-07)
 
 **Status:** Closed (CHANGELOG restored on a manual commit

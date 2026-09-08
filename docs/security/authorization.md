@@ -19,6 +19,109 @@ should only emit `pedido.received`).
 
 ---
 
+## 0. The two real gates (tool authorization)
+
+> **Status**: implemented. This is the authorization model that
+> actually ships in the framework today — the `CapabilityPolicy`
+> below (§1–§11) is the *proposed* L2 extension. The two gates
+> below are the **real, enforced** path for tool access.
+
+The framework authorises a tool call through **two sequential,
+independent gates** (ADR-060 §3.0, ADR-066 §4.1). A request must
+clear both; failing either blocks the call. The two gates answer
+two different questions:
+
+| Gate | Owner | Lives in | Persists? | What it answers |
+|---|---|---|---|---|
+| **1. RBAC of the request** | `PrincipalLevel` on the inbound `Principal` | `ToolACL.check(principal)` in `WorkerManager` | No (`producer_principal_id` on the event) | "Does **this request** have the infrastructure-level permission to invoke this tool?" |
+| **2. Persona of the agent** | `RoleComponent` on the destination `AgentView` | `has_tool_access(role, system)` in the business system | Yes (fold) | "Is **the agent that will execute** dressed with a persona that admits the system?" |
+
+The two gates are **independent**: a higher RBAC level on the
+request does **not** bypass a persona that forbids the system,
+and a persona that admits the system does **not** bypass a
+tenant-pinned ACL.
+
+### 0.1 Gate 1 — RBAC of the request (`WorkerManager`)
+
+Each registered tool carries an optional `ToolACL`
+(`kntgraph.tools.acl`). `WorkerManager.register(tool_cls, acl=...)`
+attaches it; `WorkerManager._process_message` calls
+`acl.check(principal)` **before** consuming a worker slot. On
+denial it emits `tool.<name>.failed` with reason `acl_denied`
+and acks the message — the request fails fast without running
+the worker.
+
+```python
+from kntgraph.tools import WorkerManager, ToolACL
+from kntgraph.security import PrincipalLevel
+
+worker_manager = WorkerManager(redis=..., event_log=...)
+worker_manager.register(
+    MockChatLlmWorker,
+    acl=ToolACL(
+        required_level=PrincipalLevel.agent,
+        tenant_pinned=True,
+        tenant_id="tenant-a",
+    ),
+)
+```
+
+The `producer_principal_id` stamped on the event at the request
+boundary (ADR-066 §4.1) is the input to `acl.check`. Events that
+predate v0.16 (`producer_principal_id=None`) are denied when
+`acl` is set — the audit trail records `acl_denied_no_principal`.
+
+### 0.2 Gate 2 — persona of the agent (business system)
+
+The agent's `RoleComponent` (projected from `role.swapped`) carries
+`allowed_tools`, the explicit allow-list of **systems** the persona
+may use. The business system checks
+`has_tool_access(role, system_name)` **before** emitting
+`tool.<name>.requested`. When the persona forbids the system, the
+system emits `intent.validation_failed` (or `tool.<name>.failed`
+with `error="access_denied"`) instead — the tool call is never
+dispatched.
+
+```python
+from kntgraph.core.components.role import RoleComponent, has_tool_access
+
+role = view.components.get(RoleComponent)
+if not has_tool_access(role, "chat"):
+    # gate 2 blocks at the source; no tool.requested is emitted
+    ...
+```
+
+### 0.3 The tool is accessed only through its owning system
+
+The two gates are wired together by the rule that **a tool is
+accessed only through its owning business system**. The caller
+(the intent) talks to the system (e.g. `"chat"`), never to the
+tool directly. Gate 2 validates the **system** name against the
+persona; gate 1 validates the **principal** against the tool's
+ACL. Because the tool is internal to the system, renaming or
+swapping the underlying tool does not change the caller's
+contract.
+
+### 0.4 Worked example
+
+See [`examples/21_two_level_authorization.py`](../../examples/21_two_level_authorization.py)
+for a runnable three-scenario walkthrough:
+
+1. **Allow** — persona admits `"chat"` + principal in `tenant-a`:
+   both gates pass, the tool runs.
+2. **Gate 2 blocks** — persona forbids `"chat"`: the system emits
+   `tool.chat_llm.failed` with `error="access_denied"`; no
+   `tool.requested` is emitted.
+3. **Gate 1 blocks** — persona admits `"chat"` but the principal
+   is in `tenant-b`: the request is emitted but the `WorkerManager`
+   denies it against the tenant-pinned ACL.
+
+```bash
+KNT_REDIS_FAKE=1 uv run python examples/21_two_level_authorization.py
+```
+
+---
+
 ## 1. What you get
 
 After enabling L2:
@@ -475,3 +578,9 @@ def test_signature_required_when_policy_says_so():
 - [README.md](./README.md) — overview of all levels
 - [ADR-016](../../ADRs/ADR-016-Event-Signing.md) — L1 design
 - ADR-017a (proposed) — L2 design
+- [ADR-060 §3.0](../../ADRs/ADR-060-fmh-office-v2-pillars.md) —
+  the three-gate ACL model (gate 1 + gate 2 + handoff)
+- [ADR-066 §4.1](../../ADRs/ADR-066-Single-Tool-Path.md) — the
+  single tool path and the `WorkerManager` ACL hook
+- [`examples/21_two_level_authorization.py`](../../examples/21_two_level_authorization.py)
+  — runnable two-gate walkthrough

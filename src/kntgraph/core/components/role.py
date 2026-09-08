@@ -62,9 +62,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from kntgraph.core.world.component import DomainComponent
+
 
 @dataclass(frozen=True, slots=True)
-class RoleComponent:
+class RoleComponent(DomainComponent):
     """
     Semantic role for the agent (ADR-060 §3.0).
 

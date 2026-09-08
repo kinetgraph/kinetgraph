@@ -460,6 +460,9 @@ tools que falam HTTP, use `httpx.MockTransport` ou
 ## 10. Veja também
 
 - [routing.md](./routing.md) — semantic routing (M1 intent + M2 args)
+- [security/authorization.md](./security/authorization.md) §0 —
+  the two real gates for tool access (RBAC of the request +
+  persona of the agent)
 - [graphrag.md](./graphrag.md) — projeção de tool calls no FalkorDB.
 - [resilience.md](./resilience.md) — circuit breaker, retry, timeout.
 - [checkpoints.md](./checkpoints.md) — `idempotency_key` em tools

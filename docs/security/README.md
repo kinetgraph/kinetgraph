@@ -80,6 +80,7 @@ L4: + HSM-backed keys + external transparency log
 | Operating in a regulated vertical (LGPD/SOC 2/HIPAA) | All four documents, in order |
 | Implementing or reviewing L1 code | [signing.md](./signing.md) §4 (API) + [ADR-016](../ADRs/ADR-016-Event-Signing.md) |
 | Implementing L2 policies | [authorization.md](./authorization.md) + ADR-017a (proposed) |
+| Wiring tool authorization (two gates) | [authorization.md](./authorization.md) §0 + [ADR-060 §3.0](../ADRs/ADR-060-fmh-office-v2-pillars.md) |
 | Implementing L3 anchors | [anchor.md](./anchor.md) + ADR-017 (proposed) |
 | Threat-modelling a specific deployment | [threat_model.md](./threat_model.md) §3 (checklist) |
 
