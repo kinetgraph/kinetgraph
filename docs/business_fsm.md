@@ -19,7 +19,7 @@ emits an event that the FSM uses to advance state.
 
 > **Status**: implemented. The `concordos.fsm` package ships the
 > `BusinessFSMConcordo`, `FSMConfig`, `FSMTransition`, `FSMSystem`,
-> and `FSMAuditComponent`.
+> `FSMProjection`, and `FSMAuditComponent`.
 
 ---
 
@@ -68,12 +68,21 @@ The FSM does not introduce a new component for state. The
 the current state. The FSM reads it; the projection (ADR-059)
 materialises the component from domain events.
 
-> **Note (DEBT §2.34 item 1).** The FSM emits `fsm.transitioned`
-> but the `DomainComponent` projection does not yet update
-> `state_field` from that event. The state-advance wiring is an
-> open item. Today the FSM is exercised as a pure guard/audit layer
-> over a component whose state is set by the vertical's own domain
-> events.
+**State advance (ADR-069 §9.2 item 1).** The FSM emits
+`fsm.transitioned`; the `FSMProjection` (a dedicated
+`WorldProjection`, option b) advances the configured
+`DomainComponent`'s `state_field` from that event. It does
+`replace(component, **{state_field: to_state})`, preserving the
+component's other fields. The projection is registered by
+`BusinessFSMConcordo.install` via `ReactiveDispatcher.add_projection`,
+so a re-fold of the EventLog reconstructs the same state without an
+in-memory cache.
+
+> **Why a projection, not `@domain_component`.** The FSM is generic —
+> it does not know the vertical's component fields. `@domain_component`
+> hydrates via `cls(**event.data)`, which would break on a component
+> with fields beyond `state_field` (e.g. `tax_regime`). The projection
+> preserves the other fields without coupling the FSM to the component.
 
 ---
 
@@ -188,9 +197,11 @@ invoice_fsm = BusinessFSMConcordo(config)
 ```
 
 The Concordo exposes a stable `name` (`fsm:InvoiceDomainComponent`)
-and `version`. `install(dispatcher)` registers the `FSMSystem` on a
-`ReactiveDispatcher`. Use `ConcordoCatalog` to install several
-Concordos idempotently:
+and `version`. `install(dispatcher)` registers the `FSMSystem` **and**
+the `FSMProjection` on a `ReactiveDispatcher` — the system validates
+transitions and emits `fsm.transitioned`; the projection advances the
+`DomainComponent`'s `state_field`. Use `ConcordoCatalog` to install
+several Concordos idempotently:
 
 ```python
 from kntgraph.concordos import ConcordoCatalog
@@ -199,13 +210,18 @@ catalog = ConcordoCatalog(invoice_fsm, nfe_emission_saga)
 catalog.install_all(dispatcher)
 ```
 
-### 6.2 Directly as a system
+### 6.2 Directly as a system + projection
 
 ```python
-from kntgraph.concordos.fsm import FSMSystem
+from kntgraph.concordos.fsm import FSMSystem, FSMProjection
 
 dispatcher.add_system(FSMSystem(config))
+dispatcher.add_projection(FSMProjection(config))
 ```
+
+Registering the projection is what makes the `state_field` advance on
+the agent's view. Without it, the FSM still validates transitions and
+emits `fsm.transitioned`, but the component's state does not move.
 
 ---
 
@@ -258,5 +274,5 @@ KNT_REDIS_FAKE=1 uv run python examples/23_business_fsm.py
   the Specification Pattern.
 - [ECS](ecs.md) — `World`, `AgentView`, `WorldSystem`.
 - [Event Sourcing](event_sourcing.md) — `EventLog`, `World.fold`.
-- [DEBT §2.34](../../DEBT.md) — open items (FSM state-advance
-  projection).
+- [DEBT §2.34](../../DEBT.md) — the ADR-069 follow-up tracker
+  (items 1, 2, 3, 6 closed).

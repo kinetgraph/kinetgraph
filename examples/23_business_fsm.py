@@ -44,6 +44,10 @@ aged out of the window.
   5. **Undeclared transitions** — an event with no declared
      transition from the current state is rejected
      (``reason="transition_not_declared"``).
+  6. **State advance** — the ``FSMProjection`` advances the
+     ``DomainComponent``'s ``state_field`` from
+     ``fsm.transitioned``, preserving the other fields
+     (ADR-069 §9.2 item 1).
 
 ## Run with
 
@@ -59,7 +63,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from kntgraph.concordos.fsm import FSMConfig, FSMTransition, FSMSystem
+from kntgraph.concordos.fsm import FSMConfig, FSMProjection, FSMTransition, FSMSystem
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
 from kntgraph.core.world import DomainComponent
@@ -216,6 +220,37 @@ def main() -> None:
     out = run_system(FSMSystem(invoice_fsm, now=lambda: FIXED_NOW), world)
     print(f"  events: {[e.event_type for e in out]}")
     assert out == []
+
+    # ------------------------------------------------------------------
+    # 7. FSMProjection advances the state_field (ADR-069 §9.2 item 1).
+    # ------------------------------------------------------------------
+    _banner("7. FSMProjection advances state_field from fsm.transitioned")
+    from kntgraph.core.event import Event
+    from kntgraph.core.event.correlation import CorrelationContext
+
+    transitioned = Event.create(
+        agent_id="inv-7",
+        event_type="fsm.transitioned",
+        event_class="domain",
+        data={
+            "from": "draft",
+            "to": "validating",
+            "trigger": "invoice.submitted",
+            "trigger_event_id": "00000000-0000-0000-0000-000000000001",
+        },
+        correlation=CorrelationContext.new(),
+    )
+    view = (
+        AgentViewBuilder("inv-7")
+        .with_component(InvoiceDomainComponent(status="draft"))
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    new_world = FSMProjection(invoice_fsm)(world, [transitioned])
+    advanced = new_world.get_agent("inv-7").get_component(InvoiceDomainComponent)
+    print(f"  state_field after projection: {advanced.status}")
+    assert advanced.status == "validating"
+    assert advanced.tax_regime == "lucro_real"  # other fields survive
 
     print("\nAll FSM scenarios passed.")
 
