@@ -86,6 +86,7 @@ def _progress(
         "emit_nfe",
         "register_receivable",
     ),
+    awaiting_approval_at: dict[str, datetime] | None = None,
 ) -> SagaProgressComponent:
     """Build a ``SagaProgressComponent`` with the given state."""
     return SagaProgressComponent(
@@ -98,6 +99,7 @@ def _progress(
         step_results=MappingProxyType(step_results or {}),
         compensate_stack=compensate_stack,
         started_at=started_at,
+        awaiting_approval_at=MappingProxyType(awaiting_approval_at or {}),
     )
 
 
@@ -795,6 +797,51 @@ def test_saga_dispatch_enrich_from_non_mapping_previous() -> None:
     assert "cfop" not in requested.data
 
 
+def test_saga_dispatch_enrich_from_continuity() -> None:
+    """``_dispatch_step`` reads an ``enrich_from`` field from the
+    ``ContinuityComponent`` when it did not come from a previous
+    step result (ADR-069 §9.2 item 2)."""
+    from kntgraph.core.components.memory import ContinuityComponent
+
+    enrich_config = SagaConfig(
+        name="nfe_emission",
+        steps=(
+            SagaStepConfig(
+                name="emit_nfe",
+                tool_name="nfe_emitter",
+                enrich_from=("cfop", "last_entity"),
+            ),
+        ),
+    )
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            _progress(
+                current_step="emit_nfe",
+                step_states={"emit_nfe": "in_flight"},
+            )
+        )
+        .with_component(
+            ContinuityComponent(
+                tenant_id="t-1",
+                user_id="u-1",
+                last_entities={"last_entity": "invoice-42"},
+            )
+        )
+        .with_trigger(
+            "saga.nfe_emission.started",
+            data={"saga_id": "saga-001"},
+        )
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(SagaSystem(enrich_config, now=lambda: FIXED_NOW), world)
+    requested = next(e for e in out if e.event_type == "tool.nfe_emitter.requested")
+    # ``cfop`` is not in continuity → omitted; ``last_entity`` is.
+    assert "cfop" not in requested.data
+    assert requested.data["last_entity"] == "invoice-42"
+
+
 def test_saga_next_non_skipped_step_unknown_current() -> None:
     """``_next_non_skipped_step`` returns ``None`` when the current
     step is not in the declared order."""
@@ -813,3 +860,103 @@ def test_saga_next_non_skipped_step_unknown_current() -> None:
         now=FIXED_NOW,
     )
     assert system._next_non_skipped_step(unknown, ctx) is None
+
+
+def test_saga_approval_timeout_emits_approval_timed_out() -> None:
+    """A human step that stays ``awaiting_approval`` past its
+    ``approval_timeout_ms`` emits
+    ``saga.<name>.<step>.approval_timed_out`` (ADR-069 §9.2 item 3)."""
+    human_config = SagaConfig(
+        name="nfe_emission",
+        steps=(
+            SagaStepConfig(
+                name="approve",
+                tool_name=None,
+                approval_timeout_ms=60_000,
+            ),
+        ),
+    )
+    past = FIXED_NOW - timedelta(minutes=2)
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            _progress(
+                current_step="approve",
+                step_states={"approve": "awaiting_approval"},
+                step_order=("approve",),
+                awaiting_approval_at={"approve": past},
+            )
+        )
+        .with_trigger("saga.nfe_emission.started")
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    system = SagaTimeoutSystem({"nfe_emission": human_config}, now=lambda: FIXED_NOW)
+    out = run_system(system, world)
+    assert any(
+        e.event_type == "saga.nfe_emission.approve.approval_timed_out" for e in out
+    )
+
+
+def test_saga_approval_timeout_not_emitted_within_deadline() -> None:
+    """A human step within its ``approval_timeout_ms`` emits no
+    approval-timeout event."""
+    human_config = SagaConfig(
+        name="nfe_emission",
+        steps=(
+            SagaStepConfig(
+                name="approve",
+                tool_name=None,
+                approval_timeout_ms=60_000,
+            ),
+        ),
+    )
+    recent = FIXED_NOW - timedelta(seconds=10)
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            _progress(
+                current_step="approve",
+                step_states={"approve": "awaiting_approval"},
+                step_order=("approve",),
+                awaiting_approval_at={"approve": recent},
+            )
+        )
+        .with_trigger("saga.nfe_emission.started")
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    system = SagaTimeoutSystem({"nfe_emission": human_config}, now=lambda: FIXED_NOW)
+    out = run_system(system, world)
+    assert not any(
+        e.event_type == "saga.nfe_emission.approve.approval_timed_out" for e in out
+    )
+
+
+def test_saga_approval_timeout_disabled_when_none() -> None:
+    """A human step with ``approval_timeout_ms=None`` never emits an
+    approval-timeout event (the saga-level deadline still applies)."""
+    human_config = SagaConfig(
+        name="nfe_emission",
+        steps=(SagaStepConfig(name="approve", tool_name=None),),
+    )
+    past = FIXED_NOW - timedelta(hours=2)
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            _progress(
+                current_step="approve",
+                step_states={"approve": "awaiting_approval"},
+                step_order=("approve",),
+                awaiting_approval_at={"approve": past},
+            )
+        )
+        .with_trigger("saga.nfe_emission.started")
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    system = SagaTimeoutSystem({"nfe_emission": human_config}, now=lambda: FIXED_NOW)
+    out = run_system(system, world)
+    assert not any(
+        e.event_type == "saga.nfe_emission.approve.approval_timed_out" for e in out
+    )

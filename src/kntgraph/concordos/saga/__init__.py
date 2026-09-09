@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from ._components import SagaProgressComponent
 from ._config import SagaConfig, SagaStepConfig
+from ._state import SagaProjection
 from ._system import SagaSystem
 from ._timeout_system import SagaTimeoutSystem
 
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
 __all__ = [
     "SagaConfig",
     "SagaProgressComponent",
+    "SagaProjection",
     "SagaStepConfig",
     "SagaSystem",
     "SagaTimeoutSystem",
@@ -67,3 +69,8 @@ class WorkflowSagaConcordo:
     def install(self, dispatcher: "ReactiveDispatcher") -> None:
         dispatcher.add_system(SagaSystem(self._config))
         dispatcher.add_system(SagaTimeoutSystem({self._config.name: self._config}))
+        # Materialise ``SagaProgressComponent`` from the saga
+        # events (ADR-069 §9.2 item 6). The projection runs after
+        # the base fold so the component is auto-hydrated on the
+        # agent's view; the SagaSystem reads it by class.
+        dispatcher.add_projection(SagaProjection(self._config))

@@ -64,6 +64,9 @@ historical records).
   `RuleBasedChatSystem` + `SolutionLookupSystem`
   (ADR-049): software handlers before LLM, read-side
   cache, hybrid dispatcher stack.
+- [BusinessFSM](business_fsm.md) — the pure state
+  machine Concordo (ADR-069 §3): guards, on-entry
+  events, terminal states.
 
 ## Release process
 

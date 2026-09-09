@@ -67,3 +67,9 @@ class SagaProgressComponent(DomainComponent):
     # step_name -> result dict from ToolCallCompletion.result
     compensate_stack: tuple[str, ...]  # LIFO; steps pending compensation
     started_at: datetime
+    # ``awaiting_approval_at``: step_name -> timestamp when the
+    # saga entered ``awaiting_approval`` for a human step
+    # (``tool_name is None``). Used by the per-step approval
+    # timeout (ADR-069 §9.2 item 3). Empty when no human step is
+    # pending.
+    awaiting_approval_at: MappingProxyType[str, datetime] = MappingProxyType({})

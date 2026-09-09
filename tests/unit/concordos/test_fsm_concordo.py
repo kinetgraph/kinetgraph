@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from kntgraph.concordos.fsm import (
     BusinessFSMConcordo,
     FSMConfig,
+    FSMProjection,
     FSMTransition,
     FSMSystem,
 )
@@ -34,14 +35,19 @@ class InvoiceDomainComponent(DomainComponent):
 
 
 class RecordingDispatcher:
-    """Minimal dispatcher that records the systems added via
-    ``add_system`` (the only method ``install`` calls)."""
+    """Minimal dispatcher that records the systems and projections
+    added via ``add_system`` / ``add_projection`` (the methods
+    ``install`` calls)."""
 
     def __init__(self) -> None:
         self.systems: list[object] = []
+        self.projections: list[object] = []
 
     def add_system(self, system: object) -> None:
         self.systems.append(system)
+
+    def add_projection(self, projection: object) -> None:
+        self.projections.append(projection)
 
 
 def _config() -> FSMConfig:
@@ -63,9 +69,12 @@ def test_concordo_name_and_version() -> None:
 
 
 def test_concordo_install_registers_fsm_system() -> None:
-    """``install`` registers an ``FSMSystem`` on the dispatcher."""
+    """``install`` registers an ``FSMSystem`` and an
+    ``FSMProjection`` on the dispatcher."""
     concordo = BusinessFSMConcordo(_config())
     dispatcher = RecordingDispatcher()
     concordo.install(dispatcher)
     assert len(dispatcher.systems) == 1
     assert isinstance(dispatcher.systems[0], FSMSystem)
+    assert len(dispatcher.projections) == 1
+    assert isinstance(dispatcher.projections[0], FSMProjection)

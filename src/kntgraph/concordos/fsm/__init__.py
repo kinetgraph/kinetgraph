@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from ._components import FSMAuditComponent
 from ._config import FSMConfig, FSMTransition
+from ._state import FSMProjection
 from ._system import FSMSystem
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ __all__ = [
     "BusinessFSMConcordo",
     "FSMAuditComponent",
     "FSMConfig",
+    "FSMProjection",
     "FSMSystem",
     "FSMTransition",
 ]
@@ -56,3 +58,9 @@ class BusinessFSMConcordo:
 
     def install(self, dispatcher: "ReactiveDispatcher") -> None:
         dispatcher.add_system(FSMSystem(self._config))
+        # Advance the configured ``DomainComponent``'s
+        # ``state_field`` from ``fsm.transitioned`` events
+        # (ADR-069 §9.2 item 1, option b). The projection runs
+        # after the base fold so the component's state advances
+        # on the agent's view; the FSMSystem reads it by class.
+        dispatcher.add_projection(FSMProjection(self._config))

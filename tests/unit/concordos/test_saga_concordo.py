@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from kntgraph.concordos.saga import (
     SagaConfig,
+    SagaProjection,
     SagaStepConfig,
     SagaSystem,
     SagaTimeoutSystem,
@@ -26,14 +27,19 @@ from kntgraph.concordos.saga import (
 
 
 class RecordingDispatcher:
-    """Minimal dispatcher that records the systems added via
-    ``add_system`` (the only method ``install`` calls)."""
+    """Minimal dispatcher that records the systems and projections
+    added via ``add_system`` / ``add_projection`` (the methods
+    ``install`` calls)."""
 
     def __init__(self) -> None:
         self.systems: list[object] = []
+        self.projections: list[object] = []
 
     def add_system(self, system: object) -> None:
         self.systems.append(system)
+
+    def add_projection(self, projection: object) -> None:
+        self.projections.append(projection)
 
 
 def _config() -> SagaConfig:
@@ -52,11 +58,14 @@ def test_concordo_name_and_version() -> None:
 
 
 def test_concordo_install_registers_both_systems() -> None:
-    """``install`` registers the ``SagaSystem`` and the
-    ``SagaTimeoutSystem`` on the dispatcher."""
+    """``install`` registers the ``SagaSystem``, the
+    ``SagaTimeoutSystem``, and the ``SagaProjection`` on the
+    dispatcher."""
     concordo = WorkflowSagaConcordo(_config())
     dispatcher = RecordingDispatcher()
     concordo.install(dispatcher)
     assert len(dispatcher.systems) == 2
     assert isinstance(dispatcher.systems[0], SagaSystem)
     assert isinstance(dispatcher.systems[1], SagaTimeoutSystem)
+    assert len(dispatcher.projections) == 1
+    assert isinstance(dispatcher.projections[0], SagaProjection)

@@ -52,6 +52,15 @@ class SagaStepConfig:
     ``timeout_ms``       -- step-level timeout (passed to ADR-045
                             TTL registration on dispatch).
                             Ignored for human steps.
+    ``approval_timeout_ms`` -- per-step timeout for a human step
+                            (``tool_name is None``) waiting for
+                            external approval (ADR-069 §9.2 item 3).
+                            When the step stays ``awaiting_approval``
+                            longer than this, the saga emits
+                            ``saga.<name>.<step>.approval_timed_out``.
+                            ``None`` disables the per-step approval
+                            timeout (the saga-level deadline still
+                            applies). Ignored for tool steps.
     """
 
     name: str
@@ -62,6 +71,7 @@ class SagaStepConfig:
     compensate_when: "Specification | None" = None
     enrich_from: tuple[str, ...] = ()
     timeout_ms: int = 30_000
+    approval_timeout_ms: int | None = None
 
     def __post_init__(self) -> None:
         # Tool name must be non-empty when present.

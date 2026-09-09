@@ -285,7 +285,7 @@ class SagaSystem:
             return [self._saga_completed(trigger, saga)]
         return [
             self._record_start(trigger, saga, step_config),
-            self._dispatch_step(step_config, trigger),
+            self._dispatch_step(view, step_config, trigger),
         ]
 
     def _handle_completion(
@@ -344,7 +344,7 @@ class SagaSystem:
                     new_results,
                 )
             return self._advance(
-                saga, step_config, trigger, ctx, new_states, new_results
+                view, saga, step_config, trigger, ctx, new_states, new_results
             )
 
         # Failure or timeout
@@ -361,6 +361,7 @@ class SagaSystem:
 
     def _advance(
         self,
+        view: "AgentView",
         saga: SagaProgressComponent,
         current_step: "SagaStepConfig",
         trigger: "ViewTrigger",
@@ -375,7 +376,7 @@ class SagaSystem:
         )
         if next_step is None:
             return [record, self._saga_completed(trigger, saga)]
-        return [record, self._dispatch_step(next_step, trigger)]
+        return [record, self._dispatch_step(view, next_step, trigger)]
 
     def _handle_failure(
         self,
@@ -406,7 +407,7 @@ class SagaSystem:
         next_step = self._next_non_skipped_step(step_config, ctx)
         if next_step is None:
             return [record, self._saga_completed(trigger, saga)]
-        return [record, self._dispatch_step(next_step, trigger)]
+        return [record, self._dispatch_step(view, next_step, trigger)]
 
     # ------------------------------------------------------------------
     # _begin_compensation — LIFO with per-step compensate_when
@@ -490,6 +491,7 @@ class SagaSystem:
     # ------------------------------------------------------------------
     def _dispatch_step(
         self,
+        view: "AgentView",
         step_config: "SagaStepConfig",
         trigger: "ViewTrigger",
     ) -> "Event":
@@ -514,22 +516,57 @@ class SagaSystem:
         params: dict[str, "JsonValue"] = {
             "saga_id": trigger.data.get("saga_id", ""),
         }
-        # Enrich from previous step results (read via the
-        # trigger's data envelope — the saga-system projection
-        # attaches the latest step_results to the saga-component
-        # clone carried on the dispatch event; see
-        # _record_step_completed).
+        self._enrich_params(view, step_config, trigger, params)
+        return self._emit(
+            trigger,
+            event_type=f"tool.{step_config.tool_name}.requested",
+            data=params,
+        )
+
+    def _enrich_params(
+        self,
+        view: "AgentView",
+        step_config: "SagaStepConfig",
+        trigger: "ViewTrigger",
+        params: dict[str, "JsonValue"],
+    ) -> None:
+        """Enrich the tool params from previous step results and
+        the ``ContinuityComponent`` (ADR-069 §9.2 item 2).
+
+        A field named in ``enrich_from`` is read first from the
+        previous step results (via the trigger's data envelope),
+        then from the agent's continuity state (last_tools /
+        last_entities / last_categories). The SagaSystem already
+        has the ``AgentView`` at dispatch time.
+        """
         previous = trigger.data.get("step_results", {})
         if isinstance(previous, Mapping):
             for field in step_config.enrich_from:
                 for prev_result in previous.values():
                     if isinstance(prev_result, Mapping) and field in prev_result:
                         params.setdefault(field, prev_result[field])
-        return self._emit(
-            trigger,
-            event_type=f"tool.{step_config.tool_name}.requested",
-            data=params,
-        )
+        continuity = view.get_component(ContinuityComponent)
+        if continuity is not None:
+            self._enrich_from_continuity(step_config, continuity, params)
+
+    def _enrich_from_continuity(
+        self,
+        step_config: "SagaStepConfig",
+        continuity: ContinuityComponent,
+        params: dict[str, "JsonValue"],
+    ) -> None:
+        """Read ``enrich_from`` fields from the ``ContinuityComponent``
+        (last_tools / last_entities / last_categories) when they did
+        not come from a previous step result."""
+        for field in step_config.enrich_from:
+            if field in params:
+                continue
+            if field in continuity.last_tools:
+                params[field] = continuity.last_tools[field]
+            elif field in continuity.last_entities:
+                params[field] = continuity.last_entities[field]
+            elif field in continuity.last_categories:
+                params[field] = continuity.last_categories[field]
 
     # ------------------------------------------------------------------
     # _record_* helpers, _saga_completed, _first/_next_non_skipped_step

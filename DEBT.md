@@ -3282,7 +3282,8 @@ memory tier; revisit before v1.0).
 
 ## 2.34 ADR-069 Concordos — open items (§9.2)
 
-**Status:** Open (ADR-069 implemented; follow-ups tracked).
+**Status:** Partially closed (items 1, 2, 3, 6 implemented 2026-09-08;
+items 4-5 open).
 
 **Problem:**
 The ADR-069 implementation (BusinessFSM + WorkflowSaga +
@@ -3296,56 +3297,92 @@ re-reading the whole ADR.
 **Open items (ADR-069 §9.2):**
 
   1. **FSM state update and DomainComponent projection.**
+     **CLOSED (2026-09-08): option (b) — dedicated ``FSMProjection``.**
      The FSM emits ``fsm.transitioned``; the
      ``DomainComponent`` projection (ADR-059) must know to
      update ``state_field`` when it sees that event. Two
      options: (a) FSMSystem also emits a standard
      ``domain.state_updated`` event; (b) a new
      ``FSMProjection`` overlays the default projection.
-     Option (a) is simpler; option (b) keeps the FSM
-     namespace clean. Not decided.
+     **Chosen: (b)** — a dedicated ``FSMProjection``
+     (``concordos/fsm/_state.py``) advances the configured
+     ``DomainComponent``'s ``state_field`` from
+     ``fsm.transitioned`` events, registered by
+     ``BusinessFSMConcordo.install`` via the new
+     ``ReactiveDispatcher.add_projection``.
+     **Why not (a) / ``@domain_component``:** the FSM is
+     generic — it does not know the vertical's component
+     fields. ``@domain_component`` hydrates via
+     ``cls(**event.data)``, which would break on a component
+     with fields beyond ``state_field`` (e.g. ``tax_regime``).
+     The projection does ``replace(component,
+     **{state_field: to_state})``, preserving the other
+     fields without coupling the FSM to the component.
 
   2. **Saga enrichment from ContinuityComponent.**
-     ``enrich_from`` currently reads only from previous
-     step results. Should it also read directly from
-     ``ContinuityComponent``? The ``SagaSystem`` already
-     has the ``AgentView`` at dispatch time.
+     **CLOSED (2026-09-08).** ``enrich_from`` now reads from
+     previous step results AND directly from the
+     ``ContinuityComponent`` (last_tools / last_entities /
+     last_categories). ``_dispatch_step`` gained a ``view``
+     parameter (the ``SagaSystem`` already had the ``AgentView``
+     at dispatch time); the enrichment is split into
+     ``_enrich_params`` + ``_enrich_from_continuity``.
 
   3. **Long-running Sagas and the Scheduler.**
-     A saga waiting for human approval between steps may
-     idle for hours. ``SagaTimeoutSystem`` handles the
-     overall deadline, but per-step timeouts for
-     human-approval steps (``tool_name=None``) need a
-     dedicated timer, not ADR-045 TTL.
+     **CLOSED (2026-09-08).** Per-step approval timeouts for
+     human steps (``tool_name=None``) are implemented. A new
+     ``SagaStepConfig.approval_timeout_ms`` field declares the
+     per-step deadline; ``SagaProgressComponent.awaiting_approval_at``
+     records when a human step entered ``awaiting_approval``
+     (projected from the saga events); ``SagaTimeoutSystem``
+     emits ``saga.<name>.<step>.approval_timed_out`` when the
+     step stays pending past its deadline. ``None`` disables the
+     per-step timeout (the saga-level deadline still applies).
 
   4. **Worker-level back-pressure (deferred to ADR-070).**
-     The back-pressure concern that motivated the removed
-     C-03 Pipeline is real; ADR-070 extends
-     ``@tool_worker`` / ``WorkerManager`` with
-     ``max_in_flight``. Out of scope here.
+     **DECIDED (2026-09-08): agreed, but not blocking.** The
+     back-pressure concern that motivated the removed C-03
+     Pipeline is real; ADR-070 extends ``@tool_worker`` /
+     ``WorkerManager`` with ``max_in_flight``. We can proceed
+     without it for now.
 
   5. **Per-agent recent-events buffer for the FSM.**
-     The trigger is derived from ``view.domain_phase`` (a
-     single slot). The FSM/Saga use a
-     ``last_processed_event_id`` cursor + delta-scan
-     (§11.16, §11.18.1). A ``recent_events`` tuple on
-     ``AgentView`` remains a low-cost future resolution if
-     the cursor alone proves insufficient.
+     **DECIDED (2026-09-08): not mandatory.** The trigger is
+     derived from ``view.domain_phase`` (a single slot). The
+     FSM/Saga use a ``last_processed_event_id`` cursor +
+     delta-scan (§11.16, §11.18.1). A ``recent_events``
+     tuple on ``AgentView`` remains a low-cost future
+     resolution if the cursor alone proves insufficient, but
+     it is not required.
 
-  6. **Reconciling ``SagaProgressComponent`` from the log.**
-     The component carries execution fields (written by
-     saga events) and history fields (derived from the
-     EventLog). The reconciliation logic lives in
-     ``concordos/saga/_state.py`` but is not yet drafted;
-     a reconciliation test against a re-folded EventLog
-     is the next gate.
+  6. **Materialising ``SagaProgressComponent`` from the log.**
+     **CLOSED (2026-09-08): dedicated ``SagaProjection``.**
+     The component carries execution fields (written by saga
+     events) and history fields (derived from the EventLog).
+     Today it is NOT materialised by any projection — the
+     vertical installs it manually.
+     **Chosen: a dedicated accumulating ``SagaProjection``**
+     (``concordos/saga/_state.py``), registered by
+     ``WorkflowSagaConcordo.install`` via
+     ``ReactiveDispatcher.add_projection``. It re-derives the
+     component deterministically from the saga events
+     (``started``, ``step_started``, ``step_completed``,
+     ``step_failed``, ``compensating``, ``completed``, ``dlq``,
+     ``timed_out``, ``compensation_failed``), reconstructing
+     ``step_states``/``step_results`` from the event snapshots,
+     ``compensate_stack`` from the config (LIFO), ``direction``
+     and ``current_step``.
+     **Why not ``@domain_component``:** the saga event types
+     are dynamic (``saga.{name}.*``) and the component
+     **accumulates** state across multiple events; the
+     ``@domain_component`` fold is last-event-wins and
+     registers a static event_type → class. A dedicated
+     projection (mirroring ``project_memory``) is required.
 
 **Why we are deferring:**
-  - Items 1-3 need a design decision (ADR or follow-up)
-    before implementation; they are not bugs.
-  - Item 4 is explicitly deferred to ADR-070.
-  - Items 5-6 are refinements; the current cursor +
-    delta-scan pattern is correct for the common case.
+  - Items 1, 2, 3, and 6 are closed (implemented).
+  - Item 4 is explicitly deferred to ADR-070 (not blocking).
+  - Item 5 is not mandatory.
 
 **Trigger:** a vertical adopts a Concordo and hits one of
 these gaps, or a dedicated ADR-069 follow-up session.
