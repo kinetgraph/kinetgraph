@@ -123,6 +123,23 @@ class OrderAmountBelow(Specification):
         return getattr(ctx.domain, "amount", 0.0) < self.max_amount
 ```
 
+### Agent Permission & Profile Validation
+
+Permissions, roles, and agent tiers live on `ctx.profile` (`ProfileComponent`). Custom specifications can inspect `ctx.profile` to enforce role-based access control (RBAC) or tenant-level authorization:
+
+```python
+@dataclass(frozen=True, slots=True)
+class AgentHasPermission(Specification):
+    required_permission: str
+
+    def is_satisfied_by(self, ctx: StepContext) -> bool:
+        if ctx.profile is None:
+            return False
+        permissions = ctx.profile.preferences.get("permissions", "").split(",")
+        return self.required_permission in permissions
+```
+
+
 ---
 
 ## 5. Usage in Concordos
