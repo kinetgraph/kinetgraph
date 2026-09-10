@@ -39,10 +39,7 @@ from kntgraph.concordos.base import (
 from kntgraph.concordos.fsm import FSMConfig, FSMSystem, FSMTransition
 from kntgraph.concordos.specs import (
     ContinuityToolUsed,
-    DomainStateIs,
     ProfileTierIs,
-    StepCompleted,
-    StepResultEquals,
 )
 from kntgraph.core.components.memory import (
     ContinuityComponent,

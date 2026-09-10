@@ -33,13 +33,11 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
-from uuid import uuid4
 
 import pytest
 
 from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
 from kntgraph.core.event import (
-    CorrelationContext,
     Event,
     correlation_middleware,
 )
