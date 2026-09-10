@@ -278,6 +278,84 @@ class TestSolutionLookupSystem:
         assert sys.stats.cache_hit == 0
         assert sys.stats.cache_miss == 0
 
+    def test_gate2_blocks_synthetic_completion_when_tool_not_allowed(self):
+        """Gate 2 (ADR-060 §3.0): when the agent's RoleComponent
+        does not admit the tool, the synthetic completion is
+        blocked and a ``tool.<name>.failed`` with
+        ``error="permission_denied"`` is emitted instead."""
+        from kntgraph.core.components.role import RoleComponent
+        from kntgraph.testing import AgentViewBuilder, WorldBuilder
+
+        store = InMemorySolutionStore()
+        req = _make_request(tool_name="weather_api")
+        fp = "abc"
+        store.add(
+            CachedSolution(
+                tool_name="weather_api",
+                params_fingerprint=fp,
+                confidence=5,
+                result={"temp_c": 28},
+            )
+        )
+        sys = SolutionLookupSystem(solution_store=store, min_confidence=3)
+        # The agent's role does NOT admit weather_api.
+        role = RoleComponent(
+            persona="atendente",
+            instructions="",
+            allowed_tools=["other_tool"],
+        )
+        view = (
+            AgentViewBuilder("a-1").with_component(role).with_tool_request(req).build()
+        )
+        world = WorldBuilder().with_agent(view).build()
+        sys(world)
+        asyncio.run(sys.run_pending_lookups())
+        events = sys(_empty_world())
+        assert len(events) == 1
+        failed = events[0]
+        assert failed.event_type == "tool.weather_api.failed"
+        assert failed.data["error"] == "permission_denied"
+        assert failed.data["request_event_id"] == req.request_event_id
+        # No synthetic completion was produced.
+        assert sys.stats.cache_hit == 0
+
+    def test_gate2_allows_synthetic_completion_when_tool_allowed(self):
+        """Gate 2: when the agent's RoleComponent admits the tool,
+        the synthetic completion is emitted normally."""
+        from kntgraph.agents.memory.solutions._fingerprints import (
+            fingerprint_params,
+        )
+        from kntgraph.core.components.role import RoleComponent
+        from kntgraph.testing import AgentViewBuilder, WorldBuilder
+
+        store = InMemorySolutionStore()
+        req = _make_request(tool_name="weather_api")
+        fp = fingerprint_params(req.params)
+        store.add(
+            CachedSolution(
+                tool_name="weather_api",
+                params_fingerprint=fp,
+                confidence=5,
+                result={"temp_c": 28},
+            )
+        )
+        sys = SolutionLookupSystem(solution_store=store, min_confidence=3)
+        role = RoleComponent(
+            persona="atendente",
+            instructions="",
+            allowed_tools=["weather_api"],
+        )
+        view = (
+            AgentViewBuilder("a-1").with_component(role).with_tool_request(req).build()
+        )
+        world = WorldBuilder().with_agent(view).build()
+        sys(world)
+        asyncio.run(sys.run_pending_lookups())
+        events = sys(_empty_world())
+        assert len(events) == 1
+        assert events[0].event_type == "tool.weather_api.completed"
+        assert sys.stats.cache_hit == 1
+
     def test_bypass_when_confidence_below_threshold(self):
         store = InMemorySolutionStore()
         req = _make_request(params={"city": "X"})

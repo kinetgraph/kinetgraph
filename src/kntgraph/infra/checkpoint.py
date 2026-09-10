@@ -64,7 +64,7 @@ decode (dict → ``ReactiveCheckpoint``).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -243,4 +243,10 @@ class CheckpointStore:
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """Re-export of the framework's canonical wall-clock
+    (``core/clock.utcnow``). Kept as a name for
+    compatibility; new code should import from
+    ``kntgraph.core.clock``."""
+    from kntgraph.core.clock import utcnow as _utcnow
+
+    return _utcnow()

@@ -360,6 +360,18 @@ class ReactiveDispatcher:
     def add_system(self, system: WorldSystem) -> None:
         self._systems.append(system)
 
+    def add_projection(self, projection: "WorldProjection") -> None:
+        """Register a post-fold projection (ADR-069 §9.2 item 6).
+
+        Projections run after the base fold and the built-in
+        memory hydration, and before the tool overlay, in the
+        order they were registered. A Concordo that materialises
+        a component from its own events (e.g. the saga's
+        ``SagaProgressComponent``) registers its projection here
+        so the fold auto-hydrates it.
+        """
+        self._projections.append(projection)
+
     def track_agent(self, agent_id: str) -> None:
         """
         Register an agent for the dispatcher to watch.

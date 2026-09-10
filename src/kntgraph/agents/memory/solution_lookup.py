@@ -53,12 +53,16 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.components.role import RoleComponent, has_tool_access
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.tools.system import ToolAwareSystem
+
+if TYPE_CHECKING:
+    from kntgraph.core.world.view import AgentView
 
 
 logger = logging.getLogger(__name__)
@@ -313,40 +317,78 @@ class SolutionLookupSystem(ToolAwareSystem):
         self._pending_results = []
         # Discover new requests to look up.
         for agent_id, view in world.views.items():
-            if not isinstance(view.components, dict):
-                continue
-            requests = view.components.get("tool_requests")
-            if not isinstance(requests, dict):
-                continue
-            for req_id, req in requests.items():
-                if not isinstance(req, ToolCallRequest):
-                    continue
-                if req_id in self._seen:
-                    continue
-                self._seen.add(req_id)
-                # Skip the allowlist gate before queueing
-                # so the dispatcher doesn't waste a
-                # coroutine on a request it would
-                # immediately drop.
-                if self._allowlist is not None and req.tool_name not in self._allowlist:
-                    self._stats = LookupStats(
-                        cache_hit=self._stats.cache_hit,
-                        cache_miss=self._stats.cache_miss,
-                        bypass_low_confidence=(self._stats.bypass_low_confidence),
-                        bypass_not_in_allowlist=(
-                            self._stats.bypass_not_in_allowlist + 1
-                        ),
-                    )
-                    logger.info(
-                        "solution.cache_bypass_not_in_allowlist",
-                        extra={
-                            "tool_name": req.tool_name,
-                            "request_event_id": req.request_event_id,
-                        },
-                    )
-                    continue
-                self._pending_requests.append((req, agent_id))
+            self._discover_requests(view, agent_id)
         return out
+
+    def _discover_requests(
+        self,
+        view: "AgentView",
+        agent_id: str,
+    ) -> None:
+        """Queue a lookup for every unseen ``ToolCallRequest`` in
+        the view's ``tool_requests`` slot."""
+        if not isinstance(view.components, dict):
+            return
+        requests = view.components.get("tool_requests")
+        if not isinstance(requests, dict):
+            return
+        for req_id, req in requests.items():
+            self._queue_if_unseen(view, req_id, req, agent_id)
+
+    def _queue_if_unseen(
+        self,
+        view: "AgentView",
+        req_id: str,
+        req: object,
+        agent_id: str,
+    ) -> None:
+        """Queue a lookup for one request if it is a
+        ``ToolCallRequest`` not yet seen."""
+        if not isinstance(req, ToolCallRequest):
+            return
+        if req_id in self._seen:
+            return
+        self._seen.add(req_id)
+        self._queue_lookup(view, req, agent_id)
+
+    def _queue_lookup(
+        self,
+        view: "AgentView",
+        req: ToolCallRequest,
+        agent_id: str,
+    ) -> None:
+        """Queue a ``find_match`` coroutine for one request, after
+        applying gate 2 (ADR-060 §3.0) and the operator allowlist.
+
+        Gate 2: the agent's persona must admit the tool before the
+        lookup can synthesize a completion. When the view carries a
+        RoleComponent and the tool is not in ``allowed_tools``, the
+        synthetic completion is blocked and a ``tool.<name>.failed``
+        with ``error="permission_denied"`` is queued instead (the
+        emission pretends to be the tool's completion, so gate 2
+        applies)."""
+        if not self._gate2_allows(view, req, agent_id):
+            return
+        # Skip the allowlist gate before queueing
+        # so the dispatcher doesn't waste a
+        # coroutine on a request it would
+        # immediately drop.
+        if self._allowlist is not None and req.tool_name not in self._allowlist:
+            self._stats = LookupStats(
+                cache_hit=self._stats.cache_hit,
+                cache_miss=self._stats.cache_miss,
+                bypass_low_confidence=(self._stats.bypass_low_confidence),
+                bypass_not_in_allowlist=(self._stats.bypass_not_in_allowlist + 1),
+            )
+            logger.info(
+                "solution.cache_bypass_not_in_allowlist",
+                extra={
+                    "tool_name": req.tool_name,
+                    "request_event_id": req.request_event_id,
+                },
+            )
+            return
+        self._pending_requests.append((req, agent_id))
 
     async def run_pending_lookups(self) -> None:
         """
@@ -481,6 +523,51 @@ class SolutionLookupSystem(ToolAwareSystem):
             },
         )
         return [completion]
+
+    def _gate2_allows(
+        self,
+        view: "AgentView",
+        req: ToolCallRequest,
+        agent_id: str,
+    ) -> bool:
+        """Gate 2 (ADR-060 §3.0): whether the agent's persona
+        admits the tool. When the view carries a RoleComponent
+        and the tool is not in ``allowed_tools``, the synthetic
+        completion is blocked and a ``tool.<name>.failed`` with
+        ``error="permission_denied"`` is queued instead. Returns
+        ``True`` when the lookup may proceed."""
+        role = view.components.get(RoleComponent)
+        if has_tool_access(role, req.tool_name):
+            return True
+        self._pending_results.append(self._emit_permission_denied(req, agent_id))
+        return False
+
+    def _emit_permission_denied(
+        self,
+        req: ToolCallRequest,
+        agent_id: str,
+    ) -> Event:
+        """Emit a ``tool.<name>.failed`` event with
+        ``error="permission_denied"`` when gate 2 (ADR-060
+        §3.0) blocks the synthetic completion: the agent's
+        persona does not admit the tool, so the lookup must
+        not fabricate a result as if the tool had run."""
+        correlation = CorrelationContext(
+            correlation_id=req.correlation_id or CorrelationContext.new().correlation_id
+        )
+        return Event.create(
+            event_type=f"tool.{req.tool_name}.failed",
+            agent_id=agent_id,
+            event_class="domain",
+            correlation=correlation,
+            causation_id=req.correlation_id,
+            data={
+                "request_event_id": req.request_event_id,
+                "error": "permission_denied",
+                "tool_name": req.tool_name,
+                "source": "solution_lookup",
+            },
+        )
 
     @property
     def stats(self) -> LookupStats:

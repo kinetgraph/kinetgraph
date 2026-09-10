@@ -2689,8 +2689,9 @@ v0.18 steps are tracked separately in the same ADR.
 
 ## 2.29 `RoleComponent` three-gate enforcement — items #4 + #5 + #12 of v0.14
 
-**Status:** Open — moved from ROADMAP v0.14 #4, #5,
-#12 on 2026-08-26 (consolidated).
+**Status:** Partially closed 2026-09-08 — gate 2
+centralised + applied to `SolutionLookupSystem`; gate 3
+deprioritised (no demand).
 
 **Summary.** Three v0.14 items depend on a
 `RoleComponent` class that **does not exist in
@@ -2732,6 +2733,29 @@ class — which the framework does not yet support.
     é vertical separada" (ROADMAP §"Decisão de
     escopo"); demand for cross-agent handoff has
     not surfaced since.
+
+**Resolution (2026-09-08).** The premise of this
+debt item is stale: `RoleComponent` now exists in
+framework code (`core/components/role.py`) and gate 2
+is enforced in `_BaseRoleSystem._build_request_event`
+(`agents/role_systems/_base.py:167`). The remaining
+work was:
+
+  - **#5 — DONE.** `SolutionLookupSystem` now applies
+    gate 2 before synthesizing a `tool.<name>.completed`:
+    when the agent's `RoleComponent` does not admit the
+    tool, it emits `tool.<name>.failed` with
+    `error="permission_denied"` instead of fabricating a
+    completion. `has_tool_access` is the canonical
+    validation point; the convention is documented on
+    `ToolAwareSystem` (the mixin every tool-emitting
+    system uses). Tests in
+    `tests/unit/memory/test_solution_lookup.py` cover
+    both the block and allow paths.
+  - **#12 — DEPRIORITISED.** `SwitcherSystem` (gate 3,
+    cross-agent handoff) is not implemented. No demand
+    has surfaced; the ADR-060 §3.1 design remains the
+    reference if it is ever picked up.
 
 **Why not in v0.14.** Each item, implemented
 standalone, requires the same three pieces of new
@@ -3255,6 +3279,151 @@ memory tier; revisit before v1.0).
     across ticks.
 
     across ticks.
+
+## 2.34 ADR-069 Concordos — open items (§9.2)
+
+**Status:** Partially closed (items 1, 2, 3, 6 implemented 2026-09-08;
+items 4-5 open).
+
+**Problem:**
+The ADR-069 implementation (BusinessFSM + WorkflowSaga +
+Specification Pattern + Concordo Protocol/Catalog + CLI
+scaffold + SUT builders) is complete and the CI gate
+passes. The ADR's §9.2 lists open questions that are
+deliberately NOT implemented in the first pass. They are
+tracked here so a future session can pick them up without
+re-reading the whole ADR.
+
+**Open items (ADR-069 §9.2):**
+
+  1. **FSM state update and DomainComponent projection.**
+     **CLOSED (2026-09-08): option (b) — dedicated ``FSMProjection``.**
+     The FSM emits ``fsm.transitioned``; the
+     ``DomainComponent`` projection (ADR-059) must know to
+     update ``state_field`` when it sees that event. Two
+     options: (a) FSMSystem also emits a standard
+     ``domain.state_updated`` event; (b) a new
+     ``FSMProjection`` overlays the default projection.
+     **Chosen: (b)** — a dedicated ``FSMProjection``
+     (``concordos/fsm/_state.py``) advances the configured
+     ``DomainComponent``'s ``state_field`` from
+     ``fsm.transitioned`` events, registered by
+     ``BusinessFSMConcordo.install`` via the new
+     ``ReactiveDispatcher.add_projection``.
+     **Why not (a) / ``@domain_component``:** the FSM is
+     generic — it does not know the vertical's component
+     fields. ``@domain_component`` hydrates via
+     ``cls(**event.data)``, which would break on a component
+     with fields beyond ``state_field`` (e.g. ``tax_regime``).
+     The projection does ``replace(component,
+     **{state_field: to_state})``, preserving the other
+     fields without coupling the FSM to the component.
+
+  2. **Saga enrichment from ContinuityComponent.**
+     **CLOSED (2026-09-08).** ``enrich_from`` now reads from
+     previous step results AND directly from the
+     ``ContinuityComponent`` (last_tools / last_entities /
+     last_categories). ``_dispatch_step`` gained a ``view``
+     parameter (the ``SagaSystem`` already had the ``AgentView``
+     at dispatch time); the enrichment is split into
+     ``_enrich_params`` + ``_enrich_from_continuity``.
+
+  3. **Long-running Sagas and the Scheduler.**
+     **CLOSED (2026-09-08).** Per-step approval timeouts for
+     human steps (``tool_name=None``) are implemented. A new
+     ``SagaStepConfig.approval_timeout_ms`` field declares the
+     per-step deadline; ``SagaProgressComponent.awaiting_approval_at``
+     records when a human step entered ``awaiting_approval``
+     (projected from the saga events); ``SagaTimeoutSystem``
+     emits ``saga.<name>.<step>.approval_timed_out`` when the
+     step stays pending past its deadline. ``None`` disables the
+     per-step timeout (the saga-level deadline still applies).
+
+  4. **Worker-level back-pressure (deferred to ADR-070).**
+     **DECIDED (2026-09-08): agreed, but not blocking.** The
+     back-pressure concern that motivated the removed C-03
+     Pipeline is real; ADR-070 extends ``@tool_worker`` /
+     ``WorkerManager`` with ``max_in_flight``. We can proceed
+     without it for now.
+
+  5. **Per-agent recent-events buffer for the FSM.**
+     **DECIDED (2026-09-08): not mandatory.** The trigger is
+     derived from ``view.domain_phase`` (a single slot). The
+     FSM/Saga use a ``last_processed_event_id`` cursor +
+     delta-scan (§11.16, §11.18.1). A ``recent_events``
+     tuple on ``AgentView`` remains a low-cost future
+     resolution if the cursor alone proves insufficient, but
+     it is not required.
+
+  6. **Materialising ``SagaProgressComponent`` from the log.**
+     **CLOSED (2026-09-08): dedicated ``SagaProjection``.**
+     The component carries execution fields (written by saga
+     events) and history fields (derived from the EventLog).
+     Today it is NOT materialised by any projection — the
+     vertical installs it manually.
+     **Chosen: a dedicated accumulating ``SagaProjection``**
+     (``concordos/saga/_state.py``), registered by
+     ``WorkflowSagaConcordo.install`` via
+     ``ReactiveDispatcher.add_projection``. It re-derives the
+     component deterministically from the saga events
+     (``started``, ``step_started``, ``step_completed``,
+     ``step_failed``, ``compensating``, ``completed``, ``dlq``,
+     ``timed_out``, ``compensation_failed``), reconstructing
+     ``step_states``/``step_results`` from the event snapshots,
+     ``compensate_stack`` from the config (LIFO), ``direction``
+     and ``current_step``.
+     **Why not ``@domain_component``:** the saga event types
+     are dynamic (``saga.{name}.*``) and the component
+     **accumulates** state across multiple events; the
+     ``@domain_component`` fold is last-event-wins and
+     registers a static event_type → class. A dedicated
+     projection (mirroring ``project_memory``) is required.
+
+**Why we are deferring:**
+  - Items 1, 2, 3, and 6 are closed (implemented).
+  - Item 4 is explicitly deferred to ADR-070 (not blocking).
+  - Item 5 is not mandatory.
+
+**Trigger:** a vertical adopts a Concordo and hits one of
+these gaps, or a dedicated ADR-069 follow-up session.
+
+## 4.1 Agent discovery — `agent.spawned` push rejected, poll kept (2026-09-08)
+
+**Status:** Decided (no code change).
+
+**Problem.**
+A proposal suggested making `agent.spawned` the primary
+discovery path for brand-new agents (the dispatcher would
+subscribe to a global spawn stream instead of polling
+`EventLog.list_agents()`).
+
+**Investigation.**
+- `agent.spawned` is only an enum value
+  (`OperationalEventType.SPAWNED`); it is **never emitted**
+  anywhere in the framework (`runner/`, `stream/`,
+  `infra/`).
+- Streams are per-agent (`knt:agents:{agent_id}:events`);
+  there is no global spawn stream to subscribe to.
+- `EventLog.subscribe` (ADR-068) is a fan-in over
+  *already-tracked* agents — it cannot discover newcomers.
+- Discovery today is `bootstrap_agents` →
+  `EventLog.list_agents()` (SCAN), run on first dispatch
+  and then on `reactive_rediscovery_seconds` (5.0s).
+
+**Decision.**
+Keep the poll-based discovery as the sole mechanism, at the
+existing 5.0s cadence. Do **not** add a global spawn stream
+or emit `agent.spawned` on first append. ADR-068 §3.2
+already names ADR-035 shard coordination as the follow-up
+owner if discovery ever needs to become push-driven.
+
+**Why.**
+- A global spawn stream adds a new key convention, emission
+  semantics in `EventLog.append`, and ordering concerns
+  relative to the agent's own stream — for a latency win
+  (5s → near-zero) that the current cadence already bounds.
+- The 5.0s SCAN is cheap and correct; newcomers are picked
+  up within one rediscovery interval.
 
 ## 5 Release-process incident — v0.15.0 release workflow refused (2026-09-07)
 

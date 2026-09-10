@@ -21,14 +21,19 @@ boundary, not deeper in the framework.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 
 def utcnow() -> datetime:
     """Timezone-aware UTC `datetime` (the framework's
-    canonical timestamp source)."""
-    return datetime.now(timezone.utc)
+    canonical timestamp source). Re-export of
+    ``core/clock.utcnow`` — the single definition lives in
+    ``kntgraph.core.clock``; this name is kept for
+    compatibility."""
+    from kntgraph.core.clock import utcnow as _utcnow
+
+    return _utcnow()
 
 
 def validate_event_type(event_type: Any) -> None:

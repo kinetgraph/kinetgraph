@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
+from {{ package_name }}.components import {{ component_name }}
+
+
+{{ concordo_name }} = BusinessFSMConcordo(FSMConfig(
+    component_type={{ component_name }},
+    state_field="{{ state_field }}",
+    transitions={
+        # "draft": {
+        #     "invoice.submitted": FSMTransition(to="validating"),
+        # },
+    },
+    on_entry={},
+    terminal=frozenset(),
+))

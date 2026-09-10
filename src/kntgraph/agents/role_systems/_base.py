@@ -276,6 +276,10 @@ class _BaseRoleSystem(ToolAwareSystem):
             },
             causation_id=str(last_eid),
             correlation=correlation,
+            # Propagate the inbound principal (ADR-066 §4.1) so
+            # the WorkerManager's gate-1 ACL check sees the
+            # original caller, not ``None``.
+            producer_principal_id=view.last_event_principal_id,
         )
         self._pending_inputs[str(e.event_id)] = new_input
         self._pending_agents[str(e.event_id)] = agent_id

@@ -97,6 +97,14 @@ class AgentView:
     domain_at: Optional[datetime] = None
     last_event_id: Optional[str] = None
     last_event_at: Optional[datetime] = None
+    # The ``producer_principal_id`` of the agent's most recent
+    # domain event (ADR-066 §4.1). Populated by the default
+    # projection so a system that emits a downstream
+    # ``tool.<name>.requested`` can propagate the inbound
+    # principal to the WorkerManager's gate-1 ACL check.
+    # ``None`` when the last event carried no principal (e.g.
+    # events written before v0.16, or hand-built views).
+    last_event_principal_id: Optional[str] = None
 
     @property
     def is_terminated(self) -> bool:

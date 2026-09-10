@@ -29,6 +29,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **ADR-069 — Agent Concordos (BusinessFSM + WorkflowSaga):**
+  composable behavioral patterns that wire existing framework
+  modules into coherent end-to-end behaviors. New `concordos/`
+  package with:
+  - **Specification Pattern** (`concordos/base.py`,
+    `concordos/specs.py`): `Specification` ABC + `Composable`
+    mixin (`and_`/`or_`/`not_`), `StepContext`, `ViewTrigger`,
+    and built-in specs (`StepCompleted`, `StepFailed`,
+    `StepTimedOut`, `StepResultEquals`, `DomainStateIs`,
+    `ProfileTierIs`, `ContinuityToolUsed`).
+  - **C-01 BusinessFSM** (`concordos/fsm/`): `FSMSystem`
+    (pure WorldSystem), `FSMConfig`/`FSMTransition`,
+    `FSMAuditComponent`, `BusinessFSMConcordo`.
+  - **C-02 WorkflowSaga** (`concordos/saga/`): `SagaSystem`
+    (start/advance/failure/compensation/DLQ), `SagaTimeoutSystem`
+    (deterministic `event_id`), `SagaConfig`/`SagaStepConfig`,
+    `SagaProgressComponent`, `WorkflowSagaConcordo`.
+  - **Concordo Protocol + Catalog** (`concordos/__init__.py`):
+    `Concordo` (runtime-checkable) and `ConcordoCatalog`
+    (idempotent install, dedup by name).
+  - **CLI scaffold** (`knt concordo add fsm` / `knt concordo
+    new saga`): generates typed config + stub test.
+  - **SUT builders** (`kntgraph.testing`): `AgentViewBuilder` /
+    `WorldBuilder` / `run_system` — build a `World` without
+    mocks, Redis, or fabricated `Event` envelopes.
+  - **Clock module** (`core/clock.py`): `utcnow` (single
+    source), `Clock` type, `injectable_clock`, `monotonic`
+    re-export; `infra/checkpoint.utcnow` and
+    `core/event/validators.utcnow` now re-export it.
+
 - **ADR-068 Phase 4 (P4):** incremental cache refresh via
   a **parallel fold-cursor key** (`<cache_key>:fold_cursor`),
   not inside the cache payload. `BaseShortTermMemory`

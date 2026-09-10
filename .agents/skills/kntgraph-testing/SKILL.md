@@ -29,7 +29,14 @@ The project's `pyproject.toml` sets `asyncio_mode = "strict"`, which:
 - requires an explicit mark on every `async def test_*`
 - rejects stray marks on sync `def test_*`
 
-The gate is the `pytest -W error::pytest.PytestWarning` step in `scripts/ci.py`.
+The enforcement is the `tests` step in
+`scripts/ci.py`, which invokes pytest with
+`-W error::pytest.PytestWarning`. A stray mark
+turns into a warning; with `-W error`, that
+warning fails the run. There is **no separate
+step** for this check — the gate is the `tests`
+step's warning policy, not a 13th entry in the
+ci-gate skill table.
 
 ## 7.4 Shims that simulate production behaviour are a smell
 
@@ -61,8 +68,9 @@ a system observable, the system is broken in production
 — not in the test. Fix the system; the shim goes away
 with the fix.
 
-**Anti-pattern (the bug that motivated this rule):**
-in `tests/agents/unit/roles/test_role_systems.py`, an
+### Anti-pattern (the bug that motivated this rule)
+
+In `tests/agents/unit/roles/test_role_systems.py`, an
 `autouse=True` fixture installed a `_fold_with_filter`
 shim on `ReactiveDispatcher` that simulated memory
 hydration (`project_memory`). The shim made the 15
@@ -77,22 +85,26 @@ not function in production (no `SessionComponent` ever
 reached the `AgentView`). The 15 tests passed against
 a simulated dispatcher that masked the production bug.
 
-**Resolution (2026-08-26).** Delete the tests AND
-fix the production code. The 15 tests were deleted;
+### Resolution (2026-08-26)
+
+The shim was removed in
+`tests/agents/unit/roles/test_role_systems.py` (15 tests
+deleted) and replaced with the **real production code**.
 `src/kntgraph/runner/_folding.py::fold_with_filter`
-now composes ``project_memory`` between the default fold
-and the tool overlay. ``examples/05b`` and ``05c`` keep
+now composes `project_memory` between the default fold
+and the tool overlay (ADR-042 §6.1, ADR-059 §2.2).
+Three new integration tests in
+`tests/unit/runner/test_runner_split_modules.py`
+cover the composition. `examples/05b` and `05c` keep
 their internal shims for now (redundant but harmless);
 a follow-up should remove them now that production
-behaves correctly. Reintroducing role-system tests is
-now safe (they will exercise real production behaviour).
-fixture for a system that does not work; once the
-production bug is fixed (the dispatcher must compose
-`project_memory` per ADR-042 §6.1), the tests come
-back with a real (non-shimmed) dispatcher.
+behaves correctly. Reintroducing role-system tests
+that previously relied on the shim is now safe: they
+exercise real production behaviour.
 
-**Rule for new monkey-patches on core classes:** if
-you find yourself patching production code to make
+### Rule for new monkey-patches on core classes
+
+If you find yourself patching production code to make
 a test pass, **stop**. The patch is hiding a
 production bug. Either:
 
@@ -109,16 +121,3 @@ Do not rely on `autouse=True` to make a patch visible
 across files. Pytest does not guarantee the order of
 fixture setup across files, and the patch is hiding
 the very behaviour the test should be exercising.
-
-**Resolution (2026-08-26).** The shim that motivated this
-rule was removed in
-``tests/agents/unit/roles/test_role_systems.py`` (15 tests
-deleted) and replaced with the **real production code**.
-``src/kntgraph/runner/_folding.py::fold_with_filter``
-now composes ``project_memory`` between the default fold
-and the tool overlay (ADR-042 §6.1, ADR-059 §2.2).
-Three new integration tests in
-``tests/unit/runner/test_runner_split_modules.py``
-cover the composition. Reintroducing role-system tests
-that previously relied on the shim is now safe: they
-exercise real production behaviour.

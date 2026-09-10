@@ -1,6 +1,6 @@
 ---
 name: kntgraph-ci-gate
-description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 12-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Covers py_compile, ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression.
+description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 12-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Also use when deciding whether to run the gate at all (markdown-only edits do not need it). Covers py_compile, ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression, when not to run, markdown, ADR.
 ---
 
 <!--
@@ -30,7 +30,7 @@ It runs **12 steps in order**. All 12 must pass. There is no best-effort mode; t
 | `pyright`     | `pyright`             | Static type check (against the existing baseline) |
 | `tests`       | `pytest`              | Unit tests; fakeredis by default (`KNT_REDIS_FAKE=1`) |
 | `integration` | `pytest`              | Framework integration tests (opt-in via `--only`); Redis + FalkorDB + LLM |
-| `reliability` | `coverage.py`         | Branch coverage on `stream/`, `runner/`, `security/`; regression vs `.reliability-baseline.json` |
+| `reliability`  | `coverage.py`         | Branch coverage on `stream/`, `runner/`, `security/`, `resilience/`; regression vs `.reliability-baseline.json` |
 | `verticals`   | `coverage.py`         | Branch coverage on `agents/`, `api/`, `cli/`, `events/`, `knowledge/`, `memory/`; regression vs `.verticals-baseline.json` |
 | `bandit`      | `bandit`              | Security scan (`B110` filtered at severity medium) |
 | `audit`       | `pip-audit`           | Vulnerability scan of the resolved dep tree      |
@@ -39,7 +39,7 @@ It runs **12 steps in order**. All 12 must pass. There is no best-effort mode; t
 
 The `reliability` and `verticals` gates are deliberately parallel: same machinery (coverage.py, branch coverage, regression vs baseline), different scope and different ownership. They write to separate JSON files (`.coverage-reliability.json` and `.coverage-verticals.json`) and separate baseline files, so neither pollutes the other.
 
-**`reliability`** measures the safety-critical framework subset: `src/kntgraph/stream/`, `src/kntgraph/runner/`, `src/kntgraph/security/`. A regression here is an MC/DC-floor signal; the framework team owns the action.
+**`reliability`** measures the safety-critical framework subset: `src/kntgraph/stream/`, `src/kntgraph/runner/`, `src/kntgraph/security/`, `src/kntgraph/resilience/`. A regression here is an MC/DC-floor signal; the framework team owns the action.
 
 **`verticals`** measures the vertical packages per the type-discipline skill (§1.2): `src/kntgraph/agents/`, `api/`, `cli/`, `events/`, `knowledge/`, `memory/`. A regression here is a domain-quality signal; the vertical owner owns the action.
 
@@ -60,6 +60,43 @@ Update the baselines after intentional refactors:
 uv run scripts/ci.py --update-reliability-baseline
 uv run scripts/ci.py --update-verticals-baseline
 ```
+
+## When to run the gate (and when NOT to)
+
+The gate covers the **Python surface** of the
+project (`src/`, `tests/`, framework integration
+scripts). It does not cover other file types:
+
+| File touched                | Run gate? | Why |
+|-----------------------------|-----------|-----|
+| `.py` under `src/` or `tests/` | **Yes**  | All 12 steps apply. |
+| `.py` scripts in `scripts/` | **Yes**  | `complexity` and `pyright` walk them. |
+| `pyproject.toml`, `uv.lock`, `requirements*.txt` | **Yes**  | `audit` re-resolves the dep tree. |
+| `ADRs/*.md`                 | **No**   | The gate compiles Python, not markdown. ADRs are design docs; pyright / ruff / pytest do not see them. Read the ADR for consistency (cross-reference skill sections, type-discipline, naming) — do not run the gate. |
+| `docs/**/*.md`              | **No**   | Same as ADRs. |
+| `*.md` in repo root (README, CONTRIBUTING, DEBT, CHANGELOG) | **No**   | Same. |
+| `LICENSES/`, `REUSE.toml`   | **Only** the `reuse` step | The other 11 steps do not see these. |
+| `.radon-baseline.json`, `.pyright-baseline.json`, `.coverage-*.json` | **Only** the matching step | A baseline-only edit does not warrant a full run. |
+
+**Rule of thumb.** If `git diff --stat HEAD` does
+not list any `.py` / `pyproject.toml` /
+`requirements*.txt` / `uv.lock`, do not run the
+gate. Markdown-only edits (ADRs, docs, comments)
+are validated by **reading them**, not by running
+the CI.
+
+**Local iteration.** When only Python is in the
+diff, prefer the **narrow** commands in the
+"iteration recipes" section below — they run the
+relevant step in seconds and skip the ones that
+cannot move (e.g. `bandit` and `pip-audit` only
+matter on dependency changes).
+
+**Pre-commit hook.** The hook runs the full set
+without flags. There is no need to re-run the
+full set locally before every commit if a narrow
+loop has already validated the change; the hook
+is the canonical pre-merge gate.
 
 ## Iteration recipes
 
