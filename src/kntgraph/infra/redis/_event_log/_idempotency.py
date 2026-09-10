@@ -37,6 +37,7 @@ from __future__ import annotations
 from .._client import RedisLike
 from .._codec import decode_value
 from .._errors import IdempotencyConflict
+from ._keys import IDEMPOTENCY_TTL_DEFAULT
 
 
 PLACEHOLDER: str = "PLACEHOLDER"
@@ -103,9 +104,13 @@ async def _finalize_phase(
     redis: RedisLike,
     idem_key: str,
     stream_id: str,
+    ttl_seconds: int = IDEMPOTENCY_TTL_DEFAULT,
 ) -> None:
     """Phase 3: replace the placeholder with the final stream_id."""
-    await redis.set(idem_key, stream_id)
+    if ttl_seconds > 0:
+        await redis.set(idem_key, stream_id, ex=ttl_seconds)
+    else:
+        await redis.set(idem_key, stream_id)
 
 
 async def claim_event_id_slot(
@@ -114,13 +119,14 @@ async def claim_event_id_slot(
     stream_key: str,
     payload: dict,
     maxlen: int,
+    ttl_seconds: int = IDEMPOTENCY_TTL_DEFAULT,
 ) -> str:
     """Three-phase orchestrator. See module docstring."""
     existing = await _check_phase(redis, idem_key)
     if existing is not None:
         return existing
     stream_id = await _claim_phase(redis, stream_key, payload, maxlen, idem_key)
-    await _finalize_phase(redis, idem_key, stream_id)
+    await _finalize_phase(redis, idem_key, stream_id, ttl_seconds=ttl_seconds)
     return stream_id
 
 

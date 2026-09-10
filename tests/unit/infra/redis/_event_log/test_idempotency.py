@@ -119,14 +119,24 @@ class TestClaimPhase:
 
 
 class TestFinalizePhase:
-    async def test_replaces_placeholder_with_stream_id(self):
+    async def test_replaces_placeholder_with_stream_id_and_sets_ttl(self):
         from kntgraph.infra.redis._event_log._idempotency import (
             _finalize_phase,
         )
 
         redis = MagicMock()
         redis.set = AsyncMock()
-        await _finalize_phase(redis, IDEM_KEY, STREAM_ID)
+        await _finalize_phase(redis, IDEM_KEY, STREAM_ID, ttl_seconds=86400)
+        redis.set.assert_awaited_once_with(IDEM_KEY, STREAM_ID, ex=86400)
+
+    async def test_replaces_placeholder_without_ttl_if_zero(self):
+        from kntgraph.infra.redis._event_log._idempotency import (
+            _finalize_phase,
+        )
+
+        redis = MagicMock()
+        redis.set = AsyncMock()
+        await _finalize_phase(redis, IDEM_KEY, STREAM_ID, ttl_seconds=0)
         redis.set.assert_awaited_once_with(IDEM_KEY, STREAM_ID)
 
 
@@ -155,6 +165,8 @@ class TestOrchestrator:
         pipe.__aexit__ = AsyncMock(return_value=None)
         redis.set = AsyncMock()
 
-        result = await claim_event_id_slot(redis, IDEM_KEY, "stream", {"k": "v"}, 100)
+        result = await claim_event_id_slot(
+            redis, IDEM_KEY, "stream", {"k": "v"}, 100, ttl_seconds=86400
+        )
         assert result == "123-0"
-        redis.set.assert_any_await(IDEM_KEY, "123-0")
+        redis.set.assert_any_await(IDEM_KEY, "123-0", ex=86400)
