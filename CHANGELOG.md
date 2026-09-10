@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-09-10
+
 ### Fixed
 
 - **ReactiveDispatcher push-first spin-loop fix (ADR-068 §3.2):**
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `subscribe()` fails. `_wake_once()` now sleeps `_interval`
   before returning without blocking on `subscribe()`, bounding
   unseeded/idle Redis queries to the configured `poll_interval` cadence.
+
 
 ## [0.15.0] — 2026-09-07
 
