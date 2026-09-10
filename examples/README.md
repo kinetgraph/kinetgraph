@@ -40,6 +40,7 @@ directly with `python` or via `uv run`.
 | 22  | `22_sse_subscribe.py`                 | SSE subscribe to a request's result: `GET /agents/{id}/events` (ADR-065 §3.1) — replaces long-poll | core                 |
 | 23  | `23_business_fsm.py`                 | BusinessFSM Concordo (ADR-069 §3): pure state machine over a `DomainComponent` — guards, on-entry events, terminal states | core                 |
 | 24  | `24_workflow_saga.py`                | WorkflowSaga Concordo (ADR-069 §4): orchestrate tool calls — steps, enrichment, compensation, timeouts | core                 |
+| 25  | `25_specification_pattern.py`        | Specification Pattern (ADR-069 §2): composable business rules — `and_`, `or_`, `not_`, custom & built-in specs | core                 |
 
 ## Setup
 
