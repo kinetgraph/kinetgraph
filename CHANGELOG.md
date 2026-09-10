@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ReactiveDispatcher push-first spin-loop fix (ADR-068 §3.2):**
+  Fixed CPU-bound 0ms spin-loop in `ReactiveDispatcher._wake_once()`
+  when `wake_on_event=True` and no agents have durable cursors
+  seeded yet (`_has_subscribable_agents()` is `False`), or when
+  `subscribe()` fails. `_wake_once()` now sleeps `_interval`
+  before returning without blocking on `subscribe()`, bounding
+  unseeded/idle Redis queries to the configured `poll_interval` cadence.
+
+## [0.15.0] — 2026-09-07
+
 ### Added
 
 - **ADR-069 — Agent Concordos (BusinessFSM + WorkflowSaga):**

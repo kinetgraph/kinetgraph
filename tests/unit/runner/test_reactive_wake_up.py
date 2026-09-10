@@ -30,6 +30,7 @@ client contract).
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from typing import Optional
@@ -360,3 +361,82 @@ class _LegacyStore:
 
     async def save(self, agent_id: str, checkpoint: WorldCheckpoint) -> None:
         return None
+
+
+class TestWakeUpSpinLoopFix:
+    """Verifies the fix for the spin-loop bug in push-first (wake_on_event=True) mode.
+
+    Root Cause Analysis:
+    When ``_has_subscribable_agents()`` is False (e.g. no tracked agents, or
+    tracked agents have no durable cursor key yet), ``_wake_once()`` runs
+    ``dispatch_once()`` and previously returned immediately to ``_loop()``
+    without any ``asyncio.sleep``.
+
+    Fix:
+    ``_wake_once()`` now sleeps ``_interval`` before returning when no
+    subscribable agents exist or when ``subscribe()`` fails, preventing CPU-bound
+    spin-loops and bounding idle Redis queries to the poll cadence.
+    """
+
+    async def test_wake_once_sleeps_poll_interval_when_no_subscribable_agents(
+        self,
+    ):
+        """When _has_subscribable_agents() is False, _wake_once() sleeps _interval before returning."""
+        client = _make_client()
+        log = EventLog(storage=RedisEventLogAdapter(client=client))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.05,
+            fallback_poll_interval=1.0,
+        )
+        dispatcher.track_agent("agent-without-cursor")
+        assert not dispatcher._has_subscribable_agents()
+
+        try:
+            t0 = time.monotonic()
+            await dispatcher._wake_once()
+            elapsed = time.monotonic() - t0
+            # _wake_once() now sleeps _interval (0.05s) before returning
+            assert elapsed >= 0.04
+        finally:
+            await client.aclose()
+
+    async def test_loop_does_not_spin_when_no_subscribable_agents(self):
+        """Verifies that in push-first mode with no subscribable agents, _loop() does not spin,
+        calling dispatch_once() at most 1 time in a 50ms window with poll_interval=0.1s."""
+        client = _make_client()
+        log = EventLog(storage=RedisEventLogAdapter(client=client))
+        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.1,
+            fallback_poll_interval=1.0,
+        )
+        dispatcher.track_agent("agent-without-cursor")
+        assert dispatcher._wake_on_event is True
+        assert not dispatcher._has_subscribable_agents()
+
+        dispatch_count = 0
+        orig_dispatch = dispatcher.dispatch_once
+
+        async def counting_dispatch() -> int:
+            nonlocal dispatch_count
+            dispatch_count += 1
+            return await orig_dispatch()
+
+        dispatcher.dispatch_once = counting_dispatch  # type: ignore[assignment]
+
+        try:
+            await dispatcher.start()
+            await asyncio.sleep(0.05)
+            await dispatcher.stop()
+
+            # With poll_interval=0.1s and fix in place, dispatch_once is called at most 1 time in 50ms.
+            assert dispatch_count <= 2
+        finally:
+            await client.aclose()

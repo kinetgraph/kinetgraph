@@ -610,6 +610,7 @@ class ReactiveDispatcher:
             # cursor). The full sweep also seeds the cursors.
             await self.dispatch_once()
             self._next_fallback_at = time.monotonic() + self._fallback_interval
+            await asyncio.sleep(self._interval)
             return
 
         block_ms = int(self._fallback_interval * 1000)
@@ -629,6 +630,7 @@ class ReactiveDispatcher:
             logger.warning("reactive.wake.subscribe_failed", error=str(e))
             await self.dispatch_once()
             self._next_fallback_at = time.monotonic() + self._fallback_interval
+            await asyncio.sleep(self._interval)
             return
 
         # The subscribe cursors advanced for the agents that
