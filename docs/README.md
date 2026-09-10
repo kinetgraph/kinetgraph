@@ -70,6 +70,9 @@ historical records).
 - [WorkflowSaga](workflow_saga.md) — the tool-call
   orchestration Concordo (ADR-069 §4): steps,
   enrichment, compensation, timeouts.
+- [Specification Pattern](specification_pattern.md) —
+  composable business rules (ADR-069 §2): fluent
+  composition (`and_`, `or_`, `not_`), guards, and conditions.
 
 ## Release process
 
