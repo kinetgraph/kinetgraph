@@ -33,6 +33,9 @@ SCAN_PATTERN: str = "knt:agents:*:events"
 MAXLEN_DEFAULT: int = 100_000
 """Default per-stream MAXLEN (auto-trim). Override per adapter."""
 
+IDEMPOTENCY_TTL_DEFAULT: int = 86_400
+"""Default TTL in seconds for the event_id idempotency index (24 hours)."""
+
 
 def stream_key_for_agent(agent_id: str) -> str:
     """Build the stream key for an agent."""
@@ -61,6 +64,7 @@ def parse_agent_id_from_stream_key(key: str) -> str | None:
 __all__ = [
     "AGENT_STREAM_KEY",
     "EVENT_ID_INDEX",
+    "IDEMPOTENCY_TTL_DEFAULT",
     "MAXLEN_DEFAULT",
     "SCAN_PATTERN",
     "event_id_key",
