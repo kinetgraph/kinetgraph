@@ -35,6 +35,7 @@ from .._client import RedisLike
 from .._errors import IdempotencyConflict
 from . import _idempotency
 from ._keys import (
+    IDEMPOTENCY_TTL_DEFAULT,
     MAXLEN_DEFAULT,
     SCAN_PATTERN,
     event_id_key,
@@ -131,6 +132,7 @@ class RedisEventLogAdapter:
 
     client: RedisLike
     maxlen: int = MAXLEN_DEFAULT
+    idempotency_ttl: int = IDEMPOTENCY_TTL_DEFAULT
 
     async def append(
         self, *, agent_id: str, event: Event
@@ -145,6 +147,7 @@ class RedisEventLogAdapter:
                 stream_key=stream_key_for_agent(agent_id),
                 payload=_event_to_redis(event),
                 maxlen=self.maxlen,
+                ttl_seconds=self.idempotency_ttl,
             )
         except IdempotencyConflict:
             logger.debug(
