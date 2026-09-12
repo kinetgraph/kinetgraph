@@ -146,7 +146,7 @@ result = await worker.invoke(
 | **Domain memory** | Fold domain events into frozen ECS `@dataclass` components attached to the `World` entity (no volatile sliding window required). |
 | **Zero-Token Architecture** | `RuleBasedChatSystem` short-circuits deterministic intents; `SolutionLookupSystem` synthesises cached completions before calling the LLM. |
 | **Semantic routing** | Opt-in GLiNER2 intent classification and argument extraction in the `agents` sub-module. |
-| **Solution tier** | Successful tool calls are promoted to reusable Solution nodes in FalkorDB, with per-tenant allow-list and human-in-the-loop review. |
+| **Solution tier** | Successful tool calls are promoted to reusable Solution nodes in Redis Hashes + HNSW vector index (ADR-062), orchestrated via `KnowledgeConsolidationSaga` (ADR-069) with LGPD PII gate. |
 
 ## CLI scaffold
 
@@ -256,6 +256,12 @@ uv run pytest tests/scripts/
 - [CLI Guide](docs/cli_guide.md) — scaffolding projects, contexts, systems, tools, and agents.
 - [docs/](docs/README.md) — full index of all docs.
 - [ADRs/](ADRs/) — Architecture Decision Records.
+
+### Active Architecture Decision Records (In Progress)
+
+- **[ADR-062](ADRs/ADR-062-GraphRAG-redis-graphblas.md)** — **GraphRAG in Redis with PyGraphBLAS & WorkflowSagaConcordo**: Complete FalkorDB decommissioning, native Redis vector search (HNSW `< 2ms`), PyGraphBLAS C sparse matrix analytics, and single Redis infrastructure.
+- **[ADR-069](ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md)** — **Agent Concordo Macro Behaviors**: Pure BusinessFSM & WorkflowSaga orchestration patterns.
+- **[ADR-070](ADRs/ADR-070-Entity-Relation-Extraction-Concordo-Pipeline.md)** — **Entity & Relation Extraction Concordo Pipeline**: Decoupled extraction saga with Human-in-the-Loop (HITL) confidence gating (`< 0.80`) to prevent ontology drift and specialized `@tool_worker` tools.
 
 ## Quality gates
 
