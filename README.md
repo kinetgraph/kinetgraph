@@ -262,6 +262,7 @@ uv run pytest tests/scripts/
 - **[ADR-062](ADRs/ADR-062-GraphRAG-redis-graphblas.md)** — **GraphRAG in Redis with PyGraphBLAS & WorkflowSagaConcordo**: Complete FalkorDB decommissioning, native Redis vector search (HNSW `< 2ms`), PyGraphBLAS C sparse matrix analytics, and single Redis infrastructure.
 - **[ADR-069](ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md)** — **Agent Concordo Macro Behaviors**: Pure BusinessFSM & WorkflowSaga orchestration patterns.
 - **[ADR-070](ADRs/ADR-070-Entity-Relation-Extraction-Concordo-Pipeline.md)** — **Entity & Relation Extraction Concordo Pipeline**: Decoupled extraction saga with Human-in-the-Loop (HITL) confidence gating (`< 0.80`) to prevent ontology drift and specialized `@tool_worker` tools.
+- **[ADR-071](ADRs/ADR-071-KNT-SaaS-Decoupled-Engine.md)** — **KNT-SaaS Decoupled Engine**: Control Plane (DSL DSL interpreter & FSM/Saga runner) vs Execution Plane (WorkerManager cluster autoscaling with KEDA).
 
 ## Quality gates
 

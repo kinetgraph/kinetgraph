@@ -104,3 +104,5 @@ contributors:
   BusinessFSM & WorkflowSaga macro-behavior patterns.
 - [ADR-070: Entity & Relation Extraction Pipeline](../ADRs/ADR-070-Entity-Relation-Extraction-Concordo-Pipeline.md) —
   decoupled extraction saga with Human-in-the-Loop (HITL) for low-confidence spans (< 0.80).
+- [ADR-071: KNT-SaaS Decoupled Engine](../ADRs/ADR-071-KNT-SaaS-Decoupled-Engine.md) —
+  Control Plane (pure DSL runner & crash recovery) vs Execution Plane (WorkerManager KEDA autoscaling).
