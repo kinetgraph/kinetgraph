@@ -98,3 +98,11 @@ contributors:
   used throughout the codebase.
 - [ADR-036: Open-Source — Rename to `kntgraph`](../ADRs/ADR-036-Open-Source-KntGraph.md) —
   the rename from `fmh_*` to `kntgraph`.
+- [ADR-062: GraphRAG in Redis + PyGraphBLAS](../ADRs/ADR-062-GraphRAG-redis-graphblas.md) —
+  decommissioning FalkorDB, native Redis vector search, PyGraphBLAS C matrix analytics.
+- [ADR-069: Agent Concordo Macro Behaviors](../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+  BusinessFSM & WorkflowSaga macro-behavior patterns.
+- [ADR-070: Entity & Relation Extraction Pipeline](../ADRs/ADR-070-Entity-Relation-Extraction-Concordo-Pipeline.md) —
+  decoupled extraction saga with Human-in-the-Loop (HITL) for low-confidence spans (< 0.80).
+- [ADR-071: KNT-SaaS Decoupled Engine](../ADRs/ADR-071-KNT-SaaS-Decoupled-Engine.md) —
+  Control Plane (pure DSL runner & crash recovery) vs Execution Plane (WorkerManager KEDA autoscaling).
