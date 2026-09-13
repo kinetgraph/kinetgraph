@@ -32,9 +32,15 @@ to the builtins; this module just bridges from
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from ._mini_lang import BUILTIN_SPECS, evaluate, is_pure_name, NameLookup, parse_expression
+from ._mini_lang import (
+    BUILTIN_SPECS,
+    evaluate,
+    is_pure_name,
+    NameLookup,
+    parse_expression,
+)
 from .base import Specification, StepContext
 
 if TYPE_CHECKING:
@@ -212,8 +218,7 @@ def build_builtin_spec(name: str, args: tuple[Any, ...]) -> Specification:
     """
     if name not in BUILTIN_SPECS:
         raise ValueError(
-            f"unknown built-in spec: {name!r}; "
-            f"available: {sorted(BUILTIN_SPECS)}"
+            f"unknown built-in spec: {name!r}; available: {sorted(BUILTIN_SPECS)}"
         )
     factory = BUILTIN_SPECS[name]
     # Coerce args: most builtins take strings (step_name,
@@ -221,7 +226,6 @@ def build_builtin_spec(name: str, args: tuple[Any, ...]) -> Specification:
     # are accepted as-is for future flexibility (e.g.,
     # numeric comparisons in mini-language specs).
     coerced = tuple(
-        str(a) if isinstance(a, (str, int, float, bool)) else a
-        for a in args
+        str(a) if isinstance(a, (str, int, float, bool)) else a for a in args
     )
     return factory(*coerced)
