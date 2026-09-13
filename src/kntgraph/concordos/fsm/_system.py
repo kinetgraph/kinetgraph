@@ -270,15 +270,19 @@ class FSMSystem:
             )
 
         if transition.guard is not None:
+            # ADR-069 §2.1: cross-agent access via an
+            # opt-in resolver. The resolver is a pure
+            # closure over the post-fold World; specs
+            # that don't need it receive ``None``.
             ctx = StepContext(
                 step_results=MappingProxyType({}),
                 step_states=MappingProxyType({}),
                 domain=component,
                 continuity=view.get_component(ContinuityComponent),
                 profile=view.get_component(ProfileComponent),
-                world=world,
                 agent_id=view.agent_id,
                 now=self._now(),
+                cross_agent_resolver=lambda aid: world.views.get(aid),
             )
             if not transition.guard.is_satisfied_by(ctx):
                 return (

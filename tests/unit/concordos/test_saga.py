@@ -855,7 +855,6 @@ def test_saga_next_non_skipped_step_unknown_current() -> None:
         domain=None,
         continuity=None,
         profile=None,
-        world=WorldBuilder().build(),
         agent_id="agent-1",
         now=FIXED_NOW,
     )

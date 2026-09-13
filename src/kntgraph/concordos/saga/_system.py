@@ -316,9 +316,9 @@ class SagaSystem:
             domain=view.get_component(DomainComponent),
             continuity=view.get_component(ContinuityComponent),
             profile=view.get_component(ProfileComponent),
-            world=world,
             agent_id=view.agent_id,
             now=self._now(),
+            cross_agent_resolver=lambda aid: world.views.get(aid),
         )
 
         # Check proceed_when on success
@@ -447,9 +447,9 @@ class SagaSystem:
             domain=None,
             continuity=None,
             profile=None,
-            world=world,
             agent_id=view.agent_id,
             now=self._now(),
+            cross_agent_resolver=lambda aid: world.views.get(aid),
         )
         for step_name in reversed(saga.compensate_stack):
             step_cfg = self._step_map.get(step_name)
@@ -653,7 +653,6 @@ class SagaSystem:
             domain=None,
             continuity=None,
             profile=None,
-            world=World.empty(),
             agent_id=trigger.agent_id,
             now=self._now(),
         )

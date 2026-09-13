@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import MappingProxyType
 
+import pytest
+
 from kntgraph.concordos import (
     AndSpec,
     ContinuityToolUsed,
@@ -52,18 +54,22 @@ def _ctx(
     domain: DomainComponent | None = None,
     continuity: ContinuityComponent | None = None,
     profile: ProfileComponent | None = None,
+    cross_agent_resolver=None,
 ) -> StepContext:
-    """Build a ``StepContext`` with the given state and a real
-    (empty) ``World``."""
+    """Build a ``StepContext`` with the given state. The
+    ``cross_agent_resolver`` is ``None`` by default
+    (specs that don't need cross-agent access receive
+    ``None``); tests can pass an explicit resolver.
+    """
     return StepContext(
         step_results=MappingProxyType(step_results or {}),
         step_states=MappingProxyType(step_states or {}),
         domain=domain,
         continuity=continuity,
         profile=profile,
-        world=World.empty(),
         agent_id="agent-1",
         now=FIXED_NOW,
+        cross_agent_resolver=cross_agent_resolver,
     )
 
 
@@ -253,3 +259,106 @@ def test_composed_guard_reads_like_business_rule() -> None:
         ),
     )
     assert guard.is_satisfied_by(ctx_blocked) is False
+
+
+# ---------------------------------------------------------------------------
+# cross_agent_resolver (ADR-069 §2.1)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossAgentResolver:
+    """Tests for the opt-in cross-agent access via
+    ``StepContext.cross_agent_resolver`` (ADR-069 §2.1).
+
+    Specifications that need to read another agent's view
+    declare a constructor parameter holding a resolver and
+    call it inside ``is_satisfied_by``. Specifications that
+    do not declare the parameter receive ``None`` and
+    cannot reach the World.
+
+    This is the inverse of the old design (carrying the
+    whole ``World`` in ``StepContext``), which let every
+    spec do an O(N) scan — the "FSM guard is cheap"
+    contract was broken for any spec that touched world.
+    """
+
+    def test_default_resolver_is_none(self) -> None:
+        """A StepContext built without explicit resolver
+        carries ``cross_agent_resolver=None``.
+        """
+        ctx = _ctx()
+        assert ctx.cross_agent_resolver is None
+
+    def test_spec_without_resolver_receives_none(self) -> None:
+        """A spec that does not opt in cannot reach the
+        World — the resolver is ``None``.
+        """
+        @dataclass(frozen=True, slots=True)
+        class WantsResolver(Specification):
+            def is_satisfied_by(self, ctx: StepContext) -> bool:
+                # Should never be reached: no resolver, so
+                # no access. Returning False keeps the test
+                # honest.
+                resolver = ctx.cross_agent_resolver
+                if resolver is None:
+                    return False
+                other = resolver("some-other-agent")
+                return other is not None
+
+        # Without a resolver, the spec cannot see other agents.
+        assert not WantsResolver().is_satisfied_by(_ctx())
+
+    def test_spec_with_resolver_can_read_other_agents(self) -> None:
+        """A spec that opts in receives a callable and can
+        read other agents' views via the resolver.
+        """
+        from kntgraph.core.world.view import AgentView
+
+        @dataclass(frozen=True, slots=True)
+        class OtherAgentIsVIP(Specification):
+            def is_satisfied_by(self, ctx: StepContext) -> bool:
+                resolver = ctx.cross_agent_resolver
+                if resolver is None:
+                    return False
+                other_view = resolver("finance-1")
+                if other_view is None:
+                    return False
+                profile = other_view.get_component(ProfileComponent)
+                return profile is not None and profile.tier == "vip"
+
+        # The resolver returns None for missing agents.
+        resolver = lambda aid: None
+        assert not OtherAgentIsVIP().is_satisfied_by(
+            _ctx(cross_agent_resolver=resolver)
+        )
+
+        # The resolver returns the view for present agents.
+        finance_view = AgentView(
+            agent_id="finance-1",
+            components={
+                ProfileComponent: ProfileComponent(
+                    tenant_id="t-1", user_id="u-1", tier="vip"
+                )
+            },
+        )
+        resolver = lambda aid: finance_view if aid == "finance-1" else None
+        assert OtherAgentIsVIP().is_satisfied_by(
+            _ctx(cross_agent_resolver=resolver)
+        )
+
+    def test_no_world_field_on_step_context(self) -> None:
+        """The ``world`` field is gone (ADR-069 §2.1). A
+        spec that tried to access it would get a
+        ``TypeError`` at construction time.
+        """
+        with pytest.raises(TypeError):
+            StepContext(  # type: ignore[call-arg]
+                step_results=MappingProxyType({}),
+                step_states=MappingProxyType({}),
+                domain=None,
+                continuity=None,
+                profile=None,
+                agent_id="agent-1",
+                now=FIXED_NOW,
+                world=World.empty(),  # <- rejected
+            )
