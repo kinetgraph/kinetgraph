@@ -678,29 +678,45 @@ class TestCursorPrimitive:
         # the world).
         assert view.cursors[sys_name] == str(seed.event_id)
 
-    async def test_dispatcher_skips_cursor_when_no_events_emitted(self) -> None:
-        """Silent systems: no cursor is recorded (the
-        dispatcher still tracks emitters, but the set is
-        empty, so no advance).
+    async def test_dispatcher_advances_cursor_when_system_runs(self) -> None:
+        """Cursor advances when the system RUNS, not only
+        when it emits. A silent system that doesn't emit
+        anything still moves its cursor forward so it
+        doesn't re-process the same events on the next
+        tick.
         """
+        from dataclasses import replace
+
         cap = _Captured()
         log = _FakeEventLog(cap)
         store = _FakeWorldStore(cap)
         dispatcher = _build_dispatcher(log=log, store=store)
 
+        # Seed an event so the world has a ``last_event_id``
+        # (otherwise the cursor advances are skipped by
+        # ``_advance_cursors_in_world`` when no anchor).
+        seed = _seed_event("a-1", "seed.evt")
+
+        # A silent system (returns []).
         dispatcher._systems = [lambda _w: []]
 
+        world_with_seed = World.empty().with_event(seed)
         await run_systems_and_persist(
-            dispatcher, "a-1", World.empty(), "1-0", 0, []
+            dispatcher, "a-1", world_with_seed, "1-0", 1, [seed]
         )
 
-        # The world has no views (World.empty); the cursor
-        # set is empty (no emissions), so nothing to advance.
-        # No exception, no allocation.
-        if cap.saved:
-            saved_world = cap.saved[0][1].world
-            for view in saved_world.views.values():
-                assert view.cursors == {}
+        # The system RAN (cursor advances per-run, not
+        # per-emit). The cursor advanced even though no
+        # events were emitted. The cursor key is
+        # ``type(lambda).__name__`` = ``"function"`` here
+        # because the lambda doesn't define
+        # ``__fsm_system_name__``.
+        assert cap.saved, "checkpoint was not saved"
+        saved_world = cap.saved[0][1].world
+        view = saved_world.views["a-1"]
+        # Cursor advanced to the seed's event_id.
+        assert "function" in view.cursors
+        assert view.cursors["function"] == str(seed.event_id)
 
     async def test_cross_agent_emission_advances_target_agent_cursor(self) -> None:
         """A system emits for agent B while processing

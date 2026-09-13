@@ -16,7 +16,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 __all__ = ["FSMAuditComponent"]
 
@@ -29,14 +28,10 @@ class FSMAuditComponent:
     Materialised from ``fsm.transitioned`` events.
     Read-only for external systems.
 
-    ``last_processed_event_id`` is the cursor the FSM uses
-    to detect transitions that ``view.domain_phase`` (a
-    single slot) would have hidden when an agent produces
-    more than one domain event in a tick (ADR-069 §11.16,
-    §11.18.1). It is set to the trigger's ``event_id`` every
-    time the FSM emits a ``fsm.transitioned``; on the next
-    tick the FSM compares it against the EventLog to run the
-    delta-scan.
+    The FSM's delta-scan cursor lives in ``view.cursors``
+    (ADR-074), not on this component — earlier drafts
+    reserved ``last_processed_event_id`` here but the
+    framework cursor is the canonical home.
     """
 
     from_state: str
@@ -45,4 +40,3 @@ class FSMAuditComponent:
     trigger_event_id: str
     transitioned_at: datetime
     guard_evaluated: bool
-    last_processed_event_id: Optional[str] = None
