@@ -123,40 +123,57 @@ catches drift and the `app_runner.py` (see §6.1)
 reads as a typed composition:
 
 ```python
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 
-@runtime_checkable
 class Concordo(Protocol):
     """
-    The public surface every Concordo exposes.
+    Public surface every Concordo bundle exposes.
 
-    ``name``    -- stable identifier (``fsm:Invoice``,
-                   ``saga:nfe_emission``,
-                   ``pipeline:fiscal_document_processing``).
-                   Used by the framework's `ConcordoCatalog`
-                   (§6.3) and by log/metrics tagging.
-    ``version`` -- semver string. Bumping it is the
-                   recommended migration signal when a
-                   Concordo's emitted event schema or
-                   state semantics change.
-    ``install`` -- idempotent registration against the
-                   ``ReactiveDispatcher``. Each Concordo
-                   registers one or more ``WorldSystem``s
-                   (the post-ADR-018 shape) via
-                   ``dispatcher.add_system(...)``.
-                   Install may be called multiple times
-                   safely; the dispatcher keeps a list
-                   and a second ``add_system`` call would
-                   duplicate the system. The
-                   ``ConcordoCatalog.install_all``
-                   (§6.3) de-duplicates by name.
+    A Concordo is a **frozen bundle** of ``(name,
+    systems, projections)``. It does NOT mutate the
+    dispatcher — the framework's pattern is that the
+    caller constructs systems/projections with their
+    config and passes them to ``dispatcher.add_system``
+    / ``dispatcher.add_projection`` (see
+    ``runner/reactive.py:360,363``). The catalog
+    (§6.3) follows the same pattern: it iterates the
+    bundle and calls the dispatcher's registration
+    methods.
+
+    ``name``       -- stable identifier
+                      (``fsm:Invoice``, ``saga:nfe_emission``).
+                      Used by the catalog's dedup and by
+                      log/metrics tagging.
+    ``systems``    -- tuple of ``WorldSystem`` instances
+                      the dispatcher should register.
+    ``projections`` -- tuple of ``WorldProjection``
+                      instances the dispatcher should
+                      register.
+
+    The Protocol is structural — concrete bundles
+    (FSM, Saga) are frozen dataclasses that satisfy
+    it without explicit inheritance. There is no
+    ``install()`` method: the dispatcher is the
+    only thing that registers systems, and the
+    registration API is the same for everyone
+    (Concordos, role systems, TTL sweeper, custom
+    vertical systems).
+
+    **No ``version`` field.** Earlier drafts included
+    a semver string on the Protocol as the
+    "recommended migration signal" when a Concordo's
+    emitted event schema or state semantics changed.
+    That field was decorative — no consumer read it,
+    and no migration registry exists. The field is
+    reintroduced only when a consumer (migration
+    registry, schema catalog, dead-event rejector)
+    actually exists.
     """
 
     name: str
-    version: str
-
-    def install(self, dispatcher: "ReactiveDispatcher") -> None: ...
+    systems: tuple["WorldSystem", ...]
+    projections: tuple["WorldProjection", ...]
 ```
 
 The two Concordos proposed by this ADR
@@ -230,6 +247,7 @@ LSP inconsistency between Protocol and concrete
 ```python
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
@@ -238,7 +256,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
     from kntgraph.core.world.component import DomainComponent
-    from kntgraph.core.world.world import World
     from kntgraph.core.world.view import AgentView
     from kntgraph.core.components.memory import (
         ContinuityComponent,
@@ -264,22 +281,31 @@ class StepContext:
     ``datetime.now()`` inside ``is_satisfied_by``
     would break replay determinism.
 
-    **World access policy.** ``world`` is the
-    full post-fold ``World``. Specifications MAY
-    read any agent's view via
-    ``world.get_agent(agent_id)`` or iterate via
-    ``world.agents``. This is required for
-    cross-agent rules (e.g. "only proceed if the
-    financial-control agent's tier is VIP") and
-    is the documented escape hatch for
-    Specifications that need global state. The
-    precedent is set by
-    ``MemoryConsolidationSystem`` and
-    ``SolutionExtractorSystem`` (both iterate
-    ``world.agents`` to reason about other
-    agents in the same tick).
+    **Cross-agent access is opt-in.** A Specification
+    that needs to read another agent's view (e.g.
+    "proceed iff the financial-control agent's tier
+    is VIP") declares an opt-in by accepting a
+    ``cross_agent_resolver`` at construction time and
+    reading from it inside ``is_satisfied_by``. The
+    resolver is built by the application at
+    Concordo-install time (typically a closure over
+    the post-fold ``World``). The ``StepContext``
+    itself does NOT carry the ``World`` — that would
+    make every guard FSM an O(N) scan over
+    ``world.agents`` and break the "FSM guard is
+    cheap" contract (§3.1).
 
-    Specifications MUST NOT mutate the World,
+    The earlier draft (§11.18.4) granted
+    ``world.get_agent(...)`` and ``world.agents``
+    directly inside the context. That made the
+    escape hatch too easy to reach: a Spec author
+    would not realise the per-tick cost until
+    production. PR 5 of the refactor plan replaces
+    the bare ``world`` field with the explicit
+    resolver hook, so the cost is visible at the
+    call site.
+
+    Specifications MUST NOT mutate any agent view,
     emit events, or perform I/O. The
     ``is_satisfied_by`` method is pure; the
     emitted events belong to the system that
@@ -291,9 +317,17 @@ class StepContext:
     domain: "DomainComponent | None"
     continuity: "ContinuityComponent | None"
     profile: "ProfileComponent | None"
-    world: "World"
     agent_id: str
     now: datetime
+    # Optional hook for cross-agent reads. ``None``
+    # means "this rule does not read other agents".
+    # A resolver accepts an ``agent_id`` and returns
+    # the corresponding ``AgentView`` (or ``None``).
+    # It is built by the application — typically a
+    # closure over the dispatcher's post-fold World —
+    # so a Specification stays testable in isolation
+    # (the test passes a dict-backed resolver).
+    cross_agent_resolver: "Callable[[str], AgentView | None] | None" = None
 
 
 class Composable:
@@ -499,14 +533,33 @@ class ContinuityToolUsed(Specification):
 ### 2.4 Domain-specific Specifications
 
 Business verticals define their own Specifications
-using the same protocol. Vertical Specifications
-**must** be zero-argument instantiable unless they
-genuinely need parameters — the FSM/Saga examples in
-§3.6 and §4.8 assume ``NfeRequired()`` /
-``TaxRegimeIs("simples")`` syntax. A Specification
-that requires runtime configuration (e.g. an injected
-clock) is broken by construction: configuration
-belongs in the Concordo config, not in the rule.
+using the same protocol. A vertical Specification must
+honour three rules:
+
+1. **No globals, no I/O.** The Specification must not
+   read module-level state, the file system, or the
+   network. ``is_satisfied_by`` is a pure function of
+   its constructor parameters and the ``StepContext``.
+2. **No clock injection.** Time-dependent rules must
+   read ``ctx.now`` (the dispatcher-injected clock),
+   not ``datetime.now()``. Otherwise the rule is not
+   deterministic on replay.
+3. **Parameters via constructor, not via the
+   Concordo config.** A Specification that varies per
+   deployment (e.g. ``TaxRegimeIs("simples")``) takes
+   the parameter in its constructor; a Specification
+   that varies per evaluation (e.g. the step result)
+   reads it from ``ctx``. Configuration that is
+   *constant* across the vertical's lifetime belongs
+   on the ``Concordo`` (or the YAML config, §14), not
+   in the Specification.
+
+The earlier draft phrased rule 3 as "Specifications
+must be zero-argument instantiable". That was
+incoherent (``TaxRegimeIs`` already takes a parameter
+in the very next sentence). The corrected rule is
+"parameters belong in the constructor; runtime context
+belongs in ``StepContext``".
 
 ```python
 # In fmh_office/concordos/specs.py
@@ -625,16 +678,37 @@ class FSMConfig:
 The FSM does not introduce a new component for
 state — state is in the existing `DomainComponent`
 (in `kntgraph.core.world.component`). It introduces
-one component for audit:
+one component for audit AND for the FSM's own
+delta-scan cursor:
 
 ```python
 @dataclass(frozen=True, slots=True)
 class FSMAuditComponent:
     """
-    Last transition record for this agent.
+    Last transition record for this agent PLUS the
+    delta-scan cursor the FSM uses to detect
+    transitions that ``view.domain_phase`` (a
+    single slot) would have hidden when an agent
+    produces more than one domain event in a tick.
 
-    Materialised from ``fsm.transitioned`` events.
-    Read-only for external systems.
+    **Audit fields.** ``from_state``, ``to_state``,
+    ``trigger_event_type``, ``trigger_event_id``,
+    ``transitioned_at``, ``guard_evaluated`` —
+    materialised from the latest ``fsm.transitioned``
+    event. Read-only for external systems.
+
+    **Cursor field.** ``last_processed_event_id`` is
+    the FSM's per-agent cursor (§11.16, §11.18.1).
+    It is the ``event_id`` of the most recent domain
+    event the FSM has processed for this agent. On
+    the next tick, the FSM compares it against
+    ``view.last_event_id``: when they diverge, the
+    FSM re-derives the missed triggers from the
+    EventLog between the cursor and the new
+    ``last_event_id``. This closes the single-slot
+    gap without extending ``AgentView`` (§11.16).
+    The cursor is updated every time the FSM emits
+    a ``fsm.transitioned`` for the agent.
     """
     from_state: str
     to_state: str
@@ -642,7 +716,13 @@ class FSMAuditComponent:
     trigger_event_id: str
     transitioned_at: datetime
     guard_evaluated: bool
+    last_processed_event_id: str | None = None
 ```
+
+The cursor field was declared but never written
+by the earlier draft (§11.18.1); PR 2 of the
+refactor plan implements the writer and the
+delta-scan reader in ``FSMSystem``.
 
 ### 3.4 WorldSystem implementation
 
@@ -750,6 +830,19 @@ class FSMSystem:
             # FSM has nothing to react to.
             return []
 
+        # The trigger's ``data`` is read from the component
+        # keyed by the trigger event type — the default fold
+        # installs the event payload under that component
+        # (§11.16). The saga reads it the same way (see
+        # §4.5); the FSM must too, otherwise a guard built
+        # on ``StepResultEquals`` or any payload-dependent
+        # Specification runs against an empty context.
+        trigger_data = view.components.get(trigger_type, {})
+        if not isinstance(trigger_data, Mapping):
+            trigger_data = MappingProxyType({})
+        else:
+            trigger_data = MappingProxyType(dict(trigger_data))
+
         # Single-slot caveat (see §11.18.1): when the fold
         # surfaces more than one domain event in the same
         # tick, ``view.last_event_id`` is the LAST one. The
@@ -760,13 +853,15 @@ class FSMSystem:
         # cursor and ``view.last_event_id``. On the happy
         # path (one event per tick, the common case) the
         # cursor matches and no scan runs. The scan is
-        # sketched at the end of §11.16.
+        # sketched at the end of §11.16 and implemented in
+        # PR 2 of the refactor plan.
         trigger = ViewTrigger(
             agent_id=view.agent_id,
             event_type=trigger_type,
             event_id=UUID(str(view.last_event_id))
             if view.last_event_id is not None
             else None,
+            data=trigger_data,
             correlation=correlation_middleware.current(),
         )
 
@@ -923,35 +1018,109 @@ one small argument instead of four, and so the ADR does
 not couple the systems to ``Event`` for reading a trigger
 that never came from a live envelope.
 
+### 3.4.1 Why `FSMProjection` and `SagaProjection` are necessary
+
+Both the FSM and the Saga require a post-fold
+projection that materialises a ``DomainComponent``
+or ``SagaProgressComponent`` from the events the
+saga system emitted. Two existing mechanisms were
+considered and rejected:
+
+1. **Existing overlay projections.** The framework
+   ships two ``WorldProjection`` implementations
+   today: ``MemoryHydrationProjection`` (which
+   reads ``session.*`` / ``profile.*`` /
+   ``continuity.*`` events) and the tool-call
+   overlay (which reads ``tool.*`` events via
+   ``overlay_tool_projection``). Neither knows
+   about ``fsm.transitioned`` or ``saga.<name>.*``
+   namespaces — extending them would couple
+   unrelated concerns.
+
+2. **``@domain_component`` decorator.** The
+   decorator in ``core/world/component.py``
+   auto-hydrates a component from the payload of
+   its own event type (``core/world/projection.py:332-336``
+   builds it via ``cls(**event.data)``). This works
+   for components whose full state fits in one
+   event's payload; it does **not** work for FSM
+   state advance (``fsm.transitioned`` carries only
+   ``from`` / ``to`` / ``trigger`` /
+   ``trigger_event_id`` — not the rest of the
+   ``InvoiceDomainComponent`` fields, which must
+   be preserved across the transition) or for the
+   saga (whose ``SagaProgressComponent`` is built
+   from multiple event types over time).
+
+Therefore both FSM and Saga ship a dedicated
+projection that follows the existing
+``WorldProjection`` Protocol
+(``runner/reactive_extensions.py:62``). They are
+**implementations of an existing extension
+point**, not new abstractions. They are
+registered via ``dispatcher.add_projection(...)``
+— the same API the application uses to register
+its own custom projections.
+
 ### 3.5 Concordo class
 
 ```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kntgraph.core.system import WorldSystem
+    from kntgraph.runner.reactive_extensions import WorldProjection
+    from ._config import FSMConfig
+    from ._state import FSMProjection
+    from ._system import FSMSystem
+
+
+@dataclass(frozen=True, slots=True)
 class BusinessFSMConcordo:
     """
-    C-01: BusinessFSM Concordo (Concordo Protocol §1.3.1).
+    C-01: BusinessFSM Concordo bundle (§1.3.1).
 
-    Registers a single ``FSMSystem`` on the
-    dispatcher. The dispatcher invokes ``install``
-    idempotently: ``ConcordoCatalog.install_all``
-    (§6.3) dedupes by ``name`` before calling it.
+    A frozen bundle of ``(config, name, systems,
+    projections)``. The Concordo is pure data — it
+    does NOT call ``dispatcher.add_system`` /
+    ``add_projection``. The catalog (§6.3) iterates
+    the bundle and registers the systems / projections
+    on the dispatcher. The application can also
+    iterate ``concordo.systems`` directly when it
+    wants finer control over the order of registration.
+
+    The trigger set from the previous draft is gone:
+    the post-ADR-018 dispatcher runs every registered
+    system on every tick and lets each system filter
+    via ``world.query_agents`` and the per-view event
+    walk. Trigger-based dispatch is a pre-ADR-018
+    optimisation; the new dispatcher no longer needs
+    it (see ``src/kntgraph/runner/reactive.py``).
     """
 
-    def __init__(self, config: FSMConfig) -> None:
-        self._config = config
-        self.name = f"fsm:{config.component_type.__name__}"
-        self.version = "1.0.0"
+    config: FSMConfig
+    name: str = field(init=False)
+    systems: tuple["WorldSystem", ...] = field(init=False)
+    projections: tuple["WorldProjection", ...] = field(init=False)
 
-    def install(self, dispatcher: "ReactiveDispatcher") -> None:
-        dispatcher.add_system(FSMSystem(self._config))
-```
-
-The trigger set from the previous draft is gone:
-the post-ADR-018 dispatcher runs every registered
-system on every tick and lets each system filter
-via ``world.query_agents`` and the per-view event
-walk. Trigger-based dispatch is a pre-ADR-018
-optimisation; the new dispatcher no longer needs
-it (see ``src/kntgraph/runner/reactive.py``).
+    def __post_init__(self) -> None:
+        # Frozen dataclasses cannot assign attributes
+        # normally; ``object.__setattr__`` is the
+        # documented escape hatch for derived fields
+        # in ``__post_init__``. This pattern is also
+        # used by ``core/event/event.py`` for the
+        # ``event_id`` derivation in ``Event.create``.
+        object.__setattr__(
+            self,
+            "name",
+            f"fsm:{self.config.component_type.__name__}",
+        )
+        object.__setattr__(self, "systems", (FSMSystem(self.config),))
+        object.__setattr__(
+            self, "projections", (FSMProjection(self.config),)
+        )
 ```
 
 ### 3.6 Example — invoice lifecycle
@@ -1061,7 +1230,7 @@ def test_fsm_allows_valid_transition() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     types = [e.event_type for e in out]
     assert "fsm.transitioned" in types
     assert "invoice.issuance_confirmed" in types
@@ -1080,7 +1249,7 @@ def test_fsm_rejects_terminal_state() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     assert len(out) == 1
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "terminal_state"
@@ -1109,7 +1278,7 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(FSMSystem(invoice_fsm._config, now=lambda: FIXED_NOW), world)
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "guard_failed"
 ```
@@ -1246,8 +1415,14 @@ class SagaConfig:
     ``name``            -- unique saga identifier.
     ``steps``           -- ordered tuple of step configs.
     ``fail_when``       -- Specification evaluated after every step
-                           failure; saga fails when satisfied.
-                           Default: fail on first REQUIRED step failure.
+                           failure; saga fails when satisfied. When
+                           ``None`` (the default), the saga fails on
+                           the first failure of any step, regardless
+                           of ``skip_when`` outcome. To skip a step
+                           entirely, use ``skip_when`` on the step
+                           config; ``fail_when`` is for the
+                           "continue on failure" pattern (§4.5,
+                           ``_handle_failure`` path).
     ``saga_timeout_ms`` -- wall-clock timeout for the entire saga;
                            enforced by SagaTimeoutSystem (CyclicSystem).
     """
@@ -1256,6 +1431,19 @@ class SagaConfig:
     fail_when: "Specification | None" = None   # None = fail on first failure
     saga_timeout_ms: int = 300_000
 ```
+
+**Note on the "REQUIRED step" concept.** The
+earlier draft said the default behaviour was "fail
+on first REQUIRED step failure". ``REQUIRED`` was
+never defined as a step attribute — there is no
+``required: bool`` field on ``SagaStepConfig`` — so
+the comment was aspirational. The corrected default
+is "fail on the first failure of any step", which
+is what ``fail_when=None`` means in the implementation.
+A "best-effort" saga (continue past failures) is
+expressed by setting ``fail_when`` to a Specification
+that is never satisfied, or to one that gates on a
+specific step name (see §4.8 example).
 
 ### 4.4 ECS Component
 
@@ -1801,28 +1989,38 @@ class SagaSystem:
     # 500-line guideline from AGENTS.md §3.
 
     # ------------------------------------------------------------------
-    # 4.5.1 DLQ on compensation failure
+    # 4.5.1 Compensation failure — DLQ ingestion (uses existing DLQ)
     # ------------------------------------------------------------------
-    def _dlq_event(
+    def _compensation_failed_event(
         self,
         saga: SagaProgressComponent,
         trigger: "ViewTrigger",
     ) -> "Event":
         """
-        Build the DLQ-emission domain event for a saga
-        whose compensation could not be completed.
+        Emit ``saga.<name>.compensation_failed`` when a
+        compensation tool itself fails. The event is the
+        **only** saga-side artefact: a domain event that
+        downstream business systems can react to (notify
+        operators, kick off a recovery workflow, etc.).
 
-        The actual DLQ insertion is performed by an
-        adapter system that reads this event and
-        appends to ``knt:dlq:saga:<name>`` (see
-        ``src/kntgraph/infra/dlq.py``); the saga
-        system only emits the typed event so the DLQ
-        adapter stays out of the saga's dependency
-        graph.
+        **No ``saga.<name>.dlq`` event.** An earlier
+        draft introduced a separate ``saga.<name>.dlq``
+        event that an ``SagaDLQAdapterSystem`` would
+        forward to ``DeadLetterQueue``. That was
+        overengineering: the framework already has
+        ``DeadLetterQueue.append`` /
+        ``DeadLetterEvent`` / ``DLQReason``, and a
+        saga-specific adapter duplicates the wiring
+        any other consumer would need. The DLQ ingestion
+        is delegated to a generic
+        ``DLQIngestSystem`` (§4.5.2) registered by the
+        application when it wants DLQ persistence —
+        exactly the pattern ``ToolCallTTLSweeperSystem``
+        follows for tool-call TTL failures.
         """
         return Event.create(
             agent_id=trigger.agent_id,
-            event_type=f"saga.{self._cfg.name}.dlq",
+            event_type=f"saga.{self._cfg.name}.compensation_failed",
             event_class="domain",
             data={
                 "saga_id": saga.saga_id,
@@ -1833,6 +2031,85 @@ class SagaSystem:
             correlation=trigger.correlation,
         )
 ```
+
+### 4.5.2 DLQ ingestion — application concern, framework-agnostic
+
+The framework already exposes
+``DeadLetterQueue`` (``events/dlq/store.py``) and
+``DeadLetterEvent`` / ``DLQReason``
+(``events/dlq/values.py``). The saga does **not**
+ship a saga-specific DLQ adapter; doing so would
+duplicate the wiring any other consumer would need
+and would couple the saga to the DLQ store's
+evolution.
+
+A vertical that wants DLQ persistence wires it
+once at the dispatcher, using the existing
+``EventLog.subscribe`` mechanism (ADR-068):
+
+```python
+# fmh_office/app_runner.py
+from datetime import datetime, timezone
+from kntgraph.events.dlq import DeadLetterQueue
+from kntgraph.events.dlq.values import DLQReason, DeadLetterEvent
+from kntgraph.infra.redis._dlq import RedisDLQStorage
+
+
+def build_dispatcher(log, redis):
+    dlq = DeadLetterQueue(RedisDLQStorage(redis))
+
+    async def ingest_compensation_failures(event):
+        if not event.event_type.endswith(".compensation_failed"):
+            return
+        dl_event = DeadLetterEvent(
+            event=event,
+            reason=DLQReason.PROCESSING_FAILED,
+            error_message="compensation_failed",
+            original_timestamp=event.timestamp,
+            dlq_timestamp=datetime.now(tz=timezone.utc),
+            metadata=event.data,  # saga_id, stuck_step, etc.
+        )
+        await dlq.append(dl_event)
+
+    # The dispatcher's ``subscribe`` API takes a list
+    # of agent_ids and a callback; ADR-068 §3.2 covers
+    # the wake-up / fallback-poll semantics.
+    dispatcher = ReactiveDispatcher(log=log, redis=redis)
+    dispatcher.subscribe(["*"], ingest_compensation_failures)
+    ConcordoCatalog(invoice_fsm, nfe_emission_saga).install_all(
+        dispatcher
+    )
+    return dispatcher
+```
+
+The pattern matches what the framework already
+does for tool-call TTL failures: the
+``ToolCallTTLSweeperSystem`` emits
+``tool.<name>.failed`` events; the application
+decides whether to forward them to the DLQ (or to
+metrics, or to a webhook, or to ignore them). The
+saga follows the same convention: emit the typed
+event, let the application wire the side effects.
+
+**Why no new ``DLQReason`` value.** The
+``DLQReason`` enum is a closed vocabulary used by
+metrics and dashboards. Adding a
+``SAGA_COMPENSATION_FAILED`` value would force every
+metric that groups by reason to handle the new
+value; the alternative is to put the saga context
+in ``DeadLetterEvent.metadata`` (which is
+forward-compatible — existing dashboards ignore it,
+new dashboards filter on it). The framework
+already has a precedent for this: ``error_message``
+is a free-form string, ``metadata`` is a free-form
+dict, and the reason enum is reserved for the
+broad category of failure.
+
+Tests that do not care about DLQ persistence
+skip the ``subscribe`` registration entirely — the
+``saga.<name>.compensation_failed`` events still
+land in the EventLog and remain inspectable via the
+standard log tools.
 
 ### 4.6 SagaTimeoutSystem (WorldSystem)
 
@@ -1859,11 +2136,16 @@ class SagaTimeoutSystem:
     **Determinism.** The emitted event's ``event_id``
     is computed by ``generate_deterministic_event_id``
     from ``(causation_id="root", agent_id,
-    event_type, data)``. The data envelope includes
-    the saga's ``started_at`` ISO string — so a tick
-    that re-derives the same timeout produces the
-    same ``event_id`` and is deduped by the
-    EventLog's idempotency check.
+    event_type, data)``. The ``data`` envelope is
+    restricted to **stable fields** (``saga_id``,
+    ``saga_name``, ``stuck_at_step``, ``timeout_ms``)
+    so the hash is identical across ticks that derive
+    the same timeout — the EventLog's idempotency
+    check then dedupes repeated emissions. ``elapsed_ms``
+    is reported for observability but is NOT part of the
+    hash envelope: it grows on every tick and would defeat
+    idempotency. (Earlier drafts placed ``elapsed_ms``
+    inside the hash; that was wrong.)
 
     Individual step timeouts are handled by ADR-045
     (Tool Call TTL) and do not need to be checked
@@ -1892,12 +2174,20 @@ class SagaTimeoutSystem:
             elapsed_ms = (now - saga.started_at).total_seconds() * 1000
             if elapsed_ms <= config.saga_timeout_ms:
                 continue
-            data = {
+            # Hash envelope (stable, idempotent): fields
+            # that do not change between ticks on the
+            # same stuck saga. ``elapsed_ms`` is excluded
+            # on purpose (it grows every tick and would
+            # defeat dedup).
+            hash_data = {
                 "saga_id": saga.saga_id,
-                "elapsed_ms": elapsed_ms,
+                "saga_name": saga.saga_name,
                 "stuck_at_step": saga.current_step,
                 "timeout_ms": config.saga_timeout_ms,
             }
+            # Wire envelope (what observers see): adds
+            # the per-tick ``elapsed_ms`` for metrics.
+            data = {**hash_data, "elapsed_ms": elapsed_ms}
             event_type = f"saga.{saga.saga_name}.timed_out"
             # Deterministic event_id — see §4.6 docstring.
             # The EventLog dedupes on this id, so a
@@ -1911,7 +2201,7 @@ class SagaTimeoutSystem:
             eid = generate_deterministic_event_id(
                 causation_id="root",
                 event_type=event_type,
-                data=data,
+                data=hash_data,
                 agent_id=view.agent_id,
             )
             # The correlation is the tick-scoped context
@@ -1948,11 +2238,26 @@ system just calls ``current()``.
 ### 4.7 Concordo class
 
 ```python
+from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kntgraph.core.system import WorldSystem
+    from kntgraph.runner.reactive_extensions import WorldProjection
+    from ._config import SagaConfig
+    from ._state import SagaProjection
+    from ._system import SagaSystem
+    from ._timeout_system import SagaTimeoutSystem
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowSagaConcordo:
     """
-    C-02: WorkflowSaga Concordo (Concordo Protocol §1.3.1).
+    C-02: WorkflowSaga Concordo bundle (§1.3.1).
 
-    Registers two ``WorldSystem``s on the dispatcher:
+    A frozen bundle of ``(config, name, systems,
+    projections)``. The bundle exposes two systems:
 
     - ``SagaSystem`` — reads the post-fold ``World`` and
       drives saga execution forward (or compensation).
@@ -1960,26 +2265,43 @@ class WorkflowSagaConcordo:
       archetype carries ``SagaProgressComponent`` and
       emits ``saga.<name>.timed_out`` on deadline.
 
-    Both systems share the same ``now`` injection
-    (the dispatcher supplies one clock for the whole
-    tick to keep the systems aligned).
+    And one projection:
+
+    - ``SagaProjection`` — materialises
+      ``SagaProgressComponent`` from saga events
+      (§9.2 item 6).
+
+    Both systems default to the framework's canonical
+    ``utcnow`` via ``injectable_clock()``; a vertical
+    that needs them aligned (e.g. for replay tests)
+    constructs the bundle, then accesses
+    ``concordo.systems`` and passes the same ``now``
+    callable to each system explicitly. The catalog
+    (§6.3) does not need a shared clock because it
+    does not construct the systems — it only registers
+    them.
     """
 
-    def __init__(self, config: "SagaConfig") -> None:
-        self._config = config
-        self.name = f"saga:{config.name}"
-        self.version = "1.0.0"
+    config: SagaConfig
+    name: str = field(init=False)
+    systems: tuple["WorldSystem", ...] = field(init=False)
+    projections: tuple["WorldProjection", ...] = field(init=False)
 
-    def install(self, dispatcher: "ReactiveDispatcher") -> None:
-        # ``injectable_clock()`` defaults both systems to
-        # the framework's canonical ``utcnow``. A vertical
-        # that wants a shared fixed clock across the two
-        # systems (e.g. for replay tests) constructs both
-        # from the same injected ``now``.
-        dispatcher.add_system(SagaSystem(self._config))
-        dispatcher.add_system(SagaTimeoutSystem(
-            {self._config.name: self._config},
-        ))
+    def __post_init__(self) -> None:
+        # See ``BusinessFSMConcordo.__post_init__`` for
+        # the frozen-dataclass escape hatch rationale.
+        object.__setattr__(self, "name", f"saga:{self.config.name}")
+        object.__setattr__(
+            self,
+            "systems",
+            (
+                SagaSystem(self.config),
+                SagaTimeoutSystem({self.config.name: self.config}),
+            ),
+        )
+        object.__setattr__(
+            self, "projections", (SagaProjection(self.config),)
+        )
 ```
 
 There is **no** ``dispatcher.clock`` attribute. The
@@ -2009,8 +2331,14 @@ nfe_emission_saga = WorkflowSagaConcordo(SagaConfig(
     name="nfe_emission",
     saga_timeout_ms=300_000,  # 5 minutes total
 
-    # Fail the saga only when BOTH emission paths failed
-    fail_when=StepFailed("emit_nfe").and_(StepFailed("emit_nfce")),
+    # Fail the saga when ANY emission path failed. The
+    # earlier draft composed ``StepFailed("emit_nfe").and_(
+    # StepFailed("emit_nfce"))`` — but the two steps are
+    # mutually exclusive at runtime (one is skipped via
+    # ``skip_when=NfeRequired().not_()`` exactly when the
+    # other runs), so the AND was logically unreachable.
+    # A failing saga must be triggered by EITHER branch.
+    fail_when=StepFailed("emit_nfe").or_(StepFailed("emit_nfce")),
 
     steps=(
         SagaStepConfig(
@@ -2098,7 +2426,7 @@ def test_saga_dispatches_first_step_on_start() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
     assert any(
@@ -2148,7 +2476,7 @@ def test_saga_skips_nfe_when_not_required() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
     assert not any(
@@ -2197,7 +2525,7 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
     assert not any(
@@ -2232,7 +2560,7 @@ def test_saga_timeout_system_emits_timed_out() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     system = SagaTimeoutSystem(
-        {"nfe_emission": nfe_emission_saga._config},
+        {"nfe_emission": nfe_emission_saga.config},
         now=lambda: FIXED_NOW,
     )
     out = run_system(system, world)
@@ -2282,7 +2610,7 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        SagaSystem(nfe_emission_saga._config, now=lambda: FIXED_NOW),
+        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
     assert any(
@@ -2351,9 +2679,17 @@ FSMConfig(
 
 ### 6.1 Declarative app_runner
 
+Three equivalent entry points — programmatic,
+YAML-loaded, and hybrid — so the vertical picks the
+shape that fits its lifecycle (tests stay
+programmatic; production reads a bundle YAML).
+
+#### 6.1.1 Programmatic
+
 ```python
 # fmh_office/app_runner.py
 
+from pathlib import Path
 from kntgraph.runner import ReactiveDispatcher
 from fmh_office.concordos.invoice_fsm import invoice_fsm
 from fmh_office.concordos.nfe_emission_saga import nfe_emission_saga
@@ -2368,14 +2704,81 @@ def build_dispatcher(log, redis) -> ReactiveDispatcher:
     return dispatcher
 ```
 
+DLQ ingestion (if needed) is wired separately by
+the application — see §4.5.2. The catalog does not
+carry a DLQ handle.
+
+#### 6.1.2 YAML-loaded (bundle)
+
+```python
+# fmh_office/app_runner.py (production variant)
+
+from pathlib import Path
+from kntgraph.concordos import ConcordoCatalog
+
+
+def build_dispatcher(log, redis, bundle_path: Path) -> ReactiveDispatcher:
+    catalog = ConcordoCatalog.from_yaml(bundle_path)
+    # ``catalog`` now contains one Concordo per
+    # ``business_fsm`` and one per ``workflow_sagas``
+    # entry in the bundle YAML (§14.2).
+    dispatcher = ReactiveDispatcher(log=log, redis=redis)
+    catalog.install_all(dispatcher)
+    return dispatcher
+```
+
+The bundle schema is described in §14. The loader
+detects the file extension (``*.yaml`` / ``*.yml`` /
+``*.json``) and routes to ``yaml.safe_load` (via
+``pyyaml``) or ``json.loads`. Schema validation is
+Pydantic — errors raise ``ConcordoValidationError``
+with the dotted path of the failing field annotated
+(e.g. ``workflow_sagas[0].steps[1].compensate_tool``).
+
+A vertical that needs multiple bundles
+(e.g. a shared ``knowledge_pipeline`` bundle plus
+a tenant-specific override) loads each one and
+either calls ``catalog.install_all`` on each
+separately or composes them:
+
+```python
+shared = ConcordoCatalog.from_yaml("bundles/knowledge_pipeline.yaml")
+tenant = ConcordoCatalog.from_yaml(f"tenants/{tenant_id}.yaml")
+shared.install_all(dispatcher)
+tenant.install_all(dispatcher)  # shadows by Concordo.name (§6.3)
+```
+
+#### 6.1.3 Hybrid
+
+```python
+# Mix Python-defined and YAML-defined Concordos
+catalog = ConcordoCatalog.from_yaml("app.yaml")
+catalog.add(invoice_fsm)  # override the YAML one with a Python-defined instance
+```
+
+The catalog is a dict by ``Concordo.name``; later
+``add(...)`` calls with the same name replace the
+earlier entry (the catalog is dict-of-name, not
+list-of-pairs). This pattern is useful when one
+Concordo's config is data-driven (YAML) and
+another's is logic-driven (Python registered via
+``SpecRegistry``, §14.6).
+
 The ``app_runner.py`` reads like a specification of
 the vertical's behavior. ``ConcordoCatalog.install_all``
-(§6.3) dedupes by ``Concordo.name`` before calling
-each ``install``, so a misconfiguration that imports
-the same Concordo twice does not double-register
-its systems on the dispatcher. The order of
-installation does not affect correctness (Concordos
-communicate only through events).
+(§6.3) dedupes by ``Concordo.name`` and then iterates
+each bundle's ``systems`` and ``projections`` calling
+the dispatcher's registration API. A misconfiguration
+that imports the same Concordo twice does not
+double-register on the dispatcher. Concordos are
+pure bundles; the catalog does no I/O.
+
+The order of registration does not affect
+correctness (Concordos communicate only through
+events). When the order matters — e.g. a saga that
+must observe FSM transitions before timeout — the
+application iterates ``concordo.systems`` directly
+instead of going through the catalog.
 
 ### 6.3 ConcordoCatalog
 
@@ -2385,16 +2788,35 @@ from collections.abc import Iterable
 
 class ConcordoCatalog:
     """
-    Bag of ``Concordo`` instances with idempotent
-    installation.
+    Bag of ``Concordo`` bundles with idempotent
+    registration.
 
-    ``install_all`` iterates the catalog and calls
-    ``concordo.install(dispatcher)`` once per unique
-    ``name``. A second pass with the same name is
+    ``install_all`` iterates each Concordo's
+    ``systems`` and ``projections`` and registers
+    them on the dispatcher via
+    ``dispatcher.add_system`` /
+    ``dispatcher.add_projection`` — the same
+    registration API the framework exposes for any
+    system or projection. A duplicate ``name`` is
     a no-op (logged at INFO level). This keeps
     ``app_runner.py`` free of dedup logic and
     makes double-imports of the same vertical
     module safe.
+
+    The catalog is a **composer**, not a side-effecting
+    installer: it only iterates the bundles the
+    application passed in. Side effects (DLQ
+    ingestion, metrics, notifications) are wired by
+    the application via ``dispatcher.subscribe``
+    (§4.5.2) — Concordos and the catalog stay pure.
+
+    The catalog is optional. An application that
+    wants explicit ordering or that wants to mix
+    Concordos with non-Concordo systems can iterate
+    ``concordo.systems`` / ``concordo.projections``
+    directly and call ``dispatcher.add_system`` /
+    ``dispatcher.add_projection`` itself. The catalog
+    is sugar, not a required composition root.
     """
 
     def __init__(self, *concordos: Concordo) -> None:
@@ -2410,7 +2832,10 @@ class ConcordoCatalog:
 
     def install_all(self, dispatcher: "ReactiveDispatcher") -> None:
         for concordo in self._concordos.values():
-            concordo.install(dispatcher)
+            for system in concordo.systems:
+                dispatcher.add_system(system)
+            for projection in concordo.projections:
+                dispatcher.add_projection(projection)
 ```
 
 ### 6.2 Full event trace — invoice issuance
@@ -2456,23 +2881,45 @@ re-exports the API.
 
 ```
 src/kntgraph/concordos/
-+-- __init__.py              # Concordo Protocol; ConcordoCatalog
++-- __init__.py              # Concordo Protocol; ConcordoCatalog;
+│                            #   .from_yaml/from_dict classmethods;
+│                            #   parses bundles and registers bundles
+│                            #   with the SpecRegistry
 +-- _private.py              # Module-private helpers (nothing exported)
 +-- base.py                  # Specification, StepContext,
-│                            # ViewTrigger, Composable mixin (≤ 200 lines)
+│                            #   ViewTrigger (NamedTuple),
+│                            #   Composable mixin (≤ 200 lines)
 +-- specs.py                 # Built-in Specifications (StepCompleted,
 │                            #   StepFailed, StepTimedOut, StepResultEquals,
 │                            #   DomainStateIs, ProfileTierIs, ContinuityToolUsed)
++-- _spec_registry.py        # SpecRegistry: register(name, spec) for
+│                            #   app-defined Specifications referenced
+│                            #   from YAML (PR 1.5)
++-- _mini_lang.py            # Predicate parser + evaluator
+│                            #   (~150 lines; recursive descent, no eval;
+│                            #   builtins bound to the spec registry)
++-- _loader.py               # Bundle loaders (YAML / JSON / dict);
+│                            #   cross-validates events ⇄ transitions
+│                            #   ⇄ steps; surfaces typed
+│                            #   ConcordoValidationError with dotted path
++-- schemas.py               # Pydantic v2 models for the bundle
+│                            #   surface (§14.4: BundleSchema, EventSchema,
+│                            #   SpecificationSchema, FSMConfigSchema,
+│                            #   SagaConfigSchema, FSMTransitionSchema,
+│                            #   SagaStepSchema)
 +-- fsm/
-│   +-- __init__.py          # BusinessFSMConcordo (public)
-│   +-- _config.py           # FSMConfig, FSMTransition (private; re-exported)
-│   +-- _components.py       # FSMAuditComponent
-│   +-- _system.py           # FSMSystem (WorldSystem)
+│   +-- __init__.py          # BusinessFSMConcordo (public; frozen bundle)
+│   +-- _config.py           # FSMConfig, FSMTransition + from_dict/to_dict
+│   +-- _components.py       # FSMAuditComponent (with delta-scan cursor)
+│   +-- _system.py           # FSMSystem (WorldSystem; delta-scan reader)
+│   +-- _state.py            # FSMProjection (fold projection;
+│                            #   DomainComponent.state_field advance)
 +-- saga/
-│   +-- __init__.py          # WorkflowSagaConcordo (public)
-│   +-- _config.py           # SagaConfig, SagaStepConfig
+│   +-- __init__.py          # WorkflowSagaConcordo (public; frozen bundle)
+│   +-- _config.py           # SagaConfig, SagaStepConfig + from_dict/to_dict
 │   +-- _components.py       # SagaProgressComponent
-│   +-- _state.py            # step_states / step_results mutation helpers
+│   +-- _state.py            # SagaProjection (fold projection;
+│                            #   compensation_started/compensated handlers)
 │   +-- _system.py           # SagaSystem (WorldSystem)
 │   +-- _timeout_system.py   # SagaTimeoutSystem (WorldSystem)
 ```
@@ -2537,23 +2984,79 @@ assumed — see §11 review item 1).
 ## 8. CLI scaffold
 
 ```bash
-# C-01: add an FSM for an existing DomainComponent
+# Validate a bundle YAML (no side effects; prints the
+# resolved Concordos and exits non-zero on schema,
+# cross-reference, or parse error).
+uv run knt concordo validate --bundle app.yaml
+
+# Round-trip: parse a bundle, dump back to stdout as YAML,
+# so the user can normalise formatting.
+uv run knt concordo format --bundle app.yaml > app.normalized.yaml
+
+# Parse a bundle and emit a Python stub that builds
+# the same Concordos programmatically (useful for
+# migrating from declarative to imperative or vice
+# versa).
+uv run knt concordo codegen --bundle app.yaml > concordos_stub.py
+
+# C-01: scaffold a starter bundle for an existing
+# DomainComponent (interactive; emits a YAML with
+# sensible defaults that the user can edit).
 uv run knt concordo add fsm InvoiceFSM \
   --component InvoiceDomainComponent \
   --state-field status
 
-# C-02: generate a WorkflowSaga
+# C-02: scaffold a starter bundle for a WorkflowSaga
+# (interactive; the user supplies step names + tools).
 uv run knt concordo new saga NfeEmission \
+  --trigger document.ingested \
   --steps validate_fiscal:sefaz_validator,\
           emit_nfe:nfe_emitter,\
           register_receivable:erp_tool \
   --timeout-ms 300000
+
+# List registered Specifications (built-in + app-registered).
+uv run knt concordo specs list
+
+# Lint a bundle for predicate hygiene (catches unused
+# specifications, unreachable states, etc.).
+uv run knt concordo lint --bundle app.yaml
 ```
 
-Each command generates:
-1. A `concordos/<name>_config.py` with typed configuration
-2. Wiring in `app_runner.py` (`concordo.install(dispatcher)`)
-3. A stub test file in `tests/unit/concordos/`
+Each ``add`` / ``new`` command produces:
+1. A `concordos/<bundle_id>.yaml` bundle with
+   typed configuration and starter states / steps.
+2. A stub test file in `tests/unit/concordos/`
+   (loads the bundle, asserts the systems emit
+   the expected events on the canonical fixture).
+
+The ``validate`` command is the CI gate for the
+configuration layer. It runs four checks in
+order:
+
+1. **Schema** — Pydantic validation of the bundle
+   (§14.4). Errors carry the dotted path.
+2. **Cross-references** — `transitions.on_event`
+   and `sagas.trigger_event` are in `events[].name`;
+   `steps[].tool` is registered as a `@tool_worker`;
+   `input_mapping` paths resolve to declared scopes
+   (§14.5.4).
+3. **FSM graph** — terminal states have no outgoing
+   transitions; declared states are reachable from
+   `initial_state`; `on_entry` events exist
+   (no dead keys).
+4. **Predicate syntax** — every `guard`, `fail_when`,
+   `skip_when`, `compensate_when`, `pre_condition`,
+   `proceed_when`, and `specifications[].expression`
+   parses with the mini-language parser (§14.5.2).
+   Semantic evaluation is **not** run at
+   `validate` time — that requires a `StepContext`
+   and happens lazily at guard execution.
+
+The ``lint`` command runs deeper analysis
+(unused specifications, shadowed predicates,
+transition cycles that bypass terminal states).
+It is optional in CI but recommended in pre-merge.
 
 ---
 
@@ -2797,16 +3300,21 @@ resolved (this ADR) or open (§9.2).
   ADR-037) and used `event_class="domain"` directly,
   bypassing the validator that ensures namespace
   alignment (`domain_from` is the canonical builder).
-- **Resolution.** Every event build now passes an
-  explicit `correlation=` (typically
-  `event.correlation`, propagated through the
-  causal chain). `event_class="domain"` is passed
-  explicitly because some events carry the saga /
-  FSM semantics that the validator's `validate_event_type`
-  namespace mapping does not know about; the
-  comment in §3.4 explains why the framework's
-  builder is acceptable for those namespaced
-  events.
+- **Resolution.** Every event build passes an
+  explicit `correlation=` (typically propagated
+  through the causal chain). PR 1 of the refactor
+  plan migrates every emit site from
+  ``Event.create(event_class="domain", ...)`` to
+  ``Event.domain_from(...)``: the latter pins
+  ``event_class`` to ``"domain"`` and rejects event
+  types in the framework's operational namespace
+  (``agent.*``) at construction time — a typo in
+  the saga's event-type string fails loudly instead
+  of silently producing an unrouteable event. The
+  comment in §3.4 (post-PR 1) is shortened because
+  the namespace alignment is no longer a
+  ``"because we accept it"`` footnote — it is the
+  builder's invariant.
 
 ### 11.7 Determinism of `now` (§3.4, §4.5, §4.6)
 
@@ -2830,15 +3338,23 @@ resolved (this ADR) or open (§9.2).
   the implementation called `Event.create(...)`
   without passing an `event_id`. Two ticks that
   derived the same timeout would emit two distinct
-  events, breaking idempotency.
-- **Resolution.** The system now calls
+  events, breaking idempotency. A later revision
+  passed an explicit ``event_id`` but included
+  ``elapsed_ms`` in the hash envelope — which grows
+  on every tick, defeating idempotency as badly as
+  the original bug.
+- **Resolution.** The system calls
   `generate_deterministic_event_id(causation_id,
   event_type, data, agent_id=...)` (the canonical
   helper from `src/kntgraph/core/event/id_helpers.py`)
   and passes the resulting UUID to `Event.create`.
-  The data envelope includes `started_at` and
-  `elapsed_ms`, so the hash is stable across
-  repeated ticks on the same state.
+  The hash envelope contains only **stable fields**
+  (``saga_id``, ``saga_name``, ``stuck_at_step``,
+  ``timeout_ms``). ``elapsed_ms`` is included in the
+  wire payload for observability but excluded from
+  the hash. A tick that re-derives the same stuck
+  saga produces the same ``event_id`` and is deduped
+  by the EventLog.
 
 ### 11.9 `compensate_failed` and DLQ (§4.5.1, §4.9)
 
@@ -2852,57 +3368,47 @@ resolved (this ADR) or open (§9.2).
   without a documented way out becomes a permanent
   ghost in the World, neither advancing nor
   being collected by garbage collection.
+
+  An earlier revision of this ADR also introduced
+  a saga-specific ``SagaDLQAdapterSystem` and a
+  separate ``saga.<name>.dlq`` event that the
+  adapter would forward to ``DeadLetterQueue``.
+  This was overengineering: the framework already
+  exposes ``DeadLetterQueue.append`` /
+  ``DeadLetterEvent`` / ``DLQReason``, and a
+  saga-specific adapter duplicates the wiring any
+  other consumer would need.
+
 - **Resolution.** A compensation failure is detected
   via the `tool.<compensate_tool>.failed` event;
   the saga system then emits
-  `saga.<name>.compensation_failed` followed by
-  `saga.<name>.dlq`. The DLQ event is consumed by
-  the existing ``DeadLetterActions`` adapter
-  (`src/kntgraph/events/dlq/actions.py`), which
-  appends to ``knt:dlq:events`` and indexes the
-  entry by ``event_id`` and ``agent_id``. A unit
-  test in §4.9 covers the path.
+  ``saga.<name>.compensation_failed``. That is the
+  only saga-side artefact — a domain event that
+  downstream business systems can react to. DLQ
+  ingestion is wired by the application via
+  ``dispatcher.subscribe`` (§4.5.2) and reuses the
+  framework's existing ``DeadLetterQueue`` —
+  exactly the pattern used for tool-call TTL
+  failures (``ToolCallTTLSweeperSystem``). No new
+  system, no new event type, no new
+  ``DLQReason`` enum value.
 
-  **Operator Override — `saga.<name>.manual_resolved`.**
-  When the operator decides that a DLQ'd saga is
-  safe to abandon or has been corrected out of
-  band, they emit ``saga.<name>.manual_resolved``
-  via the standard principal-authorised path
-  (ADR-017). The saga system reacts on the next
-  tick and transitions the agent to
-  ``direction="done"`` (skipping the compensation
-  trail) or ``direction="manual_aborted"`` (a
-  terminal state for audit). The event's data
-  envelope carries ``{"resolution": "abandoned" |
-  "external_correction", "operator_id": "..."}``
-  for audit.
-
-  **Operator Retry — `saga.<name>.retry_compensation`.**
-  When the operator wants the saga to re-attempt
-  compensation (e.g. after the external failure
-  cause is fixed), they emit
-  ``saga.<name>.retry_compensation``. The saga
-  system reads the cached ``compensate_stack``
-  from the component and re-dispatches the
-  remaining compensations in LIFO order,
-  exactly as if the saga had just transitioned
-  to ``direction="compensating"`` for the first
-  time. The EventLog is the source of truth
-  (per §11.10); the operator may issue as many
-  retries as needed, and the saga keeps trying
-  until either compensation succeeds, the saga
-  fails again (back to the DLQ), or the operator
-  aborts.
-
-  Both override events are **privileged**:
-  emission requires a principal with the
-  ``saga.override`` permission (ADR-017). The
-  ``RoleComponent.allowed_tools`` gate (ADR-060
-  gate 2) is bypassed for these events; the
-  authorization is purely principal-based because
-  the events do not trigger any tool calls
-  themselves — they only re-aim the saga's
-  existing compensation stack.
+  **Operator recovery — deferred to ADR-070.**
+  The earlier draft also described two operator-
+  triggered events — ``saga.<name>.manual_resolved``
+  (declare the saga safe to abandon) and
+  ``saga.<name>.retry_compensation`` (re-attempt
+  compensation). These were declared in this ADR
+  but never implemented in ``SagaSystem``. PR 4 of
+  the refactor plan moves them to
+  [ADR-070](./ADR-070-Worker-Level-Back-Pressure.md)
+  as a formal proposal — they belong with the rest
+  of the operator-recovery story, and the saga
+  implementation should not consume events it does
+  not yet handle. The privilege gate (ADR-017's
+  ``saga.override`` permission, bypassing ADR-060
+  gate 2 because these events do not trigger tool
+  calls) is documented there too.
 
 ### 11.10 `compensate_stack` source-of-truth (§4.4, §9.2.6)
 
@@ -2964,17 +3470,42 @@ resolved (this ADR) or open (§9.2).
   ``_handle_completion`` (when the completion
   matches a compensating tool).
 
-### 11.11 Concordo Protocol (§1.3.1, §6.3)
+### 11.11 Concordo Protocol and bundle shape (§1.3.1, §6.3)
 
-- **Issue.** The previous draft referenced
-  `Concordo Protocol` and `ConcordoCatalog` in §7
-  without defining either.
-- **Resolution.** `Concordo` is now a `Protocol`
-  with `name: str`, `version: str`,
-  `install(dispatcher)`. `ConcordoCatalog` is a
-  `dict[name, Concordo]` that dedupes by `name`
-  before calling `install`. The `app_runner.py`
-  example in §6.1 uses the catalog.
+- **Issue.** The previous draft had three related
+  gaps: (a) `Concordo Protocol` and
+  `ConcordoCatalog` were referenced in §7 without
+  being defined; (b) `Concordo` carried a
+  `version: str` that no consumer read; (c) the
+  `install(dispatcher)` method on `Concordo`
+  broke the framework's convention — every other
+  system in the codebase
+  (``ToolCallTTLSweeperSystem``,
+  ``MemoryHydrationProjection``,
+  ``RuleBasedChatSystem``, the role systems) is
+  constructed externally and passed to
+  ``dispatcher.add_system`` /
+  ``dispatcher.add_projection``. A custom
+  ``install()`` method is unique to the Concordos
+  and hides what is registered.
+- **Resolution.** `Concordo` is now a structural
+  `Protocol` with three attributes — `name: str`,
+  `systems: tuple[WorldSystem, ...]`,
+  `projections: tuple[WorldProjection, ...]` — and
+  no methods. Concrete bundles (``BusinessFSMConcordo``,
+  ``WorkflowSagaConcordo``) are frozen dataclasses
+  that satisfy the Protocol structurally; their
+  ``__post_init__`` builds the `systems` and
+  `projections` tuples from the config. The
+  `version` field is gone. `ConcordoCatalog` is a
+  `dict[name, Concordo]` that iterates each
+  bundle's `systems` and `projections` and calls
+  the dispatcher's registration API — the same
+  registration API the application uses for any
+  custom system. The catalog is sugar, not a
+  required composition root: the application can
+  iterate ``concordo.systems`` directly when it
+  needs explicit ordering.
 
 ### 11.12 Layout: 500-line guideline (§7)
 
@@ -3264,38 +3795,52 @@ maps feedback → resolution.
 
 #### 11.18.3 Operator Override for DLQ'd sagas (§11.9)
 
-- **Concern.** §11.9 emits ``saga.<name>.dlq``
-  but the draft did not define the operator-side
-  recovery path; an agent left in
-  ``direction="compensation_failed"`` becomes a
-  permanent ghost.
-- **Resolution.** §11.9 now defines two
-  privileged operator events:
+- **Concern.** The draft emitted
+  ``saga.<name>.dlq`` and added a saga-specific
+  ``SagaDLQAdapterSystem``, but did not define
+  the operator-side recovery path; an agent left
+  in ``direction="compensation_failed"`` becomes
+  a permanent ghost.
+- **Resolution.** Two changes:
 
-  - ``saga.<name>.manual_resolved`` — the
-    operator declares the saga abandoned or
-    corrected out of band. The saga system
-    transitions the agent to ``done`` or
-    ``manual_aborted`` (terminal audit state).
-    Carries ``{"resolution", "operator_id"}``.
-  - ``saga.<name>.retry_compensation`` — the
-    operator requests a fresh compensation
-    attempt. The saga system re-dispatches the
-    cached ``compensate_stack`` in LIFO order.
+  1. **DLQ wiring.** The saga no longer emits
+     ``saga.<name>.dlq``; that event was
+     redundant. The saga emits
+     ``saga.<name>.compensation_failed``, and the
+     application wires DLQ ingestion via
+     ``dispatcher.subscribe`` (§4.5.2) — reusing
+     the framework's ``DeadLetterQueue`` and
+     ``DeadLetterEvent`` without inventing a
+     saga-specific adapter.
+  2. **Operator override events.** Two
+     privileged operator events are defined
+     (deferred to ADR-070):
 
-  Both events are **principal-gated** via
-  ADR-017 (the ``saga.override`` permission).
-  They bypass ``RoleComponent.allowed_tools``
-  (gate 2 of ADR-060) because they do not
-  trigger tool calls — they only re-aim the
-  saga's existing compensation stack.
+     - ``saga.<name>.manual_resolved`` — the
+       operator declares the saga abandoned or
+       corrected out of band. The saga system
+       transitions the agent to ``done`` or
+       ``manual_aborted`` (terminal audit state).
+       Carries ``{"resolution", "operator_id"}``.
+     - ``saga.<name>.retry_compensation`` — the
+       operator requests a fresh compensation
+       attempt. The saga system re-dispatches the
+       cached ``compensate_stack`` in LIFO order.
 
-  The DLQ integration rides on the existing
-  ``DeadLetterActions.reprocess(event_id)``
-  API in `src/kntgraph/events/dlq/actions.py`.
-  The DLQ entry is the audit artefact; the
-  saga system is the actor that consumes the
-  override events.
+     Both events are **principal-gated** via
+     ADR-017 (the ``saga.override`` permission).
+     They bypass ``RoleComponent.allowed_tools``
+     (gate 2 of ADR-060) because they do not
+     trigger tool calls — they only re-aim the
+     saga's existing compensation stack.
+
+  The DLQ entry, when ingested, is an audit
+  artefact consumed via the existing
+  ``DeadLetterActions.reprocess(event_id)`` /
+  ``discard(event_id)`` API. The saga system
+  is the actor that consumes the override
+  events; the DLQ store is the persistence
+  layer.
 
 #### 11.18.4 Cross-agent read in `StepContext` (§2.2)
 
@@ -3521,6 +4066,586 @@ the `make_world_with_components` / `make_last_event`
 helpers that earlier drafts placed in
 `src/kntgraph/runner/world_test_helpers.py` (that module
 is not introduced).
+
+---
+
+## 14. Configuration schemas (YAML / JSON)
+
+The FSM and Saga configs declared in §3 and §4 are
+Python dataclasses. They can also be loaded from
+external files via the **bundle format** described
+here, so a vertical can declare its behavioral
+patterns without touching code. This section
+specifies the on-disk format, the validation
+layer, the predicate mini-language, and the
+interaction with the Python `SpecRegistry`.
+
+### 14.1 Why externalise
+
+- **Operational review.** A reviewer can read the
+  YAML and reason about the saga's lifecycle
+  without learning the Python API.
+- **Multi-tenant overrides.** A tenant can ship a
+  YAML override that adjusts `saga_timeout_ms` or
+  swaps a guard, without the framework shipping a
+  new release.
+- **CI gate.** The `knt concordo validate` CLI
+  (§8) parses and validates the YAML, so a broken
+  config fails the pipeline before deploy.
+- **Static cross-validation.** Declaring events
+  up-front lets the loader catch typos at parse
+  time (`transition.on_event = "docment.ingested"`
+  → "event not declared in bundle").
+
+The Python API remains the canonical source. The
+YAML is a serialised view of the same objects;
+loading and dumping round-trips through Pydantic
+schemas (§14.4) without loss.
+
+### 14.2 The bundle format
+
+The top-level unit is a **bundle**: a named,
+versioned, atomic package of behaviour. A bundle
+declares its event vocabulary, its named
+predicates, and its FSMs / sagas. A bundle is
+loaded by `ConcordoCatalog.from_yaml(path)`
+(§14.3) and produces one `Concordo` (§1.3.1) per
+`business_fsm` block and one per entry in
+`workflow_sagas`.
+
+```yaml
+# fmh_office/concordos/knowledge_pipeline.yaml
+bundle_id: "com.acme.knowledge_pipeline"
+version: "1.0.0"
+
+# Event vocabulary. Schemas are JSON Schema lite
+# (validated via `jsonschema`); unknown event
+# types in transitions / steps are caught here.
+events:
+  - name: "document.ingested"
+    schema:
+      type: object
+      required: [document_id, content]
+      properties:
+        document_id: {type: string}
+        content:     {type: string}
+
+  - name: "knowledge.entities_extracted"
+    schema:
+      type: object
+      required: [entities, confidence_score]
+      properties:
+        entities:        {type: array}
+        confidence_score: {type: number, minimum: 0, maximum: 1}
+
+# Named predicates. Reused across transitions and
+# steps; can reference other names and the
+# mini-language builtins.
+specifications:
+  - id: "IsHighPriority"
+    expression: "event.data.content_length > 50000"
+
+  - id: "ExtractionConfidencePassed"
+    expression: "event.data.confidence_score >= 0.80"
+
+# FSM. `id` becomes the `Concordo.name` (prefix
+# `fsm:`). `component` is a dotted path resolved at
+# load time (Python's importlib). `states` is
+# explicit so the loader can validate transition
+# targets, terminal membership, and reachability.
+business_fsm:
+  id: "fsm:KnowledgeLifecycle"
+  component: "fmh_office.knowledge.components.DocumentComponent"
+  state_field: "lifecycle_state"
+  initial_state: "INGESTED"
+  states:
+    - "INGESTED"
+    - "EXTRACTING"
+    - "WAITING_HUMAN_REVIEW"
+    - "CONSOLIDATED"
+    - "REJECTED"
+  terminal: ["CONSOLIDATED", "REJECTED"]
+
+  transitions:
+    - {from: "INGESTED",  to: "EXTRACTING",          on_event: "document.ingested"}
+    - {from: "EXTRACTING", to: "CONSOLIDATED",        on_event: "knowledge.entities_extracted",
+                                                    guard: "ExtractionConfidencePassed"}
+    - {from: "EXTRACTING", to: "WAITING_HUMAN_REVIEW", on_event: "knowledge.entities_extracted",
+                                                    guard: "not(ExtractionConfidencePassed)"}
+
+  # ``on_entry`` emits a domain event when the FSM
+  # transitions into the named state. Mirrors
+  # §3.2 ``FSMConfig.on_entry``.
+  on_entry:
+    CONSOLIDATED:         "knowledge.consolidated"
+    WAITING_HUMAN_REVIEW:  "knowledge.awaiting_review"
+
+# Sagas. ``id`` becomes the `Concordo.name`
+# (prefix `saga:`). ``trigger_event`` is the
+# external event that starts the saga; the
+# loader emits ``saga.<name>.started`` internally
+# and the projection materialises
+# ``SagaProgressComponent`` (see §4).
+workflow_sagas:
+  - id: "saga:EntityExtractionSaga"
+    trigger_event: "document.ingested"
+    saga_timeout_ms: 300000
+
+    # Failure policy. Default if omitted: fail on
+    # the first failure of any step (matches the
+    # Python ``fail_when=None`` semantics).
+    fail_when: "step_failed('EntityExtraction') or step_timed_out('EntityExtraction')"
+
+    steps:
+      - name: "TextChunking"
+        tool: "text_chunker_tool"
+        timeout_ms: 10000
+        # ``input_mapping`` injects values into the
+        # tool's params; the LHS is the param name,
+        # the RHS is a path expression evaluated at
+        # dispatch time (§14.5).
+        input_mapping:
+          text: "event.data.content"
+
+      - name: "EntityExtraction"
+        tool: "gliner2_entity_extraction_tool"
+        pre_condition: "step_completed('TextChunking')"
+        timeout_ms: 60000
+        compensate_tool: "gliner2_rollback_tool"
+        # ``compensate_when`` mirrors §4.3; if
+        # omitted, the compensation runs on every
+        # failure of this step.
+        compensate_when: "not(step_timed_out('EntityExtraction'))"
+        input_mapping:
+          chunks: "steps.TextChunking.output.chunks"
+```
+
+The same shape is accepted as JSON (the schema
+parses both). The loader detects the file
+extension and routes to `yaml.safe_load` (via
+`pyyaml`, already used by
+`agents/role_systems/_rule_based.py`) or
+`json.loads`. JSON is a strict subset of YAML for
+the shapes we use.
+
+**Unknown keys are rejected** at every level —
+both top-level (a typo in `bundleid` instead of
+`bundle_id` is fatal) and nested (a typo in
+`guardd` fails the load). The error path is
+dotted (`workflow_sagas[0].steps[1].compensate_tool`)
+so the operator can find the offender in a file
+without reading line-by-line.
+
+### 14.3 Loader
+
+```python
+from pathlib import Path
+from kntgraph.concordos import ConcordoCatalog
+
+catalog = ConcordoCatalog.from_yaml(Path("app.yaml"))
+# The catalog now contains one Concordo per
+# ``business_fsm`` and one per ``workflow_sagas``
+# entry. Each Concordo is the frozen bundle
+# described in §3.5 / §4.7.
+
+dispatcher = ReactiveDispatcher(log=log, redis=redis)
+catalog.install_all(dispatcher)
+```
+
+The loader does four things in order:
+
+1. **Parse** the file via `pyyaml` / `json`.
+2. **Validate** against the Pydantic schemas
+   (§14.4). Schema errors raise
+   `ConcordoValidationError` with the dotted path.
+3. **Cross-validate**:
+   - `business_fsm.transitions[].on_event` is in
+     `events[].name`.
+   - `business_fsm.transitions[].from` / `to` are
+     in `states`.
+   - `workflow_sagas[].trigger_event` is in
+     `events[].name`.
+   - `workflow_sagas[].steps[].tool` is a known
+     `@tool_worker` (validated against the worker's
+     registry; the dispatcher exposes the lookup).
+   - `workflow_sagas[].steps[].name` is unique
+     within the saga.
+   - `input_mapping` paths reference declared scopes
+     (§14.5).
+4. **Resolve dotted paths** to Python objects
+   (`component:` is loaded via `importlib`,
+   builtin spec names are resolved against the
+   built-in registry, named specs against
+   `specifications:`).
+
+`from_json(path)` is the same with `json.loads`.
+`from_dict(d)` accepts a pre-parsed dict (useful
+for tests).
+
+### 14.4 Pydantic schemas
+
+```python
+# concordos/schemas.py
+from __future__ import annotations
+import re
+from typing import Literal
+from pydantic import BaseModel, Field, field_validator
+
+
+# Pattern matches ``domain.subdomain.name`` /
+# ``tool.<name>.requested`` / ``saga.<name>.started``
+# / etc. Strict enough to catch typos, permissive
+# enough for the framework's vocabulary.
+_EVENT_NAME = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
+
+
+class EventSchema(BaseModel):
+    """One event in the bundle's vocabulary."""
+    name: str = Field(pattern=_EVENT_NAME.pattern)
+    schema_: dict = Field(alias="schema")  # JSON Schema lite
+
+    @field_validator("schema_")
+    @classmethod
+    def _json_schema_lite(cls, v: dict) -> dict:
+        # ``jsonschema.Draft7Validator.check_schema``
+        # ensures the inner schema is itself valid
+        # JSON Schema. Importing jsonschema only at
+        # load time keeps cold-start cost low.
+        from jsonschema import Draft7Validator
+
+        Draft7Validator.check_schema(v)
+        return v
+
+
+class SpecificationSchema(BaseModel):
+    """A named predicate (§14.5).
+
+    ``expression`` is a string in the mini-language.
+    It is NOT validated for semantic correctness
+    here — only syntactic parsing happens at load
+    time. Semantic evaluation is lazy (at guard
+    evaluation), so a typo is caught at runtime
+    with the full ``StepContext`` available.
+    """
+    id: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    expression: str = Field(min_length=1)
+
+
+class FSMTransitionSchema(BaseModel):
+    from_: str = Field(alias="from", min_length=1)
+    to: str = Field(min_length=1)
+    on_event: str
+    guard: str | None = None
+
+
+class FSMConfigSchema(BaseModel):
+    id: str = Field(pattern=r"^fsm:[A-Za-z_][A-Za-z0-9_]*$")
+    component: str  # dotted path; resolved via importlib
+    state_field: str = Field(min_length=1)
+    initial_state: str = Field(min_length=1)
+    states: list[str] = Field(min_length=1)
+    terminal: list[str] = Field(default_factory=list)
+    transitions: list[FSMTransitionSchema] = Field(min_length=1)
+    on_entry: dict[str, str] = Field(default_factory=dict)
+
+
+class SagaStepSchema(BaseModel):
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    tool: str | None = None  # None declares a human step (§9.2)
+    timeout_ms: int = Field(default=30_000, ge=1)
+    pre_condition: str | None = None
+    skip_when: str | None = None
+    compensate_tool: str | None = None
+    compensate_when: str | None = None
+    approval_timeout_ms: int | None = None
+    input_mapping: dict[str, str] = Field(default_factory=dict)
+
+
+class SagaConfigSchema(BaseModel):
+    id: str = Field(pattern=r"^saga:[A-Za-z_][A-Za-z0-9_]*$")
+    trigger_event: str
+    saga_timeout_ms: int = Field(default=300_000, ge=1)
+    fail_when: str | None = None
+    steps: tuple[SagaStepSchema, ...] = Field(min_length=1)
+
+
+class BundleSchema(BaseModel):
+    """The top-level shape.
+
+    A bundle is the unit of versioning and loading.
+    A vertical that needs two unrelated FSMs ships
+    two bundles, not one bundle with two
+    ``business_fsm`` keys (which would be
+    syntactically ambiguous).
+    """
+    bundle_id: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    events: list[EventSchema] = Field(default_factory=list)
+    specifications: list[SpecificationSchema] = Field(default_factory=list)
+    business_fsm: FSMConfigSchema | None = None
+    workflow_sagas: list[SagaConfigSchema] = Field(default_factory=list)
+
+    @field_validator("workflow_sagas")
+    @classmethod
+    def _unique_step_names(cls, v: list[SagaConfigSchema]) -> list[SagaConfigSchema]:
+        for saga in v:
+            names = [s.name for s in saga.steps]
+            if len(names) != len(set(names)):
+                dupes = {n for n in names if names.count(n) > 1}
+                raise ValueError(
+                    f"saga {saga.id!r} has duplicate step names: {sorted(dupes)}"
+                )
+        return v
+```
+
+Errors raise `ConcordoValidationError` (a
+`pydantic.ValidationError` subclass) carrying the
+dotted path and the source file/line. The
+`knt concordo validate` CLI prints the path
+inline; tests catch the exception and assert on
+the path field.
+
+### 14.5 The predicate mini-language
+
+Predicates appear in seven places: `guard`,
+`fail_when`, `skip_when`, `compensate_when`,
+`pre_condition`, `proceed_when`, and the
+`expression` field of a `specifications` entry.
+The grammar is the same in every location.
+
+#### 14.5.1 Two forms: name lookup or expression
+
+```yaml
+guard: "ExtractionConfidencePassed"      # name lookup
+guard: "event.data.score >= 0.80"          # expression
+guard: "not(ExtractionConfidencePassed)"  # expression with composition
+guard: "step_completed('TextChunking')"   # builtin call
+```
+
+**Resolution rule.** The loader classifies the
+string syntactically:
+
+- **No parens, no operator, no path, no number** →
+  it is a **name**; the loader looks it up in
+  (a) the bundle's `specifications:` list, then
+  (b) the global `SpecRegistry` (§14.6). A
+  missing entry fails validation with the
+  message "predicate 'foo' not declared; declared:
+  [...]".
+- **Anything else** → it is an **expression**;
+  the loader parses it (§14.5.2) and produces
+  an in-memory evaluator. Parse errors fail
+  validation with the column/line annotation.
+
+#### 14.5.2 Expression grammar
+
+```
+expr        := or_expr
+or_expr     := and_expr ( "or"  and_expr )*
+and_expr    := not_expr ( "and" not_expr )*
+not_expr    := "not" not_expr | atom
+atom        := comparison | call | path | "(" expr ")" | literal
+comparison  := path comp_op value
+comp_op     := "==" | "!=" | "<=" | ">=" | "<" | ">"
+value       := number | string | "true" | "false" | "null"
+call        := identifier "(" expr_list? ")"
+path        := scope "." tail
+scope       := "event.data" | "steps" | "agent" | "now"
+tail        := ( "." identifier )*
+```
+
+The parser is a recursive-descent implementation
+(~150 lines, lives in `concordos/_mini_lang.py`).
+It rejects anything outside this grammar —
+assignment, function definition, module import,
+attribute access on arbitrary objects — at parse
+time. There is no `eval` and no Python AST
+exposure; the evaluator walks the parsed AST
+against a `StepContext` and returns a `bool`.
+
+#### 14.5.3 Built-in functions
+
+These are callable in any expression:
+
+| Function | Returns | Example |
+|---|---|---|
+| `step_completed(name)` | `true` when the named step is in `step_states[name] == "completed"` | `step_completed('TextChunking')` |
+| `step_failed(name)` | `true` when the step is `failed` or `timed_out` | `step_failed('EntityExtraction')` |
+| `step_timed_out(name)` | `true` when the step is `timed_out` | `step_timed_out('EntityExtraction')` |
+| `domain_state_is(field, value)` | `true` when `ctx.domain.field == value` | `domain_state_is('tax_regime', 'simples')` |
+| `profile_tier_is(tier)` | `true` when `ctx.profile.tier == tier` | `profile_tier_is('vip')` |
+| `continuity_tool_used(name)` | `true` when the named tool appears in `ctx.continuity.last_tools` | `continuity_tool_used('nfe_emitter')` |
+
+These map to the Python builtin Specifications
+declared in §2.3. Adding a new builtin is a
+two-step change: implement the `Specification`
+subclass in `concordos/specs.py`, register the
+parser token in `_mini_lang.py`. The two stay
+in sync via a small test that walks both
+registries.
+
+#### 14.5.4 Path scopes
+
+| Prefix | Resolves to | Example |
+|---|---|---|
+| `event.data.*` | The data payload of the trigger event | `event.data.content_length` |
+| `steps.<name>.output.*` | The tool worker's result (ADR-034 `ToolCallCompletion.result`) | `steps.TextChunking.output.chunks` |
+| `steps.<name>.result.*` | Same as `output.*` (alias kept for clarity; the framework's projection installs the result under both keys) | `steps.TextChunking.result.chunks` |
+| `agent.<field>` | The agent's `DomainComponent` fields (e.g. `agent.lifecycle_state`) | `agent.lifecycle_state` |
+| `now` | The dispatcher-injected `datetime` (§3.4 / §4.5) | `now` (used as `now.year`, `now.hour`, etc.) |
+
+A path that references an undeclared scope
+(`user.data.foo`) is a parse error. A path that
+references an undeclared step (`steps.Missing.output.x`)
+is a runtime evaluation error (the `StepContext`
+does not contain it).
+
+#### 14.5.5 `input_mapping` paths
+
+The same scopes apply, with one addition:
+`event.data.*` resolves to the **triggering
+event** of the saga (the event declared in
+`trigger_event`). This is the most common case —
+the saga starts with `document.ingested` and the
+first step reads from `event.data.content`.
+
+### 14.6 SpecRegistry (Python-side complement)
+
+The mini-language covers **declarative** predicates
+— anything expressible as `event.data.*`,
+`steps.<name>.*`, `agent.*`, and the builtins.
+Predicates that need **runtime logic** (a
+remote lookup, a cached computation, integration
+with an external system) cannot live in the YAML
+and are registered in Python via `SpecRegistry`.
+
+```python
+# fmh_office/concordos/specs.py
+from dataclasses import dataclass
+from kntgraph.concordos.base import Specification, StepContext
+
+
+@dataclass(frozen=True, slots=True)
+class NfeRequired(Specification):
+    """``True`` when fiscal validation indicates NF-e is required."""
+    default: bool = True
+
+    def is_satisfied_by(self, ctx: StepContext) -> bool:
+        result = ctx.step_results.get("validate_fiscal")
+        if not isinstance(result, Mapping):
+            return self.default
+        return bool(result.get("nfe_required", self.default))
+
+
+# fmh_office/app_setup.py
+from kntgraph.concordos._spec_registry import SpecRegistry
+from fmh_office.concordos.specs import NfeRequired, TaxRegimeIs
+
+
+def register_specs() -> None:
+    SpecRegistry.register("nfe_required", NfeRequired())
+    SpecRegistry.register("tax_regime_simples", TaxRegimeIs("simples"))
+```
+
+```yaml
+# app.yaml
+specifications:
+  - id: "nfe_required_proxy"
+    expression: "nfe_required"   # looked up in SpecRegistry
+```
+
+A YAML that references an unregistered name fails
+validation. Tests register specs in a fixture
+and tear them down — `SpecRegistry` is a
+class-level dict, not a module global, so it can
+be reset between tests.
+
+Custom Specifications that take constructor
+parameters are **registered as instances**, not as
+factories. The YAML carries no factory syntax. A
+vertical that needs parameterised custom specs
+registers each parameterisation under a distinct
+name (`tax_regime_simples` vs.
+`tax_regime_lucro_real`). The YAML is the full
+specification of the rule set; there is no
+hidden runtime construction.
+
+### 14.7 Round-trip
+
+```python
+catalog = ConcordoCatalog.from_yaml("app.yaml")
+catalog.to_yaml("app.normalized.yaml")  # canonical formatting
+catalog.to_dict()  # round-trip via Pydantic
+```
+
+`to_yaml` / `to_json` are the inverse of the
+loaders. They emit the canonical form so
+version-controlled configs do not drift in
+formatting (whitespace, key ordering, comment
+preservation is **not** a goal — diffs should
+show semantic changes only).
+
+A bundle loaded and dumped round-trips
+identically through the Pydantic schemas. The
+order of `transitions`, `states`, and `steps` is
+preserved as declared (Pydantic's list fields
+are order-stable); the order of
+`specifications` is preserved too, which matters
+because a name lookup can shadow an earlier
+declaration only via explicit re-binding (the
+loader rejects duplicate IDs).
+
+### 14.8 What is NOT in the YAML
+
+- **Code (lambdas, callables).** Forbidden by
+  design (§14.5.2). Specs that need runtime logic
+  are registered in Python (§14.6).
+- **Concurrency / parallelism knobs.** The Saga
+  runs synchronously through `SagaSystem`; there
+  is no per-step concurrency to tune. Parallel
+  step fan-out, if ever needed, lives in a
+  separate ADR (it is not in scope here).
+- **Auth / secrets.** YAML is not a place for
+  API keys. The Dispatcher's external
+  configuration (Redis URL, etc.) is handled by
+  `kntgraph.infra.config.Settings` (pydantic-settings).
+- **Cross-tenant overrides.** A bundle is the
+  unit of loading; per-tenant overrides (e.g.
+  `tax_regime_simples` in some tenants but not
+  others) are loaded as additional bundles and
+  selected by `bundle_id` at runtime. This keeps
+  bundle loading pure and side-effect-free.
+- **Operator override events.** The earlier draft
+  declared `saga.<name>.manual_resolved` /
+  `retry_compensation` (§11.9). They are deferred
+  to ADR-070 (§11.9 update); they will arrive as
+  a second bundle of privileged events, not as
+  inline fields.
+
+### 14.9 Migration story
+
+The Python API is unchanged. Existing code that
+constructs `FSMConfig(...)` or `SagaConfig(...)`
+in Python continues to work; the YAML is an
+optional layer for environments that prefer
+declarative configuration. PR 1.5 of the refactor
+plan ships:
+
+- `concordos/_loader.py` — `ConcordoCatalog.from_yaml`,
+  `.from_json`, `.from_dict`.
+- `concordos/schemas.py` — Pydantic schemas for the
+  bundle, FSM, saga, event, specification.
+- `concordos/_mini_lang.py` — the predicate
+  parser + evaluator.
+- `concordos/_spec_registry.py` — Python-side
+  complement for non-declarative specs.
+- `tests/fixtures/concordos/*.yaml` — example
+  bundles referenced by the unit tests.
+
+A new vertical can mix modes (§6.1.3) —
+programmatic + YAML — and a CI step that runs
+`knt concordo validate` against the YAML catches
+drift before deploy.
 
 
 

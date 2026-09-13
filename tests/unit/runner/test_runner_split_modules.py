@@ -23,7 +23,7 @@ Each helper is tested for:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -31,6 +31,7 @@ import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
+from kntgraph.core.world.view import AgentView
 from kntgraph.infra.world_checkpoint import WorldCheckpoint
 from kntgraph.runner._checkpoint_io import (
     bootstrap_agents,
@@ -509,3 +510,233 @@ class TestCheckpointIO:
         assert cap.saved == [
             ("a-1", WorldCheckpoint(world=world, last_stream_id="5-0"))
         ]
+
+
+# ---------------------------------------------------------------------------
+# _systems_runner cursors (ADR-074)
+# ---------------------------------------------------------------------------
+
+
+class _NamedSystem:
+    """Test system with an explicit ``__fsm_system_name__``
+    override (ADR-074 §2.1)."""
+    __fsm_system_name__: ClassVar[str] = "named"
+
+    def __call__(self, world: World) -> list[Event]:
+        return []
+
+
+class TestCursorPrimitive:
+    """Tests for the per-system cursor primitive (ADR-074).
+
+    The dispatcher advances ``view.cursors[system_name]``
+    after the system emits events; persistence piggy-backs
+    on the WorldCheckpoint. No system currently consumes
+    the cursor — this is the framework-level plumbing
+    for the FSM (PR 2 of the refactor plan).
+    """
+
+    async def test_agent_view_cursors_default_to_empty_dict(self) -> None:
+        """``cursors`` is a plain ``dict`` (no
+        ``MappingProxyType``) per the ADR-074 §2.1
+        convention.
+        """
+        view = AgentView(agent_id="a-1")
+        assert view.cursors == {}
+        assert isinstance(view.cursors, dict)
+
+    async def test_agent_view_cursors_is_assignable_via_replace(self) -> None:
+        """``AgentView`` is frozen; ``cursors`` is updated
+        via ``dataclasses.replace``.
+        """
+        from dataclasses import replace
+
+        view = AgentView(agent_id="a-1")
+        new_view = replace(view, cursors={"FSMSystem": "e-1"})
+        assert new_view.cursors == {"FSMSystem": "e-1"}
+        # Original is unchanged (frozen).
+        assert view.cursors == {}
+
+    async def test_agent_view_cursors_round_trips_through_pickle(self) -> None:
+        """``pickle.dumps(AgentView(...))`` must succeed —
+        the ADR-074 field follows the ``AgentView.components``
+        convention (plain dict, no ``MappingProxyType``;
+        see ADR-036 §5).
+        """
+        import pickle
+        from dataclasses import replace
+
+        view = replace(
+            AgentView(agent_id="a-1"),
+            cursors={"FSMSystem": "e-1", "SagaSystem": "e-2"},
+        )
+        round_tripped = pickle.loads(pickle.dumps(view))
+        assert round_tripped.cursors == view.cursors
+
+    async def test_system_name_defaults_to_class_name(self) -> None:
+        """``_system_name`` returns ``type(system).__name__``
+        when no ``__fsm_system_name__`` is declared.
+        """
+        from kntgraph.runner._systems_runner import _system_name
+
+        class MySystem:
+            def __call__(self, world): return []
+
+        assert _system_name(MySystem()) == "MySystem"
+
+    async def test_system_name_uses_explicit_override(self) -> None:
+        """``_system_name`` honours the
+        ``__fsm_system_name__`` ClassVar override.
+        """
+        from kntgraph.runner._systems_runner import _system_name
+
+        assert _system_name(_NamedSystem()) == "named"
+
+    async def test_advance_cursors_no_emitters_returns_same_world(self) -> None:
+        """No emitters ⇒ no allocation. Returns the exact
+        ``world`` object (identity-equal), so callers can
+        short-circuit ``if world is old_world``.
+        """
+        from kntgraph.runner._systems_runner import (
+            _advance_cursors_in_world,
+        )
+
+        world = World.empty()
+        result = _advance_cursors_in_world(world, set())
+        assert result is world
+
+    async def test_advance_cursors_skips_agents_without_view(self) -> None:
+        """Defensive: if an emitter references an agent
+        that doesn't exist in the World, the helper skips
+        it (no allocation).
+        """
+        from kntgraph.runner._systems_runner import (
+            _advance_cursors_in_world,
+        )
+
+        world = World.empty()
+        result = _advance_cursors_in_world(
+            world, {("FSMSystem", "nonexistent-agent")}
+        )
+        # Cursor was NOT advanced (no view to anchor it).
+        assert result is world
+
+    async def test_dispatcher_advances_cursor_after_system_emits(self) -> None:
+        """``run_systems_and_persist`` advances the cursor
+        for the system that emitted events. The cursor
+        advances to ``view.last_event_id`` at the moment
+        of advancement (ADR-074 §2.2).
+
+        Note: ``fold_with_systems`` only re-folds tool
+        events (ADR-045 Slot GC). Domain events emitted
+        by systems (e.g., the FSM's ``fsm.transitioned``)
+        land in the EventLog but not in the world until
+        the next tick. So for non-tool events the cursor
+        advances to the last event the world has seen
+        (which is the trigger event). On the next tick,
+        the fold processes the system-emitted event and
+        the cursor advances to it.
+        """
+        from kntgraph.runner._systems_runner import _system_name
+
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+
+        # Seed an event so the post-fold world has a
+        # ``last_event_id``.
+        seed = _seed_event("a-1", "seed.evt")
+        # System emits a domain event (NOT a tool event —
+        # ``fold_with_systems`` will not fold it back into
+        # the world this tick).
+        emitted = _seed_event("a-1", "emitted.evt")
+
+        def _system(_w: World) -> list[Event]:
+            return [emitted]
+
+        dispatcher._systems = [_system]
+
+        # Build a world with the seed event applied.
+        world_with_seed = World.empty().with_event(seed)
+
+        await run_systems_and_persist(
+            dispatcher, "a-1", world_with_seed, "1-0", 1, [seed]
+        )
+
+        # Find the saved world.
+        assert cap.saved, "checkpoint was not saved"
+        saved_world = cap.saved[0][1].world
+        view = saved_world.views["a-1"]
+        sys_name = _system_name(_system)
+        assert sys_name in view.cursors, (
+            f"expected cursor for {sys_name!r}, got {view.cursors!r}"
+        )
+        # Cursor points at the last event the WORLD has
+        # seen — which is the seed (the emitted domain
+        # event is in the EventLog but not yet folded into
+        # the world).
+        assert view.cursors[sys_name] == str(seed.event_id)
+
+    async def test_dispatcher_skips_cursor_when_no_events_emitted(self) -> None:
+        """Silent systems: no cursor is recorded (the
+        dispatcher still tracks emitters, but the set is
+        empty, so no advance).
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+
+        dispatcher._systems = [lambda _w: []]
+
+        await run_systems_and_persist(
+            dispatcher, "a-1", World.empty(), "1-0", 0, []
+        )
+
+        # The world has no views (World.empty); the cursor
+        # set is empty (no emissions), so nothing to advance.
+        # No exception, no allocation.
+        if cap.saved:
+            saved_world = cap.saved[0][1].world
+            for view in saved_world.views.values():
+                assert view.cursors == {}
+
+    async def test_cross_agent_emission_advances_target_agent_cursor(self) -> None:
+        """A system emits for agent B while processing
+        agent A's tick. The cursor advances for agent B
+        (not for A — A had no events emitted for it).
+        """
+        from kntgraph.runner._systems_runner import _system_name
+
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = _build_dispatcher(log=log, store=store)
+
+        # Seed an event for agent B so B's view has a
+        # ``last_event_id``.
+        seed_b = _seed_event("b-1", "b.seed")
+        emitted_b = _seed_event("b-1", "b.emitted")
+        # System emits for agent B (not the agent being
+        # processed, which is "a-1").
+        def _system(_w: World) -> list[Event]:
+            return [emitted_b]
+
+        dispatcher._systems = [_system]
+
+        # Build a world with both agents.
+        world = World.empty().with_event(seed_b)
+
+        await run_systems_and_persist(
+            dispatcher, "a-1", world, "1-0", 1, [seed_b]
+        )
+
+        saved_world = cap.saved[0][1].world
+        view_b = saved_world.views["b-1"]
+        sys_name = _system_name(_system)
+        assert sys_name in view_b.cursors
+        # Cursor points at the last event the world has
+        # seen — which is seed_b (the emitted domain
+        # event is in the EventLog but not yet folded).
+        assert view_b.cursors[sys_name] == str(seed_b.event_id)

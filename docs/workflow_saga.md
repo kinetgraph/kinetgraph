@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# WorkflowSaga — orchestrate a sequence of tool calls (ADR-069 §4)
+# WorkflowSaga — orchestrate a sequence of tool calls (ADR-072 §4)
 
 A **WorkflowSaga** orchestrates a sequence of tool calls with
 context enrichment, skip conditions, failure policies, and
@@ -12,7 +12,7 @@ compensation. It is built entirely on top of the framework's
 tool-call primitives (ADR-034 tool calls, ADR-045 TTL, ADR-042
 memory) and does **not** reinvent the tool lifecycle.
 
-This is the C-02 Concordo of ADR-069. It composes with the
+This is the C-02 Concordo of ADR-072. It composes with the
 BusinessFSM (C-01): the Saga drives execution; upon completion it
 emits an event that the FSM uses to advance state.
 
@@ -63,7 +63,7 @@ recent events and reacts to:
 ### 2.2 The trigger is derived from the view
 
 Like the FSM, the saga derives its trigger from the existing view
-fields (ADR-069 §11.16): `view.domain_phase` (the last domain
+fields (ADR-072 §11.16): `view.domain_phase` (the last domain
 event's type), `view.last_event_id`, `view.components[domain_phase]`,
 and `correlation_middleware.current()`.
 
@@ -76,7 +76,7 @@ The saga reads `ToolCallCompletion` from the `tool_completions` slot
 ### 2.4 Progress is materialised by the `SagaProjection`
 
 The `SagaProgressComponent` (execution state) is materialised from
-the saga events by the `SagaProjection` (ADR-069 §9.2 item 6). It
+the saga events by the `SagaProjection` (ADR-072 §9.2 item 6). It
 reconstructs `step_states` / `step_results` from the event
 snapshots, `compensate_stack` from the config (LIFO), `direction`,
 and `current_step`. A re-fold of the EventLog reconstructs the same
@@ -234,12 +234,12 @@ KNT_REDIS_FAKE=1 uv run python examples/24_workflow_saga.py
 
 ## 8. See also
 
-- [ADR-069 §4](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-072 §4](../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md) —
   the WorkflowSaga design record.
-- [ADR-069 §2](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-072 §2](../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md) —
   the Specification Pattern.
 - [BusinessFSM](business_fsm.md) — the state machine Concordo (C-01).
 - [Tools](tools.md) — the `@tool_worker` pattern (ADR-036).
 - [ECS](ecs.md) — `World`, `AgentView`, `WorldSystem`.
-- [DEBT §2.34](../../DEBT.md) — the ADR-069 follow-up tracker
+- [DEBT §2.34](../../DEBT.md) — the ADR-072 follow-up tracker
   (items 1, 2, 3, 6 closed).

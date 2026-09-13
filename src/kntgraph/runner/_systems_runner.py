@@ -25,18 +25,78 @@ dispatcher passes ``self`` so the functions can read its
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.core.world import World
 
 from ._folding import fold_with_systems
 
 if TYPE_CHECKING:
-    from kntgraph.core.world import World
     from kntgraph.runner.reactive import ReactiveDispatcher
 
 
 __all__ = ["run_systems_and_persist", "append_system_outgoing"]
+
+
+def _system_name(system: object) -> str:
+    """
+    Resolve the cursor key for a system instance (ADR-074).
+
+    Default: ``type(system).__name__``. Override via
+    ``__fsm_system_name__`` ClassVar when the class name
+    collides with another module's class.
+    """
+    return getattr(system, "__fsm_system_name__", type(system).__name__)
+
+
+def _advance_cursors_in_world(
+    world: World,
+    emitters: set[tuple[str, str]],
+) -> World:
+    """
+    Advance the per-system cursor for each ``(system_name,
+    agent_id)`` in ``emitters`` to the agent's current
+    ``view.last_event_id`` (ADR-074).
+
+    Returns a new ``World`` with the updated views.
+    Cursors are not part of ``components``, so the
+    ``storage`` field is unchanged — the cursor
+    advancement is a pure view-level update.
+
+    If ``emitters`` is empty, OR every emitter references
+    an agent that has no view in the World (no anchor
+    event), returns ``world`` unchanged (no allocation).
+    """
+    if not emitters:
+        return world
+
+    # Group emitters by agent_id for efficient per-view
+    # updates.
+    by_agent: dict[str, set[str]] = {}
+    for sys_name, ag_id in emitters:
+        by_agent.setdefault(ag_id, set()).add(sys_name)
+
+    # Fast path: if no emitter has a corresponding view,
+    # there is nothing to advance. Skip allocation.
+    if not any(ag_id in world.views for ag_id in by_agent):
+        return world
+
+    new_views = dict(world.views)
+    for ag_id, sys_names in by_agent.items():
+        old_view = new_views.get(ag_id)
+        if old_view is None:
+            continue  # defensive
+        if old_view.last_event_id is None:
+            continue  # no anchor event
+        new_cursors = dict(old_view.cursors)
+        for sys_name in sys_names:
+            new_cursors[sys_name] = old_view.last_event_id
+        if new_cursors != old_view.cursors:
+            new_views[ag_id] = replace(old_view, cursors=new_cursors)
+
+    return World(tick=world.tick, storage=world.storage, views=new_views)
 
 
 async def run_systems_and_persist(
@@ -102,6 +162,14 @@ async def run_systems_and_persist(
     )
     if system_events:
         world = fold_with_systems(dispatcher, world, system_events)
+    # ADR-074: advance per-system cursors for (system,
+    # emitted_agent) pairs that emitted events this tick.
+    # The cursor lives in ``view.cursors``; persistence
+    # piggy-backs on the WorldCheckpoint save below.
+    emitters = getattr(dispatcher, "_tick_emitters", None)
+    if emitters:
+        world = _advance_cursors_in_world(world, emitters)
+        dispatcher._tick_emitters = set()
     # Dirty-only save (ADR-068 §3.5 P5c): the checkpoint is
     # re-persisted only when something actually changed — the
     # cursor advanced past consumed entries, or a system
@@ -149,6 +217,12 @@ async def append_system_outgoing(
     from the argument.
     """
     outgoing: list[Event] = []
+    # ADR-074: track per-(system, agent) emitters for
+    # cursor advancement. Reset on each tick so the set
+    # doesn't accumulate across ticks. Lazily attached to
+    # the dispatcher so older dispatchers (which never
+    # initialised the attribute) keep working.
+    dispatcher._tick_emitters = set()
     # Bind a correlation scope so systems that call
     # ``correlation_middleware.current()`` (e.g. to build
     # events via ``Event.domain_from``) receive a
@@ -162,6 +236,11 @@ async def append_system_outgoing(
                 out = await out
             if out:
                 outgoing.extend(out)
+                sys_name = _system_name(system)
+                for event in out:
+                    dispatcher._tick_emitters.add(
+                        (sys_name, event.agent_id)
+                    )
     if outgoing:
         await dispatcher._log.append_batch(outgoing)
         if dispatcher._tool_router is not None:

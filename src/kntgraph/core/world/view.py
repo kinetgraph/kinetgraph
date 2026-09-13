@@ -105,6 +105,26 @@ class AgentView:
     # ``None`` when the last event carried no principal (e.g.
     # events written before v0.16, or hand-built views).
     last_event_principal_id: Optional[str] = None
+    # Per-system cursor (ADR-074). Maps the system's name
+    # (default: ``type(system).__name__``; override via
+    # ``__fsm_system_name__`` ClassVar) to the ``event_id``
+    # of the most recent event the system has processed for
+    # this agent. Absent key = the system has never
+    # processed an event for this agent (the system must
+    # re-derive from the start of the EventLog in that
+    # case).
+    #
+    # Advanced by the dispatcher in
+    # ``runner/_systems_runner.py`` after the system emits
+    # events; persisted via the WorldCheckpoint (the
+    # checkpoint pickles the AgentView).
+    #
+    # Plain ``dict`` (no ``MappingProxyType``): follows the
+    # convention of ``AgentView.components`` (see ADR-036
+    # §5 which explicitly removed ``MappingProxyType``
+    # because it broke ``World`` pickling and was redundant
+    # with ``frozen=True``).
+    cursors: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def is_terminated(self) -> bool:
