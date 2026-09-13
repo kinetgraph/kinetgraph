@@ -282,6 +282,9 @@ class FSMSystem:
                 profile=view.get_component(ProfileComponent),
                 agent_id=view.agent_id,
                 now=self._now(),
+                trigger_data=MappingProxyType(dict(trigger.data))
+                if isinstance(getattr(trigger, "data", None), dict)
+                else None,
                 cross_agent_resolver=lambda aid: world.views.get(aid),
             )
             if not transition.guard.is_satisfied_by(ctx):

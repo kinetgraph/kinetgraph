@@ -74,6 +74,14 @@ class StepContext:
     source; reading ``datetime.now()`` inside
     ``is_satisfied_by`` would break replay determinism.
 
+    ``trigger_data`` is the data payload of the event
+    that triggered the current evaluation (e.g., the
+    transition event for an FSM guard, the trigger event
+    for a saga). The mini-language's ``event.data.*``
+    paths resolve via this field. ``None`` when no
+    trigger is in scope (e.g., for a saga step-result
+    evaluation that only cares about ``step_results``).
+
     **Cross-agent access is opt-in.** A Specification
     that needs to read another agent's view (e.g.
     "proceed iff the financial-control agent's tier
@@ -105,6 +113,7 @@ class StepContext:
     profile: "ProfileComponent | None"
     agent_id: str
     now: datetime
+    trigger_data: "MappingProxyType[str, JsonValue] | None" = None
     cross_agent_resolver: "Callable[[str], AgentView | None] | None" = None
 
 
