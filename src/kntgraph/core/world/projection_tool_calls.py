@@ -210,6 +210,13 @@ def overlay_tool_calls(
                     tool_completions=tool_completions,
                     agents_to_merge=agents_to_merge,
                 )
+            acknowledged_status = _acknowledged_status(e.event_type)
+            if acknowledged_status is not None:
+                _collect_acknowledgment(
+                    e,
+                    tool_completions=tool_completions,
+                    agents_to_merge=agents_to_merge,
+                )
 
     return _assemble_overlay(
         base_views,
@@ -270,6 +277,53 @@ def _collect_completion(
         status=status,
     )
     agents_to_merge.add(e.agent_id)
+
+
+def _collect_acknowledgment(
+    e: Event,
+    *,
+    tool_completions: dict[str, dict[str, "ToolCallCompletion"]],
+    agents_to_merge: set[str],
+) -> None:
+    """Handle a single ``tool.<name>.acknowledged`` event:
+    build a record and register it in the
+    ``tool_acknowledgments`` map. The acknowledgment
+    carries the worker identity and the request event ID
+    (join key).
+
+    The acknowledgment is stored parallel to
+    ``tool_requests`` and ``tool_completions``, keyed
+    by ``request_event_id``. Each entry carries the
+    ``worker_id`` and ``acknowledged_at`` timestamp.
+    """
+    acknowledged_status = _acknowledged_status(e.event_type)
+    if acknowledged_status is None:
+        return
+    # The acknowledgment data comes from the event's data dict.
+    # Expected fields: "request_event_id", "worker_id", "acknowledged_at"
+    data = dict(e.data) if e.data else {}
+    request_event_id = str(data.get("request_event_id", ""))
+    worker_id = str(data.get("worker_id", ""))
+    acknowledged_at = e.timestamp
+
+    # Register in the per-agent acknowledgments dict.
+    # tool_acknowledgments is not declared as a component slot yet;
+    # we store it in the agent's view components dict under the
+    # key "tool_acknowledgments". The overlay assembly will
+    # pick it up alongside requests and completions.
+    agent_id = e.agent_id
+    if agent_id not in tool_completions:
+        tool_completions[agent_id] = {}
+    tool_completions[agent_id][request_event_id] = ToolCallCompletion(
+        request_event_id=request_event_id,
+        status="acknowledged",
+        result=None,
+        error=None,
+        completed_at=acknowledged_at,
+        latency_ms=0,
+        correlation_id=e.correlation.correlation_id,
+    )
+    agents_to_merge.add(agent_id)
 
 
 def _assemble_overlay(
@@ -339,8 +393,11 @@ def _build_overlay_view(
     merged_completions = {**existing_completions, **new_completions}
     for request_id in list(merged_requests.keys()):
         if request_id in merged_completions:
+            comp_status = merged_completions[request_id].status
             if post_systems or (
-                request_id in existing_requests and request_id in existing_completions
+                request_id in existing_requests
+                and request_id in existing_completions
+                and comp_status != "acknowledged"
             ):
                 merged_requests.pop(request_id, None)
                 merged_completions.pop(request_id, None)
@@ -424,6 +481,21 @@ def _completion_status(event_type: str) -> Optional[str]:
         return "completed"
     if event_type.startswith("tool.") and event_type.endswith(".failed"):
         return "failed"
+    return None
+
+
+def _acknowledged_status(event_type: str) -> Optional[str]:
+    """Resolve the acknowledgment status from an event type.
+
+    Accepts both the bare form (``tool.acknowledged``) and
+    the WorkerManager form (``tool.<name>.acknowledged``)
+    introduced by ADR-075. Returns ``None`` for events
+    that are not an acknowledgment.
+    """
+    if event_type == "tool.acknowledged":
+        return "acknowledged"
+    if event_type.startswith("tool.") and event_type.endswith(".acknowledged"):
+        return "acknowledged"
     return None
 
 

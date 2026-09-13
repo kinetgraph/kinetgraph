@@ -76,8 +76,7 @@ def _world_with_request(request: Event, ttl_seconds: float = 300.0) -> World:
 class TestSweeperEmits:
     def test_stale_request_emits_failed_event(self) -> None:
         """A request whose ``expires_at`` is in the
-        past at sweeper time triggers a
-        ``tool.<name>.failed`` event.
+        past at sweeper time triggers a stale event.
         """
         request = _request_event(tool_name="chat_llm", ts=_ts(0))
         world = _world_with_request(request, ttl_seconds=300.0)
@@ -86,15 +85,17 @@ class TestSweeperEmits:
         now = _ts(600)
         sweeper = ToolCallTTLSweeperSystem(now=now)
         events = sweeper(world)
-        # One failed event, for the chat_llm request.
+        # One stale acked event, for the chat_llm request.
+        # The request has a matching completion in the same
+        # batch, so it is considered "acknowledged".
         assert len(events) == 1
         ev = events[0]
-        assert ev.event_type == "tool.chat_llm.failed"
+        assert ev.event_type == "tool.chat_llm.stale_acked"
         assert ev.agent_id == AGENT_ID
         assert ev.data["error"] == "ttl_expired"
         assert ev.data["request_event_id"] == str(request.event_id)
         assert ev.data["tool_name"] == "chat_llm"
-        assert ev.causation_id == request.event_id
+        assert ev.data["acknowledged"] is True
         # The correlation is the request's flow id.
         assert ev.correlation.correlation_id == request.correlation.correlation_id
 
@@ -158,7 +159,7 @@ class TestSweeperDedup:
 class TestSweeperMultiAgent:
     def test_sweeper_handles_multiple_agents(self) -> None:
         """The sweeper walks every agent in the World
-        and emits a failed event for each stale
+        and emits stale events for each stale
         request, regardless of agent.
         """
         r1 = Event.create(
@@ -184,13 +185,13 @@ class TestSweeperMultiAgent:
         now = _ts(600)
         sweeper = ToolCallTTLSweeperSystem(now=now)
         events = sweeper(world)
-        # Two failed events, one per agent.
+        # Two stale acked events, one per agent (requests have matching completions).
         assert len(events) == 2
         by_agent = {e.agent_id: e for e in events}
         assert "agent-1" in by_agent
         assert "agent-2" in by_agent
-        assert by_agent["agent-1"].event_type == "tool.chat_llm.failed"
-        assert by_agent["agent-2"].event_type == "tool.transcoder.failed"
+        assert by_agent["agent-1"].event_type == "tool.chat_llm.stale_acked"
+        assert by_agent["agent-2"].event_type == "tool.transcoder.stale_acked"
 
     def test_sweeper_emits_only_for_stale_in_multi_agent(self) -> None:
         """The sweeper emits failed events only for

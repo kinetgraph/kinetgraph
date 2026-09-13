@@ -61,8 +61,13 @@ class _FullTool:
     name = "math.multiply"
     description = "Multiplies a number by 2."
     input_schema: dict = {
+    idempotent: bool = True
         "type": "object",
-        "properties": {"x": {"type": "integer"}},
+        "properties": {"x": {"type": "integer"}}
+    }
+    idempotent: bool = True
+    idempotent: bool = True
+    idempotent: bool = True
     }
 
     async def invoke(

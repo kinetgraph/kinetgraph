@@ -27,6 +27,7 @@ class _HelloTool:
         "type": "object",
         "properties": {"name": {"type": "string"}},
     }
+    idempotent: bool = True
 
     async def invoke(self, *, name: str, **kwargs):
         if not name:

@@ -153,6 +153,10 @@ class ToolCallRequest:
     # where ``ttl`` is configured per-tool on the
     # dispatcher.
     expires_at: datetime
+    # ADR-075: tracks whether a worker acknowledged
+    # this request. Set by the projection when the
+    # ``tool.<name>.acknowledged`` event is materialised.
+    acknowledged: bool = False
     correlation_id: Optional[UUID] = None
 
 

@@ -1,16 +1,30 @@
 # SPDX-FileCopyrightText: 2026 kinetgraph
 #
 # SPDX-License-Identifier: Apache-2.0
-
 """
-Tool-call TTL sweeper (ADR-045).
+Tool-call TTL sweeper (ADR-045, ADR-075 Tier 3).
 
 The ``ToolCallTTLSweeperSystem`` is a ``WorldSystem``
 that runs **once per tick** in the
 ``ReactiveDispatcher``. On each invocation it walks
 the ``tool_requests`` slot of every agent's view and
-emits a ``tool.<name>.failed`` event for every
-request whose ``expires_at`` is in the past.
+emits events for stale requests.
+
+ADR-075 Tier 3: the sweeper now supports two paths
+for stale requests:
+
+  1. **Re-dispatch** — the request was never picked up
+     by a worker (no ``tool.<name>.acknowledged``
+     event). The framework re-emits ``tool.<name>.requested``
+     with the same ``request_event_id`` and a reset TTL.
+
+  2. **DLQ** — the request was acknowledged by a worker
+     (``tool.<name>.acknowledged`` event was emitted) but
+     the TTL expired before completion. The framework
+     routes the request to the Dead Letter Queue with a
+     ``TOOL_STALE_ACKNOWLEDGED`` or ``TOOL_STALE_UNACKNOWLEDGED``
+     reason, depending on whether the worker acknowledged
+     the task.
 
 The sweeper is the **safety net** for the
 completion-driven eviction introduced in ADR-044. A
@@ -21,7 +35,7 @@ or a worker is stuck) becomes an **orphan**. The
 sweeper detects orphans via the per-request TTL
 (``expires_at`` set by the projection at
 materialisation time; see ADR-045 §2.1) and emits
-the failure event so downstream systems
+events so downstream systems
 (``SolutionExtractor``, metrics, alerts) can
 observe the gap.
 
@@ -52,15 +66,15 @@ The sweeper system **separates concerns**:
     new request. No clock injection. No allocation
     for non-tool batches.
   - **Sweeper** (impure): reads the wall clock,
-    walks the views, emits failure events. The
+    walks the views, emits events. The
     I/O is explicit (a system that produces
     events).
 
 The separation preserves the framework's
 "projection as pure data" invariant (ADR-034) and
 keeps the TTL enforcement observable (a downstream
-consumer can subscribe to the ``tool.<name>.failed``
-events for metrics, retries, etc.).
+consumer can subscribe to the emitted events for
+metrics, retries, etc.).
 
 ## Implementation
 
@@ -71,11 +85,11 @@ auto-register it; the operator opts in by
 ``dispatcher.add_system(ToolCallTTLSweeperSystem())``
 or by passing it in ``systems=[...]`` at
 construction). The sweeper is stateful (it
-deduplicates failures by ``request_event_id``) but
+deduplicates events by ``request_event_id``) but
 the state is per-instance; the sweeper's dedup
 memory is local to the process (a process restart
 re-derives the dedup from the EventLog via the
-``causation_id`` field on subsequent events).
+``causation_id`` on subsequent events).
 
 The sweeper DOES NOT evict the stale request from
 the ``tool_requests`` slot. The eviction is left
@@ -83,9 +97,24 @@ to the **completion-driven rule** (ADR-044 §2.3
 option 1): when the worker's completion eventually
 arrives, the request is removed from the slot. If
 the completion never arrives, the request stays in
-the slot forever (memory leak); a follow-up
-**GC_TICK** event (or a periodic compaction pass)
-is the mitigation (out of scope for ADR-045).
+the slot forever (the memory leak is out of scope
+for ADR-045; see the module docstring for the
+follow-up).
+
+## TTL Ack/Nack Events
+
+When a worker starts processing a task, it emits
+``tool.<name>.acknowledged`` (ADR-075 Tier 2).
+The sweeper checks for a matching acknowledgment in
+the ``tool_completions`` slot. If found, the request
+is marked as acknowledged; otherwise it is treated
+as unacknowledged.
+
+The two paths are:
+
+- **Acknowledged + expired TTL** → ``tool.<name>.stale_acked`` event
+- **Unacknowledged + expired TTL** → ``tool.<name>.requested``
+  re-dispatch event (same ``request_event_id``, reset TTL)
 """
 
 from __future__ import annotations
@@ -97,9 +126,8 @@ from collections.abc import Mapping
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
-from kntgraph.core.world.components import ToolCallRequest
+from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.core.world.view import AgentView
-
 
 # The error string emitted on a TTL-expired request.
 # The format matches the standard failure event
@@ -113,37 +141,44 @@ _TTL_EXPIRED_ERROR = "ttl_expired"
 class ToolCallTTLSweeperSystem:
     """
     Sweep the ``tool_requests`` slot of every agent
-    in the World and emit ``tool.<name>.failed`` for
-    stale requests.
+    in the World and emit events for stale requests.
 
-    Usage::
+    ADR-075 Tier 3: two paths for stale requests:
 
-        sweeper = ToolCallTTLSweeperSystem()
-        dispatcher = ReactiveDispatcher(
-            log=log,
-            systems=[sweeper],
-            ...
-        )
+    1. **Re-dispatch** — the request was never picked up
+       by a worker (no ``tool.<name>.acknowledged``
+       event). The framework re-emits
+       ``tool.<name>.requested`` with the same
+       ``request_event_id`` and a reset TTL.
 
-    The system is **stateful** (``_emitted_failures``):
+    2. **DLQ** — the request was acknowledged by a worker
+       (``tool.<name>.acknowledged`` event was emitted) but
+       the TTL expired before completion. The framework
+       routes the request to the Dead Letter Queue with a
+       ``TOOL_STALE_ACKNOWLEDGED`` or ``TOOL_STALE_UNACKNOWLEDGED``
+       reason, depending on whether the worker acknowledged
+       the task.
+
+    The system is **stateful** (``_emitted_events``):
     it remembers the ``request_event_id``s for which
-    it has already emitted a ``failed`` event, so a
-    request that stays in the slot across multiple
-    ticks (because the completion never arrives)
-    triggers **at most one** failed event. The
-    dedup is in-memory; a process restart re-derives
-    the dedup from the EventLog via the
-    ``causation_id`` on subsequent events (the
-    system can subscribe to the ``tool.<name>.failed``
-    events it previously emitted to filter them out
-    on re-folds).
+    it has already emitted an event, so a request that
+    stays in the slot across multiple ticks (because
+    the completion never arrives) triggers **at most
+    one** event. The dedup is in-memory; a process
+    restart re-derives the dedup from the EventLog via
+    the ``causation_id`` on subsequent events (the
+    system can subscribe to the events it previously
+    emitted to filter them out on re-folds).
 
     The system does NOT evict the stale request from
-    the slot; the completion-driven eviction
-    (ADR-044) handles that. If the completion never
-    arrives, the slot carries the request forever
-    (the memory leak is out of scope for ADR-045;
-    see the module docstring for the follow-up).
+    the ``tool_requests`` slot. The eviction is left
+    to the **completion-driven rule** (ADR-044 §2.3
+    option 1): when the worker's completion eventually
+    arrives, the request is removed from the slot. If
+    the completion never arrives, the request stays in
+    the slot forever (the memory leak is out of scope
+    for ADR-045; see the module docstring for the
+    follow-up).
     """
 
     def __init__(
@@ -159,15 +194,15 @@ class ToolCallTTLSweeperSystem:
         assertions.
 
         ``error_message``: the ``data["error"]`` string
-        for the emitted failed event. Defaults to
+        for the emitted events. Defaults to
         ``"ttl_expired"``.
         """
         self._now = now
         self._error_message = error_message
         # ``request_event_id`` -> True (one set
-        # membership per failure emitted). The set
+        # membership per event emitted). The set
         # is in-memory; it is reset on process restart.
-        self._emitted_failures: set[str] = set()
+        self._emitted_events: set[str] = set()
 
     def __call__(self, world: "World | Mapping[str, AgentView]") -> list[Event]:
         events: list[Event] = []
@@ -185,6 +220,7 @@ class ToolCallTTLSweeperSystem:
             tool_requests = view.components.get("tool_requests", {})
             if not isinstance(tool_requests, dict):
                 continue
+            tool_completions = view.components.get("tool_completions", {})
             for request_id, req in tool_requests.items():
                 if not isinstance(req, ToolCallRequest):
                     continue
@@ -198,75 +234,122 @@ class ToolCallTTLSweeperSystem:
                     # Not yet expired; the next tick
                     # will re-check.
                     continue
-                if request_id in self._emitted_failures:
-                    # Already emitted a failed event
-                    # for this request. The request
+                if request_id in self._emitted_events:
+                    # Already emitted an event for
+                    # this request. The request
                     # is still in the slot (we do not
                     # evict; see the docstring), but
                     # we do not emit a duplicate.
                     continue
-                self._emitted_failures.add(request_id)
-                events.append(
-                    self._build_failed_event(
-                        agent_id=agent_id,
-                        request=req,
-                        now=now,
+                #
+                # ADR-075 Tier 3: determine path based on
+                # acknowledgment status.
+                #
+                comp = tool_completions.get(request_id)
+                acknowledged = comp is not None and comp.status == "acknowledged"
+                #
+                if acknowledged:
+                    # Request was acknowledged by a worker
+                    # but TTL expired before completion.
+                    # Emit stale-aacked event.
+                    events.append(
+                        self._build_stale_acked_event(
+                            agent_id=agent_id,
+                            request=req,
+                            now=now,
+                        )
                     )
-                )
+                else:
+                    # Request was never acknowledged (worker
+                    # never picked it up). Re-dispatch it.
+                    events.append(
+                        self._build_re_dispatch_event(
+                            agent_id=agent_id,
+                            request=req,
+                            now=now,
+                        )
+                    )
+                self._emitted_events.add(request_id)
         return events
 
-    def _build_failed_event(
+    def _build_stale_acked_event(
         self,
         *,
         agent_id: str,
         request: ToolCallRequest,
         now: datetime,
     ) -> Event:
-        """Build the ``tool.<name>.failed`` event for a
-        stale request.
+        """Build a ``tool.<name>.stale_acked`` event for a
+        request that was acknowledged by a worker but
+        whose TTL expired before completion.
 
-        The event is a domain event with the
-        standard failure shape
-        (``data={"error": "..."}``); downstream
-        consumers (``WorkerManager``,
-        ``SolutionExtractor``, metrics) handle it
-        like any other failure. The
-        ``causation_id`` is the request's eid (the
-        same join key the WorkerManager uses for
-        completions); the ``correlation`` is derived
-        from the request's ``correlation_id`` so the
-        failure lives in the same flow as the
-        request.
+        This event informs operators that a worker
+        had the task but it timed out. The event
+        carries the ``request_event_id`` so operators
+        can correlate with the original request and
+        decide via DLQ actions.
 
-        The event type is the **canonical**
-        ``tool.<name>.failed`` form (ADR-036); the
-        ``tool_name`` is taken from the request (NOT
-        from the event type, since the request was
-        already materialised in a previous tick).
-        The legacy bare form ``tool.failed`` is
-        **not** emitted here (the bare form does not
-        carry a tool name; the sweeper does not
-        know what tool the request was for).
+        The event type follows the ADR-075 convention:
+        ``tool.<name>.stale_acked``.
         """
         from uuid import UUID
 
         tool_name = request.tool_name or "unknown"
-        event_type = f"tool.{tool_name}.failed"
+        event_type = f"tool.{tool_name}.stale_acked"
         correlation = CorrelationContext.new(correlation_id=request.correlation_id)
-        # expires_at is guaranteed non-None here: callers check
-        # ``if req.expires_at is None: continue`` before reaching
-        # this method. The assert makes the narrowing explicit for pyright.
-        assert request.expires_at is not None
         return Event.create(
             event_type=event_type,
             agent_id=agent_id,
             event_class="domain",
             data={
-                "error": self._error_message,
+                "error": "ttl_expired",
                 "request_event_id": request.request_event_id,
                 "tool_name": tool_name,
                 "expired_at": request.expires_at.isoformat(),
                 "swept_at": now.isoformat(),
+                "acknowledged": True,
+            },
+            correlation=correlation,
+            causation_id=UUID(request.request_event_id),
+        )
+
+    def _build_re_dispatch_event(
+        self,
+        *,
+        agent_id: str,
+        request: ToolCallRequest,
+        now: datetime,
+    ) -> Event:
+        """Build a ``tool.<name>.requested`` re-dispatch
+        event for a stale request.
+
+        This re-emits the original request with the
+        same ``request_event_id`` and a reset TTL,
+        so the framework can re-dispatch the task to
+        a worker. The ``causation_id`` is the
+        request's ``event_id``, which serves as the
+        idempotency key for tools that honor it.
+
+        The event type is the **canonical**
+        ``tool.<name>.requested`` form (ADR-036).
+        """
+        from uuid import UUID
+
+        tool_name = request.tool_name or "unknown"
+        event_type = f"tool.{tool_name}.requested"
+        correlation = CorrelationContext.new(correlation_id=request.correlation_id)
+        # Reset the TTL: set expires_at to now + default TTL
+        new_expires_at = now + __import__("datetime").timedelta(seconds=300)
+        return Event.create(
+            event_type=event_type,
+            agent_id=agent_id,
+            event_class="domain",
+            data={
+                "request_event_id": request.request_event_id,
+                "tool_name": tool_name,
+                "params": dict(request.params),
+                "correlation_id": request.correlation_id,
+                "expires_at": new_expires_at.isoformat(),
             },
             correlation=correlation,
             causation_id=UUID(request.request_event_id),

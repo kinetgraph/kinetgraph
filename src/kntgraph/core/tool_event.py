@@ -31,7 +31,7 @@ The wire contract is a single line:
 where ``<name>`` may contain dots (e.g. ``invoice.issue``)
 and ``<kind>`` is one of:
 
-    requested | completed | failed | args_invalid
+    requested | completed | failed | args_invalid | acknowledged
 
 The kind names match ``ToolEventType`` (constructor) and
 the convention documented in ADR-013 §2.2.
@@ -45,7 +45,7 @@ from typing import NamedTuple, Optional
 
 class ToolEventKind(str, Enum):
     """
-    The four states a tool call can reach in the event log.
+    The five states a tool call can reach in the event log.
 
     The string values are the trailing suffix of the
     event-type string (after ``tool.<name>.``); they match
@@ -56,6 +56,7 @@ class ToolEventKind(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     ARGS_INVALID = "args_invalid"
+    ACKNOWLEDGED = "acknowledged"
 
 
 class ToolEvent(NamedTuple):
@@ -77,6 +78,7 @@ _KIND_SUFFIXES: dict[str, ToolEventKind] = {
     ".completed": ToolEventKind.COMPLETED,
     ".failed": ToolEventKind.FAILED,
     ".args_invalid": ToolEventKind.ARGS_INVALID,
+    ".acknowledged": ToolEventKind.ACKNOWLEDGED,
 }
 
 

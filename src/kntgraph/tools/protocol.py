@@ -207,28 +207,30 @@ class Tool(Describable, Protocol[R]):
     Idempotency contract
     --------------------
 
-    The ``ToolInvoker`` injects an ``idempotency_key`` keyword
-    argument into every ``invoke`` call. The key is the
-    ``event_id`` (UUID) of the ``tool.{name}.requested``
-    event that triggered the call. It is stable across
-    re-dispatches: a reactive system that re-emits the same
-    request (e.g. after a dispatcher restart) will produce
-    the same key, and a tool that honors it can dedupe.
+The ``ToolInvoker`` injects an ``idempotency_key`` keyword
+     argument into every ``invoke`` call. The key is the
+     ``event_id`` (UUID) of the ``tool.{name}.requested``
+     event that triggered the call. It is stable across
+     re-dispatches: a reactive system that re-emits the same
+     request (e.g. after a dispatcher restart) will produce
+     the same key, and a tool that honors it can dedupe.
 
-    Tools with non-idempotent side effects (bank transfers,
-    payment captures, etc.) MUST implement dedup on this
-    key. Tools with naturally idempotent behavior
-    (read-only queries, idempotent API calls) may ignore it
-    but should still accept the parameter for uniformity.
+     Tools with non-idempotent side effects (bank transfers,
+     payment captures, etc.) MUST implement dedup on this
+     key. Tools with naturally idempotent behavior
+     (read-only queries, idempotent API calls) may ignore it
+     but should still accept the parameter for uniformity.
 
-    The framework never reads the ``idempotency_key`` from
-    the tool's return value; it is the tool's responsibility
-    to persist the key → result mapping externally.
+     ADR-075: each ``Tool`` carries an ``idempotent: bool``
+     flag (default ``True``). The ``ToolCallTTLSweeperSystem``
+     uses this flag to decide whether to re-dispatch or
+     route to DLQ on stale detection.
     """
 
     name: str
     description: str
     input_schema: dict[str, "JsonValue"]
+    idempotent: bool = True  # ADR-075: per-tool idempotency flag, default True
 
     async def invoke(
         self,
