@@ -194,10 +194,14 @@ class FSMConfigSchema(_StrictModel):
     @field_validator("on_entry")
     @classmethod
     def _on_entry_targets(cls, v: dict[str, str]) -> dict[str, str]:
-        for target in v:
-            if not _EVENT_NAME.match(target):
+        # The KEY is the state name (an identifier).
+        # The VALUE is the event name (dotted) that the FSM
+        # emits on entering that state.
+        for state, event_name in v.items():
+            if not _EVENT_NAME.match(event_name):
                 raise ValueError(
-                    f"on_entry target {target!r} must be a dotted event name"
+                    f"on_entry[{state!r}]={event_name!r} must be a "
+                    f"dotted event name"
                 )
         return v
 

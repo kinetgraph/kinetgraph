@@ -24,6 +24,7 @@ The ``Concordo`` Protocol and ``ConcordoCatalog`` (ADR-069
 Concordos.
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .base import (
@@ -44,28 +45,17 @@ from .specs import (
     StepResultEquals,
     StepTimedOut,
 )
+from ._loader import (
+    ConcordoBundleError,
+    LoadedBundle,
+    load_bundle_dict,
+    load_bundle_json,
+    load_bundle_yaml,
+)
 
 if TYPE_CHECKING:
+    from kntgraph.concordos._loader import LoadedBundle
     from kntgraph.runner.reactive import ReactiveDispatcher
-
-__all__ = [
-    "AndSpec",
-    "Composable",
-    "Concordo",
-    "ConcordoCatalog",
-    "ContinuityToolUsed",
-    "DomainStateIs",
-    "NotSpec",
-    "OrSpec",
-    "ProfileTierIs",
-    "Specification",
-    "StepCompleted",
-    "StepContext",
-    "StepFailed",
-    "StepResultEquals",
-    "StepTimedOut",
-    "ViewTrigger",
-]
 
 
 @runtime_checkable
@@ -120,3 +110,57 @@ class ConcordoCatalog:
     def install_all(self, dispatcher: "ReactiveDispatcher") -> None:
         for concordo in self._concordos.values():
             concordo.install(dispatcher)
+
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "ConcordoCatalog":
+        """Load a catalog from a YAML bundle file.
+
+        Wraps :func:`load_bundle_yaml`. Each declared FSM
+        and saga is wrapped in its corresponding ``Concordo``.
+        """
+        from ._loader import load_bundle_yaml
+
+        loaded = load_bundle_yaml(path)
+        return cls(*_bundle_to_concordos(loaded))
+
+    @classmethod
+    def from_json(cls, path: str | Path) -> "ConcordoCatalog":
+        """Load a catalog from a JSON bundle file.
+
+        Wraps :func:`load_bundle_json`.
+        """
+        from ._loader import load_bundle_json
+
+        loaded = load_bundle_json(path)
+        return cls(*_bundle_to_concordos(loaded))
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "ConcordoCatalog":
+        """Load a catalog from a dict.
+
+        Wraps :func:`load_bundle_dict`.
+        """
+        from ._loader import load_bundle_dict
+
+        loaded = load_bundle_dict(d)
+        return cls(*_bundle_to_concordos(loaded))
+
+
+def _bundle_to_concordos(loaded) -> tuple[Concordo, ...]:
+    """Wrap a :class:`LoadedBundle`'s runtime objects into
+    ``Concordo`` instances.
+
+    Currently guards (mini-language expressions in the
+    YAML) are not wired into ``FSMTransition.guard``;
+    that's a follow-up integration with the mini-language
+    ``SpecRegistry``. See ADR-073 §4.6.
+    """
+    from .fsm import BusinessFSMConcordo
+    from .saga import WorkflowSagaConcordo
+
+    concordos: list[Concordo] = []
+    if loaded.fsm is not None:
+        concordos.append(BusinessFSMConcordo(loaded.fsm))
+    for saga in loaded.sagas:
+        concordos.append(WorkflowSagaConcordo(saga))
+    return tuple(concordos)
