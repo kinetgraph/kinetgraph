@@ -166,14 +166,10 @@ def _validate_cross_references(bundle: BundleSchema) -> None:
 
     # Saga
     for i, saga in enumerate(bundle.workflow_sagas):
-        _require_event(
-            f"workflow_sagas[{i}].trigger_event", saga.trigger_event
-        )
+        _require_event(f"workflow_sagas[{i}].trigger_event", saga.trigger_event)
         for j, step in enumerate(saga.steps):
             path_prefix = f"workflow_sagas[{i}].steps[{j}]"
-            if step.tool is not None and not _is_valid_identifier(
-                step.tool
-            ):
+            if step.tool is not None and not _is_valid_identifier(step.tool):
                 raise ConcordoBundleError(
                     bundle_id=bundle.bundle_id,
                     path=f"{path_prefix}.tool",
@@ -202,9 +198,7 @@ def _validate_cross_references(bundle: BundleSchema) -> None:
             raise ConcordoBundleError(
                 bundle_id=bundle.bundle_id,
                 path=f"specifications[id={spec.id!r}]",
-                message=(
-                    f"duplicate specification id {spec.id!r}"
-                ),
+                message=(f"duplicate specification id {spec.id!r}"),
                 hint="each specification must have a unique id",
             )
         seen_ids.add(spec.id)
@@ -233,9 +227,7 @@ def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> Any:
         raise ConcordoBundleError(
             bundle_id=bundle_id,
             path=kind,
-            message=(
-                f"{kind!r}={dotted!r} is not a valid dotted path"
-            ),
+            message=(f"{kind!r}={dotted!r} is not a valid dotted path"),
             hint=(
                 "expected form like 'package.module.Class' "
                 "(e.g., 'acme.invoice.events.InvoiceSubmitted')"
@@ -250,8 +242,7 @@ def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> Any:
             bundle_id=bundle_id,
             path=kind,
             message=(
-                f"failed to resolve {kind!r}={dotted!r}: "
-                f"{type(exc).__name__}: {exc}"
+                f"failed to resolve {kind!r}={dotted!r}: {type(exc).__name__}: {exc}"
             ),
             hint=(
                 "check the module path and ensure the symbol is "
@@ -282,7 +273,8 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig
     transitions: dict[str, dict[str, FSMTransition]] = {}
     for t in fsm.transitions:
         transitions.setdefault(t.from_state, {})[t.on_event] = FSMTransition(
-            to=t.to, guard=None,  # guards come from specs
+            to=t.to,
+            guard=None,  # guards come from specs
         )
 
     return FSMConfig(
@@ -294,9 +286,7 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig
     )
 
 
-def _build_saga_config(
-    saga: SagaConfigSchema, bundle_id: str | None
-) -> "SagaConfig":
+def _build_saga_config(saga: SagaConfigSchema, bundle_id: str | None) -> "SagaConfig":
     """Build a runtime ``SagaConfig`` from a schema."""
     from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 
@@ -407,8 +397,7 @@ def load_bundle_yaml(path: str | Path) -> LoadedBundle:
             bundle_id=None,
             path="<root>",
             message=(
-                f"top-level YAML in {p} must be a mapping, "
-                f"got {type(data).__name__}"
+                f"top-level YAML in {p} must be a mapping, got {type(data).__name__}"
             ),
         )
     return load_bundle_dict(data)
@@ -430,8 +419,7 @@ def load_bundle_json(path: str | Path) -> LoadedBundle:
             bundle_id=None,
             path="<root>",
             message=(
-                f"top-level JSON in {p} must be a mapping, "
-                f"got {type(data).__name__}"
+                f"top-level JSON in {p} must be a mapping, got {type(data).__name__}"
             ),
         )
     return load_bundle_dict(data)

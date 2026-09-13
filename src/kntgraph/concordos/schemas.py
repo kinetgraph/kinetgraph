@@ -186,8 +186,7 @@ class FSMConfigSchema(_StrictModel):
         unknown = set(v) - set(states)
         if unknown:
             raise ValueError(
-                f"terminal states not declared in 'states': "
-                f"{sorted(unknown)}"
+                f"terminal states not declared in 'states': {sorted(unknown)}"
             )
         return v
 
@@ -200,8 +199,7 @@ class FSMConfigSchema(_StrictModel):
         for state, event_name in v.items():
             if not _EVENT_NAME.match(event_name):
                 raise ValueError(
-                    f"on_entry[{state!r}]={event_name!r} must be a "
-                    f"dotted event name"
+                    f"on_entry[{state!r}]={event_name!r} must be a dotted event name"
                 )
         return v
 
@@ -258,9 +256,7 @@ class SagaConfigSchema(_StrictModel):
         names = [s.name for s in v]
         if len(names) != len(set(names)):
             dupes = {n for n in names if names.count(n) > 1}
-            raise ValueError(
-                f"saga has duplicate step names: {sorted(dupes)}"
-            )
+            raise ValueError(f"saga has duplicate step names: {sorted(dupes)}")
         return v
 
 

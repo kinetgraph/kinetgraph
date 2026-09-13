@@ -48,7 +48,7 @@ from .._typing import JsonValue
 class ToolCallTTL:
     """
     Per-tool TTL configuration for ``ToolCallRequest``
-    entries (ADR-045).
+    entries (ADR-045, tightened by ADR-075).
 
     A request whose ``expires_at`` is in the past at
     overlay time is removed from the slot. The TTL
@@ -56,6 +56,13 @@ class ToolCallTTL:
     staleness of orphaned requests (e.g. after a
     worker crash, a DLQ escalation, or a worker
     process restart).
+
+    ``default_ttl_seconds > 0`` is **mandatory** (ADR-075).
+    The projection refuses to materialise a request
+    without an ``expires_at``. The opt-out
+    ``default_ttl_seconds=0`` is **removed** in
+    production deployments (kept as a debug-only
+    knob).
 
     The default TTL is **5 minutes** (covers the
     99th percentile of legitimate tool latencies —
@@ -81,8 +88,15 @@ class ToolCallTTL:
     in production).
     """
 
-    default_ttl_seconds: float = 300.0
+    default_ttl_seconds: float
     per_tool_ttls: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.default_ttl_seconds <= 0:
+            raise ValueError(
+                "default_ttl_seconds must be > 0 (ADR-075). "
+                "Use a finite TTL; infinite TTLs are forbidden."
+            )
 
     def ttl_for(self, tool_name: str) -> float:
         """Return the TTL (in seconds) for ``tool_name``.
@@ -130,20 +144,16 @@ class ToolCallRequest:
     # that need to emit downstream events in
     # the same flow read this to pin their own
     # ``correlation``.
+    # ADR-045 + ADR-075: the wall-clock time at
+    # which the request expires (UTC,
+    # timezone-aware). Mandatory — the projection
+    # refuses to materialise a request without an
+    # ``expires_at``. Computed at materialisation
+    # time as ``requested_at + ttl(tool_name)``
+    # where ``ttl`` is configured per-tool on the
+    # dispatcher.
+    expires_at: datetime
     correlation_id: Optional[UUID] = None
-    # ADR-045: the wall-clock time at which the
-    # request expires (UTC, timezone-aware).
-    # Computed at materialisation time as
-    # ``requested_at + ttl(tool_name)`` where
-    # ``ttl`` is configured per-tool on the
-    # dispatcher. ``None`` means "no TTL" (the
-    # request lives until completion-driven
-    # eviction, per ADR-044). A request whose
-    # ``expires_at`` is in the past at overlay
-    # time is evicted by the framework
-    # (``overlay_tool_calls``); the eviction
-    # is silent (no event is emitted).
-    expires_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True, slots=True)

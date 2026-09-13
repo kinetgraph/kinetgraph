@@ -94,7 +94,9 @@ def _overlay_tool_projection(
     separate ``WorldSystem`` registered with the
     dispatcher); the sweeper emits
     ``tool.<name>.failed`` events for stale requests.
-    Default: ``ToolCallTTL()`` (5-minute global TTL).
+
+    Default: ``ToolCallTTL(default_ttl_seconds=300.0)``
+    (ADR-075: mandatory TTL).
 
     All that remains for the dispatcher is to:
 
@@ -115,7 +117,7 @@ def _overlay_tool_projection(
     tool_views = overlay_tool_calls(
         new_events,
         world.views,
-        ttl=tool_ttls or ToolCallTTL(),
+        ttl=tool_ttls or ToolCallTTL(default_ttl_seconds=300.0),
         post_systems=post_systems,
     )
     if not tool_views:

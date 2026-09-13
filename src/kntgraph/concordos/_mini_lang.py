@@ -194,9 +194,7 @@ class Literal(Expr):
 
 
 # Operators recognised by the parser.
-_COMPARISONS: ClassVar[frozenset[str]] = frozenset(
-    {"==", "!=", "<=", ">=", "<", ">"}
-)
+_COMPARISONS: ClassVar[frozenset[str]] = frozenset({"==", "!=", "<=", ">=", "<", ">"})
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +263,8 @@ def _tokenize(expression: str) -> list[_Token]:
             # Find the line/col of the offending position.
             offending = expression[pos]
             kind = (
-                "string terminator" if offending in ("'", '"')
+                "string terminator"
+                if offending in ("'", '"')
                 else f"character {offending!r}"
             )
             raise ConcordoSyntaxError(
@@ -367,9 +366,7 @@ class _Parser:
                 column=tok.column if tok else len(self._expression),
                 expected=found_hint,
                 found=(
-                    f"end of input"
-                    if tok is None
-                    else f"{tok.kind}({tok.lexeme!r})"
+                    f"end of input" if tok is None else f"{tok.kind}({tok.lexeme!r})"
                 ),
             )
         return self._consume()
@@ -462,10 +459,7 @@ class _Parser:
             args: list[Expr] = []
             if self._peek() is not None and self._peek().kind != "RPAREN":
                 args.append(self.parse_expr())
-                while (
-                    self._peek() is not None
-                    and self._peek().kind == "COMMA"
-                ):
+                while self._peek() is not None and self._peek().kind == "COMMA":
                     self._consume()
                     args.append(self.parse_expr())
             self._expect("RPAREN", "')'")
@@ -548,10 +542,7 @@ class _Parser:
             args: list[Expr] = []
             if self._peek() is not None and self._peek().kind != "RPAREN":
                 args.append(self.parse_expr())
-                while (
-                    self._peek() is not None
-                    and self._peek().kind == "COMMA"
-                ):
+                while self._peek() is not None and self._peek().kind == "COMMA":
                     self._consume()
                     args.append(self.parse_expr())
             self._expect("RPAREN", "')'")
@@ -603,9 +594,7 @@ class _Parser:
                         column=nxt2.column if nxt2 else nxt1.column,
                         expected="'data'",
                         found=(
-                            f"{nxt2.kind}({nxt2.lexeme!r})"
-                            if nxt2
-                            else "end of input"
+                            f"{nxt2.kind}({nxt2.lexeme!r})" if nxt2 else "end of input"
                         ),
                         hint=(
                             "the only valid scope starting with "
@@ -625,10 +614,7 @@ class _Parser:
                 column=1,
                 expected="path scope",
                 found=f"unknown scope {scope!r}",
-                hint=(
-                    "valid scopes are 'event.data', 'steps', "
-                    "'agent', and 'now'"
-                ),
+                hint=("valid scopes are 'event.data', 'steps', 'agent', and 'now'"),
             )
         tail: list[str] = []
         while (
@@ -750,10 +736,7 @@ class _Parser:
         args: list[Expr] = []
         if self._peek() is not None and self._peek().kind != "RPAREN":
             args.append(self.parse_expr())
-            while (
-                self._peek() is not None
-                and self._peek().kind == "COMMA"
-            ):
+            while self._peek() is not None and self._peek().kind == "COMMA":
                 self._consume()
                 args.append(self.parse_expr())
         self._expect("RPAREN", "')'")
@@ -795,9 +778,7 @@ class _Parser:
             expression=self._expression,
             line=tok.line,
             column=tok.column,
-            expected=(
-                "literal value (number, string, true, false, null)"
-            ),
+            expected=("literal value (number, string, true, false, null)"),
             found=f"{tok.kind}({tok.lexeme!r})",
         )
 
@@ -928,12 +909,13 @@ def _call_builtin(name: str, args: tuple[Any, ...], ctx: "StepContext") -> bool:
     factory = BUILTIN_SPECS.get(name)
     if factory is None:
         raise ValueError(
-            f"unknown built-in spec: {name!r}. "
-            f"Available: {sorted(BUILTIN_SPECS)}"
+            f"unknown built-in spec: {name!r}. Available: {sorted(BUILTIN_SPECS)}"
         )
     # All built-in specs take string args today; coerce
     # other Literal types to str for compatibility.
-    spec = factory(*(str(a) if isinstance(a, (str, int, float, bool)) else a for a in args))
+    spec = factory(
+        *(str(a) if isinstance(a, (str, int, float, bool)) else a for a in args)
+    )
     return spec.is_satisfied_by(ctx)
 
 

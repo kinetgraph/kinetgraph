@@ -23,7 +23,7 @@ a future refactor removes them, this test fails.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from uuid import uuid4
 
@@ -49,6 +49,7 @@ class TestToolCallRequest:
             agent_id="agent-1",
             params=params,
             requested_at=ts,
+            expires_at=ts + timedelta(seconds=300),
         )
         with pytest.raises((AttributeError, Exception)):
             req.tool_name = "other"  # type: ignore[misc]
@@ -65,6 +66,7 @@ class TestToolCallRequest:
             agent_id="agent-1",
             params=params,
             requested_at=ts,
+            expires_at=ts + timedelta(seconds=300),
         )
         assert req.request_event_id == "req-1"
         assert req.tool_name == "x"
@@ -93,6 +95,7 @@ class TestToolCallRequest:
             agent_id="a",
             params=params,
             requested_at=ts,
+            expires_at=ts + timedelta(seconds=300),
         )
         with pytest.raises(TypeError):
             req.params["x"] = 2  # type: ignore[index]
@@ -172,9 +175,9 @@ class TestToolCallCompletion:
 class TestToolCallPairing:
     """The two components pair by `request_event_id`."""
 
-    def test_pair_by_request_event_id(self) -> None:
+def test_pair_by_request_event_id(self) -> None:
         """A request and completion with the same
-        `request_event_id` are a single logical
+        ``request_event_id`` are a single logical
         tool call. The SolutionExtractor joins on this.
         """
         ts = datetime.now(timezone.utc)
@@ -185,6 +188,7 @@ class TestToolCallPairing:
             agent_id="a",
             params=params,
             requested_at=ts,
+            expires_at=ts + timedelta(seconds=300),
         )
         comp = ToolCallCompletion(
             request_event_id="req-42",

@@ -112,24 +112,6 @@ class TestSweeperEmits:
         events = sweeper(world)
         assert events == []
 
-    def test_ttl_disabled_emits_nothing(self) -> None:
-        """A request with ``expires_at=None`` (TTL
-        disabled, via ``ToolCallTTL(default_ttl_seconds=0)``)
-        is never emitted as failed (the operator has
-        explicitly opted out of the safety net).
-        """
-        request = _request_event(tool_name="no_ttl", ts=_ts(0))
-        # ``ttl_seconds=0`` => ``expires_at=None``.
-        world = project_tool_calls(
-            [request],
-            ttl=ToolCallTTL(default_ttl_seconds=0),
-        )
-        now = _ts(10**8)  # 10000 days later; would be
-        # ``expired`` if the TTL was enabled.
-        sweeper = ToolCallTTLSweeperSystem(now=now)
-        events = sweeper(world)
-        assert events == []
-
 
 class TestSweeperDedup:
     def test_dedup_emits_once_for_same_request(self) -> None:

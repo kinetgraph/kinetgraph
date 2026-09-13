@@ -128,9 +128,7 @@ class FSMSystem:
     ) -> list["Event"]:
         out: list[Event] = []
         for _agent_id, view in world.query_agents(self.config.component_type):
-            out.extend(
-                self._events_for_agent(view, world, new_events)
-            )
+            out.extend(self._events_for_agent(view, world, new_events))
         return out
 
     def _events_for_agent(
@@ -162,7 +160,8 @@ class FSMSystem:
         events: list[Event]
         if new_events is not None:
             events = [
-                e for e in new_events
+                e
+                for e in new_events
                 if e.agent_id == view.agent_id
                 and e.event_type not in self._own_event_types()
                 and e.event_type not in self.config.on_entry.values()
@@ -175,32 +174,40 @@ class FSMSystem:
             from kntgraph.core.event.event import Event
 
             payload = view.components.get(view.domain_phase, {})
-            events = [
-                Event.create(
-                    agent_id=view.agent_id,
-                    event_type=view.domain_phase,
-                    event_class="domain",
-                    data=dict(payload),
-                    # The view does NOT carry the event's id;
-                    # the cursor match check above already
-                    # gated this code path so last_event_id
-                    # is the synthetic event's id.
-                )
-            ] if view.last_event_id is None else [
-                # When the cursor check above passes (no
-                # cursor or cursor diverges), the view's
-                # ``last_event_id`` is the trigger event id.
-                # We can synthesise the event WITHOUT a
-                # real Event object because the cursor
-                # gate already passed; the FSM only needs
-                # ``event_type`` and ``data`` here.
-                type("E", (), {
-                    "event_type": view.domain_phase,
-                    "event_id": UUID(str(view.last_event_id)),
-                    "agent_id": view.agent_id,
-                    "data": dict(payload),
-                })()
-            ]
+            events = (
+                [
+                    Event.create(
+                        agent_id=view.agent_id,
+                        event_type=view.domain_phase,
+                        event_class="domain",
+                        data=dict(payload),
+                        # The view does NOT carry the event's id;
+                        # the cursor match check above already
+                        # gated this code path so last_event_id
+                        # is the synthetic event's id.
+                    )
+                ]
+                if view.last_event_id is None
+                else [
+                    # When the cursor check above passes (no
+                    # cursor or cursor diverges), the view's
+                    # ``last_event_id`` is the trigger event id.
+                    # We can synthesise the event WITHOUT a
+                    # real Event object because the cursor
+                    # gate already passed; the FSM only needs
+                    # ``event_type`` and ``data`` here.
+                    type(
+                        "E",
+                        (),
+                        {
+                            "event_type": view.domain_phase,
+                            "event_id": UUID(str(view.last_event_id)),
+                            "agent_id": view.agent_id,
+                            "data": dict(payload),
+                        },
+                    )()
+                ]
+            )
         else:
             return []
 
@@ -299,9 +306,7 @@ class FSMSystem:
 
         entry_type = self.config.on_entry.get(transition.to)
         if entry_type is not None:
-            emitted.append(
-                self._entry_event(trigger, transition.to, entry_type)
-            )
+            emitted.append(self._entry_event(trigger, transition.to, entry_type))
 
         return emitted, transition.to
 

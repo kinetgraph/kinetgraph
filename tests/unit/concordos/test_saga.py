@@ -40,6 +40,7 @@ def _request(req_eid: str, tool_name: str) -> ToolCallRequest:
         agent_id="agent-1",
         params={},
         requested_at=FIXED_NOW,
+        expires_at=FIXED_NOW + timedelta(seconds=300),
     )
 
 

@@ -299,9 +299,7 @@ async def append_system_outgoing(
             # system's signature. Older systems (without the
             # new parameter) are called the old way; newer
             # systems receive the events.
-            out = _call_system_with_optional_new_events(
-                system, world, new_events
-            )
+            out = _call_system_with_optional_new_events(system, world, new_events)
             if not isinstance(out, list):
                 out = await out
             if out:
@@ -313,9 +311,7 @@ async def append_system_outgoing(
                 # the agent they were invoked for; cross-
                 # agent emission is rare but supported.
                 for event in out:
-                    dispatcher._tick_runners.add(
-                        (sys_name, event.agent_id)
-                    )
+                    dispatcher._tick_runners.add((sys_name, event.agent_id))
     if outgoing:
         await dispatcher._log.append_batch(outgoing)
         if dispatcher._tool_router is not None:

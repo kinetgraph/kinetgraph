@@ -70,7 +70,7 @@ def project_tool_calls(
     events: Sequence[Event],
     *,
     base_projection: Projection = project_default,
-    ttl: ToolCallTTL = ToolCallTTL(),
+    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
 ) -> dict[str, AgentView]:
     """
     Custom projection: materialise ToolCallRequest and
@@ -115,7 +115,7 @@ def overlay_tool_calls(
     events: Sequence[Event],
     base_views: Mapping[str, AgentView],
     *,
-    ttl: ToolCallTTL = ToolCallTTL(),
+    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
     post_systems: bool = False,
 ) -> dict[str, AgentView]:
     """
@@ -365,20 +365,20 @@ def _build_request(
     in that case, which the request then reads from
     ``event.data`` (kept for back-compat with old EventLogs).
 
-    ``ttl_seconds`` (ADR-045): the TTL for the request,
-    in seconds. The ``expires_at`` field is computed as
-    ``requested_at + timedelta(seconds=ttl_seconds)``;
-    a TTL of ``0`` (or negative) means **TTL disabled**
-    (``expires_at = None``). The
-    :class:`ToolCallTTLSweeperSystem` emits a
-    ``tool.<name>.failed`` event when
-    ``now >= expires_at``.
+    ``ttl_seconds`` (ADR-045 + ADR-075): the TTL for the request,
+    in seconds. The ``expires_at`` field is **always**
+    computed as ``requested_at + timedelta(seconds=ttl_seconds)``.
+    A TTL of ``0`` (or negative) still means **TTL disabled**,
+    but per ADR-075 the projection now refuses to materialise
+    a request without an ``expires_at``; callers must ensure
+    ``default_ttl_seconds > 0``.
+
+    The ``expires_at`` field is set unconditionally;
+    callers must ensure ``ttl_seconds > 0`` to get a
+    meaningful expiry (enforced by ``ToolCallTTL.__post_init__``).
     """
     requested_at = event.timestamp
-    if ttl_seconds > 0:
-        expires_at = requested_at + timedelta(seconds=ttl_seconds)
-    else:
-        expires_at = None
+    expires_at = requested_at + timedelta(seconds=ttl_seconds)
     return ToolCallRequest(
         request_event_id=str(event.event_id),
         tool_name=tool_name or str(event.data.get("tool", "")),
