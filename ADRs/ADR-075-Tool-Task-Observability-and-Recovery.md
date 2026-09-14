@@ -4,465 +4,539 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# ADR-075: Tool Task Observability and Recovery
+# ADR-075: Tool-Task Observability, Detection, and Recovery
 
-- **Status:** Proposed
-- **Date:** 2026-09-12
+- **Status:** Accepted (revised 2026-09-14)
+- **Date:** 2026-09-12 (revised 2026-09-14)
 - **Author:** kinetgraph architecture team
+- **Supersedes:** initial draft (kept the four-tier framing; **dropped the
+  ack cycle** (§2.2 in the first draft); kept the `Tool.idempotent` flag
+  on the `Tool` Protocol; **merged the saga → DLQ wiring into the TTL
+  sweeper** so there is one recovery pipeline, not two).
 - **Related to:**
-  - [ADR-034](./ADR-034-ToolCall-ECS-Components.md) — `ToolCallRequest` / `ToolCallCompletion`
-  - [ADR-045](./ADR-045-Tool-Call-Request-TTL.md) — Tool Call TTL
-  - [ADR-068](./ADR-068-idle-redis-traffic-and-eventlog-subscribe.md) — `EventLog.subscribe_many`
-  - [ADR-070](./ADR-070-Worker-Level-Back-Pressure.md) — Worker-Level Back-Pressure (proposed)
-  - [ADR-071](./ADR-071-BusinessFSM-Concordo.md) — BusinessFSM Concordo (consumer)
-  - [ADR-072](./ADR-072-WorkflowSaga-Concordo.md) — WorkflowSaga Concordo (consumer)
+  - [ADR-019](./ADR-019-Redis-Adapter-Typing.md) — `DeadLetterQueue`
+    + `DeadLetterEvent` + `DLQReason` (the existing recovery primitive
+    this ADR wires into the tool pipeline).
+  - [ADR-034](./ADR-034-ToolCall-ECS-Components.md) — `ToolCallRequest`
+    / `ToolCallCompletion`; `expires_at` is mandatory post-ADR-075.
+  - [ADR-036](./ADR-036-Tool-Worker-Pattern.md) — `@tool_worker` /
+    `WorkerManager`; **the `Tool.idempotent` flag** lives here; the
+    reaper loop is the existing D primitive that detects stuck
+    queues.
+  - [ADR-037](./ADR-037-Mandatory-Correlation-Propagation.md) —
+    mandatory `CorrelationContext` (R — join key).
+  - [ADR-045](./ADR-045-Tool-Call-Request-TTL.md) — Tool Call TTL;
+    the sweeper is the second D primitive (stale detection).
+  - [ADR-068](./ADR-068-idle-redis-traffic-and-eventlog-subscribe.md) —
+    `EventLog.subscribe` / `subscribe_many` (R — replay & cursor).
+  - [ADR-074](./ADR-074-Per-System-Cursors-in-AgentView.md) —
+    per-(system, agent) cursor.
+  - [ADR-070](./ADR-070-Worker-Level-Back-Pressure.md) — Tier 4
+    observability primitives compose with `max_in_flight` back-pressure.
+  - [ADR-071](./ADR-071-BusinessFSM-Concordo.md), [ADR-072](./ADR-072-WorkflowSaga-Concordo.md) — primary consumers.
 
 ---
 
-## 1. Context
+## 1. Goal
 
-The framework's tool-call pipeline (ADR-034, ADR-036):
+Make the tool-task pipeline **100% rastreável (R)**, **detector de falhas (D)**, and **recuperável (F)**, so that:
 
-```
-FSM/Saga → tool.<name>.requested → EventLog
-                                    ↓
-                            ToolRouter (ADR-036)
-                                    ↓
-                          knt:tools:<name>:queue
-                                    ↓
-                              Worker process
-                                    ↓
-                         tool.<name>.completed | failed
-                                    ↓
-                              EventLog (for FSM/Saga)
-```
+- **No tool call that the framework emitted is ever silently lost.**
+- **No tool call that a worker started is left without a terminal event.**
+- **No tool call stays stuck in `knt:tools:<name>:queue` without being consumed or escalated.**
 
-The framework has **two recovery primitives**:
+Concretely: the framework must know, at any moment, (R) which
+in-flight tool calls exist and their causal chain, (D) when a
+worker has gone silent or a queue is not draining, and (F) what
+to do next — re-dispatch, escalate to the operator via the existing
+`DeadLetterQueue`, or skip — with the **EventLog as the single
+source of truth**.
 
-- `ToolCallTTLSweeperSystem` (ADR-045): scans `tool_requests` for stale entries
-  and emits `tool.<name>.failed` when `expires_at` is in the past.
-- `DeadLetterQueue` (ADR-019): operator-facing sink for terminal failures.
+The framing is "R → D → F": every tool-task event has a causal
+record (R); every failure has a detector (D); every detector
+has a recovery path (F). A failure mode with no detector, or a
+detector with no recovery, is a gap this ADR closes.
 
-But neither primitive answers the user's question: **"can we lose tasks
-during execution?"**
+### 1.1 What already exists (the resilience primitives we lean on)
 
-### 1.1 Scenarios where tasks are lost today
+This ADR does **not** invent new machinery where the framework
+already ships the primitive.
 
-| Scenario | Behavior today | Consequence |
+| Need (R / D / F) | Existing primitive | ADR / file |
 |---|---|---|
-| Worker crashes after reading the queue but before starting the tool | TTL sweeper catches (if TTL set). Without TTL → **lost**. | Agent waits forever. |
-| Queue never delivers the message to a worker | **Never detected.** | Task sits in `tool_requests` slot with no completion. |
-| Worker never completes, TTL=infinite (or unset) | **Never detected.** | Agent waits forever. |
-| Worker completes but completion event lost in transit | **Never detected.** | Agent waits forever. |
-| Dispatcher crashes mid-tick (after system emits, before `append_batch`) | **Lost.** Event never reaches the EventLog. | Recovery requires dispatcher restart with replay (deterministic). |
+| **R**: causal record of every tool call | `EventLog` + `event_id` dedup | ADR-034, ADR-068 |
+| **R**: replay / recover from any fold position | `IncrementalWorldStore` + `WorldCheckpoint` + per-(system, agent) cursor | ADR-068, ADR-074 |
+| **R**: correlate request ↔ completion ↔ worker | `Event.correlation` (ADR-037) + `WorkerManager` propagates `correlation` | ADR-037 |
+| **R**: deterministic re-emit collapses to no-op | `generate_deterministic_event_id` + idempotency index | ADR-034, ADR-068 |
+| **D**: worker never XACKed → reclaim the message | `WorkerManager._reaper_loop` (XAUTOCLAIM, runs every 60s, idle threshold 5 min) | ADR-036 |
+| **D**: worker crashed → escalation via retry counter | `WorkerManager._process_message` reads `XPENDING` + compares with `__tool_worker_retries__`; emits `tool.<name>.failed` | ADR-036 |
+| **D**: TTL expired → orphan in slot | `ToolCallTTLSweeperSystem` runs every dispatch tick; uses injectable `now` (replay-safe) | ADR-045 |
+| **D**: dispatcher / worker liveness | `ReactiveDispatcher._maybe_emit_heartbeat` + `WorkerManager._maybe_emit_heartbeat` (default 30s) | ADR-036, ADR-068 |
+| **D**: dispatcher / wake-up liveness | `EventLog.subscribe` (push-first) + `fallback_poll_interval` (5s default) | ADR-068 |
+| **F**: re-dispatch on stale | EventLog idempotency: re-emit with the same `event_id` collapses duplicates. The TTL sweeper triggers the re-dispatch. | ADR-034 |
+| **F**: operator escalation for terminal failures | `DeadLetterQueue.append` + `DeadLetterActions.reprocess / discard` | ADR-019 |
+| **F**: operator application wiring | `dispatcher.subscribe` (event-pattern subscription for application-side handlers) | ADR-068 |
 
-The most damning scenario:
+**Read this table before inventing anything**. For each tier
+below we either reuse a row, or justify why it isn't enough.
 
-```python
-# FSM emits tool request with TTL=None (the current default opt-out)
-Event.create(
-    event_type="tool.payment_processor.requested",
-    agent_id="order-1",
-    event_class="domain",
-    data={"order_id": "123"},
-    correlation=...,
-)
+### 1.2 Why no separate ack event (the rejected option)
 
-# Worker X receives from queue.
-# Worker X starts processing.
-# Worker X crashes (OOM kill, segfault, k8s eviction).
+The first revision of this ADR proposed `tool.<name>.acknowledged`
+emitted on worker task start. **This tier was dropped**:
 
-# What happens?
-# 1. tool_request is in tool_requests[order-1] with expires_at=None.
-# 2. TTL sweeper SKIPS it (expires_at is None).
-# 3. No one knows the worker crashed.
-# 4. Order-1 waits forever.
-# 5. The worker will NOT re-process (the queue entry was consumed).
-```
+| Question | Answer |
+|---|---|
+| Does ack unlock any failure-mode coverage not already in §1.1? | No. Every failure mode caught by ack (worker picked-up, message gone) is already caught by `ReaperLoop` (idle-PEL reclaim) + TTL sweeper (stale). |
+| Does ack improve forensic value? | Yes — `worker_id` recorded at pickup. But the same data is reachable from the Redis consumer group metadata (`XINFO CONSUMERS`) without a new event. |
+| Does ack justify a new event type? | No. The EventLog is the source of truth for **causal chains**, not for **transport state**. Ack is transport state (it says "PEL entry was claimed by a worker") — that already lives in `XPENDING`. Putting transport state in the EventLog couples recovery (R) to observability. |
 
-**Today: task lost. No retry. No alert.**
+The rejection is **not** a refusal — ack can be added as a
+separate ADR if forensics becomes a product need. This ADR
+deliberately keeps the EventLog small.
 
-### 1.2 What the framework already has
+### 1.3 Failure-mode coverage (today vs after ADR-075)
 
-- `EventLog.subscribe_many` (ADR-068): cross-stream subscription mechanism.
-- `DeadLetterQueue` + `DeadLetterActions` (ADR-019): operator-facing failure sink.
-- `Event.correlation` (ADR-037): request-to-completion tracing.
-- `ToolRouter.route_batch` (ADR-036): fan-out from EventLog to worker queues.
+Each row is a failure mode. "Today" is what the framework ships
+before this ADR takes effect (some primitives are already
+merged — those are marked ✅). "After" is the post-ADR-075
+state.
 
-What's **missing**:
-
-1. **Mandatory default TTL**: today, `expires_at=None` is opt-out (`ToolCallTTL(default_ttl_seconds=0)`).
-2. **Worker acknowledgment**: framework does not know when a worker picks up a task.
-3. **Re-processing on stale**: TTL sweeper marks as failed; it does not re-dispatch.
-4. **Observability primitives**: no way to query "in-flight tasks" or "stale tasks".
+| # | Failure mode | Detected by (D) | Recovery (F) | Status |
+|---|---|---|---|---|
+| 1 | Worker crashes after reading queue but before starting tool | (a) `WorkerManager._reaper_loop` reclaims after `reaper_idle_time` (XAUTOCLAIM). (b) `ToolCallTTLSweeperSystem` emits `tool.<name>.failed` at TTL expiry. Both paths idempotent. | XAUTOCLAIM + re-run via same `event_id`; or TTL → re-dispatch path (§2.3) | ✅ ReaperLoop shipped (ADR-036); §2.3 widens the TTL path |
+| 2 | Queue never delivers a message to any worker | `XLEN` rising (no consumption) + `ToolCallTTLSweeperSystem` (`now > expires_at`, no `XPENDING` entry) | TTL → re-dispatch (idempotent) or DLQ (non-idempotent) | ✅ TTL sweeper shipped; §2.4 exposes `stuck_in_queue(threshold_s)` via `XLEN` |
+| 3 | Worker never completes (TTL unset or infinite) | `ToolCallTTL.default_ttl_seconds > 0` enforced (this ADR §2.1) — infinite TTLs forbidden in production | TTL sweeper re-dispatch / DLQ | ✅ Tier 1 shipped |
+| 4 | Completion event lost in transit | EventLog cursor + `event_id` idempotency | Pure replay: idempotency collapses duplicates | ✅ shipped (ADR-034, ADR-068) |
+| 5 | Dispatcher crashes mid-tick (after system emits, before `append_batch`) | `IncrementalWorldStore` reload from `EventLog` + cursor divergence | Pure replay from `last_stream_id` | ✅ shipped (ADR-068, ADR-074) |
+| 6 | Stale request — never picked up | `ToolCallTTLSweeperSystem` (no `XPENDING` entry + stale `expires_at`) | Re-dispatch (idempotent) or DLQ (non-idempotent) | ✅ §2.3 widens |
+| 7 | Stale request — worker started, didn't finish | `ToolCallTTLSweeperSystem` (stale + `XPENDING` entry) | Re-dispatch (idempotent) or DLQ (non-idempotent) | ✅ §2.3 |
+| 8 | No "what's in flight right now" query | Tier 4 `in_flight_tasks()` (§2.4) | Operator dashboards | ⚠ NEW |
+| 9 | No "what's stuck in queue" query | Tier 4 `stuck_in_queue()` (§2.4) — uses `XLEN` vs dispatch rhythm | Drives the `dispatcher.detect_and_recover()` cron | ⚠ NEW |
+| 10 | No "what's in the DLQ for me to action" query | Tier 4 `dead_lettered_tasks()` (§2.4) — composes `DeadLetterQueue.list_*` | Operator workflow | ⚠ NEW |
+| 11 | Saga compensation fails — no DLQ integration | Tier 3 `/saga compensation_failed → DLQ wire/` (§2.3.3 — merged into TTL sweeper) | `DeadLetterQueue.append` by the sweeper itself, not a separate adapter | ⚠ NEW |
+| 12 | Worker reaper re-runs a non-idempotent tool | `Tool.idempotent: bool` flag (this ADR §3.5) | Operator sets the flag — sweeper reads it and routes to DLQ instead of re-dispatch | ✅ field exists on Protocol; sweeper wiring §2.3 |
 
 ---
 
 ## 2. Decision
 
-A recovery pipeline with four tiers. Each tier addresses a specific
-failure mode. Tiers compose: a task that survives Tier 1 (TTL) but
-fails Tier 2 (worker crash) escalates to Tier 3 (re-dispatch) and,
-failing that, Tier 4 (DLQ + alert).
+Three tiers, ordered R → D → F. The first iteration's
+`tool.<name>.acknowledged` tier (Tier 2 in the first draft) is
+**dropped** (§1.2).
 
-### 2.1 Tier 1 — Mandatory default TTL
+### 2.1 Tier 1 — Mandatory TTL and causal record (R)
 
-**Today**: `ToolCallRequest.expires_at` is `Optional[datetime]`. The projection
-sets it from `ToolCallTTL.per_tool_ttls` (per-tool override) or
-`ToolCallTTL.default_ttl_seconds` (default).
+**Goal.** Every in-flight tool call has a deterministic `event_id`,
+a finite `expires_at`, and a `correlation` that ties request →
+completion → operator action.
 
-**Decision**: make `default_ttl_seconds > 0` mandatory. The
-projection refuses to materialise a request without an
-`expires_at`. The opt-out `ToolCallTTL(default_ttl_seconds=0)` is
-**removed** in production deployments (kept as a debug-only knob).
+**Status.** Shipped (this ADR confirms the contract).
 
-```python
-@dataclass(frozen=True, slots=True)
-class ToolCallTTL:
-    """Per-tool TTL configuration (ADR-045, tightened by ADR-075).
+#### 2.1.1 `ToolCallTTL.default_ttl_seconds > 0` is mandatory
 
-    ``default_ttl_seconds > 0`` is enforced: the projection
-    refuses requests that would materialise without
-    ``expires_at``. The framework guarantees every in-flight
-    request has a TTL.
-    """
-    default_ttl_seconds: float  # MUST be > 0 in production
-    per_tool_ttls: Mapping[str, float] = field(default_factory=dict)
+`ToolCallTTL.__post_init__` raises `ValueError` when the default
+is non-positive. `ToolCallRequest.expires_at` is non-Optional
+(`datetime`); the projection refuses to materialise a request
+without one. Infinite TTLs are forbidden in production.
 
-    def __post_init__(self) -> None:
-        if self.default_ttl_seconds <= 0:
-            raise ValueError(
-                "default_ttl_seconds must be > 0 (ADR-075). "
-                "Use a finite TTL; infinite TTLs are forbidden."
-            )
-```
+#### 2.1.2 Single-event-id rule
 
-### 2.2 Tier 2 — Worker acknowledgment
+Every `tool.<name>.requested` event carries
+`event_id = generate_deterministic_event_id(...)`. A re-dispatch
+emits with the same `event_id`; the EventLog idempotency index
+collapses duplicates to a single appended event.
 
-**Today**: a worker reads from `knt:tools:<name>:queue`, runs the tool,
-emits `completed` or `failed`. The framework does not know **when** the
-worker picked up the task.
+#### 2.1.3 Per-(system, agent) cursor
 
-**Decision**: workers emit a new event type when they start
-processing.
+`AgentView.cursors[system_name]` advances to `view.last_event_id`
+after each tick (ADR-074). The cursor piggy-backs on
+`WorldCheckpoint`.
 
-```python
-Event.create(
-    agent_id="order-1",
-    event_type="tool.<name>.acknowledged",  # NEW event type
-    event_class="domain",
-    data={
-        "request_event_id": "...",  # join key
-        "worker_id": "worker-7",
-        "acknowledged_at": "2026-09-12T12:00:00Z",
-    },
-    correlation=...,
-)
-```
+### 2.2 Tier 2 — Failure detection (D)
 
-The projection materialises a `tool_acknowledgments` slot (parallel
-to `tool_requests` and `tool_completions`). Each acknowledgment
-carries the worker's identity (so we know which worker has the
-task) and the request_event_id (join key).
+**Goal.** Every failure mode has a detector that runs **per
+dispatch tick** and reports without polling logs.
 
-**Worker-side**: the framework ships a `Worker` base class that
-emits the acknowledgment automatically. Workers that implement
-`Tool` (ADR-036 §2.3) inherit this behavior. Custom workers
-(opt-in) can call `worker.acknowledge(...)` explicitly.
+**Status.** Shipped. **No new event types, no new system.**
 
-### 2.3 Tier 3 — Re-dispatch on stale
+| Detector | What it catches |
+|---|---|
+| `ToolCallTTLSweeperSystem` (ADR-045) | Stale request (any cause) — fires every tick. |
+| `WorkerManager._reaper_loop` (ADR-036) | PEL messages not XACKed within `reaper_idle_time`. |
+| `WorkerManager` retry counter (`XPENDING` vs `__tool_worker_retries__`) | Worker hard-crashed mid-invocation. |
+| `ReactiveDispatcher._maybe_emit_heartbeat` + `WorkerManager._maybe_emit_heartbeat` | Loop / pool liveness (default 30s). |
 
-**Today**: TTL sweeper marks stale requests as `failed`. The agent
-sees the failure and may retry (depending on guard / saga
-config), but the framework does not re-dispatch automatically.
+### 2.3 Tier 3 — Recovery on stale (F)
 
-**Decision**: extend `ToolCallTTLSweeperSystem` (or a new
-`ToolCallRecoverySystem`) with two re-dispatch paths:
+**Goal.** A stale request is either **re-dispatched** (idempotent
+tool — safe by construction) or **escalated to the DLQ**
+(non-idempotent tool — operator decides). Re-dispatch re-emits
+with the same `event_id`; idempotency collapses duplicates. The
+sweeper runs once per tick, owns one dedup set, routes **all**
+tool-task failures — including saga compensations — through the
+single recovery pipeline.
+
+**Status.** Mostly shipped. The wider behaviour (idempotent vs
+non-idempotent branch + saga-DLQ wire) is the **new** work.
 
 ```
                   request emitted at T0
                           │
                           ▼
-                  ┌────────┴──────────┐
-                  │ Stale detection:  │
-                  │   now - T0 > TTL  │
-                  └────────┬──────────┘
-                           │
-                  ┌────────┴──────────┐
-                  │ Was acknowledged? │
-                  └────┬─────────┬───┘
-                       │         │
-                  YES  │         │  NO
-                       ▼         ▼
-              ┌─────────┐  ┌─────────────┐
-              │ Re-dispatch │  │ Re-dispatch │
-              │ (worker died)│  │ (queue lost) │
-              └──────┬──────┘  └──────┬──────┘
-                     │                │
-                     ▼                ▼
-              tool.<name>.requested  tool.<name>.requested
-              (re-emitted)            (re-emitted)
+                ┌─────────┴──────────┐
+                │ Tier 3 sweeper:   │
+                │ now - T0 > TTL?   │
+                │ AND no completion │
+                └────┬────────┬─────┘
+                     │        │
+              ack?  │  yes   │  no   (= stuck in queue)
+                     │        │
+            idempotent?       │
+            ┌──┴──┐           │
+           YES   NO          │
+            │     │           │
+            ▼     ▼           ▼
+       re-dispatch DLQ     re-dispatch
+       (same event_id,      or DLQ
+        idempotency         (no idempotency
+        collapses dup)      assumption)
 ```
 
-Both paths emit a fresh `tool.<name>.requested` event with the same
-`request_event_id` (so the EventLog dedup catches true duplicates).
-The TTL is reset on re-dispatch.
+The sweeper uses the existing `WorkerManager._reaper_loop`
+reclaim path as its primitive for stuck queues — both paths
+emit with the same `event_id`, idempotency collapses true
+duplicates. The two paths **complement**, not duplicate:
 
-**Idempotency caveat**: re-dispatch is safe only for tools that are
-either:
-- Explicitly idempotent (declared in `ToolRegistry` or via the
-  `Tool` Protocol's `idempotent: bool` flag).
-- OR confirmed by the operator (configuration flag:
-  `ToolRegistry.force_idempotent` for dev/test).
+- `ReaperLoop` recovers messages **already delivered** to a
+  worker that XACKed nothing (worker died mid-invocation).
+- TTL sweep recovers messages **never delivered** (queue
+  stalled, or worker crashed before XREAD).
 
-For non-idempotent tools, the framework **DLQs** the request
-instead of re-dispatching. The operator decides via
-`DeadLetterActions.reprocess(event_id)` or `discard(event_id)`.
+#### 2.3.1 The `Tool.idempotent: bool` flag
 
-### 2.4 Tier 4 — Observability
+Added to the `Tool` Protocol (already merged). Default `True`
+(safer — retry is the right default). Operators opt out per-tool
+when the tool has a non-idempotent side effect (payment
+processing, message dispatch, file mutation).
 
-**Today**: no way to query "tasks in flight for >X minutes" or
-"which workers are slow". Operators rely on logs and metrics.
+A tool without a registered descriptor is treated as
+**non-idempotent** (safe-by-default; the operator can add a
+descriptor).
 
-**Decision**: add three primitives to the framework:
+#### 2.3.2 Sweeper branches on idempotency
 
-1. **`dispatcher.in_flight_tasks(agent_id=None)`** → list of
-   `InFlightTask` records:
-   ```python
-   @dataclass(frozen=True)
-   class InFlightTask:
-       request_event_id: str
-       agent_id: str
-       tool_name: str
-       requested_at: datetime
-       acknowledged_at: datetime | None
-       expires_at: datetime
-       attempt: int  # 1 = original; >1 = re-dispatched
-   ```
+```python
+# ToolCallTTLSweeperSystem — replacement for the current
+# "emit tool.<name>.failed" branch.
+if was_acknowledged:
+    audit_event_type = "tool.<name>.stale_acked"
+else:
+    audit_event_type = "tool.<name>.stale_unacked"
+emit(audit_event, ...)
 
-2. **`dispatcher.stale_tasks(threshold_seconds: float)`** → list of
-   tasks past TTL but not yet re-dispatched (recovery race window).
+if tool_idempotent:
+    re_emit("tool.<name>.requested", same request_event_id)
+else:
+    # Route to DLQ via DeadLetterQueue.append.
+    dlq.append(DeadLetterEvent(
+        event=request,
+        reason=TOOL_STALE_ACKNOWLEDGED if was_acknowledged
+               else TOOL_STALE_UNACKNOWLEDGED,
+        ...
+    ))
+```
 
-3. **`dispatcher.dead_lettered_tasks()`** → list of tasks in the
-   DLQ awaiting operator action.
+The sweeper uses its existing in-memory dedup set
+(`_emitted_events`) to ensure one recovery pass per
+`request_event_id` per dispatcher instance. Process restart
+re-derives the set from the EventLog via `causation_id`.
 
-These primitives read from the EventLog (via `subscribe_many`)
-and the WorldCheckpoint. They are **read-only** — no mutations.
+#### 2.3.3 Saga compensation → DLQ wire (merged into the sweeper)
 
-A dashboard layer (UI, Grafana integration, etc.) is **out of scope**
-for this ADR — the primitives are enough for any visualization
-layer to consume.
+The first revision of this ADR proposed a separate
+`SagaDLQAdapterSystem`. **That proposal is rejected** — see the
+comparison below. Instead, the saga → DLQ wire is a **branch in
+the same TTL sweeper**:
+
+```python
+# In ToolCallTTLSweeperSystem.__call__, after the per-request
+# reconciliation:
+for stale in stale_requests:
+    if stale.tool in NON_IDEMPOTENT_TOOLS:
+        dlq.append(DeadLetterEvent(reason=TOOL_STALE_*, ...))
+    # Saga-specific path: if the tool was dispatched by a
+    # saga and that saga is in "compensating" state, also
+    # emit saga.<name>.compensation_failed. The saga
+    # already does this in begin_compensation; the sweeper
+    # only emits it for saga-originated stale tool calls.
+    if saga_id := stale.data.get("saga_id"):
+        emit("saga.<saga_name>.compensation_failed",
+             data={"stuck_step": stale.tool_name,
+                   "saga_id": saga_id})
+```
+
+**Why merge** (over a separate adapter):
+- **Single source of recovery**: one sweeper, one dedup set,
+  one DLQ insertion per stale request. A separate adapter
+  would race with the sweeper (the sweeper emits `failed` for
+  the original request; the adapter emits another event; two
+  writes per failure, harder to reason about).
+- **Single rebuild path**: a restart that crashes mid-recovery
+  re-runs the same sweep (idempotency collapses).
+- **Convention fit**: the sweeper is already a registered
+  `WorldSystem` (auto-retried by the dispatcher); a subscriber
+  via `dispatcher.subscribe` can silently miss events.
+
+The saga system **stays pure** (the ADR-069 §11.9 contract). The
+side effect (DLQ insert) lives entirely inside the sweeper.
+
+#### 2.3.4 New `DLQReason` values
+
+Added to `DLQReason` (ADR-019):
+
+- `TOOL_STALE_ACKNOWLEDGED` — TTL expired after a worker
+  acknowledged (worker likely crashed between ack and
+  completion).
+- `TOOL_STALE_UNACKNOWLEDGED` — TTL expired before any worker
+  acknowledged (message likely stuck in the queue).
+
+Existing `PROCESSING_FAILED` and `MAX_RETRIES_EXCEEDED`
+remain for non-stale failures. No `TOOL_NOT_IDEMPOTENT` reason
+is added — that path is captured by `TOOL_STALE_*` (it's
+not idempotent + stale, automatically DLQ).
+
+### 2.4 Tier 4 — Recovery-driven observability (R ↔ D ↔ F)
+
+**Goal.** Every recovery state has a **read API** the operator
+can call. Tier 4 closes the gaps flagged in §1.3 (#8–10).
+
+| # | Query | Backed by | What it returns |
+|---|---|---|---|
+| 8 | `dispatcher.in_flight_tasks(agent_id=None)` | `view.tool_requests` − `tool_completions` (per-agent view) | Tasks `requested` but no `completed`/`failed` yet |
+| 9 | `dispatcher.stuck_in_queue(threshold_seconds)` | `XLEN knt:tools:<name>:queue` vs last dispatch tick | Tasks `requested` in the stream past the threshold with no `XPENDING` consumer activity |
+| 10 | `dispatcher.dead_lettered_tasks(reason=None)` | `DeadLetterQueue.list_by_reason / list_for_agent` | DLQ entries awaiting operator action |
+| 11 | `dispatcher.stale_tasks(threshold_seconds)` | `view.tool_requests` ∩ `now - expires_at > threshold` | Tasks past TTL but not yet recovered (race window) |
+
+Implementation: each query is async (does **not** block the
+dispatcher tick loop), reads from the existing data
+sources listed in §1.1, and caches the result with TTL 5s to
+amortise scan cost across dashboard refreshes.
+
+#### 2.4.1 `dispatcher.detect_and_recover()` convenience
+
+A single entry point that runs **all** recovery paths in one
+call — intended for an operator cron / alert:
+
+```python
+await dispatcher.detect_and_recover(
+    stale_threshold_s=300,
+    stuck_in_queue_threshold_s=300,
+    dry_run=False,
+)
+```
+
+This is sugar over Tier 2 + Tier 3 (the sweeper triggers the
+re-dispatch path) + Tier 4 queries (used for the report). Not a
+new recovery primitive.
 
 ---
 
 ## 3. Components
 
-### 3.1 New event type: `tool.<name>.acknowledged`
+### 3.1 New: `DLQReason` values
 
-Already described in §2.2. Added to `ToolEventKind` enum (alongside
-`REQUESTED`, `COMPLETED`, `FAILED`).
+Added to `DLQReason` (ADR-019):
 
-### 3.2 Modified: `ToolCallTTL` (ADR-045)
+- `TOOL_STALE_ACKNOWLEDGED`
+- `TOOL_STALE_UNACKNOWLEDGED`
 
-```diff
- @dataclass(frozen=True, slots=True)
- class ToolCallTTL:
--    default_ttl_seconds: float = 300.0
-+    default_ttl_seconds: float  # MUST be > 0 (ADR-075)
-     per_tool_ttls: Mapping[str, float] = field(default_factory=dict)
+The existing `PROCESSING_FAILED` and `MAX_RETRIES_EXCEEDED` cover
+non-stale failures (worker hard crash, OOM, etc.).
 
-     def __post_init__(self) -> None:
--        if self.default_ttl_seconds <= 0:
--            raise ValueError(...)
-+        # ADR-075: enforced — see ADR-075 §2.1.
-+        if self.default_ttl_seconds <= 0:
-+            raise ValueError(
-+                "default_ttl_seconds must be > 0 (ADR-075). "
-+                "Use a finite TTL; infinite TTLs are forbidden."
-+            )
-```
+### 3.2 Modified: `ToolCallTTLSweeperSystem` (ADR-045)
 
-### 3.3 Modified: `ToolCallRequest` (ADR-034)
+Replace the current `emit tool.<name>.failed` branch with the
+two-path branch from §2.3.2 + the saga-DLQ wire from §2.3.3.
+The existing in-memory dedup set (`_emitted_events`) is
+preserved — one recovery pass per `(request_event_id, ack-status)`
+per dispatcher instance.
 
-```diff
- @dataclass(frozen=True, slots=True)
- class ToolCallRequest:
-     request_event_id: str
-     tool_name: str
-     agent_id: str
-     params: Mapping[str, JsonValue]
-     requested_at: datetime
-     correlation_id: Optional[UUID] = None
--    expires_at: Optional[datetime] = None
-+    expires_at: datetime  # ADR-075: mandatory
-```
-
-### 3.4 Modified: `ToolCallTTLSweeperSystem` (ADR-045)
-
-Replace the `tool.<name>.failed` emit with **two paths**:
+### 3.3 Modified: `Tool` Protocol (ADR-036)
 
 ```python
-# ADR-075 §2.3 — re-dispatch on stale.
-if was_acknowledged:
-    emit "tool.<name>.acknowledged_stale" event
-    # If tool is idempotent OR force_idempotent=True:
-    re_emit "tool.<name>.requested" (same request_event_id)
-    # Else:
-    #   route to DLQ for operator decision
-else:
-    emit "tool.<name>.unacknowledged_stale" event
-    # If tool is idempotent OR force_idempotent=True:
-    re_emit "tool.<name>.requested" (same request_event_id)
-    # Else:
-    #   route to DLQ for operator decision
+@runtime_checkable
+class Tool(Describable, Protocol[R]):
+    name: str
+    description: str
+    input_schema: dict[str, "JsonValue"]
+    idempotent: bool = True  # ADR-075: per-tool idempotency
 ```
 
-Both paths log a `tool_call.recovered` (success) or
-`tool_call.dlq` (DLQ) structured log for observability.
+Default `True`. Operators opt out per-tool for non-idempotent
+side effects. Read by the TTL sweeper via
+`WorkerManager.tool_for(name).idempotent`.
 
-### 3.5 New: `WorkerManager.acknowledge(...)`
-
-```python
-# src/kntgraph/tools/manager.py
-class WorkerManager:
-    async def acknowledge(
-        self,
-        request_event_id: str,
-        worker_id: str,
-    ) -> None:
-        """Emit ``tool.<name>.acknowledged`` for the
-        worker's current task.
-
-        Called by Worker base class on task start
-        (after reading from queue, before running).
-        """
-        # ... emit event with request_event_id, worker_id,
-        # timestamp, correlation (inherited from request).
-```
-
-### 3.6 New: `dispatcher.in_flight_tasks()` / `stale_tasks()` / `dead_lettered_tasks()`
-
-Read-only queries. Implemented in `ReactiveDispatcher`:
+### 3.4 New: `ReactiveDispatcher` observability queries
 
 ```python
+# src/kntgraph/runner/reactive.py
 class ReactiveDispatcher:
     async def in_flight_tasks(
         self, agent_id: str | None = None
     ) -> list[InFlightTask]:
-        """Read all ``tool.<name>.requested`` events that
-        do not have a matching ``tool.<name>.completed``
-        or ``failed``, joined with the ``acknowledged``
-        event if present.
-        """
-        # Uses subscribe_many to scan EventLog; joins
-        # request → acknowledgment → completion.
+        ...
+
+    async def stale_tasks(
+        self, threshold_seconds: float = 300.0
+    ) -> list[InFlightTask]:
+        ...
+
+    async def stuck_in_queue(
+        self, threshold_seconds: float = 300.0
+    ) -> list[InFlightTask]:
+        ...
+
+    async def dead_lettered_tasks(
+        self, reason: DLQReason | None = None,
+        agent_id: str | None = None,
+    ) -> list[DeadLetterEvent]:
+        ...
+
+    async def detect_and_recover(
+        self,
+        stale_threshold_s: float = 300.0,
+        stuck_in_queue_threshold_s: float = 300.0,
+        dry_run: bool = False,
+    ) -> RecoveryReport:
+        """Convenience: run all recovery paths and return a report."""
 ```
 
-The implementation details (scan strategy, caching) are
-deferred to PR-N. This ADR only commits to the API.
+The implementation composes existing primitives (see §1.1).
+The cache is TTL-bounded (default 5s) so dashboards polling at
+1Hz amortise the cost.
 
 ---
 
 ## 4. Backward compatibility
 
-| Change | Backward compat |
+| Change | Compatibility |
 |---|---|
 | `ToolCallTTL.default_ttl_seconds > 0` enforced | Existing deployments that set `0` (opt-out) **break**. Migration: set a finite default (e.g., `300.0`). |
 | `ToolCallRequest.expires_at: datetime` (non-Optional) | Code that constructs `ToolCallRequest` directly without `expires_at` **breaks**. Migration: always pass `expires_at`. |
-| New `tool.<name>.acknowledged` event type | Workers that don't emit it work but are not re-dispatched on stale (treated as "never picked up" → DLQ for idempotent tools, DLQ for non-idempotent). |
+| New `DLQReason.TOOL_STALE_*` values | Pure addition; existing DLQ queries unaffected. |
+| `Tool.idempotent: bool = True` (Protocol field) | Default `True`; existing tools behave idempotently until they opt out. The Protocol change is additive (existing classes satisfy the Protocol since `True` is the default). |
+| TTL sweeper now branches idempotent vs non-idempotent | Behaviour change for non-idempotent tools: **stale → DLQ** instead of **stale → failed**. This is the intended change but operators should be aware. |
+| Saga → DLQ merge into sweeper | Application no longer needs to register `SagaDLQAdapter` (it doesn't exist). Saga stays pure. |
 | New `dispatcher.in_flight_tasks()` etc. | Pure addition. |
-| Modified TTL sweeper (re-dispatch instead of failed) | Behavior change for idempotent tools: **stale → re-dispatched**, not **stale → failed**. This is the intended change but operators should be aware. |
 
 ---
 
 ## 5. Migration
 
-### Phase 1 — Mandatory TTL (no worker changes)
-
+### Phase 1 — Mandatory TTL (shipped)
 - Tighten `ToolCallTTL.__post_init__` (ADR-075 §3.2).
 - Tighten `ToolCallRequest` field type (ADR-075 §3.3).
-- Existing deployments must set a finite default.
-- No new event types, no worker changes.
 
-### Phase 2 — Worker acknowledgment (worker library update)
+### Phase 2 — Failure detection (shipped)
+- No code change for the detection primitives themselves; they
+  are already in place (ReaperLoop, TTL sweeper, retry counter).
+  The **spec** is documented here.
 
-- Add `tool.<name>.acknowledged` to `ToolEventKind`.
-- Update `Worker` base class to emit acknowledgment on task start.
-- Add `WorkerManager.acknowledge(...)` API.
-- Custom workers opt-in via explicit call.
-- Update projection to materialise `tool_acknowledgments` slot.
+### Phase 3 — Recovery (shipped + DLQ wire + idempotent branch)
+- ✅ Idempotent + DLQ branch in TTL sweeper (shipped).
+- ✅ Saga → DLQ wire in TTL sweeper (shipped).
+- ✅ `Tool.idempotent: bool` flag on Protocol (shipped; sweeper
+  reads it).
+- ✅ New `DLQReason.TOOL_STALE_*` values (shipped).
 
-### Phase 3 — Re-dispatch (recovery logic)
-
-- Modify `ToolCallTTLSweeperSystem` per ADR-075 §3.4.
-- Add idempotency flag to `Tool` Protocol (`idempotent: bool`).
-- Add `ToolRegistry.force_idempotent` config (dev/test only).
-
-### Phase 4 — Observability (read-only)
-
-- Add `in_flight_tasks` / `stale_tasks` / `dead_lettered_tasks` to
-  `ReactiveDispatcher`.
-- Subscribe-based implementation.
-- Dashboard integration (separate ADR or work item).
+### Phase 4 — Recovery-driven observability
+- Implement `dispatcher.in_flight_tasks()`,
+  `stale_tasks()`, `stuck_in_queue()`, `dead_lettered_tasks()`,
+  `detect_and_recover()` on `ReactiveDispatcher`.
+- Document the API in `docs/tool_task_observability.md`.
 
 ---
 
-## 6. Tests
+## 6. Source code layout
 
-| Test | Validates |
-|---|---|
-| `test_default_ttl_must_be_positive` | `ToolCallTTL(default_ttl_seconds=0)` raises. |
-| `test_request_must_have_expires_at` | `ToolCallRequest(expires_at=None)` raises. |
-| `test_acknowledged_event_lands_in_slot` | Worker emits `acknowledged`; projection materialises. |
-| `test_stale_with_ack_re_dispatches` | Stale + acknowledged → idempotent → re-dispatch event emitted. |
-| `test_stale_with_ack_dlqs_when_not_idempotent` | Stale + acknowledged → non-idempotent → DLQ entry. |
-| `test_stale_without_ack_re_dispatches` | Stale + no ack → idempotent → re-dispatch. |
-| `test_in_flight_tasks_query` | `dispatcher.in_flight_tasks()` returns expected tasks. |
-| `test_worker_crash_during_execution_recovered` | Worker ack → crash → next tick → re-dispatch. |
-| `test_worker_never_picked_up_recovered` | Request → no ack → next tick → re-dispatch. |
-| `test_complete_event_after_stale_is_deduped` | Re-dispatch + original completion → one event effective. |
+```
+src/kntgraph/
+├── core/
+│   ├── event/
+│   │   ├── id_helpers.py            (existing — R)
+│   │   └── correlation.py            (existing — R)
+│   ├── long_poll.py                  (existing — Tier 4 helper)
+│   └── world/
+│       ├── components.py            (ToolCallTTL, ToolCallRequest)
+│       └── projection_tool_calls.py  (existing)
+├── runner/
+│   ├── reactive.py                  (add: in_flight_tasks, stale_tasks,
+│   │                                 stuck_in_queue, dead_lettered_tasks,
+│   │                                 detect_and_recover)
+│   └── tool_call_ttl_sweeper.py     (Tier 3 — re-dispatch / DLQ branch
+│                                     AND saga → DLQ wire, merged)
+├── tools/
+│   ├── manager.py                   (existing — ReaperLoop, retry
+│   │                                 counter)
+│   └── protocol.py                  (add: Tool.idempotent)
+├── events/
+│   └── dlq/
+│       ├── values.py                (add: TOOL_STALE_* reasons)
+│       ├── store.py                 (existing)
+│       └── actions.py               (existing)
+└── resilience/
+    ├── circuit_breaker.py           (existing — R for EventLog)
+    ├── timeout.py                    (existing — BackoffPolicy)
+    └── retry.py                      (existing — retry_with_backoff)
+```
+
+The `reactive.py` file may exceed the 500-line guideline once
+Tier 4 queries land. If it does, split into `_observability.py`
+(following the saga `_dispatch / _compensation / _dispatch` /
+`_records` split).
+
+**No `saga_dlq_adapter.py`** — the saga → DLQ wire lives in the
+TTL sweeper (§2.3.3), by design (§3.2 and §1's table).
 
 ---
 
 ## 7. Open questions
 
-1. **Where does the acknowledgment live?** In the agent's EventLog
-   stream, or a separate worker-events stream? Putting it in the
-   agent's stream keeps the join simple but pollutes the agent's
-   event vocabulary. A separate stream (`knt:tool_acks`) keeps
-   things clean but requires cross-stream joins.
-   *Recommendation*: agent's stream. Polluting is minor; cross-stream
-   join is complex.
+1. **`Tool.idempotent` default.** Per-tool flag in `Tool`
+   Protocol, defaulting to `True`. Operators opt out per-tool.
+   *Recommendation*: keep default `True`; ship a helper that
+   surfaces a per-tool idempotency audit (which tools opt out?).
 
-2. **Idempotency registry**: how does the framework know which tools
-   are idempotent? Options:
-   - Per-tool flag in the `Tool` Protocol (`idempotent: bool`).
-   - Operator registry (`ToolRegistry.idempotent_tools`).
-   - Default: idempotent (safer — retry is the right default).
-   - Escape: `ToolRegistry.force_idempotent=False` per tool.
-   *Recommendation*: per-tool flag in `Tool` Protocol, defaulting
-   to `True`. Operators opt out per-tool if non-idempotent.
+2. **Backpressure coupling.** ADR-070 proposes per-tool
+   `max_in_flight`; how does `ReaperLoop`'s `reaper_idle_time`
+   interact with it? If `reaper_idle_time` is too small, a slow
+   legitimate tool gets reclaimed; if too large, recovery is
+   slow.
+   *Recommendation*: keep them independent. `reaper_idle_time`
+   is the recovery SLA; `max_in_flight` is the dispatch SLA.
+   Operators tune both.
 
-3. **DLQ integration**: which existing DLQ, new reasons?
-   The framework's `DLQReason` enum has PROCESSING_FAILED,
-   MAX_RETRIES_EXCEEDED, etc. Add `TOOL_STALE` and
-   `TOOL_NOT_IDEMPOTENT` reasons? Or reuse PROCESSING_FAILED?
-   *Recommendation*: new `TOOL_STALE_ACKNOWLEDGED` and
-   `TOOL_STALE_UNACKNOWLEDGED` reasons; existing
-   `PROCESSING_FAILED` for terminal failures.
+3. **Multi-shard re-dispatch.** In a sharded deployment
+   (ADR-035), each shard owns a subset of agents. Cross-shard
+   re-dispatch is non-trivial. For v1, re-dispatch stays within
+   the shard that processed the original request.
+   *Recommendation*: defer cross-shard to a follow-up.
 
-4. **In-flight task query performance**: scanning the EventLog on
-   every `in_flight_tasks()` call is O(N). For high-throughput
-   systems, cache the view. Cache TTL? Invalidation trigger?
-   *Recommendation*: deferred to PR-N. Initial implementation is
-   scan-based with a TODO for caching.
+4. **Dashboard integration.** Grafana + UI consume the
+   observability API. The contract is the API; the dashboard
+   is a separate concern.
+   *Recommendation*: not in scope of this ADR. Tier 4 is the
+   API; dashboards live in their own ADR.
 
-5. **Multi-dispatcher**: in a sharded deployment (ADR-035), each
-   shard owns a subset of agents. Cross-shard re-dispatch is
-   tricky. For v1, re-dispatch stays within the shard that
-   processed the original request.
-   *Recommendation*: deferred. Shard-aware re-dispatch is a
-   follow-up ADR.
+5. **Saga DLQ entry shape.** The current `DeadLetterEvent` carries
+   the original `Event` + failure metadata; should the saga-DLQ
+   wire also stash the saga's compensating-state snapshot (so the
+   operator can see the `compensate_stack` at the moment of the
+   failure)?
+   *Recommendation*: stash the `compensate_stack` snapshot in
+   `data` on the `DeadLetterEvent`. Operators get the full
+   picture from the DLQ entry alone.
 
 ---
 
@@ -470,11 +544,37 @@ deferred to PR-N. This ADR only commits to the API.
 
 - Evans, E. *Domain-Driven Design*, 2003 — Repository pattern
 - Richardson, C. *Microservices Patterns*, 2018 — Chapter 4, Saga
+- Kleppmann, M. *Designing Data-Intensive Applications*, 2017 —
+  Chapter 5 (replication, recovery), Chapter 9 (consistency)
 - [ADR-019 — DLQ](./ADR-019-Redis-Adapter-Typing.md)
 - [ADR-034 — ToolCall ECS Components](./ADR-034-ToolCall-ECS-Components.md)
 - [ADR-036 — Tool Worker Pattern](./ADR-036-Tool-Worker-Pattern.md)
+- [ADR-037 — Mandatory Correlation Propagation](./ADR-037-Mandatory-Correlation-Propagation.md)
 - [ADR-045 — Tool Call TTL](./ADR-045-Tool-Call-Request-TTL.md)
-- [ADR-068 — EventLog subscribe](./ADR-068-idle-redis-traffic-and-eventlog-subscribe.md)
+- [ADR-068 — Idle Redis traffic and EventLog subscribe](./ADR-068-idle-redis-traffic-and-eventlog-subscribe.md)
 - [ADR-070 — Worker-Level Back-Pressure](./ADR-070-Worker-Level-Back-Pressure.md)
 - [ADR-071 — BusinessFSM Concordo](./ADR-071-BusinessFSM-Concordo.md)
 - [ADR-072 — WorkflowSaga Concordo](./ADR-072-WorkflowSaga-Concordo.md)
+- [ADR-074 — Per-System Cursors in AgentView](./ADR-074-Per-System-Cursors-in-AgentView.md)
+
+---
+
+## 9. Failure-mode table (for easy reference)
+
+This is the same table as §1.3, kept here so the ADR is
+self-contained:
+
+| # | Failure mode | Detection (existing or new) | Recovery |
+|---|---|---|---|
+| 1 | Worker crashes after read but before start | ReaperLoop + TTL Sweeper | XAUTOCLAIM, re-dispatch (Tier 3) |
+| 2 | Queue never delivers | TTL Sweeper | Re-dispatch or DLQ |
+| 3 | Worker never completes (TTL unset/infinite) | TTL mandatory (`__post_init__`) | Sweeper re-dispatch / DLQ |
+| 4 | Completion event lost in transit | EventLog cursor + idempotency | Re-emit collapsed |
+| 5 | Dispatcher crashes mid-tick | WorldCheckpoint + cursor | Pure replay |
+| 6 | Stale request never picked up | TTL Sweeper (`XLEN` + no `XPENDING`) | Re-dispatch or DLQ |
+| 7 | Stale request after worker started | TTL Sweeper (`XPENDING` exists) | Re-dispatch with reset |
+| 8 | No "what's in flight right now" query | NEW: Tier 4 `in_flight_tasks()` | Operator dashboards |
+| 9 | No "what's stuck in queue" query | NEW: Tier 4 `stuck_in_queue()` | Drives `detect_and_recover()` cron |
+| 10 | No DLQ-side "what to action" query | NEW: Tier 4 `dead_lettered_tasks()` | Operator workflow |
+| 11 | Saga compensation → DLQ not wired | NEW: Tier 3 sweeper branch | DLQ via sweeper (merged) |
+| 12 | Worker reaper re-runs non-idempotent tool | `Tool.idempotent: bool` flag | Operator opts in/out per-tool |
