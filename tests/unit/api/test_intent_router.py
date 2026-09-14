@@ -457,6 +457,12 @@ def _terminal_event(
     )
 
 
+@pytest.mark.filterwarnings(
+    "ignore:GET /agents/.*/status is deprecated.*:DeprecationWarning",
+    reason="TestStatus exercises the deprecated long-poll endpoint (kept "
+    "for one minor cycle per ADR-065 §5.1); the SSE replacement "
+    "(/agents/.../events?causation_id=...) is exercised separately.",
+)
 class TestStatus:
     def test_pending_when_no_terminal_event(self):
         log = FakeEventLog()

@@ -390,7 +390,6 @@ def test_evaluator_type_mismatch() -> None:
 
 
 def test_evaluator_builtin_step_completed() -> None:
-    from kntgraph.concordos.specs import StepCompleted
 
     spec = BUILTIN_SPECS["step_completed"]("extract")
     assert spec.is_satisfied_by(make_ctx(step_states={"extract": "completed"})) is True
@@ -399,7 +398,6 @@ def test_evaluator_builtin_step_completed() -> None:
 
 
 def test_evaluator_builtin_domain_state_is() -> None:
-    from kntgraph.concordos.specs import DomainStateIs
 
     spec = BUILTIN_SPECS["domain_state_is"]("status", "issued")
     assert spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="issued"))) is True
@@ -407,7 +405,6 @@ def test_evaluator_builtin_domain_state_is() -> None:
 
 
 def test_evaluator_builtin_profile_tier_is() -> None:
-    from kntgraph.concordos.specs import ProfileTierIs
 
     spec = BUILTIN_SPECS["profile_tier_is"]("vip")
     assert spec.is_satisfied_by(make_ctx(profile=_MockDomain(tier="vip"))) is True
@@ -416,7 +413,6 @@ def test_evaluator_builtin_profile_tier_is() -> None:
 
 def test_evaluator_builtin_continuity_tool_used() -> None:
     from kntgraph.core.components import ContinuityComponent
-    from kntgraph.concordos.specs import ContinuityToolUsed
 
     spec = BUILTIN_SPECS["continuity_tool_used"]("nfe_emitter")
     continuity = ContinuityComponent(

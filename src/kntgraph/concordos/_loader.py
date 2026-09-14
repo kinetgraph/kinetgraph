@@ -35,7 +35,6 @@ from kntgraph.concordos.schemas import (
     EventSchema,
     FSMConfigSchema,
     SagaConfigSchema,
-    SpecificationSchema,
 )
 
 if TYPE_CHECKING:

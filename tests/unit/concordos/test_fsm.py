@@ -16,12 +16,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from kntgraph.concordos.fsm import FSMConfig, FSMTransition, FSMSystem
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
 from kntgraph.core.world import DomainComponent
 from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
+
+if TYPE_CHECKING:
+    from kntgraph.core.event import Event
 
 FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -377,6 +381,7 @@ class TestFSMMultiEventTick:
 
     def _make_event(self, agent_id: str, event_type: str) -> "Event":
         from uuid import uuid4
+
         from kntgraph.core.event import CorrelationContext, Event
 
         return Event.domain_from(

@@ -765,6 +765,37 @@ event lands in the EventLog and is inspectable via
 the standard log tools. The saga system does not
 insert into the DLQ directly.
 
+### 4.1 Crash-safe compensation vocabulary
+
+The three compensation events form a sub-protocol that
+makes the `compensate_stack` reconstructible from the
+EventLog (ADR-072 §11.18.2; resolution to §11.10 / §11.18.2):
+
+- `saga.<name>.compensating` -- the saga enters compensation
+  (seed event). Marks `direction = "compensating"` and
+  initialises `compensate_stack` from the config
+  (steps with `compensate_tool` that completed, in
+  LIFO order).
+- `saga.<name>.<step>.compensation_started` -- a
+  compensation tool was dispatched for ``<step>``.
+  **Durable marker**: "I dispatched a compensation."
+  Adds the step to `compensate_stack` (if not already
+  there).
+- `saga.<name>.<step>.compensated` -- the compensation
+  tool succeeded. **Durable marker**: "this step is fully
+  compensated." Removes the step from `compensate_stack`.
+
+The projection reads these granular events to reconstruct
+the **exact compensated-step list** from the EventLog
+alone. A process crash between `compensation_started` and
+`compensated` is recovered by re-dispatching on the next
+tick (the worker receives the same `compensate_when`
+context on replay). Without these events, the
+`compensate_stack` field is a cache that might
+disagree with the EventLog after a restart.
+
+---
+
 ---
 
 ## 5. Source code layout

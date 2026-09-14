@@ -170,16 +170,19 @@ def _stream_message(event: Event, message_id: bytes = b"1-0") -> tuple[bytes, di
 
 class TestLifecycle:
     async def test_register_tool(self, manager):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         assert "echo" in manager._tools
         assert manager._tools["echo"] is _EchoTool
 
     async def test_register_rejects_undecorated_class(self, manager):
         with pytest.raises(TypeError, match="@tool_worker"):
-            manager.register(_NotDecorated)
+            manager.register(_NotDecorated, acl=None)
+
 
     async def test_start_initialises_pool_and_groups(self, manager, redis_mock):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         try:
             assert manager._running is True
@@ -189,7 +192,8 @@ class TestLifecycle:
             await manager.stop()
 
     async def test_start_is_idempotent(self, manager, redis_mock):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         try:
             await manager.start()
@@ -198,7 +202,8 @@ class TestLifecycle:
             await manager.stop()
 
     async def test_start_min_two_workers(self, manager):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         try:
             assert manager._pool is not None
@@ -213,7 +218,8 @@ class TestLifecycle:
         stalls ``xreadgroup`` in container runtimes
         (see manager.py:start and ADR-054 lines 269-273).
         """
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         try:
             assert manager._pool is not None
@@ -226,7 +232,8 @@ class TestLifecycle:
         redis_mock.xgroup_create = AsyncMock(
             side_effect=Exception("BUSYGROUP already exists")
         )
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
             await manager.start()
         try:
@@ -238,7 +245,8 @@ class TestLifecycle:
         redis_mock.xgroup_create = AsyncMock(
             side_effect=Exception("connection refused")
         )
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
             await manager.start()
         try:
@@ -247,7 +255,8 @@ class TestLifecycle:
             await manager.stop()
 
     async def test_stop_cancels_tasks_and_shuts_pool(self, manager):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         pool = manager._pool
         await manager.stop()
@@ -262,7 +271,8 @@ class TestLifecycle:
             pool.submit(lambda: None)
 
     async def test_stop_drains_tasks(self, manager):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         await manager.start()
         await manager.stop()
         assert manager._tasks == []
@@ -275,7 +285,8 @@ class TestLifecycle:
         early-return branch that the ``start``→``stop``
         happy path leaves uncovered.
         """
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         assert manager._pool is None
         await manager.stop()
         assert manager._pool is None
@@ -290,7 +301,8 @@ class TestProcessMessageOk:
     async def test_ok_result_emits_completed_event(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         message_id, data = _stream_message(request)
 
@@ -306,7 +318,8 @@ class TestProcessMessageOk:
     async def test_correlation_is_propagated_to_completed_event(
         self, manager, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         ctx = CorrelationContext.new()
         request = _make_request_event(correlation=ctx)
         _, data = _stream_message(request)
@@ -317,7 +330,8 @@ class TestProcessMessageOk:
         assert completed.correlation == ctx
 
     async def test_causation_id_is_request_event_id(self, manager, event_log_mock):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         _, data = _stream_message(request)
 
@@ -336,7 +350,8 @@ class TestProcessMessageErr:
     async def test_err_result_emits_failed_event(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_BoomTool)
+        manager.register(_BoomTool, acl=None)
+
         request = _make_request_event(tool_name="boom")
         _, data = _stream_message(request)
 
@@ -349,7 +364,8 @@ class TestProcessMessageErr:
         redis_mock.xack.assert_awaited_once()
 
     async def test_args_fallback_when_no_params(self, manager, event_log_mock):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = Event.create(
             event_type="tool.echo.requested",
             agent_id="agent-1",
@@ -374,7 +390,8 @@ class TestProcessMessageParseError:
     async def test_invalid_json_payload_is_acked(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         bad_message = (b"1-0", {b"payload": b"not-json{"})
 
         await manager._process_message("echo", "stream", "1-0", bad_message[1])
@@ -385,7 +402,8 @@ class TestProcessMessageParseError:
     async def test_missing_payload_defaults_to_empty_dict_and_acks(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         no_payload = (b"1-0", {})
 
         await manager._process_message("echo", "stream", "1-0", no_payload[1])
@@ -408,7 +426,8 @@ class TestProcessMessageHardCrash:
     async def test_hard_crash_acks_only_after_retry_budget_exhausted(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         _, data = _stream_message(request)
 
@@ -451,7 +470,8 @@ class TestProcessMessageHardCrash:
     async def test_hard_crash_below_budget_does_not_ack(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         _, data = _stream_message(request)
 
@@ -483,7 +503,8 @@ class TestConsumeLoop:
     async def test_consume_loop_processes_message_and_acks(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         _, data = _stream_message(request)
         redis_mock.xreadgroup = AsyncMock(
@@ -501,7 +522,8 @@ class TestConsumeLoop:
     async def test_consume_loop_handles_generic_exception(
         self, manager, redis_mock, caplog
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         redis_mock.xreadgroup = AsyncMock(side_effect=Exception("redis blip"))
         await manager.start()
         try:
@@ -523,7 +545,8 @@ class TestConsumeLoop:
         ``if not response: continue`` arm uncovered
         (``manager.py:161``).
         """
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         # First call returns no messages (idle branch),
         # then raises CancelledError on the second call
         # to break the loop cleanly when ``stop()``
@@ -560,7 +583,8 @@ class TestReaperLoop:
         the first awaited ``xautoclaim`` to avoid the
         tight spin saturating the scheduler.
         """
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         redis_mock.xautoclaim = AsyncMock(side_effect=Exception("xautoclaim blip"))
         with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
             await manager.start()
@@ -593,7 +617,8 @@ class TestReaperLoop:
     async def test_reaper_reclaims_stuck_messages(
         self, manager, redis_mock, event_log_mock
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         request = _make_request_event()
         _, data = _stream_message(request)
         # xautoclaim returns one message on the first
@@ -662,7 +687,8 @@ class TestCustomRetries:
 
                 return Err(ToolError("boom"))
 
-        manager.register(_CustomTool)
+        manager.register(_CustomTool, acl=None)
+
         await manager.start()
         try:
             request = _make_request_event(tool_name="custom")
@@ -710,7 +736,8 @@ class TestObservability:
     """
 
     async def test_heartbeat_emitted_with_counters(self, manager, redis_mock, caplog):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         # Tight heartbeat so the line fires inside the test
         # body without slowing the suite.
         manager._heartbeat_interval_seconds = 0.05
@@ -749,7 +776,8 @@ class TestObservability:
     async def test_heartbeat_disabled_when_interval_non_positive(
         self, manager, redis_mock, caplog
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         manager._heartbeat_interval_seconds = 0
         with caplog.at_level(logging.INFO, logger="kntgraph.tools.manager"):
             await manager.start()
@@ -764,7 +792,8 @@ class TestObservability:
         assert "worker.consume_loop.heartbeat" not in caplog.text
 
     async def test_heartbeat_surfaces_last_error(self, manager, redis_mock, caplog):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         # Tight cadence + a generous deadline so the
         # test is robust against scheduler contention
         # in the full unit suite (the consume loop
@@ -792,7 +821,8 @@ class TestObservability:
     async def test_payload_parse_error_carries_traceback(
         self, manager, redis_mock, caplog
     ):
-        manager.register(_EchoTool)
+        manager.register(_EchoTool, acl=None)
+
         # Replace the payload bytes with invalid JSON so the
         # ``json.loads`` call in ``_process_message`` raises.
         data = {b"payload": b"not-json"}

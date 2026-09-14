@@ -823,7 +823,7 @@ def test_saga_step_result_payload_non_mapping() -> None:
     is not a mapping."""
     from kntgraph.concordos.saga._compensation import step_result_payload
 
-    system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
+    SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
     saga = _progress(
         current_step="emit_nfe",
         step_results={"emit_nfe": "not-a-mapping"},

@@ -685,7 +685,6 @@ class TestCursorPrimitive:
         doesn't re-process the same events on the next
         tick.
         """
-        from dataclasses import replace
 
         cap = _Captured()
         log = _FakeEventLog(cap)

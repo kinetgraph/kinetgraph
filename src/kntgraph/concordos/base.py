@@ -34,7 +34,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Callable, Mapping
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     )
     from kntgraph.core.event.correlation import CorrelationContext
     from kntgraph.core.world.component import DomainComponent
-    from kntgraph.core.world.world import World
+    from kntgraph.core.world.view import AgentView
 
 __all__ = [
     "AndSpec",

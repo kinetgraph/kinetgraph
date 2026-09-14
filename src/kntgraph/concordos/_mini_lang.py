@@ -65,9 +65,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
-    from .base import StepContext
+    from .base import Specification, StepContext
 
 
 __all__ = [
@@ -366,7 +364,7 @@ class _Parser:
                 column=tok.column if tok else len(self._expression),
                 expected=found_hint,
                 found=(
-                    f"end of input" if tok is None else f"{tok.kind}({tok.lexeme!r})"
+                    "end of input" if tok is None else f"{tok.kind}({tok.lexeme!r})"
                 ),
             )
         return self._consume()

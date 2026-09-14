@@ -328,7 +328,8 @@ class TestCrossAgentResolver:
                 return profile is not None and profile.tier == "vip"
 
         # The resolver returns None for missing agents.
-        resolver = lambda aid: None
+        def resolver(aid):
+            return None
         assert not OtherAgentIsVIP().is_satisfied_by(
             _ctx(cross_agent_resolver=resolver)
         )
@@ -342,7 +343,8 @@ class TestCrossAgentResolver:
                 )
             },
         )
-        resolver = lambda aid: finance_view if aid == "finance-1" else None
+        def resolver(aid):
+            return finance_view if aid == "finance-1" else None
         assert OtherAgentIsVIP().is_satisfied_by(_ctx(cross_agent_resolver=resolver))
 
     def test_no_world_field_on_step_context(self) -> None:

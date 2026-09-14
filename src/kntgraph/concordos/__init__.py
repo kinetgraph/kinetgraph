@@ -56,6 +56,31 @@ from ._loader import (
     load_bundle_yaml,
 )
 
+__all__ = [
+    # base
+    "AndSpec",
+    "Composable",
+    "NotSpec",
+    "OrSpec",
+    "Specification",
+    "StepContext",
+    "ViewTrigger",
+    # specs
+    "ContinuityToolUsed",
+    "DomainStateIs",
+    "ProfileTierIs",
+    "StepCompleted",
+    "StepFailed",
+    "StepResultEquals",
+    "StepTimedOut",
+    # loader
+    "ConcordoBundleError",
+    "LoadedBundle",
+    "load_bundle_dict",
+    "load_bundle_json",
+    "load_bundle_yaml",
+]
+
 if TYPE_CHECKING:
     from kntgraph.concordos._loader import LoadedBundle
     from kntgraph.core.system import WorldSystem
@@ -139,7 +164,6 @@ class ConcordoCatalog:
         Wraps :func:`load_bundle_yaml`. Each declared FSM
         and saga is wrapped in its corresponding ``Concordo``.
         """
-        from ._loader import load_bundle_yaml
 
         loaded = load_bundle_yaml(path)
         return cls(*_bundle_to_concordos(loaded))
@@ -150,7 +174,6 @@ class ConcordoCatalog:
 
         Wraps :func:`load_bundle_json``.
         """
-        from ._loader import load_bundle_json
 
         loaded = load_bundle_json(path)
         return cls(*_bundle_to_concordos(loaded))
@@ -161,7 +184,6 @@ class ConcordoCatalog:
 
         Wraps :func:`load_bundle_dict``.
         """
-        from ._loader import load_bundle_dict
 
         loaded = load_bundle_dict(d)
         return cls(*_bundle_to_concordos(loaded))

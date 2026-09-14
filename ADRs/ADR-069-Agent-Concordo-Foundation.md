@@ -636,6 +636,11 @@ bundle loader lives at `concordos/_loader.py`,
    result) is out of scope. Vertical that needs
    branching composes multiple sagas or orchestrates
    externally.
+5. **Crash-safe compensation (resolved).** The
+   `compensation_started` / `compensated` event pair
+   (ADR-072 §4.1) is now emitted and the fold
+   projection reads them from the EventLog — the
+   initial §11.10 / §11.18.2 plan is implemented.
 
 ---
 

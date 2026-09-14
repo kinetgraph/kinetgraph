@@ -77,10 +77,22 @@ The saga reads `ToolCallCompletion` from the `tool_completions` slot
 
 The `SagaProgressComponent` (execution state) is materialised from
 the saga events by the `SagaProjection` (ADR-072 §9.2 item 6). It
-reconstructs `step_states` / `step_results` from the event
-snapshots, `compensate_stack` from the config (LIFO), `direction`,
-and `current_step`. A re-fold of the EventLog reconstructs the same
-progress without an in-memory cache.
+reconstructs:
+
+- `step_states` / `step_results` from the
+  `step_completed` / `step_failed` event snapshots.
+- `direction` from `compensating` / `completed` / `dlq` markers.
+- `current_step` from `step_started` / `timed_out` / `dlq`.
+- `compensate_stack` from `compensating` (seeded from the
+  config) and refined by the granular
+  `compensation_started` / `compensated` events
+  (ADR-072 §11.18.2).
+
+A re-fold of the EventLog reconstructs the same progress
+without an in-memory cache. The granular compensation
+events make the `compensate_stack` a derived view of the
+EventLog (crash-safe), not an in-memory cache that might
+disagree after a restart.
 
 ---
 
@@ -152,12 +164,41 @@ config = SagaConfig(
 | `saga.<name>.step_completed` | a step completed (carries `step_states` / `step_results`) |
 | `saga.<name>.step_failed` | a step failed (carries `step_states` / `step_results`) |
 | `saga.<name>.compensating` | the saga is rolling back |
+| `saga.<name>.<step>.compensation_started` | a compensation tool was dispatched (granular marker; ADR-072 §11.18.2) |
+| `saga.<name>.<step>.compensated` | a compensation tool completed (granular marker; ADR-072 §11.18.2) |
 | `saga.<name>.completed` | the saga finished forward |
 | `saga.<name>.timed_out` | the saga exceeded its deadline |
 | `saga.<name>.<step>.awaiting_approval` | a human step is waiting for approval |
 | `saga.<name>.<step>.approval_timed_out` | a human step exceeded its approval timeout |
 | `saga.<name>.compensation_failed` | a compensation tool failed |
 | `saga.<name>.dlq` | the saga routes to the DLQ |
+
+### 4.1 Crash-safe compensation (ADR-072 §11.18.2)
+
+The granular events `compensation_started` / `compensated` make
+the saga **crash-safe**. The `SagaProjection` reconstructs the
+exact `compensate_stack` from the EventLog alone, so a process
+crash between the dispatch and the completion of a
+compensation tool is recovered on the next tick (the worker
+receives the same `compensate_when` context on replay).
+
+The flow:
+
+1. Saga enters compensation, emits `compensating`.
+2. For each step on the stack, emits `compensation_started`
+   (durable marker: "I dispatched a compensation").
+3. Then emits `tool.<compensate>.requested`.
+4. Worker completes; saga emits `compensated` (durable marker:
+   "this step is fully compensated").
+5. `compensate_stack` is updated: step removed.
+
+A crash between steps 3 and 4 leaves the step on the stack
+(durable); on restart, the saga re-dispatches it. The
+compensate_stack is no longer a cache that might disagree
+with the EventLog — it is a derived view of the granular
+events.
+
+---
 
 ---
 
