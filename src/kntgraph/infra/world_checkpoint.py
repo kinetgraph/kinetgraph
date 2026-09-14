@@ -289,6 +289,65 @@ class IncrementalWorldStore:
                 error=str(result.err_value()),
             )
 
+    # ------------------------------------------------------------------
+    # Stream inspection (ADR-075 Tier 4: ``stuck_in_queue`` query).
+    #
+    # Forwarders to the underlying ``WorldCheckpointStorage``
+    # so the dispatcher's observability layer can ask "is
+    # this tool's queue stuck?" through the same store it
+    # already uses for the World checkpoint. The facade
+    # deliberately uses ``getattr`` with a default — legacy
+    # storages without the new methods fall back to ``0``,
+    # which the query treats as "no stuck" (fail-soft).
+    #
+    # We use ``getattr`` rather than ``hasattr``+attribute
+    # access so the storage object can implement either
+    # ``queue_length`` (the canonical Protocol method, in
+    # which case we forward) or neither (legacy storages,
+    # in which case we return ``0``).
+
+    async def queue_length(self, stream_key: str) -> int:
+        """Return the number of entries in ``stream_key``.
+
+        Forwards to the underlying ``WorldCheckpointStorage``
+        if it implements the method; returns ``0`` for legacy
+        storages that don't (the dispatcher treats ``0`` as
+        "no work, no stuck").
+        """
+        method = getattr(self._storage, "queue_length", None)
+        if method is None:
+            return 0
+        try:
+            return int(await method(stream_key))
+        except Exception as e:
+            logger.warning(
+                "incremental_world_store.queue_length.storage_error",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            return 0
+
+    async def pending_count(self, stream_key: str) -> int:
+        """Return the count of pending (un-acked) entries in
+        ``stream_key``'s tool consumer group.
+
+        Forwards to the underlying ``WorldCheckpointStorage``
+        if it implements the method; returns ``0`` for legacy
+        storages that don't.
+        """
+        method = getattr(self._storage, "pending_count", None)
+        if method is None:
+            return 0
+        try:
+            return int(await method(stream_key))
+        except Exception as e:
+            logger.warning(
+                "incremental_world_store.pending_count.storage_error",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            return 0
+
 
 __all__ = [
     "DEFAULT_WORLD_CHECKPOINT_TTL_S",

@@ -45,7 +45,16 @@ DLQ_EVENT_INDEX = "knt:dlq:by_event_id"
 
 
 class DLQReason(str, Enum):
-    """Why an event ended up in the DLQ."""
+    """Why an event ended up in the DLQ.
+
+    Reasons 0–5 cover worker-side failures (the worker hard
+    crashed, exceeded its retry budget, etc.). **Reasons
+    6–7 cover tool-task recoveries emitted by the TTL
+    sweeper** when a stale request couldn't be safely
+    re-dispatched (ADR-075 §2.3.2). The existing reasons
+    stay unchanged so existing operators' dashboards don't
+    break.
+    """
 
     PROCESSING_FAILED = "processing_failed"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
@@ -54,6 +63,17 @@ class DLQReason(str, Enum):
     CIRCUIT_BREAKER_OPEN = "circuit_breaker_open"
     POISON_PILL = "poison_pill"
     UNKNOWN_ERROR = "unknown_error"
+
+    # ADR-075 §3.1 — emitted by ToolCallTTLSweeperSystem when
+    # a stale request cannot be re-dispatched because the tool
+    # is non-idempotent. The worker may have started the task
+    # (acked) before crashing.
+    TOOL_STALE_ACKNOWLEDGED = "tool_stale_acknowledged"
+
+    # ADR-075 §3.1 — emitted by ToolCallTTLSweeperSystem when
+    # a stale request was never picked up by any worker
+    # (message stuck in the queue; no XPENDING entry).
+    TOOL_STALE_UNACKNOWLEDGED = "tool_stale_unacknowledged"
 
 
 @dataclass(frozen=True, slots=True)

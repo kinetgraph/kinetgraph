@@ -37,7 +37,13 @@ class TestWorldCheckpointStorageProtocol:
             WorldCheckpointStorage,
         )
 
-        for name in ("load", "save", "discard"):
+        for name in (
+            "load",
+            "save",
+            "discard",
+            "queue_length",
+            "pending_count",
+        ):
             assert hasattr(WorldCheckpointStorage, name), (
                 f"WorldCheckpointStorage must declare {name!r}"
             )

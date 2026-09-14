@@ -241,3 +241,101 @@ async def test_world_checkpoint_load_reads_legacy_raw_pickle():
     assert loaded.world.tick == 3
     assert loaded.world.agents["agent-legacy"].domain_phase == "document.received"
     assert loaded.last_stream_id == "42-0"
+
+
+# ---------------------------------------------------------------------------
+# Tier 4 stream inspection (ADR-075): IncrementalWorldStore forwards
+# queue_length / pending_count to the underlying WorldCheckpointStorage.
+# ---------------------------------------------------------------------------
+
+
+class _StubStorage:
+    """Minimal storage with the new Tier 4 methods; asserts
+    the facade forwards to it correctly."""
+
+    def __init__(
+        self,
+        queue_length_return: int = 0,
+        pending_count_return: int = 0,
+        raise_queue_length: Exception | None = None,
+    ) -> None:
+        self._ql = queue_length_return
+        self._pc = pending_count_return
+        self._raise_ql = raise_queue_length
+        self.queue_length_calls: list[str] = []
+        self.pending_count_calls: list[str] = []
+
+    async def queue_length(self, stream_key: str) -> int:
+        self.queue_length_calls.append(stream_key)
+        if self._raise_ql is not None:
+            raise self._raise_ql
+        return self._ql
+
+    async def pending_count(self, stream_key: str) -> int:
+        self.pending_count_calls.append(stream_key)
+        return self._pc
+
+
+class TestIncrementalWorldStoreQueueInspection:
+    @pytest.mark.asyncio
+    async def test_queue_length_forwards_to_storage(self) -> None:
+        """``IncrementalWorldStore.queue_length`` delegates to
+        the underlying storage and returns the storage's value."""
+        stub = _StubStorage(queue_length_return=7)
+        store = IncrementalWorldStore(stub)  # type: ignore[arg-type]
+        result = await store.queue_length("knt:tools:foo:queue")
+        assert result == 7
+        assert stub.queue_length_calls == ["knt:tools:foo:queue"]
+
+    @pytest.mark.asyncio
+    async def test_pending_count_forwards_to_storage(self) -> None:
+        """``IncrementalWorldStore.pending_count`` delegates to
+        the underlying storage and returns the storage's value."""
+        stub = _StubStorage(pending_count_return=1)
+        store = IncrementalWorldStore(stub)  # type: ignore[arg-type]
+        result = await store.pending_count("knt:tools:bar:queue")
+        assert result == 1
+        assert stub.pending_count_calls == ["knt:tools:bar:queue"]
+
+    @pytest.mark.asyncio
+    async def test_queue_length_returns_zero_when_storage_lacks_method(
+        self,
+    ) -> None:
+        """Legacy storage (no ``queue_length`` method) ⇒ 0.
+
+        The dispatcher treats ``0`` as "no stuck" so a storage
+        that predates the Protocol extension stays
+        backward-compatible.
+        """
+
+        class _LegacyStorage:
+            pass
+
+        store = IncrementalWorldStore(_LegacyStorage())  # type: ignore[arg-type]
+        result = await store.queue_length("any:key")
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_pending_count_returns_zero_when_storage_lacks_method(
+        self,
+    ) -> None:
+        """Legacy storage (no ``pending_count`` method) ⇒ 0."""
+
+        class _LegacyStorage:
+            pass
+
+        store = IncrementalWorldStore(_LegacyStorage())  # type: ignore[arg-type]
+        result = await store.pending_count("any:key")
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_queue_length_returns_zero_on_storage_error(self) -> None:
+        """Storage raises ⇒ facade catches and returns 0 (fail-soft).
+
+        The dispatcher's stuck-in-queue query is best-effort:
+        a Redis hiccup must not escalate into a recovery loop.
+        """
+        stub = _StubStorage(raise_queue_length=RuntimeError("redis down"))
+        store = IncrementalWorldStore(stub)  # type: ignore[arg-type]
+        result = await store.queue_length("any:key")
+        assert result == 0

@@ -94,6 +94,14 @@ from ._checkpoint_io import (
 from ._folding import (
     fold_with_filter as _fold_with_filter_fn,
 )
+from ._observability import (
+    InFlightTask,
+    RecoveryReport,
+    dead_lettered_tasks as _dead_lettered_tasks,
+    in_flight_tasks as _in_flight_tasks,
+    stale_tasks as _stale_tasks,
+    stuck_in_queue as _stuck_in_queue,
+)
 from ._systems_runner import (
     run_systems_and_persist as _run_systems_and_persist_fn,
 )
@@ -102,6 +110,9 @@ from .tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
+    from ..core.world.view import AgentView
+    from ..events.dlq.store import DeadLetterQueue
+    from ..events.dlq.values import DeadLetterEvent
     from ..tools.router import ToolRouter
     from .reactive_extensions import WorldProjection
 
@@ -139,6 +150,8 @@ class ReactiveDispatcher:
         projections: Optional[list["WorldProjection"]] = None,
         fallback_poll_interval: Optional[float] = None,
         wake_on_event: bool = True,
+        dlq: Optional["DeadLetterQueue"] = None,
+        tool_stream_prefix: str = "knt:tools",
     ) -> None:
         """
         Args:
@@ -352,6 +365,14 @@ class ReactiveDispatcher:
         # tail -f sees liveness, long enough that the log volume is
         # negligible under steady-state load.
         self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
+        # ADR-075 Tier 4: optional DLQ reference for the
+        # ``dead_lettered_tasks`` query and the saga → DLQ
+        # wire inside the TTL sweeper. ``None`` disables both.
+        self._dlq: Optional[DeadLetterQueue] = dlq
+        # ADR-075 Tier 4: stream-key prefix used by the
+        # ``stuck_in_queue`` query. Defaults match the
+        # ToolRouter convention (``knt:tools:<name>:queue``).
+        self._tool_stream_prefix: str = tool_stream_prefix
 
     @property
     def systems(self) -> list[WorldSystem]:
@@ -697,6 +718,188 @@ class ReactiveDispatcher:
             idle_seconds=now - self._last_activity_at,
             tracked_agents=len(self._tracked_agents),
             last_error=self._last_loop_error,
+        )
+
+    # ------------------------------------------------------------------
+    # ADR-075 Tier 4: Recovery-driven observability queries
+    # ------------------------------------------------------------------
+    # Each query is async (does NOT block the dispatcher's tick
+    # loop). They compose on the existing ``_world_store`` and
+    # ``_dlq`` references — no new event types, no new
+    # projections, no new system class. See
+    # ``_observability.py`` for the low-level read helpers.
+
+    async def _load_views(self, agent_id: str | None = None) -> dict[str, AgentView]:
+        """Load agent views from the world_store for Tier 4
+        queries.
+
+        Each call is independent (one ``XGET`` per agent).
+        Returns an empty dict if ``world_store`` is unset.
+        """
+        if self._world_store is None:
+            return {}
+        if agent_id is not None:
+            ckpt = await self._world_store.load(agent_id)
+            return (
+                {agent_id: ckpt.world.get_agent(agent_id)}
+                if ckpt.world.get_agent(agent_id)
+                else {}
+            )
+        out: dict[str, AgentView] = {}
+        for aid in self._tracked_agents:
+            ckpt = await self._world_store.load(aid)
+            view = ckpt.world.get_agent(aid)
+            if view is not None:
+                out[aid] = view
+        return out
+
+    async def in_flight_tasks(self, agent_id: str | None = None) -> list[InFlightTask]:
+        """Return all in-flight tool tasks across the
+        dispatcher's tracked agents (ADR-075 §2.4 row #8).
+
+        In-flight = ``tool.<name>.requested`` event has
+        landed in the projection but no
+        ``tool.<name>.completed`` / ``failed`` event has
+        landed yet. The query reads from ``tool_requests``
+        minus ``tool_completions`` in the per-agent view
+        (the same source the TTL sweeper uses; the EventLog
+        is the source of truth).
+
+        ``agent_id=None`` returns tasks for every tracked
+        agent; pass an id to scope the result.
+        """
+        views = await self._load_views(agent_id)
+        return _in_flight_tasks(agents_to_views=views, agent_id=agent_id)
+
+    async def stale_tasks(
+        self,
+        threshold_seconds: float = 300.0,
+        agent_id: str | None = None,
+    ) -> list[InFlightTask]:
+        """Subset of ``in_flight_tasks`` whose ``expires_at``
+        is past ``threshold_seconds`` ago (ADR-075 §2.4 row
+        #11: the "stale but not yet recovered" race window).
+
+        The threshold defaults to 5 minutes — the standard
+        tool recovery SLA. Operators tune this per deployment
+        depending on tool-latency budgets.
+        """
+        views = await self._load_views(agent_id)
+        return _stale_tasks(
+            agents_to_views=views,
+            threshold_seconds=threshold_seconds,
+            agent_id=agent_id,
+        )
+
+    async def stuck_in_queue(
+        self,
+        threshold_seconds: float = 300.0,
+    ) -> list[str]:
+        """Stream-keys whose queue is non-empty and no
+        consumer is pending (ADR-075 §2.4 row #9).
+
+        Returns the **tool names** whose queue matches the
+        pattern, NOT the message ids. The caller can fetch
+        the message ids from ``Redis.xrange(...)`` if needed.
+
+        **Decomposes into two primitives** on the
+        ``WorldCheckpointStorage`` Protocol (per ADR-075
+        §2.4):
+
+        - ``storage.queue_length(stream_key)`` says "messages
+          were ever entered but not consumed" (``XLEN``
+          semantics).
+        - ``storage.pending_count(stream_key)`` says
+          "messages are currently being processed"
+          (``XPENDING`` semantics, single-probe).
+
+        The dispatcher passes its ``IncrementalWorldStore``
+        (the facade over ``WorldCheckpointStorage``); the
+        facade forwards to the underlying storage. No raw
+        Redis client is held by the dispatcher for this
+        query — the adapter boundary is preserved.
+
+        A high ``queue_length`` AND zero ``pending_count``
+        ⇒ stuck. The threshold controls the false-positive
+        rate; the canonical primitive (``XPENDING``) is
+        exact for the "in flight" half, so the only false
+        positive is "long-idle PEL" which is rare.
+
+        ``world_store`` is **always** wired by the
+        dispatcher constructor (the constructor raises if
+        neither ``world_store`` nor ``redis`` is supplied).
+        The graceful-empty branch exists for callers who
+        monkey-patch ``_world_store = None`` after
+        construction (test scenario only); production code
+        never hits it.
+        """
+        if self._world_store is None:
+            return []
+        views = await self._load_views(None)
+        return await _stuck_in_queue(
+            stream_inspector=self._world_store,
+            stream_prefix=self._tool_stream_prefix,
+            agents_to_views=views,
+            threshold_seconds=threshold_seconds,
+        )
+
+    async def dead_lettered_tasks(
+        self,
+        reason=None,
+        agent_id: str | None = None,
+        count: int = 100,
+    ) -> list[DeadLetterEvent]:
+        """Read DLQ entries awaiting operator action
+        (ADR-075 §2.4 row #10).
+
+        Composes the existing ``DeadLetterQueue.list_*``
+        API — no new storage path. The DLQ is wired via
+        ``dlq=`` on the dispatcher constructor; if ``dlq``
+        is ``None`` (default) the query returns ``[]`` so
+        deployments that don't opt in don't crash.
+
+        ``reason`` filters by ``DLQReason`` (typically
+        ``TOOL_STALE_ACKNOWLEDGED`` / ``TOOL_STALE_UNACKNOWLEDGED``
+        after this ADR lands). ``agent_id`` filters by agent.
+        No filter ⇒ ``list_all``.
+        """
+        return await _dead_lettered_tasks(
+            self._dlq,
+            reason=reason,
+            agent_id=agent_id,
+            count=count,
+        )
+
+    async def detect_and_recover(
+        self,
+        stale_threshold_s: float = 300.0,
+        stuck_in_queue_threshold_s: float = 300.0,
+        dry_run: bool = False,
+    ) -> RecoveryReport:
+        """Convenience entry point (ADR-075 §2.4.1).
+
+        Runs the recovery read-only queries and returns a
+        structured ``RecoveryReport``. **Does NOT trigger the
+        sweeper** — the sweeper runs once per tick as part
+        of the dispatch loop. This report lets the operator
+        (cron / alert) see the state without coupling to
+        the tick loop.
+
+        ``dry_run`` is reserved for future expansion (no
+        current behaviour is gated on it; included in the
+        signature so operator scripts can adopt the API
+        without future code changes).
+        """
+        in_flight = await self.in_flight_tasks()
+        stale = await self.stale_tasks(stale_threshold_s)
+        stuck = await self.stuck_in_queue(stuck_in_queue_threshold_s)
+        dlq = await self.dead_lettered_tasks(count=100)
+        return RecoveryReport(
+            in_flight_count=len(in_flight),
+            stale_count=len(stale),
+            stuck_in_queue_count=len(stuck),
+            dead_lettered_count=len(dlq),
+            dry_run=dry_run,
         )
 
 

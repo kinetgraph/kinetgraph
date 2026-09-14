@@ -13,7 +13,6 @@ Wire format: ``SET knt:world:{agent_id} <pickled payload> EX <ttl>``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional
 
 import structlog
@@ -47,11 +46,27 @@ def cursor_key(agent_id: str) -> str:
     return WORLD_CURSOR_KEY_TEMPLATE.format(agent_id=agent_id)
 
 
-@dataclass(frozen=True)
 class RedisWorldCheckpointStorage:
-    """Redis impl of :class:`WorldCheckpointStorage`."""
+    """Redis impl of :class:`WorldCheckpointStorage`.
 
-    client: RedisLike
+    Holds a ``RedisLike`` client and (optionally) the name of
+    the consumer group used by :class:`WorkerManager` for the
+    ``knt:tools:<name>:queue`` streams. The default group name
+    (``"fmh_tool_workers"``) matches the default in
+    ``tools/manager.py``; operators with a custom group should
+    pass it explicitly.
+    """
+
+    DEFAULT_TOOL_GROUP = "fmh_tool_workers"
+
+    def __init__(
+        self,
+        client: RedisLike,
+        *,
+        tool_group_name: str = DEFAULT_TOOL_GROUP,
+    ) -> None:
+        self.client = client
+        self._tool_group_name = tool_group_name
 
     async def load(self, agent_id: str) -> Result[Optional[bytes], MemoryError]:
         """Load the pickled checkpoint payload (or None on miss)."""
@@ -140,6 +155,89 @@ class RedisWorldCheckpointStorage:
             )
             return Err(MemoryError(f"redis error: {e}"))
         return Ok(None)
+
+    # ------------------------------------------------------------------
+    # Stream inspection (ADR-075 Tier 4: ``stuck_in_queue`` query).
+    #
+    # The Protocol exposes two primitives (``queue_length``,
+    # ``pending_count``) so the dispatcher's observability
+    # layer stays inside the adapter boundary. Both methods
+    # fail-soft: a missing key or a Redis hiccup returns ``0``
+    # — the dispatcher's query treats ``0`` as "no stuck this
+    # tick" and reruns next tick.
+    #
+    # ``group_name`` defaults to ``"fmh_tool_workers"`` to
+    # match :class:`WorkerManager` (``tools/manager.py``).
+    # Operators with a custom group should pass it explicitly
+    # via ``RedisWorldCheckpointStorage(tool_group_name=...)``.
+    #
+    # We use only methods declared on the ``RedisLike``
+    # Protocol (``xinfo_stream`` and ``xpending_range``) — not
+    # the bare ``xlen`` / ``xpending`` — so the implementation
+    # is compatible with any Redis adapter that satisfies
+    # ``RedisLike`` (e.g. in-memory test stubs, fakeredis).
+
+    async def queue_length(self, stream_key: str) -> int:
+        """Return ``XLEN stream_key`` (or 0 on missing/error).
+
+        Uses ``XINFO STREAM`` (already on ``RedisLike``) rather
+        than ``XLEN`` directly so the storage stays within the
+        typed Redis Protocol — adapters like ``fakeredis`` that
+        implement ``RedisLike`` but omit ``XLEN`` still work.
+        """
+        try:
+            info = await self.client.xinfo_stream(stream_key)
+        except Exception as e:
+            # Missing stream → no work, no stuck.
+            logger.debug(
+                "world_checkpoint_storage.queue_length.miss_or_error",
+                stream_key=stream_key,
+                error=str(e),
+            )
+            return 0
+        length = info.get("length") if isinstance(info, dict) else None
+        try:
+            return int(length) if length is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    async def pending_count(self, stream_key: str) -> int:
+        """Return a positive count if ``stream_key`` has any
+        pending (un-acked) entries in its tool consumer group.
+
+        Returns ``1`` when at least one entry is in the PEL,
+        ``0`` otherwise. The dispatcher only needs to know
+        whether ANY worker is holding messages (the "no
+        consumer" half of the stuck signal); the exact count
+        is not actionable for recovery.
+
+        The Redis ``XINFO GROUPS`` summary form would give
+        the exact PEL count but is NOT on the ``RedisLike``
+        Protocol (only ``xpending_range`` is). Reading one
+        entry from the range with ``count=1`` is the
+        cheapest "is PEL empty?" probe available without
+        expanding the Protocol — full enumeration would be
+        wasteful for the dispatcher's binary stuck/unstuck
+        decision.
+        """
+        try:
+            entries = await self.client.xpending_range(
+                name=stream_key,
+                groupname=self._tool_group_name,
+                min="-",
+                max="+",
+                count=1,
+            )
+        except Exception as e:
+            # Missing stream / missing group → no PEL.
+            logger.debug(
+                "world_checkpoint_storage.pending_count.miss_or_error",
+                stream_key=stream_key,
+                group_name=self._tool_group_name,
+                error=str(e),
+            )
+            return 0
+        return 1 if entries else 0
 
 
 __all__ = [
