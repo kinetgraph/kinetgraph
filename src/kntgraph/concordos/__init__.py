@@ -5,23 +5,26 @@
 """
 concordos -- composable behavioral patterns (ADR-069).
 
-A *Concordo* is a named, versioned, composable behavioral
-pattern that wires existing framework modules into a
-coherent end-to-end behavior. This package provides the
-shared condition language (the Specification Pattern) and
-the built-in Specifications that both Concordos
-(BusinessFSM, WorkflowSaga) use.
+A *Concordo* is a named, composable behavioral pattern that
+wires existing framework modules into a coherent end-to-end
+behavior. This package provides the shared condition language
+(the Specification Pattern) and the built-in Specifications
+that both Concordos (BusinessFSM, WorkflowSaga) use.
 
 Public surface:
 
   - ``base.Specification`` / ``StepContext`` /
     ``Composable`` / ``AndSpec`` / ``OrSpec`` / ``NotSpec``
-    / ``ViewTrigger`` — the condition language (ADR-069 §2).
-  - ``specs.*`` — the built-in Specifications (ADR-069 §2.3).
+    / ``ViewTrigger`` -- the condition language (ADR-069 §2).
+  - ``specs.*`` -- the built-in Specifications (ADR-069 §2.3).
 
 The ``Concordo`` Protocol and ``ConcordoCatalog`` (ADR-069
-§1.3.1, §6.3) are added in the same PR as the FSM/Saga
-Concordos.
+§1.3.1, §3.2, §4) are the composition mechanism: a Concordo
+is a frozen bundle of ``(name, systems, projections)``;
+the catalog iterates the bundle and registers against the
+dispatcher via ``dispatcher.add_system(...)`` /
+``dispatcher.add_projection(...)`` -- the same API the
+application uses for any custom system (ADR-069 §11.11).
 """
 
 from pathlib import Path
@@ -55,46 +58,61 @@ from ._loader import (
 
 if TYPE_CHECKING:
     from kntgraph.concordos._loader import LoadedBundle
+    from kntgraph.core.system import WorldSystem
     from kntgraph.runner.reactive import ReactiveDispatcher
+    from kntgraph.runner.reactive_extensions import WorldProjection
 
 
 @runtime_checkable
 class Concordo(Protocol):
     """
-    The public surface every Concordo exposes.
+    The public surface every Concordo exposes (ADR-069 §3.2).
 
-    ``name``    -- stable identifier (``fsm:Invoice``,
-                   ``saga:nfe_emission``). Used by the
-                   framework's ``ConcordoCatalog`` and by
-                   log/metrics tagging.
-    ``version`` -- semver string. Bumping it is the
-                   recommended migration signal when a
-                   Concordo's emitted event schema or
-                   state semantics change.
-    ``install`` -- idempotent registration against the
-                   ``ReactiveDispatcher``. Each Concordo
-                   registers one or more ``WorldSystem``s
-                   (the post-ADR-018 shape) via
-                   ``dispatcher.add_system(...)``.
-                   ``ConcordoCatalog.install_all``
-                   de-duplicates by name.
+    A Concordo is a frozen bundle of ``(name, systems,
+    projections)``. The Protocol is structural; concrete
+    bundles (``BusinessFSMConcordo``, ``WorkflowSagaConcordo``)
+    are frozen dataclasses that satisfy it without explicit
+    inheritance.
+
+    ``name`` -- stable identifier
+                (``fsm:KnowledgeLifecycle``,
+                ``saga:EntityExtractionSaga``).
+    ``systems`` -- tuple of ``WorldSystem`` instances the
+                   dispatcher should register.
+    ``projections`` -- tuple of ``WorldProjection`` instances
+                       the dispatcher should register.
+
+    The catalog (§4) iterates each bundle and calls the
+    dispatcher's registration API. The application can
+    also iterate ``concordo.systems`` directly when it
+    needs explicit ordering.
+
+    Side effects (DLQ ingestion, metrics, notifications)
+    are wired by the application via
+    ``dispatcher.subscribe`` (§5), not by the Concordo --
+    Concordos stay pure and side-effect-free.
     """
 
     name: str
-    version: str
-
-    def install(self, dispatcher: "ReactiveDispatcher") -> None: ...
+    systems: tuple["WorldSystem", ...]
+    projections: tuple["WorldProjection", ...]
 
 
 class ConcordoCatalog:
     """
-    Bag of ``Concordo`` instances with idempotent installation.
+    Bag of ``Concordo`` instances with idempotent registration.
 
-    ``install_all`` iterates the catalog and calls
-    ``concordo.install(dispatcher)`` once per unique ``name``.
-    A second pass with the same name is a no-op (first one
-    wins). This keeps ``app_runner.py`` free of dedup logic
-    and makes double-imports of the same vertical module safe.
+    ``install_all`` iterates each Concordo's ``systems`` and
+    ``projections`` and calls
+    ``dispatcher.add_system(...)`` /
+    ``dispatcher.add_projection(...)`` -- the same
+    registration API the framework exposes for any custom
+    system or projection. A duplicate ``name`` is a no-op
+    (the catalog dedupes; first one wins).
+
+    The catalog is sugar, not a required composition root:
+    the application can iterate ``concordo.systems`` directly
+    when it needs explicit ordering.
     """
 
     def __init__(self, *concordos: Concordo) -> None:
@@ -102,14 +120,17 @@ class ConcordoCatalog:
         for c in concordos:
             if c.name in self._concordos:
                 # Idempotent; first one wins. A vertical that
-                # genuinely needs two different versions of the
-                # same Concordo must give them different names.
+                # genuinely needs two different Concordos with
+                # the same name must give them different names.
                 continue
             self._concordos[c.name] = c
 
     def install_all(self, dispatcher: "ReactiveDispatcher") -> None:
         for concordo in self._concordos.values():
-            concordo.install(dispatcher)
+            for system in concordo.systems:
+                dispatcher.add_system(system)
+            for projection in concordo.projections:
+                dispatcher.add_projection(projection)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "ConcordoCatalog":
@@ -127,7 +148,7 @@ class ConcordoCatalog:
     def from_json(cls, path: str | Path) -> "ConcordoCatalog":
         """Load a catalog from a JSON bundle file.
 
-        Wraps :func:`load_bundle_json`.
+        Wraps :func:`load_bundle_json``.
         """
         from ._loader import load_bundle_json
 
@@ -138,7 +159,7 @@ class ConcordoCatalog:
     def from_dict(cls, d: dict) -> "ConcordoCatalog":
         """Load a catalog from a dict.
 
-        Wraps :func:`load_bundle_dict`.
+        Wraps :func:`load_bundle_dict``.
         """
         from ._loader import load_bundle_dict
 

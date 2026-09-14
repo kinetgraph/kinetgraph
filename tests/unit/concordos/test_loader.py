@@ -125,7 +125,6 @@ class TestHappyPath:
         loaded = load_bundle_dict(d)
         assert isinstance(loaded, LoadedBundle)
         assert loaded.bundle_id == "com.acme.min"
-        assert loaded.version == "1.0.0"
         assert loaded.fsm is None
         assert loaded.sagas == ()
 

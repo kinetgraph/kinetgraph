@@ -106,10 +106,16 @@ class LoadedBundle:
     ``SpecRegistry`` later. Resolving expressions to
     ``Specification`` instances is the caller's job
     (typically via :func:`kntgraph.concordos._mini_lang.evaluate`).
+
+    Note: the wire-format bundle (``schemas.BundleSchema``)
+    keeps a ``version`` field as user-facing metadata for
+    migration signalling (ADR-073). The runtime bundle does
+    NOT carry it -- the Concordo Protocol (§3.2) exposes
+    only ``(name, systems, projections)``; there is no
+    consumer that reads the version off a Concordo instance.
     """
 
     bundle_id: str
-    version: str
     events: tuple[EventSchema, ...]
     specifications: dict[str, str]  # id -> mini-language expression
     fsm: "FSMConfig | None"
@@ -370,7 +376,6 @@ def load_bundle_dict(d: dict) -> LoadedBundle:
 
     return LoadedBundle(
         bundle_id=bundle.bundle_id,
-        version=bundle.version,
         events=tuple(bundle.events),
         specifications=specifications,
         fsm=fsm_config,

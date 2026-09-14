@@ -36,6 +36,7 @@ from typing import Any
 
 import pytest
 
+from kntgraph.concordos import ConcordoCatalog
 from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
 from kntgraph.core.event import (
     Event,
@@ -152,7 +153,7 @@ async def run_fsm_telemetry_benchmark(
         rediscovery_interval_seconds=0.1,
         heartbeat_interval_seconds=0.0,
     )
-    concordo.install(dispatcher)
+    ConcordoCatalog(concordo).install_all(dispatcher)
 
     worker_manager = WorkerManager(
         redis=redis,

@@ -131,9 +131,8 @@ class DeadLetterActions:
         if lookup.is_err() or lookup.ok_value() is None:
             return None
         stream_id = lookup.ok_value()
-        if stream_id is None:
-            return None
         entry_result = await self._storage.read(stream_id)
+
         if entry_result.is_err() or entry_result.ok_value() is None:
             return None
         return self._build_event(entry_result.ok_value())

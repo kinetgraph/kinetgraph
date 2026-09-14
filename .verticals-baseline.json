@@ -21,8 +21,8 @@
       "num_branches": 148
     },
     "src/kntgraph/events/": {
-      "covered_branches": 43,
-      "num_branches": 46
+      "covered_branches": 44,
+      "num_branches": 44
     },
     "src/kntgraph/knowledge/": {
       "covered_branches": 187,
