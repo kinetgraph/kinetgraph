@@ -32,9 +32,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, Optional, TypeVar, Type
+from typing import TYPE_CHECKING, Any, Mapping, Optional, TypeVar, Type
 
 from ..lifecycle import OperationalPhase
+
+if TYPE_CHECKING:
+    from ..event.correlation import CorrelationContext
 
 T = TypeVar("T")
 
@@ -97,6 +100,24 @@ class AgentView:
     domain_at: Optional[datetime] = None
     last_event_id: Optional[str] = None
     last_event_at: Optional[datetime] = None
+    # The ``producer_principal_id`` of the agent's most recent
+    # domain event (ADR-066 §4.1). Populated by the default
+    # projection so a system that emits a downstream
+    # ``tool.<name>.requested`` can propagate the inbound
+    # principal to the WorkerManager's gate-1 ACL check.
+    # ``None`` when the last event carried no principal (e.g.
+    # events written before v0.16, or hand-built views).
+    last_event_principal_id: Optional[str] = None
+    # The ``CorrelationContext`` of the agent's most recent
+    # domain event (ADR-037). Propagated by the default
+    # projection so the dispatcher can re-establish the
+    # correlation on idle ticks (``continue_from``) and so
+    # systems that emit child events can read the trigger's
+    # flow id from the World alone (the projection alone,
+    # without re-reading the EventLog). Mirrors the
+    # ``last_event_principal_id`` discipline (the projection
+    # is the single source of "what just happened here").
+    last_event_correlation: Optional["CorrelationContext"] = None
 
     @property
     def is_terminated(self) -> bool:

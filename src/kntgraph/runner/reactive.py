@@ -102,10 +102,60 @@ from .tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
+    from ..core.event.correlation import CorrelationContext
     from ..tools.router import ToolRouter
     from .reactive_extensions import WorldProjection
 
 logger = structlog.get_logger()
+
+
+def _anchor_event(correlation: "CorrelationContext") -> Event:
+    """Build a synthetic anchor ``Event`` from a stored
+    correlation so the dispatcher's idle-tick path can
+    pass it to ``correlation_middleware.continue_from``.
+
+    The Event's ``event_id`` is irrelevant to
+    ``continue_from`` (only the correlation metadata
+    flows); we mint a fresh UUID per call so two
+    consecutive idle ticks don't share an anchor id
+    (this keeps the audit chain's per-event ids unique
+    if a downstream system ever logs them).
+    """
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    return Event.create(
+        event_type="knt.dispatcher.anchor",
+        agent_id="_dispatcher_",
+        event_class="lifecycle",
+        correlation=correlation,
+        event_id=uuid4(),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+
+def _last_domain_correlation(events: list[Event]) -> "CorrelationContext | None":
+    """Return the correlation of the LAST ``domain`` event
+    in ``events`` (or ``None`` when no domain event is
+    present).
+
+    Domain events carry the flow's correlation_id;
+    lifecycle events do NOT (they are operational
+    metadata with a fresh uuid4 correlation). When a
+    batch contains a mix (e.g. bootstrap's
+    ``agent.spawned`` followed by a real
+    ``request.received``), the dispatcher must thread
+    the DOMAIN event's correlation to the systems, not
+    the lifecycle one.
+
+    The LAST domain event is preferred over the FIRST
+    because systems react to the latest state of the
+    World (which reflects the latest domain event).
+    """
+    for e in reversed(events):
+        if e.event_class == "domain":
+            return e.correlation
+    return None
 
 
 class ReactiveDispatcher:
@@ -463,18 +513,32 @@ class ReactiveDispatcher:
         The cycle ALWAYS runs the systems, even when
         the EventLog has no new events for the agent
         (DEBT §2.21 follow-up). The
-        :class:`ToolCallTTLSweeperSystem` is the
-        primary motivation: an orphan request sits in
-        the slot until its TTL expires, which may
-        happen several ticks after the request was
-        emitted; the dispatcher must run the sweeper
-        on those ticks even if the EventLog has no
-        new events for the agent. When the log has
-        no new events, the fold is a no-op (the
-        World is unchanged) and the cursor is NOT
-        advanced (the next non-empty batch still
-        sees the same ``last_stream_id``).
+        :class:`ToolCallTTLSweeperSystem` is the primary
+        motivation: an orphan request sits in the slot
+        until its TTL expires, which may happen several
+        ticks after the request was emitted; the
+        dispatcher must run the sweeper on those ticks
+        even if the EventLog has no new events for the
+        agent. When the log has no new events, the fold
+        is a no-op (the World is unchanged) and the
+        cursor is NOT advanced (the next non-empty batch
+        still sees the same ``last_stream_id``).
+
+        Correlation propagation (ADR-037): the dispatcher
+        threads the trigger event's correlation to the
+        systems via ``correlation_middleware.continue_from``.
+        Systems that emit via
+        ``correlation_middleware.current()`` inherit the
+        trigger's ``correlation_id``, so the audit chain
+        stitches the entry event through to all downstream
+        events. On idle ticks (no new events), the
+        correlation is loaded from the checkpoint's
+        ``last_event_correlation`` so the chain stays
+        intact across ticks that re-run the systems
+        (e.g. the TTL sweeper's overdue-eviction path).
         """
+        from kntgraph.core.event import correlation_middleware
+
         ckpt = await self._world_store.load(agent_id)
         new_events, new_last_stream_id = await _fetch_new_events_fn(
             self, agent_id, ckpt.last_stream_id
@@ -491,14 +555,44 @@ class ReactiveDispatcher:
             # fold is a no-op; the cursor is not
             # advanced (we did not consume any new
             # stream entries).
-            await _run_systems_and_persist_fn(
-                self,
-                agent_id=agent_id,
-                world=ckpt.world,
-                last_stream_id=ckpt.last_stream_id,
-                new_event_count=0,
-                new_events=[],
+            #
+            # Correlation: load the last event's
+            # correlation from the agent's view (the
+            # projection keeps it in sync with the
+            # EventLog; the dispatcher does NOT need
+            # to re-read the EventLog for the audit
+            # chain). ``continue_from`` mints a fresh
+            # ``span_id`` (this tick is a new
+            # operation) but keeps the
+            # ``correlation_id``.
+            last_view = ckpt.world.get_agent(agent_id)
+            last_corr = (
+                last_view.last_event_correlation if last_view is not None else None
             )
+            if last_corr is not None:
+                correlation_middleware.continue_from(
+                    _anchor_event(last_corr)
+                )
+                try:
+                    await _run_systems_and_persist_fn(
+                        self,
+                        agent_id=agent_id,
+                        world=ckpt.world,
+                        last_stream_id=ckpt.last_stream_id,
+                        new_event_count=0,
+                        new_events=[],
+                    )
+                finally:
+                    correlation_middleware.clear()
+            else:
+                await _run_systems_and_persist_fn(
+                    self,
+                    agent_id=agent_id,
+                    world=ckpt.world,
+                    last_stream_id=ckpt.last_stream_id,
+                    new_event_count=0,
+                    new_events=[],
+                )
             return 0
 
         world, new_event_count = _fold_with_filter_fn(self, ckpt.world, new_events)
@@ -509,9 +603,50 @@ class ReactiveDispatcher:
             await _save_checkpoint_fn(self, agent_id, world, new_last_stream_id)
             return 0
 
-        await _run_systems_and_persist_fn(
-            self, agent_id, world, new_last_stream_id, new_event_count, new_events
-        )
+        # Correlation propagation: thread the LAST domain
+        # event's correlation to the systems. The batch may
+        # include lifecycle events (e.g. ``agent.spawned``
+        # on bootstrap) whose correlation is a fresh
+        # uuid4 — those are operational metadata, NOT flow
+        # events. The domain events carry the flow's
+        # correlation_id; the LAST domain event in the batch
+        # is the most-recent trigger the systems should
+        # react to.
+        #
+        # After the fold above, the world's last_event_*
+        # fields point to the LAST event folded (regardless
+        # of class). We prefer a domain event's correlation
+        # but fall back to the world's
+        # ``last_event_correlation`` (which the projection
+        # already keeps in sync — domain events overwrite
+        # it, lifecycle events preserve it).
+        last_corr = _last_domain_correlation(new_events)
+        if last_corr is None:
+            # No domain events in this batch (rare: a
+            # batch of pure lifecycle events). Fall back to
+            # the projection's bookkeeping.
+            view = world.get_agent(agent_id)
+            last_corr = (
+                view.last_event_correlation if view is not None else None
+            )
+        if last_corr is not None:
+            correlation_middleware.continue_from(_anchor_event(last_corr))
+        else:
+            # No correlation available (first-ever tick on
+            # a fresh agent with no events). Mint a fresh
+            # one — there's no flow to propagate.
+            correlation_middleware.start()
+        try:
+            await _run_systems_and_persist_fn(
+                self,
+                agent_id,
+                world,
+                new_last_stream_id,
+                new_event_count,
+                new_events,
+            )
+        finally:
+            correlation_middleware.clear()
         return new_event_count
 
     async def start(self) -> None:

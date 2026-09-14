@@ -186,6 +186,12 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
             domain_at=prev.domain_at,
             last_event_id=str(event.event_id),
             last_event_at=event.timestamp,
+            last_event_principal_id=prev.last_event_principal_id,
+            # Lifecycle events do NOT update the
+            # correlation pointer — the operational
+            # transition is metadata, not a flow event.
+            # The next domain event will refresh it.
+            last_event_correlation=prev.last_event_correlation,
         )
     # "domain"
     new_components: dict[Any, Any] = dict(_extract_components_from_event(event))
@@ -199,6 +205,14 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
         domain_at=event.timestamp,
         last_event_id=str(event.event_id),
         last_event_at=event.timestamp,
+        last_event_principal_id=event.producer_principal_id,
+        # Domain events propagate the trigger's
+        # correlation so the dispatcher can re-establish
+        # it on idle ticks and so systems that emit
+        # child events read the flow id directly from the
+        # World (no EventLog round-trip needed). Mirrors
+        # the ``last_event_id`` discipline (ADR-037).
+        last_event_correlation=event.correlation,
     )
 
 
@@ -236,6 +250,15 @@ def _preserve_derived_components(
             if key not in new_components:
                 new_components[key] = value
         else:
+            # String overlay keys (e.g. ``tool_requests``).
+            # The overlay wins: a domain event whose
+            # ``event_type`` collides with an overlay key is
+            # a caller mistake (logged at WARNING), but
+            # the overlay's value must survive — the overlay
+            # re-derives the slot from the events after the
+            # fold anyway, so overwriting it here would just
+            # be a second write the overlay immediately
+            # undoes.
             if key in new_components:
                 _log_overlay_key_collision(event, key)
             new_components[key] = value
