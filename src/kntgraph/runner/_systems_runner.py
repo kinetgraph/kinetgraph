@@ -25,7 +25,6 @@ dispatcher passes ``self`` so the functions can read its
 
 from __future__ import annotations
 
-import inspect
 from dataclasses import replace
 from typing import TYPE_CHECKING, Awaitable
 
@@ -41,29 +40,21 @@ if TYPE_CHECKING:
 __all__ = ["run_systems_and_persist", "append_system_outgoing"]
 
 
-def _call_system_with_optional_new_events(
+def _call_system(
     system: object,
     world: "World",
-    new_events: "list[Event] | None",
 ) -> "list[Event] | Awaitable[list[Event]]":
     """
-    Call ``system`` with ``new_events`` if its signature
-    accepts the kwarg, otherwise call without. Backward
-    compat for systems written before the ``new_events``
-    kwarg was added to the ``WorldSystem`` Protocol.
-    """
-    try:
-        params = inspect.signature(system.__call__).parameters
-    except (TypeError, ValueError):
-        # Builtin / C-implemented callables: assume the
-        # new kwarg is supported (the Protocol enforces it
-        # for in-house systems; third-party callables are
-        # rare and the dispatcher would crash loudly on
-        # signature mismatch otherwise).
-        return system(world, new_events=new_events)
+    Invoke ``system(world)`` per the ``WorldSystem``
+    Protocol. The contract is strictly ``World -> list[Event]``
+    — no side-channel event list, no ``new_events`` kwarg.
 
-    if "new_events" in params:
-        return system(world, new_events=new_events)
+    The dispatcher MUST NOT pass the raw event batch to a
+    system. Every system reads from the World (the post-fold
+    projection) and emits a list of events; the dispatcher's
+    tick loop appends those events to the EventLog and folds
+    them into the next tick's World.
+    """
     return system(world)
 
 
@@ -199,7 +190,6 @@ async def run_systems_and_persist(
         dispatcher,
         world,
         agent_id,
-        new_events=new_events,
         return_events=True,
     )
     if system_events:
@@ -231,21 +221,20 @@ async def append_system_outgoing(
     world: "World",
     agent_id: str,
     *,
-    new_events: list[Event] | None = None,
     return_events: bool = False,
 ) -> list[Event] | None:
     """Invoke every system with the post-fold World and
     append the resulting events to the log.
 
-    Systems do NOT receive the triggering event directly
-    via the World; they inspect the World via
-    ``query_agents``. For systems that need the events
-    that were just folded in this tick (e.g., the FSM
-    cascading across multiple events in one call), the
-    dispatcher passes them via the ``new_events`` kwarg.
-    The events are read from the EventLog — they are
-    already persisted (the framework invariant: an event
-    is only valid after it appears in the log).
+    Per the ``WorldSystem`` Protocol: systems receive only
+    the World (the post-fold projection). The raw event
+    batch is NOT threaded as a parameter; systems read
+    everything they need from the World via
+    ``view.cursors[<system>]`` vs ``view.last_event_id``
+    (cursor-based gating, ADR-074). The dispatcher's tick
+    loop is the only thing that knows the raw batch, and
+    it uses the batch for routing (the tool router) and
+    for cursor advancement — not for system inputs.
 
     If a ``ToolRouter`` is wired in, every emitted
     ``tool.requested`` event is fanned out to the global
@@ -295,12 +284,13 @@ async def append_system_outgoing(
             # events and the per-agent cursor being read
             # by that agent's next tick.
             dispatcher._tick_runners.add((sys_name, agent_id))
-            # Use ``inspect.signature`` to call the system
-            # with or without ``new_events`` based on the
-            # system's signature. Older systems (without the
-            # new parameter) are called the old way; newer
-            # systems receive the events.
-            out = _call_system_with_optional_new_events(system, world, new_events)
+            # Per the ``WorldSystem`` Protocol: systems receive
+            # only the World (the post-fold projection). The
+            # raw event batch is NOT threaded as a parameter;
+            # systems read everything they need from the World
+            # via ``view.cursors[<system>]`` vs ``view.last_event_id``
+            # (cursor-based gating, ADR-074).
+            out = _call_system(system, world)
             if not isinstance(out, list):
                 out = await out
             if out:

@@ -76,9 +76,41 @@ class WorldSystem(typing.Protocol):
     The framework invokes each registered system once per
     tick (after the incremental World fold). Systems inspect
     the World's components via ``world.query_agents(...)``
-    and emit events based on the rules they encode. They do
-    NOT receive the triggering event — the World already
-    captures its effect via the projection.
+    and emit events based on the rules they encode.
+
+    Discipline
+    ----------
+
+    The framework's source-of-truth model is:
+
+      - **EventLog (Redis)**: append-only fact store.
+      - **World**: deterministic projection of the EventLog
+        onto the agent's current state, folded at the start
+        of every tick.
+      - **System**: pure function ``World -> list[Event]``
+        that runs once per tick AFTER the fold.
+
+    Because the World is folded BEFORE the systems run,
+    every system already sees the full effect of the
+    events from the current tick. The cursor
+    (``view.cursors[<system_name>]``) and the
+    ``view.last_event_id`` together identify what is new
+    since the last tick; that is the ONLY "what changed"
+    signal a system should consult.
+
+    A system MUST NOT receive the raw event batch from
+    the dispatcher's tick loop. The contract is precisely
+    ``(world: World) -> list[Event]``. New events are
+    always observable through the World (the projection
+    carries them); they do not need to be threaded as a
+    separate parameter.
+
+    Cursor-based gating (ADR-074) is the canonical
+    mechanism for "has anything changed since I last ran?".
+    Systems that emit events of their own MUST distinguish
+    their own outputs from external triggers via the
+    World's ``last_event_*`` pointers or a dedicated
+    component slot — not via a side-channel event list.
 
     Implementations should be PURE — no I/O, no side effects.
     If a system needs to talk to the outside world, emit an
@@ -91,12 +123,7 @@ class WorldSystem(typing.Protocol):
     async tick loop). A sync function is also acceptable.
     """
 
-    def __call__(
-        self,
-        world: "World",
-        *,
-        new_events: "list[Event] | None" = None,
-    ) -> SystemReturn: ...
+    def __call__(self, world: "World") -> SystemReturn: ...
 
 
 # Backwards-compat aliases. New code should use ``WorldSystem``.

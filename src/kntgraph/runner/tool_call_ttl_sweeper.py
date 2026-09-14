@@ -101,10 +101,9 @@ is the mitigation (out of scope for ADR-045).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
-
-from collections.abc import Mapping
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
@@ -193,7 +192,10 @@ class ToolCallTTLSweeperSystem:
         # is in-memory; it is reset on process restart.
         self._emitted_failures: set[str] = set()
 
-    def __call__(self, world: "World | Mapping[str, AgentView]") -> list[Event]:
+    def __call__(
+        self,
+        world: "World | Mapping[str, AgentView]",
+    ) -> list[Event]:
         """Walk ``tool_requests``; emit ``tool.<name>.failed``
         for stale entries; optionally route to the DLQ.
 
@@ -218,8 +220,8 @@ class ToolCallTTLSweeperSystem:
         # Accept either a ``World`` (production
         # path: the dispatcher passes the post-fold
         # World) or a ``Mapping[str, AgentView]`` (test
-        # path: the test passes a dict of views built
-        # by ``project_tool_calls``).
+        # path: tests invoke the sweeper directly with a
+        # dict of views, bypassing the dispatcher).
         if isinstance(world, World):
             views_iter: Mapping[str, AgentView] = world.views
         else:

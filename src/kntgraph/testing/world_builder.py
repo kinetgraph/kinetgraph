@@ -232,8 +232,6 @@ def _deterministic_id(agent_id: str, event_type: str) -> str:
 def run_system(
     system: Any,
     world: World,
-    *,
-    new_events: list[Any] | None = None,
 ) -> list[Any]:
     """Invoke a ``WorldSystem`` against a ``World`` inside a
     correlation scope (ADR-037).
@@ -245,30 +243,17 @@ def run_system(
     Without it, ``Event.create`` raises ``TypeError`` for a missing
     correlation. Returns the system's emitted events.
 
-    ``new_events`` (kw-only, optional) is forwarded to the
-    system when its signature accepts it; older systems
-    (without the kwarg) are called the old way. This
-    mirrors the dispatcher's runtime behaviour.
+    Per the ``WorldSystem`` Protocol, systems receive only
+    the World (the post-fold projection). This helper
+    mirrors the dispatcher's runtime behaviour: a single
+    ``system(world)`` call inside a correlation scope.
 
     Example::
 
         events = run_system(FSMSystem(config, now=lambda: FIXED_NOW), world)
-        # With new_events:
-        events = run_system(
-            FSMSystem(config), world, new_events=[e1, e2, e3]
-        )
     """
-    import inspect
-
     with correlation_middleware.scope():
-        try:
-            params = inspect.signature(system.__call__).parameters
-        except (TypeError, ValueError):
-            params = ()
-        if "new_events" in params:
-            out = system(world, new_events=new_events)
-        else:
-            out = system(world)
+        out = system(world)
         if not isinstance(out, list):
             import asyncio
 

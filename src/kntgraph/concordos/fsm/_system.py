@@ -54,12 +54,20 @@ __all__ = ["FSMSystem"]
 # cursor-write time.
 _FSM_CURSOR_KEY = "FSMSystem"
 
-# Event types the FSM itself emits (ADR-071). In the next
-# tick, these events appear in ``new_events`` (the dispatcher
-# reads them from the EventLog). The FSM filters them out
-# so it does not re-process its own emitted events as
-# triggers — that would emit ``fsm.transition_rejected``
-# noise for every previous tick.
+# Event types the FSM itself emits (ADR-071). When the
+# framework re-folds a tick's emitted events into the
+# next tick's World, the FSM's own output becomes the
+# ``view.domain_phase`` of the next tick. The cursor
+# gate (ADR-074) handles the dedup: ``view.cursors[<FSM>]``
+# matches ``view.last_event_id`` after the FSM ran, so
+# the FSM does NOT re-process its own emitted events as
+# triggers.
+#
+# The legacy filter-on-input path (``fsm.transitioned``
+# appearing in ``new_events``) was REMOVED when the
+# ``new_events`` kwarg was dropped from the
+# ``WorldSystem`` Protocol. Cursor-based gating is the
+# canonical mechanism.
 _FSM_OWN_EVENT_TYPES = frozenset(
     {
         "fsm.transitioned",
@@ -77,6 +85,31 @@ class FSMSystem:
     configured component, and validates each incoming event
     against the declared transition table.
 
+    **Source-of-truth discipline.** Per the ``WorldSystem``
+    Protocol, the FSM receives only the post-fold World —
+    it does NOT receive the raw event batch from the
+    dispatcher's tick loop. The framework invariant holds:
+
+      - EventLog (Redis) is the source of truth.
+      - World is the deterministic projection, folded at
+        the start of every tick.
+      - Systems read from the World; new events are
+        observable through the projection (the
+        ``domain_phase`` slot carries the latest event's
+        type; the ``components`` slot carries its data).
+
+    **Single-event-per-tick.** When multiple events arrive
+    in one batch, the World reflects the LATEST event in
+    the batch (``view.domain_phase`` /
+    ``view.last_event_id``). The FSM processes that one
+    event per tick. Intermediate events in the same batch
+    are skipped — they will be re-folded into the
+    projection only on subsequent ticks, and the FSM
+    will process them then. Operators who need
+    multi-event tick semantics must split their batch at
+    the producer side (one event per stream write, or
+    per-event publish).
+
     **Cursor integration (ADR-074).** The FSM reads the
     framework cursor from ``view.cursors["FSMSystem"]``. If
     the cursor matches ``view.last_event_id``, the FSM has
@@ -84,27 +117,9 @@ class FSMSystem:
     events. This gives replay-safety and idle-tick fast-path
     without per-system state on the FSM instance.
 
-    **Multi-event tick.** The dispatcher passes the events
-    it just folded (``new_events``) to every system. The
-    FSM iterates them in order, cascading state locally:
-    an event that transitions ``draft → validating``
-    updates the local state so the next event in the
-    same batch sees ``validating`` as its source state.
-    Each emitted ``fsm.transitioned`` carries the
-    ``causation_id`` of the EVENT that triggered it, so
-    the FSMProjection (which folds them on the next tick)
-    applies them in order to the component.
-
-    Events the FSM itself emitted in a previous tick are
-    in the EventLog (framework invariant: persisted =
-    valid). The FSM filters its own event types
-    (``fsm.transitioned``, ``fsm.transition_rejected``,
-    and the configured ``on_entry`` event types) so it
-    does not re-process its own output as input.
-
     The cursor advances when the FSM RAN this tick, even
-    if it emitted nothing (e.g., filtered all events). A
-    system that runs without emitting still "saw"
+    if it emitted nothing (e.g., the trigger was filtered).
+    A system that runs without emitting still "saw"
     everything; the cursor reflects that.
     """
 
@@ -120,22 +135,16 @@ class FSMSystem:
         self.config = config
         self._now = injectable_clock(now)
 
-    def __call__(
-        self,
-        world: "World",
-        *,
-        new_events: "list[Event] | None" = None,
-    ) -> list["Event"]:
+    def __call__(self, world: "World") -> list["Event"]:
         out: list[Event] = []
         for _agent_id, view in world.query_agents(self.config.component_type):
-            out.extend(self._events_for_agent(view, world, new_events))
+            out.extend(self._events_for_agent(view, world))
         return out
 
     def _events_for_agent(
         self,
         view: "AgentView",
         world: "World",
-        new_events: "list[Event] | None",
     ) -> list["Event"]:
         # ADR-074: replay-safety / idle-tick fast path. The
         # dispatcher advances ``view.cursors["FSMSystem"]``
@@ -152,87 +161,45 @@ class FSMSystem:
             return []
         current_state: str = getattr(component, self.config.state_field)
 
-        # Multi-event tick (ADR-074 §5): process all events
-        # the dispatcher just folded. Fall back to a
-        # single-event view (derived from ``view.domain_phase``)
-        # when the dispatcher did not pass ``new_events``
-        # (legacy path, or systems that never opt in).
-        events: list[Event]
-        if new_events is not None:
-            events = [
-                e
-                for e in new_events
-                if e.agent_id == view.agent_id
-                and e.event_type not in self._own_event_types()
-                and e.event_type not in self.config.on_entry.values()
-            ]
-        elif view.domain_phase is not None:
-            # Build a synthetic single-event list from the
-            # view (the framework invariant keeps ``last_event_id``
-            # equal to the event the view's domain slot
-            # refers to).
-            from kntgraph.core.event.event import Event
-
-            payload = view.components.get(view.domain_phase, {})
-            events = (
-                [
-                    Event.create(
-                        agent_id=view.agent_id,
-                        event_type=view.domain_phase,
-                        event_class="domain",
-                        data=dict(payload),
-                        # The view does NOT carry the event's id;
-                        # the cursor match check above already
-                        # gated this code path so last_event_id
-                        # is the synthetic event's id.
-                    )
-                ]
-                if view.last_event_id is None
-                else [
-                    # When the cursor check above passes (no
-                    # cursor or cursor diverges), the view's
-                    # ``last_event_id`` is the trigger event id.
-                    # We can synthesise the event WITHOUT a
-                    # real Event object because the cursor
-                    # gate already passed; the FSM only needs
-                    # ``event_type`` and ``data`` here.
-                    type(
-                        "E",
-                        (),
-                        {
-                            "event_type": view.domain_phase,
-                            "event_id": UUID(str(view.last_event_id)),
-                            "agent_id": view.agent_id,
-                            "data": dict(payload),
-                        },
-                    )()
-                ]
-            )
-        else:
+        # Single-event-per-tick discipline: derive the
+        # trigger from the World (the post-fold projection).
+        # ``view.domain_phase`` carries the latest event's
+        # type; ``view.components[domain_phase]`` carries its
+        # data; ``view.last_event_id`` carries its id. When
+        # the cursor gate above passes, we know
+        # ``last_event_id`` is the trigger's id (it
+        # diverged from the previous cursor position).
+        if view.domain_phase is None:
             return []
 
-        out: list[Event] = []
-        for event in events:
-            trigger = ViewTrigger(
-                agent_id=view.agent_id,
-                event_type=event.event_type,
-                event_id=UUID(str(event.event_id))
-                if getattr(event, "event_id", None) is not None
-                else None,
-                data=MappingProxyType(dict(event.data))
-                if isinstance(getattr(event, "data", None), dict)
-                else MappingProxyType({}),
-                correlation=correlation_middleware.current(),
-            )
+        # Skip FSM-emitted events (replayed through the
+        # EventLog on subsequent ticks). Cursor gating
+        # ALREADY handles dedup for events we ourselves
+        # emitted — the cursor advances to last_event_id
+        # right after the FSM ran, so when our own
+        # output is re-folded the cursor gate will skip
+        # this code path. The explicit check here is a
+        # safety net for the cursor-less legacy path.
+        if view.domain_phase in self._own_event_types():
+            return []
 
-            emitted, new_state = self._process_trigger(
-                trigger, current_state, component, view, world
-            )
-            out.extend(emitted)
-            if new_state is not None:
-                current_state = new_state  # local cascade
+        payload = view.components.get(view.domain_phase, {})
+        trigger = ViewTrigger(
+            agent_id=view.agent_id,
+            event_type=view.domain_phase,
+            event_id=UUID(str(view.last_event_id))
+            if view.last_event_id is not None
+            else None,
+            data=MappingProxyType(dict(payload))
+            if isinstance(payload, dict)
+            else MappingProxyType({}),
+            correlation=correlation_middleware.current(),
+        )
 
-        return out
+        emitted, _new_state = self._process_trigger(
+            trigger, current_state, component, view, world
+        )
+        return emitted
 
     def _own_event_types(self) -> frozenset[str]:
         """Event types the FSM itself emits — used to filter

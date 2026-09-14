@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from typing import TYPE_CHECKING, Optional
 
@@ -729,22 +729,30 @@ class ReactiveDispatcher:
     # projections, no new system class. See
     # ``_observability.py`` for the low-level read helpers.
 
-    async def _load_views(self, agent_id: str | None = None) -> dict[str, AgentView]:
+    async def _load_views(
+        self, agent_id: str | None = None
+    ) -> Mapping[str, AgentView]:
         """Load agent views from the world_store for Tier 4
         queries.
 
         Each call is independent (one ``XGET`` per agent).
         Returns an empty dict if ``world_store`` is unset.
+
+        Returns ``Mapping`` (not ``dict``) so callers see a
+        read-only view of the agent set: ``dict`` is
+        invariant in its value type, which trips pyright on
+        the ``agent_id=`` branch (the value is
+        ``AgentView | None`` before the ``None`` check).
+        ``Mapping`` is covariant and lets callers iterate
+        without forcing a value-narrowing on the
+        ``get_agent(...)`` probe.
         """
         if self._world_store is None:
             return {}
         if agent_id is not None:
             ckpt = await self._world_store.load(agent_id)
-            return (
-                {agent_id: ckpt.world.get_agent(agent_id)}
-                if ckpt.world.get_agent(agent_id)
-                else {}
-            )
+            view = ckpt.world.get_agent(agent_id)
+            return {agent_id: view} if view is not None else {}
         out: dict[str, AgentView] = {}
         for aid in self._tracked_agents:
             ckpt = await self._world_store.load(aid)

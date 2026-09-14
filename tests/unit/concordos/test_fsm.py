@@ -16,16 +16,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
 
 from kntgraph.concordos.fsm import FSMConfig, FSMTransition, FSMSystem
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
 from kntgraph.core.world import DomainComponent
 from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
-
-if TYPE_CHECKING:
-    from kntgraph.core.event import Event
 
 FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -219,7 +215,7 @@ def test_fsm_events_for_agent_guards_missing_component() -> None:
     view = AgentViewBuilder("inv-1").with_trigger("invoice.approved").build()
     system = FSMSystem(invoice_fsm, now=lambda: FIXED_NOW)
     world = WorldBuilder().with_agent(view).build()
-    assert system._events_for_agent(view, world, new_events=None) == []
+    assert system._events_for_agent(view, world) == []
 
 
 # ---------------------------------------------------------------------------
@@ -370,130 +366,19 @@ class TestFSMCursor:
         assert transitioned[0].agent_id == "a-2"
 
 
-class TestFSMMultiEventTick:
-    """Tests for multi-event tick processing.
-
-    The dispatcher passes ``new_events`` (the events it
-    just folded into the world) to every system. The FSM
-    iterates them with cascading local state, emitting a
-    transition per event that matches a declared rule.
-    """
-
-    def _make_event(self, agent_id: str, event_type: str) -> "Event":
-        from uuid import uuid4
-
-        from kntgraph.core.event import CorrelationContext, Event
-
-        return Event.domain_from(
-            agent_id=agent_id,
-            type=event_type,
-            data={},
-            correlation=CorrelationContext.new(correlation_id=uuid4()),
-        )
-
-    def test_multi_event_cascade_in_same_tick(self) -> None:
-        """Three events land in the same tick:
-        ``draft → validating → issued``. The FSM emits
-        two transitions, one per event, with cascading
-        local state.
-        """
-        e1 = self._make_event("inv-1", "invoice.submitted")
-        e2 = self._make_event("inv-1", "invoice.approved")
-        e3 = self._make_event("inv-1", "invoice.approved_bypass")
-
-        view = (
-            AgentViewBuilder("inv-1")
-            .with_component(InvoiceDomainComponent(status="draft"))
-            .with_trigger("invoice.approved_bypass", data={"k": "v"})
-            .build()
-        )
-        world = WorldBuilder().with_agent(view).build()
-        out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: FIXED_NOW),
-            world,
-            new_events=[e1, e2, e3],
-        )
-
-        transitioned = [e for e in out if e.event_type == "fsm.transitioned"]
-        # ``invoice.submitted`` transitions draft → validating.
-        # ``invoice.approved`` from validating → issued (guard:
-        # ContinuityToolUsed("nfe_emitter").not_() — satisfied
-        # since no ContinuityComponent on the view).
-        # ``invoice.approved_bypass`` from issued → ??? (no
-        # transition defined → rejected).
-        assert len(transitioned) == 2
-        assert transitioned[0].data["from"] == "draft"
-        assert transitioned[0].data["to"] == "validating"
-        assert transitioned[0].data["trigger_event_id"] == str(e1.event_id)
-        assert transitioned[1].data["from"] == "validating"
-        assert transitioned[1].data["to"] == "issued"
-        assert transitioned[1].data["trigger_event_id"] == str(e2.event_id)
-
-        rejected = [e for e in out if e.event_type == "fsm.transition_rejected"]
-        assert len(rejected) == 1
-        assert rejected[0].data["reason"] == "transition_not_declared"
-        assert rejected[0].data["trigger"] == "invoice.approved_bypass"
-        # The rejected event's causation is the input event
-        # (e3); FSM tracks this for downstream tracing.
-        assert rejected[0].causation_id == e3.event_id
-
-    def test_filters_own_emitted_events_in_next_tick(self) -> None:
-        """In tick T, the FSM emits ``fsm.transitioned``.
-        In tick T+1, the FSM sees its own emitted events
-        in ``new_events``. It must filter them out so it
-        does not emit ``fsm.transition_rejected`` for
-        its own output (the framework invariant: events
-        are valid after persistence, so the FSM sees
-        them in T+1 — but it must not re-process them).
-        """
-        # Tick T+1 scenario: the world has processed all
-        # events through ``issued`` (terminal-ish state
-        # with on_entry already emitted).
-        view = (
-            AgentViewBuilder("inv-1")
-            .with_component(InvoiceDomainComponent(status="issued"))
-            .with_trigger(
-                "fsm.transitioned",
-                data={
-                    "from": "draft",
-                    "to": "issued",
-                    "trigger": "invoice.submitted",
-                    "trigger_event_id": "x",
-                },
-            )
-            .build()
-        )
-        world = WorldBuilder().with_agent(view).build()
-
-        # The dispatcher passes the FSM's own emitted
-        # event from tick T as ``new_events``.
-        own_emitted = self._make_event("inv-1", "fsm.transitioned")
-        out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: FIXED_NOW),
-            world,
-            new_events=[own_emitted],
-        )
-
-        # Filtered: no ``fsm.transition_rejected`` noise.
-        assert out == []
-
-    def test_filters_on_entry_events_in_next_tick(self) -> None:
-        """``on_entry`` events emitted in tick T are
-        filtered out in tick T+1 — same logic as
-        ``fsm.transitioned``.
-        """
-        view = (
-            AgentViewBuilder("inv-1")
-            .with_component(InvoiceDomainComponent(status="issued"))
-            .with_trigger("invoice.issuance_confirmed", data={"state": "issued"})
-            .build()
-        )
-        world = WorldBuilder().with_agent(view).build()
-
-        own_on_entry = self._make_event("inv-1", "invoice.issuance_confirmed")
-        out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: FIXED_NOW),
-            world,
-            new_events=[own_on_entry],
-        )
-        assert out == []
+# ---------------------------------------------------------------------------
+# Single-event-per-tick discipline
+# ---------------------------------------------------------------------------
+#
+# The legacy ``TestFSMMultiEventTick`` was REMOVED when
+# ``new_events`` was dropped from the ``WorldSystem``
+# Protocol. Under the discipline the FSM reads ONLY from
+# the post-fold World: ``view.domain_phase`` /
+# ``view.last_event_id`` carry the latest event in the
+# batch; intermediate events in the same batch are not
+# observable to the FSM until the next tick.
+#
+# Operators who need multi-event tick semantics must
+# split their batch at the producer side (one event per
+# stream write, or per-event publish). Cursor-based
+# gating (ADR-074) handles dedup across ticks.
