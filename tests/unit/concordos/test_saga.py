@@ -755,14 +755,16 @@ def test_saga_compensates_step_without_compensate_when() -> None:
 
 
 def test_saga_step_result_payload_non_mapping() -> None:
-    """``_step_result_payload`` returns ``{}`` when the step result
+    """``step_result_payload`` returns ``{}`` when the step result
     is not a mapping."""
+    from kntgraph.concordos.saga._compensation import step_result_payload
+
     system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
     saga = _progress(
         current_step="emit_nfe",
         step_results={"emit_nfe": "not-a-mapping"},
     )
-    assert system._step_result_payload(saga, "emit_nfe") == {}
+    assert step_result_payload(saga, "emit_nfe") == {}
 
 
 def test_saga_dispatch_enrich_from_non_mapping_previous() -> None:
@@ -844,9 +846,10 @@ def test_saga_dispatch_enrich_from_continuity() -> None:
 
 
 def test_saga_next_non_skipped_step_unknown_current() -> None:
-    """``_next_non_skipped_step`` returns ``None`` when the current
+    """``next_non_skipped_step`` returns ``None`` when the current
     step is not in the declared order."""
     from kntgraph.concordos.base import StepContext
+    from kntgraph.concordos.saga._records import next_non_skipped_step
 
     system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
     unknown = SagaStepConfig(name="ghost", tool_name="ghost_tool")
@@ -859,7 +862,7 @@ def test_saga_next_non_skipped_step_unknown_current() -> None:
         agent_id="agent-1",
         now=FIXED_NOW,
     )
-    assert system._next_non_skipped_step(unknown, ctx) is None
+    assert next_non_skipped_step(system, unknown, ctx) is None
 
 
 def test_saga_approval_timeout_emits_approval_timed_out() -> None:
