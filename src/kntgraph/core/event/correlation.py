@@ -154,8 +154,26 @@ class CorrelationMiddleware:
     def scope(
         self,
         metadata: Optional[Mapping[str, JsonValue]] = None,
+        *,
+        correlation_id: Optional[UUID] = None,
     ) -> "CorrelationScope":
-        return CorrelationScope(self, metadata)
+        """Bind a correlation scope for the duration of a
+        ``with`` block.
+
+        ``correlation_id``: when provided, the scope carries
+        the given flow id (the caller's "current" trace).
+        When omitted, a fresh ``uuid4()`` is minted — only
+        acceptable for entry events (HTTP requests, cron
+        ticks); dispatchers and system-runner code MUST
+        thread an existing correlation via this kwarg or
+        via :meth:`continue_from`.
+
+        New code should prefer ``continue_from(event)`` over
+        ``scope(correlation_id=event.correlation.correlation_id)``
+        — both work, but ``continue_from`` also propagates
+        ``causation_id`` and ``metadata``.
+        """
+        return CorrelationScope(self, metadata, correlation_id)
 
 
 class CorrelationScope:
@@ -163,13 +181,18 @@ class CorrelationScope:
         self,
         middleware: CorrelationMiddleware,
         metadata: Optional[Mapping[str, JsonValue]],
+        correlation_id: Optional[UUID] = None,
     ) -> None:
         self._mw = middleware
         self._metadata = metadata
+        self._correlation_id = correlation_id
         self._ctx: Optional[CorrelationContext] = None
 
     def __enter__(self) -> CorrelationContext:
-        self._ctx = self._mw.start(self._metadata)
+        self._ctx = self._mw.start(
+            metadata=self._metadata,
+            correlation_id=self._correlation_id,
+        )
         return self._ctx
 
     def __exit__(self, exc_type, exc, tb) -> None:
