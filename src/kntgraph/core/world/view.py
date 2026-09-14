@@ -107,7 +107,7 @@ class AgentView:
     last_event_principal_id: Optional[str] = None
     # Per-system cursor (ADR-074). Maps the system's name
     # (default: ``type(system).__name__``; override via
-    # ``__fsm_system_name__`` ClassVar) to the ``event_id``
+    # ``__cursor_key__`` ClassVar) to the ``event_id``
     # of the most recent event the system has processed for
     # this agent. Absent key = the system has never
     # processed an event for this agent (the system must

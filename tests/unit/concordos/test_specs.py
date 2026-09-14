@@ -293,6 +293,7 @@ class TestCrossAgentResolver:
         """A spec that does not opt in cannot reach the
         World — the resolver is ``None``.
         """
+
         @dataclass(frozen=True, slots=True)
         class WantsResolver(Specification):
             def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -342,9 +343,7 @@ class TestCrossAgentResolver:
             },
         )
         resolver = lambda aid: finance_view if aid == "finance-1" else None
-        assert OtherAgentIsVIP().is_satisfied_by(
-            _ctx(cross_agent_resolver=resolver)
-        )
+        assert OtherAgentIsVIP().is_satisfied_by(_ctx(cross_agent_resolver=resolver))
 
     def test_no_world_field_on_step_context(self) -> None:
         """The ``world`` field is gone (ADR-069 §2.1). A

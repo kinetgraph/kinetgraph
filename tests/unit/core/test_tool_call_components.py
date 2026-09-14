@@ -175,7 +175,7 @@ class TestToolCallCompletion:
 class TestToolCallPairing:
     """The two components pair by `request_event_id`."""
 
-def test_pair_by_request_event_id(self) -> None:
+    def test_pair_by_request_event_id(self) -> None:
         """A request and completion with the same
         ``request_event_id`` are a single logical
         tool call. The SolutionExtractor joins on this.

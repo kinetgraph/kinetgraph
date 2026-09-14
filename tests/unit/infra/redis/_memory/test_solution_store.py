@@ -519,7 +519,7 @@ class TestProtocolCompatibility:
         solution = _sample_solution()
         client.hget = AsyncMock(return_value=_encode(solution))
 
-        from datetime import datetime, timezone
+        from datetime import datetime, timedelta, timezone
 
         from kntgraph.core.world import AgentView, World
         from kntgraph.core.world.components import ToolCallRequest
@@ -533,12 +533,14 @@ class TestProtocolCompatibility:
         # Build a minimal World with the ToolCallRequest
         # on the ``tool_requests`` slot, the way the
         # tool-call overlay would have laid it out.
+        now = datetime.now(timezone.utc)
         req = ToolCallRequest(
             request_event_id="22222222-2222-2222-2222-222222222222",
             tool_name="knowledge_lookup",
             agent_id="agent-1",
             params={"question_id": "export-data-v1"},
-            requested_at=datetime.now(timezone.utc),
+            requested_at=now,
+            expires_at=now + timedelta(seconds=300),
         )
         view = AgentView(
             agent_id="agent-1",

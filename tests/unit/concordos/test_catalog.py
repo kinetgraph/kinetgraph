@@ -62,9 +62,7 @@ class RecordingDispatcher:
 def test_concordo_is_runtime_checkable() -> None:
     """A Concordo instance satisfies the ``Concordo`` Protocol at
     runtime (``runtime_checkable``)."""
-    assert isinstance(
-        FakeConcordo("fsm:Invoice", systems=(FakeSystem(),)), Concordo
-    )
+    assert isinstance(FakeConcordo("fsm:Invoice", systems=(FakeSystem(),)), Concordo)
 
 
 def test_catalog_installs_each_unique_concordo_once() -> None:
@@ -82,12 +80,8 @@ def test_catalog_dedupes_by_name() -> None:
     """A second Concordo with the same name is a no-op (first one
     wins). Only the first bundle's systems / projections are
     registered."""
-    first = FakeConcordo(
-        "fsm:Invoice", systems=(FakeSystem("first"),)
-    )
-    duplicate = FakeConcordo(
-        "fsm:Invoice", systems=(FakeSystem("duplicate"),)
-    )
+    first = FakeConcordo("fsm:Invoice", systems=(FakeSystem("first"),))
+    duplicate = FakeConcordo("fsm:Invoice", systems=(FakeSystem("duplicate"),))
     catalog = ConcordoCatalog(first, duplicate)
     dispatcher = RecordingDispatcher()
     catalog.install_all(dispatcher)

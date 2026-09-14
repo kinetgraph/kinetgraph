@@ -518,9 +518,10 @@ class TestCheckpointIO:
 
 
 class _NamedSystem:
-    """Test system with an explicit ``__fsm_system_name__``
+    """Test system with an explicit ``__cursor_key__``
     override (ADR-074 §2.1)."""
-    __fsm_system_name__: ClassVar[str] = "named"
+
+    __cursor_key__: ClassVar[str] = "named"
 
     def __call__(self, world: World) -> list[Event]:
         return []
@@ -575,18 +576,19 @@ class TestCursorPrimitive:
 
     async def test_system_name_defaults_to_class_name(self) -> None:
         """``_system_name`` returns ``type(system).__name__``
-        when no ``__fsm_system_name__`` is declared.
+        when no ``__cursor_key__`` is declared.
         """
         from kntgraph.runner._systems_runner import _system_name
 
         class MySystem:
-            def __call__(self, world): return []
+            def __call__(self, world):
+                return []
 
         assert _system_name(MySystem()) == "MySystem"
 
     async def test_system_name_uses_explicit_override(self) -> None:
         """``_system_name`` honours the
-        ``__fsm_system_name__`` ClassVar override.
+        ``__cursor_key__`` ClassVar override.
         """
         from kntgraph.runner._systems_runner import _system_name
 
@@ -615,9 +617,7 @@ class TestCursorPrimitive:
         )
 
         world = World.empty()
-        result = _advance_cursors_in_world(
-            world, {("FSMSystem", "nonexistent-agent")}
-        )
+        result = _advance_cursors_in_world(world, {("FSMSystem", "nonexistent-agent")})
         # Cursor was NOT advanced (no view to anchor it).
         assert result is world
 
@@ -710,7 +710,7 @@ class TestCursorPrimitive:
         # events were emitted. The cursor key is
         # ``type(lambda).__name__`` = ``"function"`` here
         # because the lambda doesn't define
-        # ``__fsm_system_name__``.
+        # ``__cursor_key__``.
         assert cap.saved, "checkpoint was not saved"
         saved_world = cap.saved[0][1].world
         view = saved_world.views["a-1"]
@@ -734,6 +734,7 @@ class TestCursorPrimitive:
         # ``last_event_id``.
         seed_b = _seed_event("b-1", "b.seed")
         emitted_b = _seed_event("b-1", "b.emitted")
+
         # System emits for agent B (not the agent being
         # processed, which is "a-1").
         def _system(_w: World) -> list[Event]:
@@ -744,9 +745,7 @@ class TestCursorPrimitive:
         # Build a world with both agents.
         world = World.empty().with_event(seed_b)
 
-        await run_systems_and_persist(
-            dispatcher, "a-1", world, "1-0", 1, [seed_b]
-        )
+        await run_systems_and_persist(dispatcher, "a-1", world, "1-0", 1, [seed_b])
 
         saved_world = cap.saved[0][1].world
         view_b = saved_world.views["b-1"]

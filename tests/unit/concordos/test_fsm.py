@@ -238,12 +238,12 @@ class TestFSMCursor:
     """
 
     def test_cursor_key_is_fsm_system(self) -> None:
-        """The cursor key is the explicit ``__fsm_system_name__``
+        """The cursor key is the explicit ``__cursor_key__``
         ClassVar, not the class name. The dispatcher uses
         ``_system_name(system)`` which prefers the
         override.
         """
-        assert FSMSystem.__fsm_system_name__ == "FSMSystem"
+        assert FSMSystem.__cursor_key__ == "FSMSystem"
 
     def test_no_cursor_processes_normally(self) -> None:
         """When the cursor is absent (first tick), the
@@ -424,9 +424,7 @@ class TestFSMMultiEventTick:
         assert transitioned[1].data["to"] == "issued"
         assert transitioned[1].data["trigger_event_id"] == str(e2.event_id)
 
-        rejected = [
-            e for e in out if e.event_type == "fsm.transition_rejected"
-        ]
+        rejected = [e for e in out if e.event_type == "fsm.transition_rejected"]
         assert len(rejected) == 1
         assert rejected[0].data["reason"] == "transition_not_declared"
         assert rejected[0].data["trigger"] == "invoice.approved_bypass"
@@ -449,11 +447,15 @@ class TestFSMMultiEventTick:
         view = (
             AgentViewBuilder("inv-1")
             .with_component(InvoiceDomainComponent(status="issued"))
-            .with_trigger("fsm.transitioned", data={
-                "from": "draft", "to": "issued",
-                "trigger": "invoice.submitted",
-                "trigger_event_id": "x",
-            })
+            .with_trigger(
+                "fsm.transitioned",
+                data={
+                    "from": "draft",
+                    "to": "issued",
+                    "trigger": "invoice.submitted",
+                    "trigger_event_id": "x",
+                },
+            )
             .build()
         )
         world = WorldBuilder().with_agent(view).build()

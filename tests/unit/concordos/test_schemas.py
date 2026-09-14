@@ -42,9 +42,7 @@ class TestEventSchema:
     def test_uppercase_name_rejected(self) -> None:
         """Event names must be lowercase."""
         with pytest.raises(ValidationError):
-            EventSchema(
-                name="Invoice.submitted", schema="acme.events.InvoiceSubmitted"
-            )
+            EventSchema(name="Invoice.submitted", schema="acme.events.InvoiceSubmitted")
 
     def test_unknown_field_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -199,9 +197,7 @@ class TestSagaConfigSchema:
 
     def test_unique_step_names_enforced(self) -> None:
         saga = self._minimal_saga()
-        saga["steps"].append(
-            {"name": "chunk", "tool": "other_chunker"}
-        )
+        saga["steps"].append({"name": "chunk", "tool": "other_chunker"})
         with pytest.raises(ValidationError) as exc_info:
             SagaConfigSchema(**saga)
         assert "duplicate step names" in str(exc_info.value)
@@ -215,9 +211,7 @@ class TestSagaConfigSchema:
 
 class TestBundleSchema:
     def test_minimal_bundle(self) -> None:
-        b = BundleSchema(
-            bundle_id="com.acme.test", version="1.0.0"
-        )
+        b = BundleSchema(bundle_id="com.acme.test", version="1.0.0")
         assert b.bundle_id == "com.acme.test"
         assert b.events == []
         assert b.business_fsm is None

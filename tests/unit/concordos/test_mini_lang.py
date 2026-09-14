@@ -61,7 +61,9 @@ def make_ctx(
         profile=profile,
         agent_id="a-1",
         now=FIXED_NOW,
-        trigger_data=MappingProxyType(trigger_data) if trigger_data is not None else None,
+        trigger_data=MappingProxyType(trigger_data)
+        if trigger_data is not None
+        else None,
         cross_agent_resolver=None,
     )
 
@@ -284,18 +286,20 @@ def test_evaluator_steps_output_path() -> None:
     # walker skips it and walks ``size`` directly. So the
     # data at step_results['extract'] should NOT have an
     # ``output`` key.
-    assert evaluate(
-        ast,
-        make_ctx(
-            step_results={"extract": {"size": 150}}
-        ),
-    ) is True
-    assert evaluate(
-        ast,
-        make_ctx(
-            step_results={"extract": {"size": 50}}
-        ),
-    ) is False
+    assert (
+        evaluate(
+            ast,
+            make_ctx(step_results={"extract": {"size": 150}}),
+        )
+        is True
+    )
+    assert (
+        evaluate(
+            ast,
+            make_ctx(step_results={"extract": {"size": 50}}),
+        )
+        is False
+    )
     assert evaluate(ast, make_ctx()) is False  # no step_results
 
 
@@ -303,12 +307,13 @@ def test_evaluator_steps_output_path_skips_output_keyword() -> None:
     """``steps.<name>.<field>`` is a convenience alias
     for ``steps.<name>.output.<field>``."""
     ast = parse_expression("steps.extract.chunks > 0")
-    assert evaluate(
-        ast,
-        make_ctx(
-            step_results={"extract": {"chunks": 5}}
-        ),
-    ) is True
+    assert (
+        evaluate(
+            ast,
+            make_ctx(step_results={"extract": {"chunks": 5}}),
+        )
+        is True
+    )
 
 
 def test_evaluator_now_path() -> None:
@@ -397,14 +402,8 @@ def test_evaluator_builtin_domain_state_is() -> None:
     from kntgraph.concordos.specs import DomainStateIs
 
     spec = BUILTIN_SPECS["domain_state_is"]("status", "issued")
-    assert (
-        spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="issued")))
-        is True
-    )
-    assert (
-        spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="draft")))
-        is False
-    )
+    assert spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="issued"))) is True
+    assert spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="draft"))) is False
 
 
 def test_evaluator_builtin_profile_tier_is() -> None:

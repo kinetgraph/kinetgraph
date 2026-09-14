@@ -63,7 +63,9 @@ def _install_test_module():
     return mod_name
 
 
-def _valid_bundle(component_path: str = "_kntgraph_loader_test_module.InvoiceComponent") -> dict:
+def _valid_bundle(
+    component_path: str = "_kntgraph_loader_test_module.InvoiceComponent",
+) -> dict:
     return {
         "bundle_id": "com.acme.test",
         "version": "1.0.0",
@@ -293,9 +295,7 @@ class TestCrossReference:
                 {
                     "id": "saga:Extraction",
                     "trigger_event": "invoice.unknown",
-                    "steps": [
-                        {"name": "extract", "tool": "gliner2"}
-                    ],
+                    "steps": [{"name": "extract", "tool": "gliner2"}],
                 }
             ],
         }
@@ -435,9 +435,7 @@ class TestFileIO:
 
 
 class TestRoundTrip:
-    def test_loaded_bundle_builds_into_concordos(
-        self, _install_test_module
-    ) -> None:
+    def test_loaded_bundle_builds_into_concordos(self, _install_test_module) -> None:
         """The LoadedBundle's runtime objects are wrapped
         into Concordos by the catalog's classmethods."""
         d = _valid_bundle()

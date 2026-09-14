@@ -72,10 +72,11 @@ def _system_name(system: object) -> str:
     Resolve the cursor key for a system instance (ADR-074).
 
     Default: ``type(system).__name__``. Override via
-    ``__fsm_system_name__`` ClassVar when the class name
-    collides with another module's class.
+    ``__cursor_key__`` ClassVar when the class name
+    collides with another module's class, or when a stable
+    identifier is needed across renames.
     """
-    return getattr(system, "__fsm_system_name__", type(system).__name__)
+    return getattr(system, "__cursor_key__", type(system).__name__)
 
 
 def _advance_cursors_in_world(

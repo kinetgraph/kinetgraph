@@ -109,7 +109,7 @@ class FSMSystem:
     """
 
     __slots__ = ("config", "_now")
-    __fsm_system_name__: ClassVar[str] = _FSM_CURSOR_KEY
+    __cursor_key__: ClassVar[str] = _FSM_CURSOR_KEY
 
     def __init__(
         self,

@@ -674,6 +674,70 @@ def test_saga_compensates_on_saga_timeout() -> None:
     assert any(e.event_type == "saga.nfe_emission.compensating" for e in out)
 
 
+def test_saga_emits_compensation_started_for_each_step() -> None:
+    """ADR-069 §11.18.2: when a tool fails, the saga enters
+    compensation and emits a granular
+    ``saga.<name>.<step>.compensation_started`` event for
+    each step before dispatching its
+    ``tool.<compensate>.requested``.
+
+    The granular event is the durable marker the fold
+    projection reads to reconstruct the
+    ``compensate_stack`` after a process crash.
+    """
+    # Use the standard config (fail on first failure).
+    fail_first = SagaConfig(
+        name="nfe_emission",
+        steps=_saga_config().steps,
+    )
+    req_eid = str(uuid4())
+    view = (
+        AgentViewBuilder("agent-1")
+        .with_component(
+            _progress(
+                current_step="register_receivable",
+                step_states={
+                    "validate_fiscal": "completed",
+                    "emit_nfe": "completed",
+                    "register_receivable": "in_flight",
+                },
+                compensate_stack=("validate_fiscal", "emit_nfe", "register_receivable"),
+            )
+        )
+        .with_tool_request(_request(req_eid, "erp_receivable_tool"))
+        .with_tool_completion(
+            req_eid,
+            ToolCallCompletion(
+                request_event_id=req_eid,
+                status="failed",
+                error="erp_offline",
+            ),
+        )
+        .with_trigger("tool.erp_receivable_tool.failed")
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
+    out = run_system(SagaSystem(fail_first, now=lambda: FIXED_NOW), world)
+    # Granular per-step "compensation_started" markers
+    # (ADR-069 §11.18.2).
+    started_events = [e for e in out if e.event_type.endswith(".compensation_started")]
+    started_steps = {str(e.data.get("step_name", "")) for e in started_events}
+    # The saga compensates the steps with ``compensate_tool``
+    # in LIFO order: register_receivable and emit_nfe.
+    # validate_fiscal has no compensate_tool so it's skipped.
+    assert started_steps == {"emit_nfe", "register_receivable"}
+    # The corresponding ``tool.<compensate>.requested`` events
+    # also fired (one per step).
+    tool_requests = [
+        e
+        for e in out
+        if e.event_type.startswith("tool.") and e.event_type.endswith(".requested")
+    ]
+    assert len(tool_requests) == 2
+    # And the ``compensating`` marker is emitted first.
+    assert any(e.event_type == "saga.nfe_emission.compensating" for e in out)
+
+
 def test_saga_ignores_saga_timeout_when_not_forward() -> None:
     """A ``saga.<name>.timed_out`` trigger while NOT forward emits
     nothing."""

@@ -76,6 +76,22 @@ def begin_compensation(
     no-op (e.g. a timed-out NF-e emission that never
     landed) is skipped -- see ADR-069 §4.8 example.
 
+    For each dispatched compensation tool, two granular
+    events are emitted (ADR-069 §11.10 / §11.18.2):
+
+    - ``saga.<name>.<step>.compensation_started`` -- the
+      durable marker that compensation was dispatched.
+      The fold projection reads this from the EventLog to
+      reconstruct the ``compensate_stack`` accurately
+      after a process crash.
+    - ``tool.<compensate_tool>.requested`` -- the
+      actual tool invocation.
+
+    The ``compensated`` event is emitted by the saga
+    system on the matching ``tool.<compensate_tool>.completed``
+    (see ``_handle_completion``); the fold projection uses
+    it to mark the step as fully compensated.
+
     If a compensation tool itself fails, the saga emits
     ``saga.<name>.compensation_failed`` and the system
     routes the agent to the DLQ on the next tick
@@ -110,6 +126,21 @@ def begin_compensation(
             and not step_cfg.compensate_when.is_satisfied_by(ctx)
         ):
             continue
+        # Granular per-step "compensation_started" marker
+        # (ADR-069 §11.18.2). The fold projection reads this
+        # from the EventLog to reconstruct ``compensate_stack``
+        # after a process crash.
+        out.append(
+            emit(
+                saga,
+                trigger,
+                event_type=(f"saga.{saga._cfg.name}.{step_name}.compensation_started"),
+                data={
+                    "saga_id": progress.saga_id,
+                    "step_name": step_name,
+                },
+            )
+        )
         out.append(
             emit(
                 saga,
