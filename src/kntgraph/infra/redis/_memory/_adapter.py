@@ -192,5 +192,20 @@ class ShortMemoryStorage(Protocol):
         """
         ...
 
+    async def delete_fold_cursor(self, key: str) -> Result[None, MemoryError]:
+        """Drop the fold cursor at ``<key>:fold_cursor``.
+
+        Pairs with :meth:`write_fold_cursor`. Idempotent:
+        missing keys return ``Ok(None)`` (the caller
+        treats "no cursor" as the canonical state).
+        Returns ``Ok(None)`` on success,
+        ``Err(MemoryError)`` on Redis-side failure.
+
+        Operators that want to force a full rebuild on the
+        next refresh call :meth:`BaseShortTermMemory.invalidate_cache`
+        which uses this method under the hood.
+        """
+        ...
+
 
 __all__ = ["CacheRecord", "ShortMemoryStorage"]
