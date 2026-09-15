@@ -32,7 +32,7 @@ import structlog
 
 from kntgraph.core.result import Err, Ok, Result
 
-from .._client import RedisLike
+from .._client import RedisLike, safe_xrange
 from .._codec import decode_dict, decode_value
 from .._errors import MemoryError
 
@@ -150,8 +150,8 @@ class RedisDLQStorage:
     ) -> Result[Optional[Mapping[str, str]], MemoryError]:
         """Read a single DLQ entry by stream id."""
         try:
-            messages = await self.client.xrange(
-                DLQ_STREAM_KEY, min=stream_id, max=stream_id
+            messages = await safe_xrange(
+                self.client, DLQ_STREAM_KEY, min=stream_id, max=stream_id
             )
         except Exception as e:
             logger.warning(
@@ -191,8 +191,6 @@ class RedisDLQStorage:
         if result.is_err():
             return result
         messages = result.ok_value()
-        if messages is None:
-            return Ok([])
         return Ok([m for m in messages if m.get("reason") == reason])
 
     async def list_all(
@@ -200,8 +198,8 @@ class RedisDLQStorage:
     ) -> Result[list[Mapping[str, str]], MemoryError]:
         """List DLQ entries (full scan)."""
         try:
-            messages = await self.client.xrange(
-                DLQ_STREAM_KEY, min="-", max="+", count=count
+            messages = await safe_xrange(
+                self.client, DLQ_STREAM_KEY, min="-", max="+", count=count
             )
         except Exception as e:
             logger.warning("dlq_storage.list_all.redis_error", error=str(e))
@@ -338,8 +336,12 @@ class RedisDLQStorage:
     ) -> Result[list[Mapping[str, str]], MemoryError]:
         """Forward-scan the stream from a given head."""
         try:
-            messages = await self.client.xrange(
-                DLQ_STREAM_KEY, min=head_stream_id, max="+", count=count
+            messages = await safe_xrange(
+                self.client,
+                DLQ_STREAM_KEY,
+                min=head_stream_id,
+                max="+",
+                count=count,
             )
         except Exception as e:
             logger.warning(

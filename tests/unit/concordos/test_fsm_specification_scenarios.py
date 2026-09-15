@@ -82,7 +82,7 @@ class OrderAmountValid(Specification, Composable):
 # ===========================================================================
 
 
-@domain_component("order.submit")
+@domain_component("fsm_spec.order.submit")
 @dataclass(frozen=True, slots=True)
 class FSMSpecOrderComponent(DomainComponent):
     stage: str = "created"
@@ -181,7 +181,7 @@ multi_tool_spec_fsm_config = FSMConfig(
     state_field="stage",
     transitions={
         "created": {
-            "order.submit": FSMTransition(
+            "fsm_spec.order.submit": FSMTransition(
                 to="processing",
                 guard=spec_multi_tool_guard,  # <--- Composed Specification Guard
             ),
@@ -201,7 +201,7 @@ multi_tool_spec_fsm_config = FSMConfig(
 # ===========================================================================
 
 
-@domain_component("process.start")
+@domain_component("fsm_spec.process.start")
 @dataclass(frozen=True, slots=True)
 class FSMSpecInterleavedComponent(DomainComponent):
     stage: str = "draft"
@@ -275,7 +275,7 @@ interleaved_spec_fsm_config = FSMConfig(
     state_field="stage",
     transitions={
         "draft": {
-            "process.start": FSMTransition(
+            "fsm_spec.process.start": FSMTransition(
                 to="executing",
                 guard=OrderAmountValid(10, 500),  # <--- Custom Specification
             ),
@@ -303,7 +303,7 @@ interleaved_spec_fsm_config = FSMConfig(
 # ===========================================================================
 
 
-@domain_component("order.create")
+@domain_component("fsm_spec.order.create")
 @dataclass(frozen=True, slots=True)
 class FSMSpecFiveOrderComponent(DomainComponent):
     status: str = "created"
@@ -333,7 +333,7 @@ five_orders_spec_fsm_config = FSMConfig(
     state_field="status",
     transitions={
         "created": {
-            "order.create": FSMTransition(
+            "fsm_spec.order.create": FSMTransition(
                 to="payment_pending",
                 guard=five_orders_guard,  # <--- Composed Specification Guard
             ),
@@ -407,7 +407,7 @@ async def test_fsm_spec_parallel_multi_tool_fast_fail() -> None:
     )
     await event_log.append(
         Event.create(
-            event_type="order.submit",
+            event_type="fsm_spec.order.submit",
             agent_id=agent_id,
             event_class="domain",
             correlation=corr,
@@ -496,7 +496,7 @@ async def test_fsm_spec_non_blocking_interleaved_tools() -> None:
     )
     await event_log.append(
         Event.create(
-            event_type="process.start",
+            event_type="fsm_spec.process.start",
             agent_id=agent_id,
             event_class="domain",
             correlation=corr,
@@ -600,7 +600,7 @@ async def test_fsm_spec_five_concurrent_process_executions() -> None:
 
         await event_log.append(
             Event.create(
-                event_type="order.create",
+                event_type="fsm_spec.order.create",
                 agent_id=agent_id,
                 event_class="domain",
                 correlation=corr,

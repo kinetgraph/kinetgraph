@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
-from kntgraph.core.event.correlation import correlation_middleware
+from kntgraph.core.event.correlation import CorrelationContext, correlation_middleware
 from kntgraph.core.world import World
 from kntgraph.core.world.view import AgentView
 
@@ -232,16 +232,36 @@ def _deterministic_id(agent_id: str, event_type: str) -> str:
 def run_system(
     system: Any,
     world: World,
+    *,
+    correlation: "CorrelationContext",
 ) -> list[Any]:
     """Invoke a ``WorldSystem`` against a ``World`` inside a
     correlation scope (ADR-037).
 
-    The ``Runner`` / ``ReactiveDispatcher`` wrap every tick in
-    ``correlation_middleware.scope()``; a system that calls
-    ``correlation_middleware.current()`` (e.g. to build events via
-    ``Event.create``) needs that scope present in a test too.
-    Without it, ``Event.create`` raises ``TypeError`` for a missing
-    correlation. Returns the system's emitted events.
+    **Mandatory invariant**: the caller MUST pass the entry
+    event's ``CorrelationContext`` so the system under test
+    inherits the flow id (mirrors the dispatcher's
+    ``continue_from(...)`` path). Every test in this repo that
+    exercises a ``WorldSystem`` is required to:
+
+      1. Build a ``CorrelationContext`` for the flow id under
+         test (a fresh ``uuid4`` for hermetic tests, a known
+         UUID when the test asserts the audit trail end-to-end).
+      2. Pass it via ``correlation=`` so the
+         ``correlation_middleware`` carries it across the
+         ``system(world)`` call.
+      3. Assert every emitted event's ``correlation.correlation_id``
+         equals the entry's via :func:`assert_correlation_id`
+         (or the higher-level batch assertion
+         :func:`assert_all_correlation_ids`).
+
+    Rationale: ADR-037 §1.1 — the audit trail must stitch
+    end-to-end from entry to the final completion. A test
+    that lets ``run_system`` mint a fresh ``uuid4`` per call
+    validates zero of the audit trail — a regression on the
+    dispatcher side (e.g. dropping ``continue_from``) would
+    not be caught. Mandatory ``correlation`` makes the invariant
+    visible to the test suite.
 
     Per the ``WorldSystem`` Protocol, systems receive only
     the World (the post-fold projection). This helper
@@ -250,12 +270,93 @@ def run_system(
 
     Example::
 
-        events = run_system(FSMSystem(config, now=lambda: FIXED_NOW), world)
+        flow_id = uuid4()
+        ctx = CorrelationContext(correlation_id=flow_id)
+        events = run_system(fsm, world, correlation=ctx)
+        for e in events:
+            assert_correlation_id(e, ctx)
     """
-    with correlation_middleware.scope():
+    if correlation is None:
+        raise TypeError(
+            "run_system requires an explicit `correlation` "
+            "(CorrelationContext). The legacy fallback that "
+            "minted a fresh uuid4() per call has been removed: "
+            "tests that omit `correlation` no longer validate "
+            "the audit trail (ADR-037 §1.1). Build the flow's "
+            "CorrelationContext from the entry event (or a "
+            "fresh uuid4() for hermetic tests) and pass it "
+            "explicitly. See assert_correlation_id() for the "
+            "matching assertion helper."
+        )
+    # Mirror the dispatcher's continue_from path: open a
+    # ``correlation_middleware.scope(...)`` carrying the
+    # entry's correlation_id so systems that pull
+    # ``correlation_middleware.current()`` inherit the flow id.
+    # The middleware's scope helper takes the correlation_id
+    # explicitly; ``start`` would mutate the contextvar but
+    # does NOT return a context manager.
+    with correlation_middleware.scope(
+        correlation_id=correlation.correlation_id,
+    ):
         out = system(world)
         if not isinstance(out, list):
             import asyncio
 
             return asyncio.run(out)
         return out
+
+
+def assert_correlation_id(
+    event: Any,
+    expected: "CorrelationContext | UUID",
+) -> None:
+    """Assert ``event.correlation.correlation_id`` equals
+    ``expected.correlation_id`` (or the UUID directly).
+
+    Every test that exercises a ``WorldSystem`` MUST call this
+    on every emitted event so the audit trail invariant is
+    enforced by the test suite (not just by reviewer
+    vigilance). The framework's ``correlation_middleware`` is
+    the single source of truth for the current flow id; this
+    helper is the test-side mirror.
+    """
+    expected_id = (
+        expected.correlation_id
+        if isinstance(expected, CorrelationContext)
+        else expected
+    )
+    actual_id = event.correlation.correlation_id
+    assert actual_id == expected_id, (
+        f"Audit trail broken: event {event.event_type} "
+        f"(id={event.event_id}) has correlation_id {actual_id}, "
+        f"expected {expected_id}; the WorldSystem failed to "
+        f"inherit the entry event's flow id (ADR-037)."
+    )
+
+
+def assert_all_correlation_ids(
+    events: list[Any],
+    expected: "CorrelationContext | UUID",
+) -> None:
+    """Batch form of :func:`assert_correlation_id`: assert
+    EVERY event in ``events`` carries ``expected``'s
+    correlation_id. Convenience for the common pattern
+
+        events = run_system(fsm, world, correlation=ctx)
+        assert_all_correlation_ids(events, ctx)
+    """
+    expected_id = (
+        expected.correlation_id
+        if isinstance(expected, CorrelationContext)
+        else expected
+    )
+    offenders = [
+        e for e in events
+        if e.correlation.correlation_id != expected_id
+    ]
+    assert not offenders, (
+        f"Audit trail broken: {len(offenders)} of {len(events)} "
+        f"events carry a different correlation_id than the "
+        f"entry ({expected_id}); offenders: "
+        f"{[(e.event_type, e.event_id, e.correlation.correlation_id) for e in offenders]}"
+    )

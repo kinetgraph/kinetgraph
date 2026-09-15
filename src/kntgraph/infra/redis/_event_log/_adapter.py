@@ -31,7 +31,7 @@ import structlog
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, PersistenceError, Result
 
-from .._client import RedisLike
+from .._client import RedisLike, safe_xrange, safe_xrevrange
 from .._errors import IdempotencyConflict
 from . import _idempotency
 from ._keys import (
@@ -183,7 +183,9 @@ class RedisEventLogAdapter:
         kwargs: dict = {"min": start, "max": end}
         if count is not None:
             kwargs["count"] = count
-        messages = await self.client.xrange(stream_key_for_agent(agent_id), **kwargs)
+        messages = await safe_xrange(
+            self.client, stream_key_for_agent(agent_id), **kwargs
+        )
         return [_parse_event(mid, mdata) for mid, mdata in messages]
 
     async def read_with_cursor(
@@ -194,8 +196,8 @@ class RedisEventLogAdapter:
         else:
             start = f"({cursor}"
 
-        messages = await self.client.xrange(
-            stream_key_for_agent(agent_id), min=start, max="+"
+        messages = await safe_xrange(
+            self.client, stream_key_for_agent(agent_id), min=start, max="+"
         )
 
         if not messages:
@@ -210,7 +212,8 @@ class RedisEventLogAdapter:
         return events, last_stream_id
 
     async def read_latest(self, agent_id: str, n: int = 1) -> list[Event]:
-        messages = await self.client.xrevrange(
+        messages = await safe_xrevrange(
+            self.client,
             stream_key_for_agent(agent_id),
             min="-",
             max="+",
@@ -230,7 +233,8 @@ class RedisEventLogAdapter:
         empty.
         """
         try:
-            messages = await self.client.xrevrange(
+            messages = await safe_xrevrange(
+                self.client,
                 stream_key_for_agent(agent_id),
                 min="-",
                 max="+",

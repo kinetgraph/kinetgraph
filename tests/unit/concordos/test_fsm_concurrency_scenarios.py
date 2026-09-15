@@ -39,7 +39,9 @@ from kntgraph.concordos.fsm import (
     FSMSystem,
     FSMTransition,
 )
-from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.concordos import ConcordoCatalog
+from kntgraph.core.event import Event, CorrelationContext, correlation_middleware
+from kntgraph.testing import assert_all_correlation_ids
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import DomainComponent, World, domain_component
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
@@ -90,6 +92,17 @@ class FastFailureTool:
 
 @tool_worker(name="fsm_slow_10s_tool", max_concurrency=10, retries=0)
 class Slow10sTool:
+    """A tool that intentionally exceeds the FSM's
+    fast-fail window (1.0s) so the FSM can prove it
+    transitioned to ``rejected`` WITHOUT waiting for this
+    tool's result. The sleep is intentionally well below
+    the original 10s — the test asserts fast-fail at
+    ``<0.5s`` and a 10s sleep is gratuitous leak-prone
+    state across tests (a cancelled ``asyncio.sleep``
+    leaves the event loop in a fragile state that breaks
+    the next test's ``xrange`` call). 1s is enough to
+    prove the FSM does NOT block on this tool."""
+
     async def invoke(
         self,
         *,
@@ -97,7 +110,7 @@ class Slow10sTool:
         state: str = "",
         **kwargs: Any,
     ) -> Result[dict, ToolError]:
-        await asyncio.sleep(10.0)
+        await asyncio.sleep(1.0)
         return Ok({"status": "slow_done"})
 
 
@@ -286,7 +299,7 @@ async def test_fsm_parallel_multi_tool_fast_fail() -> None:
         rediscovery_interval_seconds=0.1,
         heartbeat_interval_seconds=0.0,
     )
-    concordo.install(dispatcher)
+    ConcordoCatalog(concordo).install_all(dispatcher)
 
     worker_manager = WorkerManager(
         redis=redis,
@@ -361,6 +374,17 @@ async def test_fsm_parallel_multi_tool_fast_fail() -> None:
     assert rejected_event.data.get("from") == "processing"
     assert rejected_event.data.get("to") == "rejected"
 
+    # Audit trail invariant (ADR-037 §1.1): every event the
+    # dispatcher wrote on behalf of this flow carries the
+    # entry's correlation_id. The dispatcher (v0.15.3 fix)
+    # calls ``correlation_middleware.continue_from(anchor)``
+    # per tick so the FSM-emitted events inherit the entry's
+    # flow id. A regression that drops the anchor-event
+    # propagation would surface here as a mismatch on the
+    # FSM-emitted events.
+    final_events = await event_log.read(agent_id)
+    assert_all_correlation_ids(final_events, corr)
+
 
 async def test_fsm_non_blocking_interleaved_tools() -> None:
     """Test 2: FSM executes 2 tools (slow 3.0s and fast 0.05s).
@@ -383,7 +407,7 @@ async def test_fsm_non_blocking_interleaved_tools() -> None:
         rediscovery_interval_seconds=0.1,
         heartbeat_interval_seconds=0.0,
     )
-    concordo.install(dispatcher)
+    ConcordoCatalog(concordo).install_all(dispatcher)
 
     worker_manager = WorkerManager(
         redis=redis,
@@ -484,6 +508,12 @@ async def test_fsm_non_blocking_interleaved_tools() -> None:
         f"Fast transition was only {delta}s before slow tool completion, expected > 2.0s."
     )
 
+    # Audit trail invariant (ADR-037 §1.1): every event the
+    # dispatcher wrote on behalf of this flow carries the
+    # entry's correlation_id.
+    final_events = await event_log.read(agent_id)
+    assert_all_correlation_ids(final_events, corr)
+
 
 # ===========================================================================
 # SCENARIO 3: 5 Concurrent Process Executions of the Same FSM
@@ -558,11 +588,13 @@ async def test_fsm_five_concurrent_process_executions() -> None:
     worker_manager.register(FSMPaymentProcessorTool, acl=None)
 
     agent_ids = [f"fsm-proc-{i}" for i in range(1, 6)]
+    corrs: dict[str, CorrelationContext] = {}
 
     # Seed all 5 agents with 'order.create' domain event
     for agent_id in agent_ids:
         correlation_middleware.start(metadata={"flow": "five_fsm_orders"})
         corr = correlation_middleware.current()
+        corrs[agent_id] = corr
         principal = f"tenant-a.{agent_id}"
 
         await event_log.append(
@@ -633,3 +665,7 @@ async def test_fsm_five_concurrent_process_executions() -> None:
         )
         assert transitions[0].data["from"] == "created" and transitions[0].data["to"] == "payment_pending"
         assert transitions[1].data["from"] == "payment_pending" and transitions[1].data["to"] == "completed"
+
+        # Audit trail invariant (ADR-037 §1.1): every event
+        # for this agent carries the entry's correlation_id.
+        assert_all_correlation_ids(events, corrs[agent_id])
