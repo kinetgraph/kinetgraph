@@ -221,3 +221,4 @@ class ViewTrigger:
     data: Mapping[str, "JsonValue"]
     correlation: "CorrelationContext | None"
     causation_id: UUID | None = None
+    producer_principal_id: str | None = None

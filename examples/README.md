@@ -41,6 +41,10 @@ directly with `python` or via `uv run`.
 | 23  | `23_business_fsm.py`                 | BusinessFSM Concordo (ADR-069 §3): pure state machine over a `DomainComponent` — guards, on-entry events, terminal states | core                 |
 | 24  | `24_workflow_saga.py`                | WorkflowSaga Concordo (ADR-069 §4): orchestrate tool calls — steps, enrichment, compensation, timeouts | core                 |
 | 25  | `25_specification_pattern.py`        | Specification Pattern (ADR-069 §2): composable business rules — `and_`, `or_`, `not_`, custom & built-in specs | core                 |
+| 26  | `26_multi_tool_fast_fail_flow.py`    | Multi-tool parallel execution with fast failure — entry event generates 3 tool requests (fast success, fast failure, slow 10s) and fails fast (~0.1s) | core                 |
+| 27  | `27_agent_non_blocking_interleaved.py` | Non-blocking agent execution under interleaved slow/fast tools — slow tool (3.0s) does NOT block fast tool (0.05s) completion for the SAME agent | core                 |
+| 28  | `28_fsm_concurrency_scenarios.py`    | FSM multi-tool concurrency & non-blocking fast-fail — BusinessFSM handling 3 parallel tools (fast fail ~0.1s) and interleaved non-blocking transitions | core                 |
+| 29  | `29_fsm_specification_scenarios.py`  | FSM state transition guards with composable Specification pattern — `DomainStateIs`, custom `OrderAmountValid` with `.and_()`, `.or_()`, `.not_()` | core                 |
 
 ## Setup
 
