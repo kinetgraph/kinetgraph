@@ -180,6 +180,22 @@ async def run_systems_and_persist(
     system_events = await append_system_outgoing(
         dispatcher, world, agent_id, return_events=True
     )
+    # ADR-074: advance the per-system cursors BEFORE the
+    # ``fold_with_systems`` re-fold so each cursor points
+    # at the last event the world has SEEN at the moment
+    # the system ran (i.e. the seed that triggered the
+    # tick) -- NOT the event the system emitted (which is
+    # about to be folded on the next line). The test
+    # ``test_dispatcher_advances_cursor_after_system_emits``
+    # pins this contract: ``view.cursors[<system>] ==
+    # str(seed.event_id)`` even when the system emits
+    # downstream events. ``append_system_outgoing``
+    # populates ``_tick_runners`` with one entry per
+    # ``(system_name, agent_id)`` pair; cross-agent
+    # emissions add a separate entry for the target agent
+    # so the cursor advances there too.
+    if dispatcher._tick_runners:
+        world = _advance_cursors_in_world(world, dispatcher._tick_runners)
     if system_events:
         world = fold_with_systems(dispatcher, world, system_events)
     # Dirty-only save (ADR-068 §3.5 P5c): the checkpoint is
