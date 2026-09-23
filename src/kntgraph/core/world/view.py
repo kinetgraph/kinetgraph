@@ -32,9 +32,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, Optional, TypeVar, Type
+from typing import TYPE_CHECKING, Any, Mapping, Optional, TypeVar, Type
 
 from ..lifecycle import OperationalPhase
+
+if TYPE_CHECKING:
+    from ..event.correlation import CorrelationContext
 
 T = TypeVar("T")
 
@@ -105,6 +108,16 @@ class AgentView:
     # ``None`` when the last event carried no principal (e.g.
     # events written before v0.16, or hand-built views).
     last_event_principal_id: Optional[str] = None
+    # Correlation of the agent's most recent folded event
+    # (ADR-037). Populated by the default projection on
+    # every event (both lifecycle and domain) so the
+    # dispatcher's idle-tick path can resume the audit
+    # chain without re-reading the EventLog -- the
+    # projection already keeps it in sync with the
+    # EventLog, so a checkpoint round-trip preserves the
+    # correlation. ``None`` when the agent has no folded
+    # events yet (fresh checkpoint).
+    last_event_correlation: Optional["CorrelationContext"] = None
     # Per-system cursor (ADR-074). Maps the system's name
     # (default: ``type(system).__name__``; override via
     # ``__cursor_key__`` ClassVar) to the ``event_id``

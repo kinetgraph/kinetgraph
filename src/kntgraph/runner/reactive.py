@@ -434,6 +434,13 @@ class ReactiveDispatcher:
         self._metrics_sink: MetricsSink = (
             metrics_sink if metrics_sink is not None else NullMetricsSink()
         )
+        # ADR-074: per-(system, agent) RUNNERS for cursor
+        # advancement. Reset on each tick by
+        # ``_systems_runner.append_system_outgoing``; the
+        # type is declared here so the static type
+        # checker sees the attribute without an
+        # ``# type: ignore`` on every read site.
+        self._tick_runners: set[tuple[str, str]] = set()
 
     @property
     def systems(self) -> list[WorldSystem]:

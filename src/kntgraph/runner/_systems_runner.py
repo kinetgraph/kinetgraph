@@ -29,6 +29,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Awaitable
 
 from kntgraph.core.event import Event
+from kntgraph.core.system import WorldSystem
 from kntgraph.core.world import World
 
 from ._folding import fold_with_systems
@@ -41,7 +42,7 @@ __all__ = ["run_systems_and_persist", "append_system_outgoing"]
 
 
 def _call_system(
-    system: object,
+    system: WorldSystem,
     world: "World",
 ) -> "list[Event] | Awaitable[list[Event]]":
     """
@@ -58,7 +59,7 @@ def _call_system(
     return system(world)
 
 
-def _system_name(system: object) -> str:
+def _system_name(system: WorldSystem) -> str:
     """
     Resolve the cursor key for a system instance (ADR-074).
 
@@ -231,11 +232,12 @@ async def append_system_outgoing(
     # ADR-074: track per-(system, agent) RUNNERS for cursor
     # advancement. Cursor advances when the system ran
     # (not when it emitted) so systems that filter or
-    # no-op don't get stuck with a stale cursor. Reset on
-    # each tick so the set doesn't accumulate across ticks.
-    # Lazily attached to the dispatcher so older dispatchers
-    # (which never initialised the attribute) keep working.
-    dispatcher._tick_runners = set()
+    # no-op don't get stuck with a stale cursor. The
+    # dispatcher declares the attribute in its
+    # ``__init__`` (``set[tuple[str, str]]``); we
+    # ``clear`` it here rather than re-assigning so the
+    # type stays visible to pyright at the call site.
+    dispatcher._tick_runners.clear()
     # The dispatcher (see ``ReactiveDispatcher._dispatch_for_agent``)
     # already opened a correlation scope and called
     # ``correlation_middleware.continue_from(...)`` so
@@ -292,6 +294,18 @@ async def append_system_outgoing(
             for event in outgoing:
                 if event.event_type.endswith(".compensation_started"):
                     sink.incr_compensation_started()
+        # ADR-069 §5.2: bridge ``*.dlq`` events from the
+        # saga to the DeadLetterQueue. The saga stays
+        # side-effect-free; this adapter is the only point
+        # in the framework that turns the typed event into
+        # a DLQ entry. ``DeadLetterQueue.append`` is
+        # idempotent on ``<event_id>:<reason>``, so a retry
+        # after a dispatcher restart is a no-op. When
+        # ``_dlq`` is ``None`` (the operator did not wire a
+        # DLQ), the writer short-circuits to ``[]``.
+        from ._dlq_writer import append_dlq_events
+
+        await append_dlq_events(outgoing, getattr(dispatcher, "_dlq", None))
     if return_events:
         return outgoing
     return None
