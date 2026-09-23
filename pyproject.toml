@@ -72,9 +72,16 @@ crypto = [
 llm = [
     "litellm>=1.92.0",
 ]
+# Prometheus metrics sink (ADR-075 Tier 4). Pulls in
+# `prometheus_client`; the framework's MetricsSink Protocol
+# stays in the core so the dispatcher works without the
+# extra installed.
+metrics = [
+    "prometheus-client>=0.21.0",
+]
 # Convenience meta-extras
 all-runtime = [
-    "kntgraph[falkordb,ollama,gliner,api,crypto,llm,cli]",
+    "kntgraph[falkordb,ollama,gliner,api,crypto,llm,cli,metrics]",
 ]
 
 [build-system]

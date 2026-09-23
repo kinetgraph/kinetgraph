@@ -102,6 +102,7 @@ from ._observability import (
     stale_tasks as _stale_tasks,
     stuck_in_queue as _stuck_in_queue,
 )
+from ._metrics import MetricsSink, NullMetricsSink
 from ._systems_runner import (
     run_systems_and_persist as _run_systems_and_persist_fn,
 )
@@ -202,6 +203,7 @@ class ReactiveDispatcher:
         wake_on_event: bool = True,
         dlq: Optional["DeadLetterQueue"] = None,
         tool_stream_prefix: str = "knt:tools",
+        metrics_sink: Optional["MetricsSink"] = None,
     ) -> None:
         """
         Args:
@@ -423,6 +425,15 @@ class ReactiveDispatcher:
         # ``stuck_in_queue`` query. Defaults match the
         # ToolRouter convention (``knt:tools:<name>:queue``).
         self._tool_stream_prefix: str = tool_stream_prefix
+        # ADR-075 Tier 4 observability surface: the metrics
+        # backend the dispatcher pushes to. ``None`` selects
+        # the no-op ``NullMetricsSink`` so the dispatcher's
+        # hot path is unchanged when no backend is installed.
+        # Concrete sinks live in optional extras
+        # (``kntgraph[metrics]`` for Prometheus, etc.).
+        self._metrics_sink: MetricsSink = (
+            metrics_sink if metrics_sink is not None else NullMetricsSink()
+        )
 
     @property
     def systems(self) -> list[WorldSystem]:
@@ -603,9 +614,7 @@ class ReactiveDispatcher:
                 last_view.last_event_correlation if last_view is not None else None
             )
             if last_corr is not None:
-                correlation_middleware.continue_from(
-                    _anchor_event(last_corr)
-                )
+                correlation_middleware.continue_from(_anchor_event(last_corr))
                 try:
                     await _run_systems_and_persist_fn(
                         self,
@@ -659,9 +668,7 @@ class ReactiveDispatcher:
             # batch of pure lifecycle events). Fall back to
             # the projection's bookkeeping.
             view = world.get_agent(agent_id)
-            last_corr = (
-                view.last_event_correlation if view is not None else None
-            )
+            last_corr = view.last_event_correlation if view is not None else None
         if last_corr is not None:
             correlation_middleware.continue_from(_anchor_event(last_corr))
         else:
@@ -864,9 +871,7 @@ class ReactiveDispatcher:
     # projections, no new system class. See
     # ``_observability.py`` for the low-level read helpers.
 
-    async def _load_views(
-        self, agent_id: str | None = None
-    ) -> Mapping[str, AgentView]:
+    async def _load_views(self, agent_id: str | None = None) -> Mapping[str, AgentView]:
         """Load agent views from the world_store for Tier 4
         queries.
 
@@ -910,9 +915,15 @@ class ReactiveDispatcher:
 
         ``agent_id=None`` returns tasks for every tracked
         agent; pass an id to scope the result.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_in_flight`.
         """
         views = await self._load_views(agent_id)
-        return _in_flight_tasks(agents_to_views=views, agent_id=agent_id)
+        result = _in_flight_tasks(agents_to_views=views, agent_id=agent_id)
+        self._metrics_sink.record_in_flight(len(result))
+        return result
 
     async def stale_tasks(
         self,
@@ -926,13 +937,19 @@ class ReactiveDispatcher:
         The threshold defaults to 5 minutes — the standard
         tool recovery SLA. Operators tune this per deployment
         depending on tool-latency budgets.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_stale`.
         """
         views = await self._load_views(agent_id)
-        return _stale_tasks(
+        result = _stale_tasks(
             agents_to_views=views,
             threshold_seconds=threshold_seconds,
             agent_id=agent_id,
         )
+        self._metrics_sink.record_stale(len(result))
+        return result
 
     async def stuck_in_queue(
         self,
@@ -975,16 +992,22 @@ class ReactiveDispatcher:
         monkey-patch ``_world_store = None`` after
         construction (test scenario only); production code
         never hits it.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_stuck_in_queue`.
         """
         if self._world_store is None:
             return []
         views = await self._load_views(None)
-        return await _stuck_in_queue(
+        result = await _stuck_in_queue(
             stream_inspector=self._world_store,
             stream_prefix=self._tool_stream_prefix,
             agents_to_views=views,
             threshold_seconds=threshold_seconds,
         )
+        self._metrics_sink.record_stuck_in_queue(len(result))
+        return result
 
     async def dead_lettered_tasks(
         self,
@@ -1005,13 +1028,19 @@ class ReactiveDispatcher:
         ``TOOL_STALE_ACKNOWLEDGED`` / ``TOOL_STALE_UNACKNOWLEDGED``
         after this ADR lands). ``agent_id`` filters by agent.
         No filter ⇒ ``list_all``.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_dead_lettered`.
         """
-        return await _dead_lettered_tasks(
+        result = await _dead_lettered_tasks(
             self._dlq,
             reason=reason,
             agent_id=agent_id,
             count=count,
         )
+        self._metrics_sink.record_dead_lettered(len(result))
+        return result
 
     async def detect_and_recover(
         self,

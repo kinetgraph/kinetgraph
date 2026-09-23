@@ -279,6 +279,19 @@ async def append_system_outgoing(
         await dispatcher._log.append_batch(outgoing)
         if dispatcher._tool_router is not None:
             await dispatcher._tool_router.route_batch(outgoing)
+        # ADR-075 Tier 4: increment the compensation counter
+        # once per ``*.compensation_started`` event appended.
+        # Saga projections emit this event type per step
+        # (ADR-069 §11.18.2) as the durable marker that the
+        # rollback for that step has started; the suffix
+        # match is intentional so future event types sharing
+        # the same shape (e.g. nested saga compensation)
+        # are counted the same way.
+        sink = getattr(dispatcher, "_metrics_sink", None)
+        if sink is not None:
+            for event in outgoing:
+                if event.event_type.endswith(".compensation_started"):
+                    sink.incr_compensation_started()
     if return_events:
         return outgoing
     return None
