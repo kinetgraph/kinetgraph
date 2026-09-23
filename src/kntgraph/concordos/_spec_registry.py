@@ -2,6 +2,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
+.. warning::
+
+    **DEV status -- not recommended for production use.**
+
+    This module is the Python entry point for the
+    mini-language parser in user code
+    (specifically :class:`MiniLangSpec`, which is part of
+    ``__all__``). The grammar, built-in functions, AST
+    node shapes, and ``MiniLangSpec``'s contract may
+    change without notice in subsequent releases.
+
+    Prefer :class:`kntgraph.concordos.Specification` or the
+    :class:`Composable` combinators (``AndSpec`` /
+    ``OrSpec`` / ``NotSpec``) when a stable contract is
+    required. The bundle loader uses this module
+    internally to turn named predicates declared in
+    YAML/JSON bundles into :class:`Specification`
+    instances.
+
 concordos._spec_registry -- Spec name resolution for bundles.
 
 A bundle's ``specifications:`` block declares named
@@ -63,6 +82,20 @@ __all__ = [
 class MiniLangSpec(Specification):
     """A :class:`Specification` that evaluates a parsed
     mini-language expression.
+
+    .. warning::
+
+        **DEV status -- not recommended for production use.**
+
+        The mini-language grammar, built-in functions, and
+        AST node shapes may change without notice in
+        subsequent releases. For new code, prefer the
+        :class:`Specification` API or the :class:`Composable`
+        combinators (``AndSpec`` / ``OrSpec`` / ``NotSpec``).
+        This class is the primary user-facing surface of the
+        mini-language in Python; the bundle loader produces
+        ``MiniLangSpec`` instances internally from the
+        bundle's ``specifications:`` block.
 
     The expression is parsed once at construction; each
     ``is_satisfied_by`` call walks the AST against the

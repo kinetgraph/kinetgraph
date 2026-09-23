@@ -2,6 +2,22 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
+.. warning::
+
+    **DEV status -- not recommended for production use.**
+
+    This module is under active development. The grammar,
+    built-in functions, AST node shapes, and the ``__all__``
+    surface may change without notice in subsequent releases.
+
+    Prefer the higher-level
+    :class:`kntgraph.concordos.Specification` API or the
+    built-in :class:`Composable` combinators (``AndSpec`` /
+    ``OrSpec`` / ``NotSpec``) when a stable contract is
+    required. The bundle format uses this parser internally;
+    hand-written predicates should use the Python
+    Specification API instead.
+
 concordos._mini_lang -- the predicate mini-language (ADR-073 §4.4).
 
 A small, declarative expression language for FSM guards and

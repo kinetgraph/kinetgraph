@@ -3,6 +3,20 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
+.. warning::
+
+    **The mini-language parser (ADR-073 §4.4) is in DEV
+    status and not recommended for production use.**
+
+    Bundles that declare predicates in the mini-language
+    expression syntax, and the :class:`MiniLangSpec` Python
+    wrapper exposed by ``concordos._spec_registry``, may
+    break across releases as the grammar, built-ins, and
+    AST evolve. The Python :class:`Specification` API and
+    the :class:`Composable` combinators (``AndSpec`` /
+    ``OrSpec`` / ``NotSpec``) are the stable surface for
+    hand-written predicates.
+
 concordos -- composable behavioral patterns (ADR-069).
 
 A *Concordo* is a named, composable behavioral pattern that
