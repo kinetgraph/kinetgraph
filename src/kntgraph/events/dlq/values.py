@@ -32,9 +32,13 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Mapping, cast
 from uuid import UUID
 
 from ...core.event import CorrelationContext, Event
+
+if TYPE_CHECKING:
+    from ...core._typing import JsonValue
 
 
 # Redis keys for the DLQ.
@@ -88,7 +92,9 @@ class DeadLetterEvent:
     original_timestamp: datetime
     dlq_timestamp: datetime
     retry_count: int = 0
-    metadata: dict = field(default_factory=dict)
+    metadata: Mapping[str, "JsonValue"] = field(
+        default_factory=lambda: cast("Mapping[str, JsonValue]", {})
+    )
 
     @property
     def dlq_id(self) -> str:
@@ -97,7 +103,7 @@ class DeadLetterEvent:
         same dlq_id (used as the idempotency key)."""
         return f"dlq:{self.event.event_id}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str]:
         return {
             "event_id": str(self.event.event_id),
             "agent_id": self.event.agent_id,
@@ -128,9 +134,14 @@ class DeadLetterEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DeadLetterEvent":
+    def from_dict(cls, data: Mapping[str, str]) -> "DeadLetterEvent":
         def s(key: str, default: str = "") -> str:
-            return data.get(key, default)
+            # ``Mapping.get`` returns ``str | None`` even when
+            # a ``default`` is supplied; narrow with the
+            # ``or`` short-circuit so the returned value is
+            # always ``str``.
+            value = data.get(key, default)
+            return value if value is not None else default
 
         correlation = CorrelationContext(
             correlation_id=UUID(s("correlation_id")),

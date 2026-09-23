@@ -58,7 +58,12 @@ from ..._optional import require_optional
 from .._metrics import MetricsSink
 
 if TYPE_CHECKING:
-    from prometheus_client import CollectorRegistry
+    # ``CollectorRegistry`` is an optional extra; pyright
+    # cannot resolve the symbol through the lazy
+    # ``require_optional`` boundary. The
+    # ``# type: ignore`` on the import silences the
+    # resulting ``reportUnknownVariableType`` warning.
+    from prometheus_client import CollectorRegistry  # type: ignore[reportUnknownVariableType]
 
 
 # Metric names are constants so dashboards and alert rules
@@ -113,7 +118,14 @@ class PrometheusMetricsSink(MetricsSink):
     def __init__(
         self,
         *,
-        registry: Optional["CollectorRegistry"] = None,
+        # ``CollectorRegistry`` is the TYPE_CHECKING-only
+        # import above; pyright cannot resolve it through
+        # the lazy ``require_optional`` boundary so the
+        # runtime annotation collapses to ``Any``. The
+        # constructor forwards ``registry`` to
+        # ``prometheus_client.Gauge`` / ``Counter`` and
+        # rejects anything that is not the real type.
+        registry: Optional["CollectorRegistry"] = None,  # type: ignore[reportUnknownVariableType]
         namespace: str = "kntgraph",
     ) -> None:
         """Build the sink and register the five metrics.
@@ -146,7 +158,7 @@ class PrometheusMetricsSink(MetricsSink):
         # ``registry=None`` they fall back to the global
         # ``REGISTRY`` (the standard Prometheus client
         # convention).
-        self._registry = registry
+        self._registry: Optional["CollectorRegistry"] = registry
         self._namespace = namespace
         self._in_flight = prom.Gauge(
             _IN_FLIGHT_METRIC,
@@ -226,7 +238,10 @@ class PrometheusMetricsSink(MetricsSink):
     def start_default_http_server(
         cls,
         port: int,
-        registry: Optional["CollectorRegistry"] = None,
+        # See the matching note on ``__init__``: the
+        # type is unresolvable through the
+        # TYPE_CHECKING / lazy-import boundary.
+        registry: Optional["CollectorRegistry"] = None,  # type: ignore[reportUnknownVariableType]
     ) -> None:
         """Convenience wrapper around
         ``prometheus_client.start_http_server``.

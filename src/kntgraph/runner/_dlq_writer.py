@@ -67,13 +67,16 @@ replay will retry the append.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 
 from ..core.event import Event
 from ..events.dlq.store import DeadLetterQueue
 from ..events.dlq.values import DLQReason, DeadLetterEvent
+
+if TYPE_CHECKING:
+    from ..core._typing import JsonValue
 
 
 logger = structlog.get_logger()
@@ -117,6 +120,25 @@ async def append_dlq_events(
     logged but do NOT abort the loop -- one failed event
     does not block the others.
 
+    Idempotency
+    -----------
+
+    The DLQ storage is idempotent on
+    ``<event_id>:<reason>`` -- a second ``append`` for the
+    same pair returns the **existing** stream id without
+    ``XADD``-ing a duplicate. The writer inherits that
+    behaviour but goes one step further: it does a
+    pre-check via :meth:`DeadLetterQueue.get_event` and
+    skips the ``append`` call entirely when an entry for
+    the same ``(event_id, reason)`` already exists. The
+    pre-check makes the **return value** correct: the
+    list contains stream ids of FRESH entries only, not
+    dedup hits. (The storage's idempotency window still
+    closes any TOCTOU race -- two writers pre-checking
+    at the same instant will both hit the storage
+    idempotency, which returns the same stream id to
+    both.)
+
     Args:
         outgoing: the events the dispatcher's tick loop
             just appended to the EventLog. Same list the
@@ -135,10 +157,9 @@ async def append_dlq_events(
 
     Returns:
         List of stream ids assigned by the storage, one
-        per fresh entry. Idempotent re-runs (dedup hit)
-        are filtered out -- the caller does not need to
-        distinguish "wrote" from "already there" for the
-        metrics path.
+        per FRESH entry. Idempotent re-runs (dedup hit)
+        are pre-checked and skipped -- the returned list
+        accurately reflects "what was newly written".
     """
     if dlq is None or not outgoing:
         return []
@@ -155,9 +176,24 @@ async def append_dlq_events(
         # the runtime type when the event was built with
         # a literal dict. Other types (``str``, ``int``,
         # ``list``) skip the ``reason`` / ``error`` lookups
-        # and fall back to the defaults below.
-        data: dict = dict(event.data) if isinstance(event.data, dict) else {}
-        reason_str = data.get("reason")
+        # and fall back to the defaults below. The
+        # explicit ``dict[str, JsonValue]`` annotation
+        # keeps the empty-fallback branch's type honest
+        # -- ``{}`` alone would infer ``dict[Unknown,
+        # Unknown]`` and propagate the partial-unknown
+        # to every ``.get(...)`` call.
+        data: dict[str, JsonValue] = (
+            dict(event.data) if isinstance(event.data, dict) else {}
+        )
+        # Narrow each lookup individually: ``data.get``
+        # returns ``JsonValue | None`` (the recursive
+        # union), and only the ``str`` slice is a valid
+        # ``reason`` / ``error``. Other types (numbers,
+        # bools, lists, dicts) are treated as "no value"
+        # so the writer falls through to the defaults
+        # rather than crashing on a malformed payload.
+        reason_raw = data.get("reason")
+        reason_str: str | None = reason_raw if isinstance(reason_raw, str) else None
         try:
             reason = DLQReason(reason_str) if reason_str else default_reason
         except ValueError:
@@ -166,7 +202,28 @@ async def append_dlq_events(
             # may be a forward-compat vertical. Fall back
             # to the default rather than crash the loop.
             reason = default_reason
-        error_message = str(data.get("error", "compensation failed"))
+        error_raw = data.get("error")
+        error_message = (
+            error_raw if isinstance(error_raw, str) else "compensation failed"
+        )
+
+        # Pre-check for an existing entry. ``get_event``
+        # scans the per-event_id index and returns the
+        # first match; comparing the returned entry's
+        # ``reason`` against the one we would append is
+        # the dedup boundary. ``None`` ⇒ first-time
+        # write; same reason ⇒ dedup hit (skip);
+        # different reason ⇒ separate entry for the same
+        # event under a different failure mode.
+        existing = await dlq.get_event(str(event.event_id))
+        if existing is not None and existing.reason == reason:
+            logger.debug(
+                "dlq_writer.idempotent_skip",
+                event_id=str(event.event_id),
+                event_type=event.event_type,
+                reason=reason.value,
+            )
+            continue
 
         dl_event = DeadLetterEvent(
             event=event,
@@ -200,18 +257,6 @@ async def append_dlq_events(
         # ``is_err()`` branch above guarantees the value
         # is present).
         if not isinstance(stream_id, str):
-            continue
-        if stream_id == PLACEHOLDER:
-            # Idempotency hit; the event is already in
-            # the DLQ. Not a fresh write, so we do not
-            # surface the placeholder in the return
-            # list (the caller does not care about
-            # "wrote vs already there" for accounting).
-            logger.debug(
-                "dlq_writer.idempotent_skip",
-                event_id=str(event.event_id),
-                event_type=event.event_type,
-            )
             continue
         stream_ids.append(stream_id)
     return stream_ids

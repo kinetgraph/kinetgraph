@@ -69,17 +69,19 @@ class _FakeDeadLetterQueue:
     """A minimal :class:`DeadLetterQueue` stand-in.
 
     Records every ``append`` call so the test can assert
-    on the wire-format shape. The ``append_idempotent``
-    flag simulates the storage's idempotency hit (the
-    real storage returns ``PLACEHOLDER`` for a duplicate
-    ``<event_id>:<reason>`` pair).
+    on the wire-format shape. Implements ``get_event``
+    so the writer's pre-check (added in the same iteration)
+    can detect dedup hits without round-tripping through
+    Redis.
     """
 
     records: list[_AppendRecord] = field(default_factory=list)
-    # Maps ``<event_id>:<reason>`` → True for dedup tracking.
-    # When True, the next append with the same key returns
-    # PLACEHOLDER instead of a fresh stream id.
-    seen: dict[str, bool] = field(default_factory=dict)
+    # Maps ``<event_id>`` → ``_AppendRecord`` so
+    # ``get_event`` returns the first record for an
+    # event_id (matching the real ``DeadLetterQueue``
+    # behaviour, which scans ``<event_id>:*`` and
+    # returns the first match).
+    by_event_id: dict[str, _AppendRecord] = field(default_factory=dict)
     # Set to True to make append fail with a
     # PersistenceError -- the writer must catch and
     # continue.
@@ -88,24 +90,30 @@ class _FakeDeadLetterQueue:
     def _idem_key(self, event_id: str, reason: str) -> str:
         return f"{event_id}:{reason}"
 
+    async def get_event(self, event_id: str) -> "DeadLetterEvent | None":
+        """Return the first DLQ entry for ``event_id``,
+        or ``None`` if no entry exists. Mirrors the real
+        ``DeadLetterQueue.get_event`` contract.
+        """
+        record = self.by_event_id.get(event_id)
+        return record.dl_event if record is not None else None
+
     async def append(
         self, dl_event: DeadLetterEvent
     ) -> "Any":  # Result[str, PersistenceError]
         if self.fail_next:
             self.fail_next = False
             return Err(PersistenceError("storage unavailable"))
-        key = self._idem_key(str(dl_event.event.event_id), dl_event.reason.value)
-        if self.seen.get(key):
-            return Ok(PLACEHOLDER)
-        self.seen[key] = True
-        self.records.append(
-            _AppendRecord(
-                dl_event=dl_event,
-                event_id=str(dl_event.event.event_id),
-                reason=dl_event.reason.value,
-                error_message=dl_event.error_message,
-            )
+        record = _AppendRecord(
+            dl_event=dl_event,
+            event_id=str(dl_event.event.event_id),
+            reason=dl_event.reason.value,
+            error_message=dl_event.error_message,
         )
+        self.records.append(record)
+        # First-write-wins for the by_event_id index
+        # (the real storage does the same on dedup).
+        self.by_event_id.setdefault(str(dl_event.event.event_id), record)
         return Ok(f"stream-{len(self.records)}")
 
 
