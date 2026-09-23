@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallTTL
+from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.projection_tool_calls import (
     project_tool_calls,
 )
@@ -59,10 +60,18 @@ def _request_event(*, tool_name: str, ts: datetime | None = None) -> Event:
     )
 
 
-def _world_with_request(request: Event, ttl_seconds: float = 300.0) -> World:
-    """Build a World whose ``tool_requests`` slot
-    contains the given request (with the given
-    TTL)."""
+def _world_with_request(
+    request: Event, ttl_seconds: float = 300.0
+) -> "dict[str, AgentView]":
+    """Build the post-projection views dict whose
+    ``tool_requests`` slot contains the given request
+    (with the given TTL).
+
+    ``project_tool_calls`` returns the inner views
+    dict (not a ``World``); the sweeper accepts either
+    shape via its ``World | Mapping[str, AgentView]``
+    union parameter.
+    """
     from kntgraph.core.world.projection_tool_calls import (
         project_tool_calls,
     )
@@ -267,6 +276,112 @@ class TestSweeperFailsLoudForUnknownTool:
         assert len(events) == 1
         assert events[0].event_type == "tool.x.failed"
         assert events[0].data["tool_name"] == "x"
+
+
+class TestSweeperSkipsCompletedRequests:
+    """The sweeper must NOT emit a failure for a stale
+    request when a matching completion is already in
+    the view's ``tool_completions`` slot.
+
+    Background
+    ----------
+    The audit (initial FSM/Sagas review) flagged this
+    race: when ``tool.<name>.requested`` and
+    ``tool.<name>.completed`` both arrive in the SAME
+    tick (the request is "stale" only because the TTL
+    is short relative to the worker's latency), the
+    projection populates both ``tool_requests[req_id]``
+    (the request) and ``tool_completions[req_id]`` (the
+    completion). The projection's post-systems eviction
+    pass would remove the request, but the sweeper
+    runs BEFORE that pass (the sweeper is itself a
+    system; the post-systems pass runs AFTER all
+    systems). Result: the sweeper emits a spurious
+    ``tool.<name>.failed`` for a request the worker
+    successfully completed.
+
+    The fix: the sweeper checks ``tool_completions`` for
+    the request_id and skips requests that already have
+    a completion in the same view. The completion is
+    evidence the work happened; the request is NOT
+    orphaned.
+    """
+
+    def test_stale_request_with_completion_in_view_emits_nothing(
+        self,
+    ) -> None:
+        """The bug scenario: ``requested`` and
+        ``completed`` both arrive in the same tick.
+        The request is stale (TTL passed), but the
+        completion is also in the view. The sweeper
+        must NOT emit a failure.
+
+        Setup:
+
+        - ``request`` at t=0 with TTL=300s.
+        - ``completion`` at t=600 (well past the TTL;
+          the worker was slow).
+        - Both events folded into the same World; the
+          pre-systems view has both ``tool_requests``
+          and ``tool_completions`` populated.
+        - ``now=t=600``: the request is stale.
+
+        Expected: no failure event. The completion is
+        evidence the work happened.
+        """
+        from kntgraph.core.world.components import ToolCallCompletion
+
+        request = _request_event(tool_name="chat_llm", ts=_ts(0))
+        completion = Event.create(
+            event_type="tool.chat_llm.completed",
+            agent_id=AGENT_ID,
+            event_class="domain",
+            data={"result": "ok"},
+            correlation=_ctx(),
+            timestamp=_ts(600),
+            causation_id=request.event_id,
+        )
+        # Fold both events into a single World. The
+        # pre-systems projection keeps the request
+        # because both events are NEW in this tick
+        # (the post-systems eviction only applies
+        # when the request was carried in from a
+        # previous tick).
+        views = project_tool_calls(
+            [request, completion],
+            ttl=ToolCallTTL(default_ttl_seconds=300.0),
+        )
+        # Sanity: the view has both slots populated
+        # BEFORE the sweeper runs.
+        view = views[AGENT_ID]
+        assert view.components.get("tool_requests", {})
+        assert view.components.get("tool_completions", {})
+        # And the ToolCallCompletion is keyed by the
+        # request's event_id.
+        completion_slot = view.components["tool_completions"]
+        assert isinstance(completion_slot, dict)
+        completion_values: list[ToolCallCompletion] = list(
+            completion_slot.values()
+        )
+        assert len(completion_values) == 1
+        assert isinstance(completion_values[0], ToolCallCompletion)
+
+        # Drive the sweeper. ``project_tool_calls``
+        # returns the views dict (not a World); the
+        # sweeper accepts either.
+        now = _ts(600)
+        sweeper = ToolCallTTLSweeperSystem(now=now)
+        events = sweeper(views)
+
+        # Bug guard: the sweeper must NOT emit a
+        # failure for a request whose completion is
+        # already in the view. The work happened; the
+        # failure is spurious and would double-fire the
+        # saga's compensation path.
+        assert events == [], (
+            f"sweeper emitted {len(events)} spurious failure(s) "
+            f"for a completed request: {[e.event_type for e in events]!r}"
+        )
 
 
 class TestSweeperDefensiveBranches:

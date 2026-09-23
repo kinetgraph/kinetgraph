@@ -112,7 +112,6 @@ from kntgraph.core.world.view import AgentView
 
 if TYPE_CHECKING:
     from kntgraph.events.dlq.store import DeadLetterQueue
-    from kntgraph.events.dlq.values import DLQReason
 
 
 # The error string emitted on a TTL-expired request.
@@ -230,6 +229,32 @@ class ToolCallTTLSweeperSystem:
             tool_requests = view.components.get("tool_requests", {})
             if not isinstance(tool_requests, dict):
                 continue
+            # Mirror the request slot: ``tool_completions``
+            # is the slot the projection populates from
+            # ``tool.<name>.completed`` / ``.failed`` events.
+            # When a completion is present for a
+            # ``request_id``, the request is NOT an
+            # orphan -- the worker (or a previous tick's
+            # sweeper) already responded. The post-systems
+            # eviction pass will remove the request from
+            # ``tool_requests`` on the next fold; until
+            # then, the sweeper must NOT emit a duplicate
+            # failure (which would double-fire downstream
+            # compensation paths -- the saga system
+            # reacts to both ``completed`` and ``failed``
+            # events for the same ``request_event_id``).
+            #
+            # Pinned by
+            # ``TestSweeperSkipsCompletedRequests``
+            # in ``tests/unit/runner/test_tool_call_ttl_sweeper.py``.
+            tool_completions = view.components.get("tool_completions", {})
+            if not isinstance(tool_completions, dict):
+                # Tampered / corrupted view: treat as
+                # "no completions known" so the sweeper
+                # still does its job (defensive: better
+                # to fail open on a tampered view than to
+                # skip the entire agent).
+                tool_completions = {}
             for request_id, req in tool_requests.items():
                 if not isinstance(req, ToolCallRequest):
                     continue
@@ -242,6 +267,17 @@ class ToolCallTTLSweeperSystem:
                 if now < req.expires_at:
                     # Not yet expired; the next tick
                     # will re-check.
+                    continue
+                if request_id in tool_completions:
+                    # A completion (success OR failure)
+                    # is already in the view for this
+                    # request_id. The work is accounted
+                    # for -- no need to emit a TTL
+                    # failure. The post-systems eviction
+                    # pass will drop the request on the
+                    # next fold; for this tick we simply
+                    # stay silent. See the audit's
+                    # "TTL sweeper ordering" finding.
                     continue
                 if request_id in self._emitted_failures:
                     # Already emitted a failed event
@@ -257,9 +293,7 @@ class ToolCallTTLSweeperSystem:
                 events.append(failed_event)
                 # ADR-075 §2.3: route to DLQ when wired.
                 if self._dlq is not None:
-                    self._route_to_dlq(
-                        failed_event, agent_id, request_id
-                    )
+                    self._route_to_dlq(failed_event, agent_id, request_id)
         return events
 
     def _route_to_dlq(
