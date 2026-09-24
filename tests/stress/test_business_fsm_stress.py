@@ -12,7 +12,7 @@ Exercises the full reactive state-machine pipeline against a real Redis instance
   - WorkerManager (ProcessPoolExecutor)
 
 State Machine Topology per Process:
-  - State 'created' --(order.submit)--> State 'processing'
+  - State 'created' --(stress.order.submit)--> State 'processing'
     On entry to 'processing': emits 'tool.<tool_name>.requested'
   - State 'processing' --(tool.<tool_name>.completed)--> State 'approved' (terminal)
   - State 'processing' --(tool.<tool_name>.failed)--> State 'rejected' (terminal)
@@ -62,7 +62,7 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-@domain_component("order.submit")
+@domain_component("stress.order.submit")
 @dataclass(frozen=True, slots=True)
 class StressOrderComponent(DomainComponent):
     """Domain component representing order state under stress."""
@@ -111,7 +111,7 @@ def create_fsm_config(tool_name: str) -> FSMConfig:
         state_field="stage",
         transitions={
             "created": {
-                "order.submit": FSMTransition(to="processing"),
+                "stress.order.submit": FSMTransition(to="processing"),
             },
             "processing": {
                 f"tool.{tool_name}.completed": FSMTransition(to="approved"),
@@ -179,7 +179,7 @@ async def run_fsm_telemetry_benchmark(
         )
         await event_log.append(
             Event.create(
-                event_type="order.submit",
+                event_type="stress.order.submit",
                 agent_id=agent_id,
                 event_class="domain",
                 correlation=correlation_middleware.current(),

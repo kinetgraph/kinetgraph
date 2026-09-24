@@ -59,7 +59,7 @@ pytestmark = [pytest.mark.asyncio]
 # ===========================================================================
 
 
-@domain_component("order.submit")
+@domain_component("fsm.order.submit")
 @dataclass(frozen=True, slots=True)
 class FSMStressOrderComponent(DomainComponent):
     stage: str = "created"
@@ -167,7 +167,7 @@ multi_tool_fsm_config = FSMConfig(
     state_field="stage",
     transitions={
         "created": {
-            "order.submit": FSMTransition(to="processing"),
+            "fsm.order.submit": FSMTransition(to="processing"),
         },
         "processing": {
             "tool.fsm_fast_success_tool.completed": FSMTransition(to="approved"),
@@ -329,7 +329,7 @@ async def test_fsm_parallel_multi_tool_fast_fail() -> None:
     )
     await event_log.append(
         Event.create(
-            event_type="order.submit",
+            event_type="fsm.order.submit",
             agent_id=agent_id,
             event_class="domain",
             correlation=corr,

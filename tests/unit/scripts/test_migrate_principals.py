@@ -24,21 +24,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
-from pathlib import Path
 
 import fakeredis.aioredis
 import pytest
 
-# Make the script importable. The scripts dir is two
-# levels up from tests/unit/scripts/ (tests → unit →
-# scripts/); but the test file lives at
-# ``tests/unit/scripts/`` so the relative path is
-# ``../../../scripts`` from this file's directory.
-THIS_DIR = Path(__file__).resolve().parent
-SCRIPTS_DIR = THIS_DIR.parent.parent.parent / "scripts"
-sys.path.insert(0, str(SCRIPTS_DIR))
-
+# The repo root is on ``sys.path`` via this directory's
+# ``conftest.py`` (``tests/unit/scripts/conftest.py``); the
+# script is importable as a top-level module from there.
 import migrate_principals  # noqa: E402  # pyright: ignore[reportMissingImports]
 
 

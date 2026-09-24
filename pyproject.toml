@@ -130,6 +130,21 @@ useLibraryCodeForTypes = true
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
+# NOTE: pytest 9.x does not expose ``importmode`` as an
+# ini option, so this must be set via the CLI
+# (``--import-mode=importlib``) when the full test
+# suite is collected and ``tests/integration/runner/
+# test_checkpoint.py`` clashes with ``tests/unit/infra/
+# test_checkpoint.py``. The ``mutmut run`` invocation
+# in ``pyproject.toml`` does not need this because
+# mutmut copies the source under ``mutants/`` first,
+# so basenames do not collide. For local full-suite
+# collection, run::
+#
+#     .venv/bin/python -m pytest --import-mode=importlib
+#
+# See ``tests/unit/infra/test_world_checkpoint_store.py``
+# for the renamed unit test.
 markers = [
     # The stress suite under ``tests/stress/``
     # requires real Redis on ``localhost:6379``
@@ -221,37 +236,19 @@ only_mutate = [
     "src/kntgraph/runner/tool_call_ttl_sweeper.py",
     "src/kntgraph/events/dlq/values.py",
 ]
-# Tests under any ``tests/.../scripts`` directory use
-# path-only imports (``from scripts.readme_stats import
-# ...`` or ``import migrate_principals``). They are not
-# on pytest's default collection path; skip them here so
-# mutmut's collection doesn't trip on the missing
-# modules. Run them explicitly when the scripts are on
-# ``PYTHONPATH``.
-#
-# ``tests/stress/`` registers ``@domain_component`` keys
-# that collide with ``tests/unit/concordos/
-# test_fsm_concurrency_scenarios.py``. The pre-existing
-# project convention runs the stress module on a
-# separate Redis-backed step (CI gate); mutmut skips it
-# for the same reason -- the duplicate registration is a
-# known isolation gap that mutmut's broad collection
-# trips on. Run with ``pytest tests/stress`` when Redis
-# is available.
-#
-# ``tests/agents/`` houses vertical-specific agent tests
-# that fail under mutmut's broad collection (e.g.
-# ``test_pending_request_emits_no_event`` constructs a
-# ``ToolCallTTL`` with ``default_ttl_seconds=0`` which
-# post-ADR-075 is forbidden). Run with
-# ``pytest tests/agents`` separately, on the agent
-# pipeline step (CI gate).
-pytest_add_cli_args = [
-    "--ignore=tests/scripts",
-    "--ignore=tests/unit/scripts",
-    "--ignore=tests/stress",
-    "--ignore=tests/agents",
-]
+# ``also_copy = ["scripts/", "examples/"]`` keeps the
+# repo-root ``scripts/`` and ``examples/`` directories
+# under ``mutants/`` when mutmut copies the project. The
+# top-level ``tests/conftest.py`` adds ``scripts/`` to
+# ``sys.path`` so the test files under ``tests/scripts/``
+# and ``tests/unit/scripts/`` can ``import scripts.readme_stats``
+# / ``import migrate_principals`` (path-only imports).
+# The example-loader tests under ``tests/agents/unit/
+# test_example_05b_projection.py`` import the example
+# script by relative path (``examples/05b_session_chat_ecs.py``);
+# without the copy, mutmut's broad collection in
+# ``mutants/`` cannot resolve those imports.
+also_copy = ["scripts/", "examples/"]
 
 [tool.radon]
 exclude_paths = ["tests", "examples", ".venv", "htmlcov", "docs"]

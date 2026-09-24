@@ -29,6 +29,7 @@ Steps (in order):
     pyright      static type check
     tests        pytest unit tests
     integration  framework integration tests (opt-in via --only integration)
+    mutation     mutação testing (opt-in via --only mutation)
     reliability  branch coverage on stream + runner + security
     verticals    branch coverage on agents + api + cli + events + knowledge + memory
     bandit       security scan
@@ -237,6 +238,60 @@ def step_integration() -> Step:
             "tests/integration/test_reactive_dispatcher.py",
             "tests/integration/test_runner.py",
             "-q",
+        ),
+    )
+
+
+def step_mutation() -> Step:
+    """Mutação testing (ADR-NNN: mutmut 3.x).
+
+    Runs ``mutmut run`` over the focused scope
+    (``src/kntgraph/runner/_dlq_writer.py``,
+    ``src/kntgraph/runner/_metrics.py``,
+    ``src/kntgraph/runner/metrics/prometheus.py``,
+    ``src/kntgraph/runner/tool_call_ttl_sweeper.py``,
+    ``src/kntgraph/events/dlq/values.py`` -- the 5 files
+    touched in the recent audit + TDD work). The
+    ``[tool.mutmut] only_mutate`` list in ``pyproject.toml``
+    is the source of truth for the scope.
+
+    Like ``step_integration`` and ``step_stress``, this is
+    **opt-in via ``--only mutation``** because:
+      - the focused scope has ~276 mutants and a full run
+        against the entire test suite takes hours (each
+        mutant runs the full collection under that mutant's
+        diff);
+      - the production gate runs the unit + integration
+        suites; mutmut is for periodic mutation-driven
+        refinement (not a per-PR check).
+
+    The step does NOT fail the gate on surviving mutants.
+    Mutmut's job is to highlight tests that do not catch
+    behavioural changes -- survivors are diagnostics, not
+    failures. The badge output (``mutmut badge``) is the
+    actionable artefact; pair with the mutation score
+    in the README (or shield badge) for a continuous
+    quality signal.
+
+    Tolerance:
+      - ``mutmut run`` returns non-zero on surviving
+        mutants; the step captures this but does not add
+        to the failed list (a long mutmut run can leave
+        some ``not checked`` mutants when interrupted; the
+        next ``mutmut run`` resumes from cache).
+      - The step writes ``mutants/`` to disk (mutmut's
+        workdir). The ``mutants/`` directory is in
+        ``.gitignore``.
+    """
+    return Step(
+        "mutation (mutmut on the focused scope)",
+        (
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "mutmut",
+            "run",
         ),
     )
 
@@ -566,6 +621,7 @@ ALL_STEPS: dict[str, Step] = {
     "tests": step_tests(),
     "integration": step_integration(),
     "stress": step_stress(),
+    "mutation": step_mutation(),
     "reliability": Step(
         "reliability (branch coverage on stream + runner + security)",
         ("_inline_gate_reliability_",),
@@ -642,6 +698,28 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
             "The stress suite is skipped on this environment."
         )
         return r.stdout or ""
+
+    # The mutation step is diagnostic, not a pass/fail
+    # gate. mutmut returns non-zero when there are
+    # surviving mutants (or not-checked mutants from an
+    # interrupted previous run). We log the summary so
+    # the operator can act on it, but we do NOT add to the
+    # failed list -- a run that shows new survivors is
+    # actionable information, not a release blocker. To
+    # turn survivors into failures once the team commits
+    # to keeping the mutation score at or near 100%, gate
+    # here on ``r.returncode != 0``.
+    if step.name == "mutation (mutmut on the focused scope)":
+        summary = (r.stdout or "")[-2000:] + (r.stderr or "")[-2000:]
+        print(
+            "  >>> tolerated: mutmut returned "
+            f"exit code {r.returncode}. Inspect with "
+            "`uv run python -m mutmut results` and "
+            "`uv run python -m mutmut browse`. Tail of "
+            f"output:\n{summary}"
+        )
+        return r.stdout or ""
+
     failed.append(step.name)
     if r.stdout:
         print(r.stdout)
