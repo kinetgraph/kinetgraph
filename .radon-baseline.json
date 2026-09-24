@@ -1916,18 +1916,18 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_compensation.py:function:begin_compensation": {
-      "complexity": 6,
+      "complexity": 10,
       "lineno": 51,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_compensation.py:function:is_compensation_failure": {
       "complexity": 6,
-      "lineno": 149,
+      "lineno": 172,
       "rank": "B"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_compensation.py:function:step_result_payload": {
       "complexity": 2,
-      "lineno": 168,
+      "lineno": 191,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_components.py:class:SagaProgressComponent": {
@@ -2167,7 +2167,7 @@
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_system.py:method:_handle_failure": {
       "complexity": 4,
-      "lineno": 434,
+      "lineno": 448,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_system.py:method:_is_compensation_failure": {
@@ -8504,7 +8504,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_compensation.py": {
-      "mi": 75.60119083697371,
+      "mi": 72.71067374755341,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_components.py": {
@@ -8528,7 +8528,7 @@
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_system.py": {
-      "mi": 55.95910168242725,
+      "mi": 55.85405376428162,
       "rank": "A"
     },
     "/home/adriano/Projects/kinetgraph/kinetgraph/src/kntgraph/concordos/saga/_timeout_system.py": {

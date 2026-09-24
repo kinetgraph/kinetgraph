@@ -419,6 +419,7 @@ class SagaSystem:
         from ._dispatch import dispatch_step
         from ._records import (
             next_non_skipped_step,
+            record_start,
             record_step_completed,
             saga_completed,
         )
@@ -429,7 +430,20 @@ class SagaSystem:
         )
         if next_step is None:
             return [record, saga_completed(_saga_self(self), trigger, saga)]
-        return [record, dispatch_step(_saga_self(self), view, next_step, trigger)]
+        # ``record_start`` emits ``saga.<name>.<step>.step_started``,
+        # which the ``SagaProjection`` reads to advance
+        # ``current_step``. Without it the next tick's
+        # ``_match_step`` still looks for the just-completed
+        # step's completion and returns None, deadlocking the
+        # saga (the tool completion for the new step is in
+        # the slot but the saga is still pinned to the
+        # previous one).
+        step_started = record_start(_saga_self(self), trigger, saga, next_step)
+        return [
+            record,
+            step_started,
+            dispatch_step(_saga_self(self), view, next_step, trigger),
+        ]
 
     def _handle_failure(
         self,
@@ -445,7 +459,12 @@ class SagaSystem:
         """Evaluate fail_when; begin compensation or continue."""
         from ._compensation import begin_compensation
         from ._dispatch import dispatch_step
-        from ._records import next_non_skipped_step, record_step_failed, saga_completed
+        from ._records import (
+            next_non_skipped_step,
+            record_start,
+            record_step_failed,
+            saga_completed,
+        )
 
         fail_spec = self._cfg.fail_when
         should_fail = (
@@ -464,4 +483,9 @@ class SagaSystem:
         next_step = next_non_skipped_step(_saga_self(self), step_config, ctx)
         if next_step is None:
             return [record, saga_completed(_saga_self(self), trigger, saga)]
-        return [record, dispatch_step(_saga_self(self), view, next_step, trigger)]
+        step_started = record_start(_saga_self(self), trigger, saga, next_step)
+        return [
+            record,
+            step_started,
+            dispatch_step(_saga_self(self), view, next_step, trigger),
+        ]

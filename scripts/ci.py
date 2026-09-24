@@ -8,19 +8,37 @@
 ci — kntgraph quality gates (single source of truth).
 
 Usage:
-    uv run scripts/ci.py                   # run all gates (mandatory)
+    uv run scripts/ci.py                   # default gates (fast)
+    uv run scripts/ci.py --only <step>     # run one step only
+    uv run scripts/ci.py --only integration # opt-in: real Redis/FalkorDB/LLM
+    uv run scripts/ci.py --only mutation    # opt-in: mutmut (~tens of minutes)
+    uv run scripts/ci.py --only stress      # opt-in: long-running concurrency probes
     uv run scripts/ci.py --baseline        # generate complexity baseline
     uv run scripts/ci.py --update-baseline # regenerate baseline after refactor
-    uv run scripts/ci.py --only <step>     # run one step only
     uv run scripts/ci.py --verbose         # show offenders on failure
 
-All gates are MANDATORY. There is no best-effort mode in the
-canonical run; the only way to bypass a step is to pass
-``--only <step>`` (e.g. ``--only lint``) which selects that
-step to the exclusion of all others. The pre-commit hook
-runs the full set without flags.
+The default run is the fast pre-commit / pre-merge gate.
+It excludes three gates because their runtime cost is
+incompatible with a quick loop:
 
-Steps (in order):
+  - ``integration``: needs real Redis + FalkorDB + LLM
+    containers; ~minutes.
+  - ``mutation``: walks the surviving ``mutmut`` mutants;
+    ~tens of minutes.
+  - ``stress``: long-running concurrency probes (the
+    suite under ``tests/stress/``); ~minutes.
+
+Operators run those three explicitly when they need them --
+they are not blocking the canonical gate. The opt-in gate
+still owns the test files; the gate is just excluded from
+the default flow.
+
+The full set of steps (including the three opt-in gates)
+is in ``ALL_STEPS``; ``DEFAULT_STEPS`` is the subset the
+canonical run executes. ``--only <name>`` accepts any name
+in either set.
+
+Steps (default order — ``DEFAULT_STEPS``):
     syntax       py_compile on src/**/*.py + tests/**/*.py
     lint         ruff check on src/
     format       ruff format --check (zero diffs required)
@@ -28,12 +46,15 @@ Steps (in order):
     reuse        REUSE 3.3 license compliance (480+ files)
     pyright      static type check
     tests        pytest unit tests
-    integration  framework integration tests (opt-in via --only integration)
-    mutation     mutação testing (opt-in via --only mutation)
     reliability  branch coverage on stream + runner + security
     verticals    branch coverage on agents + api + cli + events + knowledge + memory
     bandit       security scan
     audit        pip-audit CVE scan
+
+Opt-in steps (run explicitly via ``--only <name>``):
+    integration  framework integration tests (real Redis/FalkorDB/LLM)
+    mutation     mutmut against the focused scope
+    stress       long-running concurrency probes (no tests today)
 
 The complexity gate (ADR-019):
     CC ≤ 10 (radon grade B) per block — hard fail without baseline
@@ -644,6 +665,30 @@ ALL_STEPS: dict[str, Step] = {
 }
 
 
+# Steps that run by default (``uv run scripts/ci.py`` with
+# no flags). Two gates are **opt-in** because their runtime
+# cost is incompatible with a fast pre-commit / pre-merge
+# gate:
+#
+#   - ``integration``: needs real Redis + FalkorDB + LLM
+#     containers (run via ``docker compose up``); ~minutes.
+#   - ``mutation``: runs ``mutmut`` against a focused scope
+#     and walks the surviving mutants; ~tens of minutes.
+#
+# Operators run these two separately:
+#
+#   uv run scripts/ci.py --only integration
+#   uv run scripts/ci.py --only mutation
+#
+# ``--only`` accepts any name in ``ALL_STEPS``; the
+# distinction is purely about the **default** run.
+DEFAULT_STEPS: tuple[str, ...] = tuple(
+    name
+    for name in ALL_STEPS.keys()
+    if name not in ("integration", "mutation", "stress")
+)
+
+
 def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
     """Run a step. Any non-zero exit adds the step to
     the failed list — there is no best-effort mode.
@@ -913,7 +958,7 @@ def main() -> int:
     if args.baseline or args.update_baseline:
         return cmd_baseline()
 
-    selected = [args.only] if args.only else list(ALL_STEPS.keys())
+    selected = [args.only] if args.only else list(DEFAULT_STEPS)
     failed: list[str] = []
     capture = not args.verbose
 

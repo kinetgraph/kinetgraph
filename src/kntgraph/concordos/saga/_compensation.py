@@ -107,7 +107,30 @@ def begin_compensation(
         now=saga._now(),
         cross_agent_resolver=lambda aid: world.views.get(aid),
     )
-    for step_name in reversed(progress.compensate_stack):
+    # ``compensate_stack`` on ``progress`` is the value AFTER
+    # the ``saga.compensating`` event has been folded by the
+    # projection -- but we are about to emit that very event,
+    # so the projection has not run yet. Fall back to a LIFO
+    # derivation from ``step_states`` (the projection folds
+    # ``step_completed``/``step_failed`` events, so
+    # ``progress.step_states`` is already up to date):
+    # reverse the config and include every step that BOTH
+    # carries a ``compensate_tool`` AND is in a terminal
+    # state (``completed`` or ``failed``). Explicit
+    # ``compensate_stack`` values from earlier ticks (or from
+    # test fixtures that bypass the projection) are honoured
+    # when non-empty; the fallback covers the E2E path where
+    # the projection has not yet rebuilt the stack.
+    if progress.compensate_stack:
+        stack_to_compensate: list[str] = list(progress.compensate_stack)
+    else:
+        stack_to_compensate = [
+            s.name
+            for s in reversed(saga._cfg.steps)
+            if s.compensate_tool is not None
+            and progress.step_states.get(s.name) in ("completed", "failed")
+        ]
+    for step_name in reversed(stack_to_compensate):
         step_cfg = saga._step_map.get(step_name)
         if step_cfg is None or step_cfg.compensate_tool is None:
             continue
