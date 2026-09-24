@@ -12,7 +12,7 @@ Exercises the full reactive state-machine pipeline against a real Redis instance
   - WorkerManager (ProcessPoolExecutor)
 
 State Machine Topology per Process:
-  - State 'created' --(order.submit)--> State 'processing'
+  - State 'created' --(stress.order.submit)--> State 'processing'
     On entry to 'processing': emits 'tool.<tool_name>.requested'
   - State 'processing' --(tool.<tool_name>.completed)--> State 'approved' (terminal)
   - State 'processing' --(tool.<tool_name>.failed)--> State 'rejected' (terminal)
@@ -36,6 +36,7 @@ from typing import Any
 
 import pytest
 
+from kntgraph.concordos import ConcordoCatalog
 from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
 from kntgraph.core.event import (
     Event,
@@ -61,7 +62,7 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-@domain_component("order.submit")
+@domain_component("stress.order.submit")
 @dataclass(frozen=True, slots=True)
 class StressOrderComponent(DomainComponent):
     """Domain component representing order state under stress."""
@@ -110,7 +111,7 @@ def create_fsm_config(tool_name: str) -> FSMConfig:
         state_field="stage",
         transitions={
             "created": {
-                "order.submit": FSMTransition(to="processing"),
+                "stress.order.submit": FSMTransition(to="processing"),
             },
             "processing": {
                 f"tool.{tool_name}.completed": FSMTransition(to="approved"),
@@ -152,7 +153,7 @@ async def run_fsm_telemetry_benchmark(
         rediscovery_interval_seconds=0.1,
         heartbeat_interval_seconds=0.0,
     )
-    concordo.install(dispatcher)
+    ConcordoCatalog(concordo).install_all(dispatcher)
 
     worker_manager = WorkerManager(
         redis=redis,
@@ -178,7 +179,7 @@ async def run_fsm_telemetry_benchmark(
         )
         await event_log.append(
             Event.create(
-                event_type="order.submit",
+                event_type="stress.order.submit",
                 agent_id=agent_id,
                 event_class="domain",
                 correlation=correlation_middleware.current(),
@@ -259,7 +260,9 @@ async def run_fsm_telemetry_benchmark(
         if isinstance(pending_info, dict)
         else (pending_info or 0)
     )
-    assert pending_count == 0, f"PEL for {tool_name} has {pending_count} unacked messages."
+    assert pending_count == 0, (
+        f"PEL for {tool_name} has {pending_count} unacked messages."
+    )
 
     gc.collect()
     leaked: list[asyncio.Task] = []
@@ -275,7 +278,9 @@ async def run_fsm_telemetry_benchmark(
         qualname = getattr(coro, "__qualname__", "")
         if qualname.startswith(("WorkerManager.", "ReactiveDispatcher.")):
             leaked.append(t)
-    assert leaked == [], f"Found {len(leaked)} leaked tasks: {[t.get_name() for t in leaked]}"
+    assert leaked == [], (
+        f"Found {len(leaked)} leaked tasks: {[t.get_name() for t in leaked]}"
+    )
 
     return metrics
 
@@ -358,15 +363,23 @@ async def _run_benchmark_cli():
     print("        BUSINESS FSM PROCESS EXECUTION TELEMETRY (REAL REDIS)           ")
     print("=========================================================================")
     print("Scenario 1: Tool Completing Fast (Success)")
-    print(f"  - Process Executions Completed : {m_succ['completed_processes']} / {m_succ['total_processes']}")
-    print(f"  - Process Throughput           : {m_succ['process_throughput_sec']} processes/sec")
+    print(
+        f"  - Process Executions Completed : {m_succ['completed_processes']} / {m_succ['total_processes']}"
+    )
+    print(
+        f"  - Process Throughput           : {m_succ['process_throughput_sec']} processes/sec"
+    )
     print(f"  - Peak FSM Transitions (TPS)   : {m_succ['peak_tps']} TPS")
     print(f"  - Total Tool Completions       : {m_succ['completions']}")
     print(f"  - Total Duration               : {m_succ['duration_sec']}s")
     print("-------------------------------------------------------------------------")
     print("Scenario 2: Tool Failing Fast (Error)")
-    print(f"  - Process Executions Completed : {m_fail['completed_processes']} / {m_fail['total_processes']}")
-    print(f"  - Process Throughput           : {m_fail['process_throughput_sec']} processes/sec")
+    print(
+        f"  - Process Executions Completed : {m_fail['completed_processes']} / {m_fail['total_processes']}"
+    )
+    print(
+        f"  - Process Throughput           : {m_fail['process_throughput_sec']} processes/sec"
+    )
     print(f"  - Peak FSM Transitions (TPS)   : {m_fail['peak_tps']} TPS")
     print(f"  - Total Tool Failures          : {m_fail['failures']}")
     print(f"  - Total Duration               : {m_fail['duration_sec']}s")

@@ -356,6 +356,34 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         await self._write_cache_for_key(key, merged)
         await self._write_fold_cursor(key, new_cursor)
 
+    async def invalidate_cache(self, *key_parts: str) -> None:
+        """
+        Drop both the cache payload AND the fold cursor
+        for one identity.
+
+        Forces the next ``refresh_cache_incremental`` to
+        take the cold path (full rebuild from the
+        EventLog) instead of trusting a cursor that
+        might point past content no longer cached.
+
+        Use cases:
+
+          - Operator-initiated flush (e.g. after a schema
+            migration that changed the cache shape).
+          - Tests that need to assert the warmer
+            repopulates the cache from scratch.
+          - Recovery paths that detected inconsistency
+            between the cache and the cursor (e.g. a
+            stale cursor surviving a TTL'd-out cache).
+
+        Idempotent: missing keys are no-ops. The next
+        ``refresh_cache_incremental`` call sees the cold
+        state and seeds a fresh cursor + payload.
+        """
+        key = self.cache_key(*key_parts)
+        await self._storage.delete_record(key)
+        await self._storage.delete_fold_cursor(self._fold_cursor_key(key))
+
     # ------------------------------------------------------------------ protected
 
     # ------------------------------------------------------------------ P4 helpers

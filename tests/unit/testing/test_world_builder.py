@@ -13,12 +13,18 @@ reads the assembled state exactly as it would in production.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from kntgraph.core.components.memory import ContinuityComponent
-from kntgraph.core.event import Event
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import DomainComponent, World
 from kntgraph.core.world.components import ToolCallCompletion
-from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
+from kntgraph.testing import (
+    AgentViewBuilder,
+    WorldBuilder,
+    assert_all_correlation_ids,
+    run_system,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +88,8 @@ def test_world_builder_keeps_storage_in_sync() -> None:
 def test_run_system_invokes_with_correlation_scope() -> None:
     """``run_system`` calls the system inside a correlation scope so
     ``Event.create`` (which requires a non-None correlation, ADR-037)
-    does not raise."""
+    does not raise AND the audit trail stitches end-to-end
+    (every emitted event inherits the entry's correlation_id)."""
 
     class EmittingSystem:
         """A minimal WorldSystem that emits one event per agent.
@@ -110,12 +117,16 @@ def test_run_system_invokes_with_correlation_scope() -> None:
                 )
             return out
 
+    flow_id = UUID("11111111-1111-1111-1111-111111111111")
+    ctx = CorrelationContext(correlation_id=flow_id)
     view = AgentViewBuilder("inv-1").with_trigger("invoice.submitted").build()
     world = WorldBuilder().with_agent(view).build()
-    events = run_system(EmittingSystem(), world)
+    events = run_system(EmittingSystem(), world, correlation=ctx)
     assert len(events) == 1
     assert events[0].event_type == "fsm.transitioned"
-    assert events[0].correlation is not None
+    # Audit trail invariant: the emitted event carries
+    # the entry's flow id (ADR-037 §1.1).
+    assert_all_correlation_ids(events, ctx)
 
 
 def test_world_builder_multiple_agents() -> None:
@@ -166,6 +177,9 @@ def test_run_system_awaits_async_system() -> None:
         async def __call__(self, world: World) -> list[Event]:
             return []
 
+    ctx = CorrelationContext(
+        correlation_id=UUID("22222222-2222-2222-2222-222222222222")
+    )
     view = AgentViewBuilder("inv-1").with_trigger("invoice.approved").build()
     world = WorldBuilder().with_agent(view).build()
-    assert run_system(AsyncSystem(), world) == []
+    assert run_system(AsyncSystem(), world, correlation=ctx) == []

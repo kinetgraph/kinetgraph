@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# WorkflowSaga — orchestrate a sequence of tool calls (ADR-069 §4)
+# WorkflowSaga — orchestrate a sequence of tool calls (ADR-072 §4)
 
 A **WorkflowSaga** orchestrates a sequence of tool calls with
 context enrichment, skip conditions, failure policies, and
@@ -12,7 +12,7 @@ compensation. It is built entirely on top of the framework's
 tool-call primitives (ADR-034 tool calls, ADR-045 TTL, ADR-042
 memory) and does **not** reinvent the tool lifecycle.
 
-This is the C-02 Concordo of ADR-069. It composes with the
+This is the C-02 Concordo of ADR-072. It composes with the
 BusinessFSM (C-01): the Saga drives execution; upon completion it
 emits an event that the FSM uses to advance state.
 
@@ -63,7 +63,7 @@ recent events and reacts to:
 ### 2.2 The trigger is derived from the view
 
 Like the FSM, the saga derives its trigger from the existing view
-fields (ADR-069 §11.16): `view.domain_phase` (the last domain
+fields (ADR-072 §11.16): `view.domain_phase` (the last domain
 event's type), `view.last_event_id`, `view.components[domain_phase]`,
 and `correlation_middleware.current()`.
 
@@ -76,11 +76,23 @@ The saga reads `ToolCallCompletion` from the `tool_completions` slot
 ### 2.4 Progress is materialised by the `SagaProjection`
 
 The `SagaProgressComponent` (execution state) is materialised from
-the saga events by the `SagaProjection` (ADR-069 §9.2 item 6). It
-reconstructs `step_states` / `step_results` from the event
-snapshots, `compensate_stack` from the config (LIFO), `direction`,
-and `current_step`. A re-fold of the EventLog reconstructs the same
-progress without an in-memory cache.
+the saga events by the `SagaProjection` (ADR-072 §9.2 item 6). It
+reconstructs:
+
+- `step_states` / `step_results` from the
+  `step_completed` / `step_failed` event snapshots.
+- `direction` from `compensating` / `completed` / `dlq` markers.
+- `current_step` from `step_started` / `timed_out` / `dlq`.
+- `compensate_stack` from `compensating` (seeded from the
+  config) and refined by the granular
+  `compensation_started` / `compensated` events
+  (ADR-072 §11.18.2).
+
+A re-fold of the EventLog reconstructs the same progress
+without an in-memory cache. The granular compensation
+events make the `compensate_stack` a derived view of the
+EventLog (crash-safe), not an in-memory cache that might
+disagree after a restart.
 
 ---
 
@@ -152,12 +164,41 @@ config = SagaConfig(
 | `saga.<name>.step_completed` | a step completed (carries `step_states` / `step_results`) |
 | `saga.<name>.step_failed` | a step failed (carries `step_states` / `step_results`) |
 | `saga.<name>.compensating` | the saga is rolling back |
+| `saga.<name>.<step>.compensation_started` | a compensation tool was dispatched (granular marker; ADR-072 §11.18.2) |
+| `saga.<name>.<step>.compensated` | a compensation tool completed (granular marker; ADR-072 §11.18.2) |
 | `saga.<name>.completed` | the saga finished forward |
 | `saga.<name>.timed_out` | the saga exceeded its deadline |
 | `saga.<name>.<step>.awaiting_approval` | a human step is waiting for approval |
 | `saga.<name>.<step>.approval_timed_out` | a human step exceeded its approval timeout |
 | `saga.<name>.compensation_failed` | a compensation tool failed |
 | `saga.<name>.dlq` | the saga routes to the DLQ |
+
+### 4.1 Crash-safe compensation (ADR-072 §11.18.2)
+
+The granular events `compensation_started` / `compensated` make
+the saga **crash-safe**. The `SagaProjection` reconstructs the
+exact `compensate_stack` from the EventLog alone, so a process
+crash between the dispatch and the completion of a
+compensation tool is recovered on the next tick (the worker
+receives the same `compensate_when` context on replay).
+
+The flow:
+
+1. Saga enters compensation, emits `compensating`.
+2. For each step on the stack, emits `compensation_started`
+   (durable marker: "I dispatched a compensation").
+3. Then emits `tool.<compensate>.requested`.
+4. Worker completes; saga emits `compensated` (durable marker:
+   "this step is fully compensated").
+5. `compensate_stack` is updated: step removed.
+
+A crash between steps 3 and 4 leaves the step on the stack
+(durable); on restart, the saga re-dispatches it. The
+compensate_stack is no longer a cache that might disagree
+with the EventLog — it is a derived view of the granular
+events.
+
+---
 
 ---
 
@@ -234,12 +275,12 @@ KNT_REDIS_FAKE=1 uv run python examples/24_workflow_saga.py
 
 ## 8. See also
 
-- [ADR-069 §4](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-072 §4](../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md) —
   the WorkflowSaga design record.
-- [ADR-069 §2](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-072 §2](../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md) —
   the Specification Pattern.
 - [BusinessFSM](business_fsm.md) — the state machine Concordo (C-01).
 - [Tools](tools.md) — the `@tool_worker` pattern (ADR-036).
 - [ECS](ecs.md) — `World`, `AgentView`, `WorldSystem`.
-- [DEBT §2.34](../../DEBT.md) — the ADR-069 follow-up tracker
+- [DEBT §2.34](../../DEBT.md) — the ADR-072 follow-up tracker
   (items 1, 2, 3, 6 closed).

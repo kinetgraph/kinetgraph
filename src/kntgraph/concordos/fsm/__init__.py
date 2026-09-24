@@ -13,14 +13,17 @@ domain events, validates transitions, and emits
 
 Public surface:
 
-  - ``BusinessFSMConcordo`` — the Concordo (registers the
-    ``FSMSystem`` on a dispatcher).
-  - ``FSMConfig`` / ``FSMTransition`` — the typed
+  - ``BusinessFSMConcordo`` -- the Concordo bundle
+    (ADR-069 §3.2 / §3.3).
+  - ``FSMConfig`` / ``FSMTransition`` -- the typed
     configuration.
-  - ``FSMSystem`` — the WorldSystem.
-  - ``FSMAuditComponent`` — the audit component.
+  - ``FSMSystem`` -- the WorldSystem.
+  - ``FSMAuditComponent`` -- the audit component.
 """
 
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ._components import FSMAuditComponent
@@ -29,7 +32,8 @@ from ._state import FSMProjection
 from ._system import FSMSystem
 
 if TYPE_CHECKING:
-    from kntgraph.runner.reactive import ReactiveDispatcher
+    from kntgraph.core.system import WorldSystem
+    from kntgraph.runner.reactive_extensions import WorldProjection
 
 __all__ = [
     "BusinessFSMConcordo",
@@ -41,26 +45,45 @@ __all__ = [
 ]
 
 
+@dataclass(frozen=True, slots=True)
 class BusinessFSMConcordo:
     """
-    C-01: BusinessFSM Concordo (Concordo Protocol §1.3.1).
+    C-01: BusinessFSM Concordo (ADR-069 §3.2 / §3.3).
 
-    Registers a single ``FSMSystem`` on the dispatcher. The
-    dispatcher invokes ``install`` idempotently:
-    ``ConcordoCatalog.install_all`` (§6.3) dedupes by
-    ``name`` before calling it.
+    A frozen bundle of ``(name, systems, projections)`` that
+    satisfies the structural :class:`Concordo` Protocol. The
+    ``__post_init__`` derives ``systems`` and ``projections``
+    from the config; the bundle is otherwise immutable.
+
+    The catalog (``concordos.ConcordoCatalog.install_all``)
+    iterates each Concordo's ``systems`` and ``projections``
+    and registers them on the dispatcher via
+    ``dispatcher.add_system(...)`` /
+    ``dispatcher.add_projection(...)`` -- the same registration
+    API the framework exposes for any custom system. The
+    catalog dedupes by ``name`` (first one wins).
+
+    Side effects (DLQ ingestion, metrics, notifications) are
+    wired by the application via ``dispatcher.subscribe``
+    (ADR-069 §5.2), not by the Concordo.
     """
 
-    def __init__(self, config: FSMConfig) -> None:
-        self._config = config
-        self.name = f"fsm:{config.component_type.__name__}"
-        self.version = "1.0.0"
+    config: FSMConfig
+    name: str = field(init=False)
+    systems: tuple["WorldSystem", ...] = field(init=False)
+    projections: tuple["WorldProjection", ...] = field(init=False)
 
-    def install(self, dispatcher: "ReactiveDispatcher") -> None:
-        dispatcher.add_system(FSMSystem(self._config))
-        # Advance the configured ``DomainComponent``'s
-        # ``state_field`` from ``fsm.transitioned`` events
-        # (ADR-069 §9.2 item 1, option b). The projection runs
-        # after the base fold so the component's state advances
-        # on the agent's view; the FSMSystem reads it by class.
-        dispatcher.add_projection(FSMProjection(self._config))
+    def __post_init__(self) -> None:
+        # The dataclass is frozen; use ``object.__setattr__``
+        # to derive the derived fields. The name convention
+        # is ``fsm:<ComponentTypeName>`` (ADR-069 §3.3).
+        object.__setattr__(self, "name", f"fsm:{self.config.component_type.__name__}")
+        # ``FSMSystem`` validates transitions + guards on
+        # every tick; ``FSMProjection`` advances the
+        # configured ``DomainComponent``'s ``state_field``
+        # from ``fsm.transitioned`` events (ADR-069 §9.2
+        # item 1, option b). The projection runs after the
+        # base fold so the component's state advances on the
+        # agent's view; the FSMSystem reads it by class.
+        object.__setattr__(self, "systems", (FSMSystem(self.config),))
+        object.__setattr__(self, "projections", (FSMProjection(self.config),))

@@ -8,19 +8,37 @@
 ci — kntgraph quality gates (single source of truth).
 
 Usage:
-    uv run scripts/ci.py                   # run all gates (mandatory)
+    uv run scripts/ci.py                   # default gates (fast)
+    uv run scripts/ci.py --only <step>     # run one step only
+    uv run scripts/ci.py --only integration # opt-in: real Redis/FalkorDB/LLM
+    uv run scripts/ci.py --only mutation    # opt-in: mutmut (~tens of minutes)
+    uv run scripts/ci.py --only stress      # opt-in: long-running concurrency probes
     uv run scripts/ci.py --baseline        # generate complexity baseline
     uv run scripts/ci.py --update-baseline # regenerate baseline after refactor
-    uv run scripts/ci.py --only <step>     # run one step only
     uv run scripts/ci.py --verbose         # show offenders on failure
 
-All gates are MANDATORY. There is no best-effort mode in the
-canonical run; the only way to bypass a step is to pass
-``--only <step>`` (e.g. ``--only lint``) which selects that
-step to the exclusion of all others. The pre-commit hook
-runs the full set without flags.
+The default run is the fast pre-commit / pre-merge gate.
+It excludes three gates because their runtime cost is
+incompatible with a quick loop:
 
-Steps (in order):
+  - ``integration``: needs real Redis + FalkorDB + LLM
+    containers; ~minutes.
+  - ``mutation``: walks the surviving ``mutmut`` mutants;
+    ~tens of minutes.
+  - ``stress``: long-running concurrency probes (the
+    suite under ``tests/stress/``); ~minutes.
+
+Operators run those three explicitly when they need them --
+they are not blocking the canonical gate. The opt-in gate
+still owns the test files; the gate is just excluded from
+the default flow.
+
+The full set of steps (including the three opt-in gates)
+is in ``ALL_STEPS``; ``DEFAULT_STEPS`` is the subset the
+canonical run executes. ``--only <name>`` accepts any name
+in either set.
+
+Steps (default order — ``DEFAULT_STEPS``):
     syntax       py_compile on src/**/*.py + tests/**/*.py
     lint         ruff check on src/
     format       ruff format --check (zero diffs required)
@@ -28,11 +46,15 @@ Steps (in order):
     reuse        REUSE 3.3 license compliance (480+ files)
     pyright      static type check
     tests        pytest unit tests
-    integration  framework integration tests (opt-in via --only integration)
     reliability  branch coverage on stream + runner + security
     verticals    branch coverage on agents + api + cli + events + knowledge + memory
     bandit       security scan
     audit        pip-audit CVE scan
+
+Opt-in steps (run explicitly via ``--only <name>``):
+    integration  framework integration tests (real Redis/FalkorDB/LLM)
+    mutation     mutmut against the focused scope
+    stress       long-running concurrency probes (no tests today)
 
 The complexity gate (ADR-019):
     CC ≤ 10 (radon grade B) per block — hard fail without baseline
@@ -241,6 +263,60 @@ def step_integration() -> Step:
     )
 
 
+def step_mutation() -> Step:
+    """Mutação testing (ADR-NNN: mutmut 3.x).
+
+    Runs ``mutmut run`` over the focused scope
+    (``src/kntgraph/runner/_dlq_writer.py``,
+    ``src/kntgraph/runner/_metrics.py``,
+    ``src/kntgraph/runner/metrics/prometheus.py``,
+    ``src/kntgraph/runner/tool_call_ttl_sweeper.py``,
+    ``src/kntgraph/events/dlq/values.py`` -- the 5 files
+    touched in the recent audit + TDD work). The
+    ``[tool.mutmut] only_mutate`` list in ``pyproject.toml``
+    is the source of truth for the scope.
+
+    Like ``step_integration`` and ``step_stress``, this is
+    **opt-in via ``--only mutation``** because:
+      - the focused scope has ~276 mutants and a full run
+        against the entire test suite takes hours (each
+        mutant runs the full collection under that mutant's
+        diff);
+      - the production gate runs the unit + integration
+        suites; mutmut is for periodic mutation-driven
+        refinement (not a per-PR check).
+
+    The step does NOT fail the gate on surviving mutants.
+    Mutmut's job is to highlight tests that do not catch
+    behavioural changes -- survivors are diagnostics, not
+    failures. The badge output (``mutmut badge``) is the
+    actionable artefact; pair with the mutation score
+    in the README (or shield badge) for a continuous
+    quality signal.
+
+    Tolerance:
+      - ``mutmut run`` returns non-zero on surviving
+        mutants; the step captures this but does not add
+        to the failed list (a long mutmut run can leave
+        some ``not checked`` mutants when interrupted; the
+        next ``mutmut run`` resumes from cache).
+      - The step writes ``mutants/`` to disk (mutmut's
+        workdir). The ``mutants/`` directory is in
+        ``.gitignore``.
+    """
+    return Step(
+        "mutation (mutmut on the focused scope)",
+        (
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "mutmut",
+            "run",
+        ),
+    )
+
+
 def step_stress() -> Step:
     """Stress tests for the dispatcher/worker pipeline.
 
@@ -419,11 +495,28 @@ def _run_radon_mi() -> dict[str, Any]:
     return json.loads(result.stdout or "{}")
 
 
+def _relpath(filepath: str) -> str:
+    """Make ``filepath`` relative to ``ROOT`` so the baseline
+    is portable across machines (developer laptop vs CI
+    runner with a different absolute checkout path).
+
+    Falls back to the original path when it is not under
+    ``ROOT`` (e.g. third-party radon output that landed
+    outside the repo). The fallback keeps the snapshot
+    usable without crashing the gate.
+    """
+    try:
+        return str(Path(filepath).resolve().relative_to(ROOT))
+    except ValueError:
+        return filepath
+
+
 def _cc_snapshot(cc_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     flat: dict[str, dict[str, Any]] = {}
     for filepath, blocks in cc_data.items():
+        rel = _relpath(filepath)
         for block in blocks:
-            key = f"{filepath}:{block['type']}:{block['name']}"
+            key = f"{rel}:{block['type']}:{block['name']}"
             flat[key] = {
                 "complexity": block["complexity"],
                 "rank": block["rank"],
@@ -434,7 +527,7 @@ def _cc_snapshot(cc_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _mi_snapshot(mi_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
-        filepath: {"mi": float(info["mi"]), "rank": info["rank"]}
+        _relpath(filepath): {"mi": float(info["mi"]), "rank": info["rank"]}
         for filepath, info in mi_data.items()
     }
 
@@ -566,6 +659,7 @@ ALL_STEPS: dict[str, Step] = {
     "tests": step_tests(),
     "integration": step_integration(),
     "stress": step_stress(),
+    "mutation": step_mutation(),
     "reliability": Step(
         "reliability (branch coverage on stream + runner + security)",
         ("_inline_gate_reliability_",),
@@ -586,6 +680,30 @@ ALL_STEPS: dict[str, Step] = {
     "bandit": step_bandit(),
     "audit": step_audit(),
 }
+
+
+# Steps that run by default (``uv run scripts/ci.py`` with
+# no flags). Two gates are **opt-in** because their runtime
+# cost is incompatible with a fast pre-commit / pre-merge
+# gate:
+#
+#   - ``integration``: needs real Redis + FalkorDB + LLM
+#     containers (run via ``docker compose up``); ~minutes.
+#   - ``mutation``: runs ``mutmut`` against a focused scope
+#     and walks the surviving mutants; ~tens of minutes.
+#
+# Operators run these two separately:
+#
+#   uv run scripts/ci.py --only integration
+#   uv run scripts/ci.py --only mutation
+#
+# ``--only`` accepts any name in ``ALL_STEPS``; the
+# distinction is purely about the **default** run.
+DEFAULT_STEPS: tuple[str, ...] = tuple(
+    name
+    for name in ALL_STEPS.keys()
+    if name not in ("integration", "mutation", "stress")
+)
 
 
 def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
@@ -642,6 +760,28 @@ def _run_step(step: Step, failed: list[str], *, capture: bool = True) -> str:
             "The stress suite is skipped on this environment."
         )
         return r.stdout or ""
+
+    # The mutation step is diagnostic, not a pass/fail
+    # gate. mutmut returns non-zero when there are
+    # surviving mutants (or not-checked mutants from an
+    # interrupted previous run). We log the summary so
+    # the operator can act on it, but we do NOT add to the
+    # failed list -- a run that shows new survivors is
+    # actionable information, not a release blocker. To
+    # turn survivors into failures once the team commits
+    # to keeping the mutation score at or near 100%, gate
+    # here on ``r.returncode != 0``.
+    if step.name == "mutation (mutmut on the focused scope)":
+        summary = (r.stdout or "")[-2000:] + (r.stderr or "")[-2000:]
+        print(
+            "  >>> tolerated: mutmut returned "
+            f"exit code {r.returncode}. Inspect with "
+            "`uv run python -m mutmut results` and "
+            "`uv run python -m mutmut browse`. Tail of "
+            f"output:\n{summary}"
+        )
+        return r.stdout or ""
+
     failed.append(step.name)
     if r.stdout:
         print(r.stdout)
@@ -835,7 +975,7 @@ def main() -> int:
     if args.baseline or args.update_baseline:
         return cmd_baseline()
 
-    selected = [args.only] if args.only else list(ALL_STEPS.keys())
+    selected = [args.only] if args.only else list(DEFAULT_STEPS)
     failed: list[str] = []
     capture = not args.verbose
 

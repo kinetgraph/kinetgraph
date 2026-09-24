@@ -21,12 +21,22 @@ Public surface:
     a ``WorldSystem`` inside a correlation scope (ADR-037).
 """
 
+from .clock import fixed_now
 from .embedding import FakeEmbeddingProvider
-from .world_builder import AgentViewBuilder, WorldBuilder, run_system
+from .world_builder import (
+    AgentViewBuilder,
+    WorldBuilder,
+    assert_all_correlation_ids,
+    assert_correlation_id,
+    run_system,
+)
 
 __all__ = [
     "AgentViewBuilder",
     "FakeEmbeddingProvider",
     "WorldBuilder",
+    "assert_all_correlation_ids",
+    "assert_correlation_id",
+    "fixed_now",
     "run_system",
 ]

@@ -21,7 +21,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -53,12 +53,14 @@ def _make_request(
         params = {"city": "São Paulo", "country": "BR"}
     if correlation_id is None:
         correlation_id = uuid4()
+    now = datetime.now(tz=timezone.utc)
     return ToolCallRequest(
         request_event_id=str(uuid4()),
         tool_name=tool_name,
         agent_id="a-1",
         params=params,
-        requested_at=datetime.now(tz=timezone.utc),
+        requested_at=now,
+        expires_at=now + timedelta(seconds=300),
         correlation_id=correlation_id,
     )
 

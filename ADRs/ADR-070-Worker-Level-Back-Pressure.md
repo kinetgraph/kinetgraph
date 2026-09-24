@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
   - [ADR-036](./ADR-036-Tool-Worker-Pattern.md) — `@tool_worker` + `WorkerManager`
   - [ADR-066](./ADR-066-Single-Tool-Path.md) — single tool path / three-gate ACL
   - [ADR-068](./ADR-068-idle-redis-traffic-and-eventlog-subscribe.md) — wakeup stream (delay path)
-  - [ADR-069 §11.17](./ADR-069-Agent-Concordo-Macro-Behaviors.md) — Pipeline Concordo removed; back-pressure deferred here
+  - [ADR-069 §1.3 / docs/adr-history/adr-069-original.md §11.17](./ADR-069-Agent-Concordo-Foundation.md) — Pipeline Concordo removed; back-pressure deferred here
 
 ---
 

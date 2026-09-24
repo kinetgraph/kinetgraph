@@ -48,15 +48,12 @@ from kntgraph.core.world.projection_tool_calls import (
 )
 
 
-# The projection defaults to a 5-minute TTL (ADR-045).
-# The test events have timestamps in ``2026-06-30``;
-# a real wall clock (or even ``now=2030``) would
-# evict the requests. Disable the TTL for the
-# tests that don't exercise the eviction logic;
-# tests that DO exercise the TTL (in
-# ``test_ttl_*``) pass an explicit ``ttl=`` and
-# ``now=`` to the call.
-_TTL_DISABLED = ToolCallTTL(default_ttl_seconds=0)
+# The projection defaults to a 5-minute TTL (ADR-045, ADR-075).
+# ADR-075: default_ttl_seconds > 0 is mandatory; the opt-out
+# ``default_ttl_seconds=0`` is removed. Tests that need a
+# zero-TTL effect can pass an explicit large TTL or use
+# the projection's ``ttl=`` argument with a suitable value.
+_TTL_DISABLED = ToolCallTTL(default_ttl_seconds=300.0)
 
 
 def project_tool_calls(events, **kwargs):

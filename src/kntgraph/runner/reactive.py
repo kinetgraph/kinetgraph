@@ -71,7 +71,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from typing import TYPE_CHECKING, Optional
 
@@ -94,6 +94,15 @@ from ._checkpoint_io import (
 from ._folding import (
     fold_with_filter as _fold_with_filter_fn,
 )
+from ._observability import (
+    InFlightTask,
+    RecoveryReport,
+    dead_lettered_tasks as _dead_lettered_tasks,
+    in_flight_tasks as _in_flight_tasks,
+    stale_tasks as _stale_tasks,
+    stuck_in_queue as _stuck_in_queue,
+)
+from ._metrics import MetricsSink, NullMetricsSink
 from ._systems_runner import (
     run_systems_and_persist as _run_systems_and_persist_fn,
 )
@@ -102,10 +111,63 @@ from .tool_call_ttl_sweeper import ToolCallTTLSweeperSystem
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
+    from ..core.event.correlation import CorrelationContext
+    from ..core.world.view import AgentView
+    from ..events.dlq.store import DeadLetterQueue
+    from ..events.dlq.values import DeadLetterEvent
     from ..tools.router import ToolRouter
     from .reactive_extensions import WorldProjection
 
 logger = structlog.get_logger()
+
+
+def _anchor_event(correlation: "CorrelationContext") -> Event:
+    """Build a synthetic anchor ``Event`` from a stored
+    correlation so the dispatcher's idle-tick path can
+    pass it to ``correlation_middleware.continue_from``.
+
+    The Event's ``event_id`` is irrelevant to
+    ``continue_from`` (only the correlation metadata
+    flows); we mint a fresh UUID per call so two
+    consecutive idle ticks don't share an anchor id
+    (this keeps the audit chain's per-event ids unique
+    if a downstream system ever logs them).
+    """
+    from datetime import datetime, timezone
+    from uuid import uuid4
+
+    return Event.create(
+        event_type="knt.dispatcher.anchor",
+        agent_id="_dispatcher_",
+        event_class="lifecycle",
+        correlation=correlation,
+        event_id=uuid4(),
+        timestamp=datetime.now(tz=timezone.utc),
+    )
+
+
+def _last_domain_correlation(events: list[Event]) -> "CorrelationContext | None":
+    """Return the correlation of the LAST ``domain`` event
+    in ``events`` (or ``None`` when no domain event is
+    present).
+
+    Domain events carry the flow's correlation_id;
+    lifecycle events do NOT (they are operational
+    metadata with a fresh uuid4 correlation). When a
+    batch contains a mix (e.g. bootstrap's
+    ``agent.spawned`` followed by a real
+    ``request.received``), the dispatcher must thread
+    the DOMAIN event's correlation to the systems, not
+    the lifecycle one.
+
+    The LAST domain event is preferred over the FIRST
+    because systems react to the latest state of the
+    World (which reflects the latest domain event).
+    """
+    for e in reversed(events):
+        if e.event_class == "domain":
+            return e.correlation
+    return None
 
 
 class ReactiveDispatcher:
@@ -139,6 +201,9 @@ class ReactiveDispatcher:
         projections: Optional[list["WorldProjection"]] = None,
         fallback_poll_interval: Optional[float] = None,
         wake_on_event: bool = True,
+        dlq: Optional["DeadLetterQueue"] = None,
+        tool_stream_prefix: str = "knt:tools",
+        metrics_sink: Optional["MetricsSink"] = None,
     ) -> None:
         """
         Args:
@@ -352,6 +417,30 @@ class ReactiveDispatcher:
         # tail -f sees liveness, long enough that the log volume is
         # negligible under steady-state load.
         self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
+        # ADR-075 Tier 4: optional DLQ reference for the
+        # ``dead_lettered_tasks`` query and the saga → DLQ
+        # wire inside the TTL sweeper. ``None`` disables both.
+        self._dlq: Optional[DeadLetterQueue] = dlq
+        # ADR-075 Tier 4: stream-key prefix used by the
+        # ``stuck_in_queue`` query. Defaults match the
+        # ToolRouter convention (``knt:tools:<name>:queue``).
+        self._tool_stream_prefix: str = tool_stream_prefix
+        # ADR-075 Tier 4 observability surface: the metrics
+        # backend the dispatcher pushes to. ``None`` selects
+        # the no-op ``NullMetricsSink`` so the dispatcher's
+        # hot path is unchanged when no backend is installed.
+        # Concrete sinks live in optional extras
+        # (``kntgraph[metrics]`` for Prometheus, etc.).
+        self._metrics_sink: MetricsSink = (
+            metrics_sink if metrics_sink is not None else NullMetricsSink()
+        )
+        # ADR-074: per-(system, agent) RUNNERS for cursor
+        # advancement. Reset on each tick by
+        # ``_systems_runner.append_system_outgoing``; the
+        # type is declared here so the static type
+        # checker sees the attribute without an
+        # ``# type: ignore`` on every read site.
+        self._tick_runners: set[tuple[str, str]] = set()
 
     @property
     def systems(self) -> list[WorldSystem]:
@@ -475,18 +564,32 @@ class ReactiveDispatcher:
         The cycle ALWAYS runs the systems, even when
         the EventLog has no new events for the agent
         (DEBT §2.21 follow-up). The
-        :class:`ToolCallTTLSweeperSystem` is the
-        primary motivation: an orphan request sits in
-        the slot until its TTL expires, which may
-        happen several ticks after the request was
-        emitted; the dispatcher must run the sweeper
-        on those ticks even if the EventLog has no
-        new events for the agent. When the log has
-        no new events, the fold is a no-op (the
-        World is unchanged) and the cursor is NOT
-        advanced (the next non-empty batch still
-        sees the same ``last_stream_id``).
+        :class:`ToolCallTTLSweeperSystem` is the primary
+        motivation: an orphan request sits in the slot
+        until its TTL expires, which may happen several
+        ticks after the request was emitted; the
+        dispatcher must run the sweeper on those ticks
+        even if the EventLog has no new events for the
+        agent. When the log has no new events, the fold
+        is a no-op (the World is unchanged) and the
+        cursor is NOT advanced (the next non-empty batch
+        still sees the same ``last_stream_id``).
+
+        Correlation propagation (ADR-037): the dispatcher
+        threads the trigger event's correlation to the
+        systems via ``correlation_middleware.continue_from``.
+        Systems that emit via
+        ``correlation_middleware.current()`` inherit the
+        trigger's ``correlation_id``, so the audit chain
+        stitches the entry event through to all downstream
+        events. On idle ticks (no new events), the
+        correlation is loaded from the checkpoint's
+        ``last_event_correlation`` so the chain stays
+        intact across ticks that re-run the systems
+        (e.g. the TTL sweeper's overdue-eviction path).
         """
+        from kntgraph.core.event import correlation_middleware
+
         ckpt = await self._world_store.load(agent_id)
         new_events, new_last_stream_id = await _fetch_new_events_fn(
             self, agent_id, ckpt.last_stream_id
@@ -503,14 +606,42 @@ class ReactiveDispatcher:
             # fold is a no-op; the cursor is not
             # advanced (we did not consume any new
             # stream entries).
-            await _run_systems_and_persist_fn(
-                self,
-                agent_id=agent_id,
-                world=ckpt.world,
-                last_stream_id=ckpt.last_stream_id,
-                new_event_count=0,
-                new_events=[],
+            #
+            # Correlation: load the last event's
+            # correlation from the agent's view (the
+            # projection keeps it in sync with the
+            # EventLog; the dispatcher does NOT need
+            # to re-read the EventLog for the audit
+            # chain). ``continue_from`` mints a fresh
+            # ``span_id`` (this tick is a new
+            # operation) but keeps the
+            # ``correlation_id``.
+            last_view = ckpt.world.get_agent(agent_id)
+            last_corr = (
+                last_view.last_event_correlation if last_view is not None else None
             )
+            if last_corr is not None:
+                correlation_middleware.continue_from(_anchor_event(last_corr))
+                try:
+                    await _run_systems_and_persist_fn(
+                        self,
+                        agent_id=agent_id,
+                        world=ckpt.world,
+                        last_stream_id=ckpt.last_stream_id,
+                        new_event_count=0,
+                        new_events=[],
+                    )
+                finally:
+                    correlation_middleware.clear()
+            else:
+                await _run_systems_and_persist_fn(
+                    self,
+                    agent_id=agent_id,
+                    world=ckpt.world,
+                    last_stream_id=ckpt.last_stream_id,
+                    new_event_count=0,
+                    new_events=[],
+                )
             return 0
 
         world, new_event_count = _fold_with_filter_fn(self, ckpt.world, new_events)
@@ -521,9 +652,48 @@ class ReactiveDispatcher:
             await _save_checkpoint_fn(self, agent_id, world, new_last_stream_id)
             return 0
 
-        await _run_systems_and_persist_fn(
-            self, agent_id, world, new_last_stream_id, new_event_count, new_events
-        )
+        # Correlation propagation: thread the LAST domain
+        # event's correlation to the systems. The batch may
+        # include lifecycle events (e.g. ``agent.spawned``
+        # on bootstrap) whose correlation is a fresh
+        # uuid4 — those are operational metadata, NOT flow
+        # events. The domain events carry the flow's
+        # correlation_id; the LAST domain event in the batch
+        # is the most-recent trigger the systems should
+        # react to.
+        #
+        # After the fold above, the world's last_event_*
+        # fields point to the LAST event folded (regardless
+        # of class). We prefer a domain event's correlation
+        # but fall back to the world's
+        # ``last_event_correlation`` (which the projection
+        # already keeps in sync — domain events overwrite
+        # it, lifecycle events preserve it).
+        last_corr = _last_domain_correlation(new_events)
+        if last_corr is None:
+            # No domain events in this batch (rare: a
+            # batch of pure lifecycle events). Fall back to
+            # the projection's bookkeeping.
+            view = world.get_agent(agent_id)
+            last_corr = view.last_event_correlation if view is not None else None
+        if last_corr is not None:
+            correlation_middleware.continue_from(_anchor_event(last_corr))
+        else:
+            # No correlation available (first-ever tick on
+            # a fresh agent with no events). Mint a fresh
+            # one — there's no flow to propagate.
+            correlation_middleware.start()
+        try:
+            await _run_systems_and_persist_fn(
+                self,
+                agent_id,
+                world,
+                new_last_stream_id,
+                new_event_count,
+                new_events,
+            )
+        finally:
+            correlation_middleware.clear()
         return new_event_count
 
     async def start(self) -> None:
@@ -697,6 +867,218 @@ class ReactiveDispatcher:
             idle_seconds=now - self._last_activity_at,
             tracked_agents=len(self._tracked_agents),
             last_error=self._last_loop_error,
+        )
+
+    # ------------------------------------------------------------------
+    # ADR-075 Tier 4: Recovery-driven observability queries
+    # ------------------------------------------------------------------
+    # Each query is async (does NOT block the dispatcher's tick
+    # loop). They compose on the existing ``_world_store`` and
+    # ``_dlq`` references — no new event types, no new
+    # projections, no new system class. See
+    # ``_observability.py`` for the low-level read helpers.
+
+    async def _load_views(self, agent_id: str | None = None) -> Mapping[str, AgentView]:
+        """Load agent views from the world_store for Tier 4
+        queries.
+
+        Each call is independent (one ``XGET`` per agent).
+        Returns an empty dict if ``world_store`` is unset.
+
+        Returns ``Mapping`` (not ``dict``) so callers see a
+        read-only view of the agent set: ``dict`` is
+        invariant in its value type, which trips pyright on
+        the ``agent_id=`` branch (the value is
+        ``AgentView | None`` before the ``None`` check).
+        ``Mapping`` is covariant and lets callers iterate
+        without forcing a value-narrowing on the
+        ``get_agent(...)`` probe.
+        """
+        if self._world_store is None:
+            return {}
+        if agent_id is not None:
+            ckpt = await self._world_store.load(agent_id)
+            view = ckpt.world.get_agent(agent_id)
+            return {agent_id: view} if view is not None else {}
+        out: dict[str, AgentView] = {}
+        for aid in self._tracked_agents:
+            ckpt = await self._world_store.load(aid)
+            view = ckpt.world.get_agent(aid)
+            if view is not None:
+                out[aid] = view
+        return out
+
+    async def in_flight_tasks(self, agent_id: str | None = None) -> list[InFlightTask]:
+        """Return all in-flight tool tasks across the
+        dispatcher's tracked agents (ADR-075 §2.4 row #8).
+
+        In-flight = ``tool.<name>.requested`` event has
+        landed in the projection but no
+        ``tool.<name>.completed`` / ``failed`` event has
+        landed yet. The query reads from ``tool_requests``
+        minus ``tool_completions`` in the per-agent view
+        (the same source the TTL sweeper uses; the EventLog
+        is the source of truth).
+
+        ``agent_id=None`` returns tasks for every tracked
+        agent; pass an id to scope the result.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_in_flight`.
+        """
+        views = await self._load_views(agent_id)
+        result = _in_flight_tasks(agents_to_views=views, agent_id=agent_id)
+        self._metrics_sink.record_in_flight(len(result))
+        return result
+
+    async def stale_tasks(
+        self,
+        threshold_seconds: float = 300.0,
+        agent_id: str | None = None,
+    ) -> list[InFlightTask]:
+        """Subset of ``in_flight_tasks`` whose ``expires_at``
+        is past ``threshold_seconds`` ago (ADR-075 §2.4 row
+        #11: the "stale but not yet recovered" race window).
+
+        The threshold defaults to 5 minutes — the standard
+        tool recovery SLA. Operators tune this per deployment
+        depending on tool-latency budgets.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_stale`.
+        """
+        views = await self._load_views(agent_id)
+        result = _stale_tasks(
+            agents_to_views=views,
+            threshold_seconds=threshold_seconds,
+            agent_id=agent_id,
+        )
+        self._metrics_sink.record_stale(len(result))
+        return result
+
+    async def stuck_in_queue(
+        self,
+        threshold_seconds: float = 300.0,
+    ) -> list[str]:
+        """Stream-keys whose queue is non-empty and no
+        consumer is pending (ADR-075 §2.4 row #9).
+
+        Returns the **tool names** whose queue matches the
+        pattern, NOT the message ids. The caller can fetch
+        the message ids from ``Redis.xrange(...)`` if needed.
+
+        **Decomposes into two primitives** on the
+        ``WorldCheckpointStorage`` Protocol (per ADR-075
+        §2.4):
+
+        - ``storage.queue_length(stream_key)`` says "messages
+          were ever entered but not consumed" (``XLEN``
+          semantics).
+        - ``storage.pending_count(stream_key)`` says
+          "messages are currently being processed"
+          (``XPENDING`` semantics, single-probe).
+
+        The dispatcher passes its ``IncrementalWorldStore``
+        (the facade over ``WorldCheckpointStorage``); the
+        facade forwards to the underlying storage. No raw
+        Redis client is held by the dispatcher for this
+        query — the adapter boundary is preserved.
+
+        A high ``queue_length`` AND zero ``pending_count``
+        ⇒ stuck. The threshold controls the false-positive
+        rate; the canonical primitive (``XPENDING``) is
+        exact for the "in flight" half, so the only false
+        positive is "long-idle PEL" which is rare.
+
+        ``world_store`` is **always** wired by the
+        dispatcher constructor (the constructor raises if
+        neither ``world_store`` nor ``redis`` is supplied).
+        The graceful-empty branch exists for callers who
+        monkey-patch ``_world_store = None`` after
+        construction (test scenario only); production code
+        never hits it.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_stuck_in_queue`.
+        """
+        if self._world_store is None:
+            return []
+        views = await self._load_views(None)
+        result = await _stuck_in_queue(
+            stream_inspector=self._world_store,
+            stream_prefix=self._tool_stream_prefix,
+            agents_to_views=views,
+            threshold_seconds=threshold_seconds,
+        )
+        self._metrics_sink.record_stuck_in_queue(len(result))
+        return result
+
+    async def dead_lettered_tasks(
+        self,
+        reason=None,
+        agent_id: str | None = None,
+        count: int = 100,
+    ) -> list[DeadLetterEvent]:
+        """Read DLQ entries awaiting operator action
+        (ADR-075 §2.4 row #10).
+
+        Composes the existing ``DeadLetterQueue.list_*``
+        API — no new storage path. The DLQ is wired via
+        ``dlq=`` on the dispatcher constructor; if ``dlq``
+        is ``None`` (default) the query returns ``[]`` so
+        deployments that don't opt in don't crash.
+
+        ``reason`` filters by ``DLQReason`` (typically
+        ``TOOL_STALE_ACKNOWLEDGED`` / ``TOOL_STALE_UNACKNOWLEDGED``
+        after this ADR lands). ``agent_id`` filters by agent.
+        No filter ⇒ ``list_all``.
+
+        Side effect: pushes the result length to the
+        configured :class:`MetricsSink` via
+        :meth:`MetricsSink.record_dead_lettered`.
+        """
+        result = await _dead_lettered_tasks(
+            self._dlq,
+            reason=reason,
+            agent_id=agent_id,
+            count=count,
+        )
+        self._metrics_sink.record_dead_lettered(len(result))
+        return result
+
+    async def detect_and_recover(
+        self,
+        stale_threshold_s: float = 300.0,
+        stuck_in_queue_threshold_s: float = 300.0,
+        dry_run: bool = False,
+    ) -> RecoveryReport:
+        """Convenience entry point (ADR-075 §2.4.1).
+
+        Runs the recovery read-only queries and returns a
+        structured ``RecoveryReport``. **Does NOT trigger the
+        sweeper** — the sweeper runs once per tick as part
+        of the dispatch loop. This report lets the operator
+        (cron / alert) see the state without coupling to
+        the tick loop.
+
+        ``dry_run`` is reserved for future expansion (no
+        current behaviour is gated on it; included in the
+        signature so operator scripts can adopt the API
+        without future code changes).
+        """
+        in_flight = await self.in_flight_tasks()
+        stale = await self.stale_tasks(stale_threshold_s)
+        stuck = await self.stuck_in_queue(stuck_in_queue_threshold_s)
+        dlq = await self.dead_lettered_tasks(count=100)
+        return RecoveryReport(
+            in_flight_count=len(in_flight),
+            stale_count=len(stale),
+            stuck_in_queue_count=len(stuck),
+            dead_lettered_count=len(dlq),
+            dry_run=dry_run,
         )
 
 

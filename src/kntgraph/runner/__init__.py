@@ -16,12 +16,15 @@ Both rely on the EventLog for idempotency and on the World
 fold for purity.
 """
 
+from ._metrics import MetricsSink, NullMetricsSink
 from .reactive import ReactiveDispatcher
 from .reactive_extensions import MemoryHydrationProjection, WorldProjection
 from .runner import Runner
 
 __all__ = [
     "MemoryHydrationProjection",
+    "MetricsSink",
+    "NullMetricsSink",
     "ReactiveDispatcher",
     "Runner",
     "WorldProjection",

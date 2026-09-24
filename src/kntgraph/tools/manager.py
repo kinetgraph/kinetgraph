@@ -217,13 +217,13 @@ class WorkerManager:
         self._tools[tool_cls.name] = tool_cls
         # ``acl`` is the sentinel ``_UNSET`` when the
         # caller omitted the kwarg (legacy, no
-        # constraint). Otherwise the value is the
-        # ``ToolACL`` (or ``default_acl()`` if the
-        # caller explicitly passed ``acl=None``).
-        if acl is _UNSET:
+        # constraint). ``acl=None`` is the EXPLICIT
+        # opt-out (ADR-066 §4.4) — also no constraint.
+        # Otherwise the value is the ``ToolACL``.
+        if acl is _UNSET or acl is None:
             self._acls[tool_cls.name] = _UNSET
         else:
-            self._acls[tool_cls.name] = acl if acl is not None else default_acl()
+            self._acls[tool_cls.name] = acl
 
     def acl_for(self, name: str) -> Optional[ToolACL]:
         """Return the ``ToolACL`` for ``name`` (or

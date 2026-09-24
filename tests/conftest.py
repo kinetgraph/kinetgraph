@@ -20,8 +20,26 @@ suite depends on:
     into test N+1 via the cached singleton.
 """
 
+import sys
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
+
+# Tests under ``tests/scripts/`` and
+# ``tests/unit/scripts/`` import modules from the
+# repo-root ``scripts/`` directory (path-only imports
+# like ``from scripts.readme_stats import _version_badge``
+# or ``import migrate_principals``). Pytest does not put
+# ``scripts/`` on ``sys.path`` by default; without this
+# conftest, pytest collection fails with
+# ``ModuleNotFoundError`` (and mutmut's broader collection
+# trips on the same). Adding ``scripts/`` makes the path-only
+# imports work for both the regular ``pytest`` run and the
+# ``mutmut run`` invocation.
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
 
 
 @pytest_asyncio.fixture(autouse=True)

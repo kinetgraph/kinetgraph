@@ -270,8 +270,14 @@ class TestCacheWarmerContinuityDispatch:
             result_signature="sha256:def",
             latency_ms=100,
         )
-        # Wipe cache
-        await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
+        # Wipe cache AND the fold cursor. The cursor lives
+        # at a parallel Redis key (``<key>:fold_cursor``);
+        # without dropping it, ``refresh_cache_incremental``
+        # sees an empty delta (since the cursor already
+        # advanced past the EventLog) and short-circuits
+        # without repopulating the cache. The high-level
+        # API ``invalidate_cache`` does both atomically.
+        await cm.invalidate_cache("t-1", "u-1")
 
         bus = CacheRefreshBus()
         bus.publish(CacheRefreshRequest(kind="continuity", id1="t-1", id2="u-1"))

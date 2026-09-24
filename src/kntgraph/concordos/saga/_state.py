@@ -139,16 +139,70 @@ def _apply_step_snapshot(e: Event, state: dict[str, Any]) -> None:
 
 
 def _on_compensating(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
-    """``saga.<name>.compensating``: the saga is rolling back."""
+    """``saga.<name>.compensating``: the saga is rolling back.
+
+    Marks the direction as compensating and seeds the
+    ``compensate_stack`` from the config (config-derived:
+    only steps with ``compensate_tool`` that completed).
+    Per-step ``compensation_started`` events
+    (ADR-069 §11.18.2) refine the stack on subsequent
+    ticks.
+    """
     state["direction"] = "compensating"
     # The compensate_stack is the set of steps that completed and
     # carry a compensate_tool (config-derived), in LIFO order.
+    # Per-step events narrow this down.
     state["compensate_stack"] = [
         s.name
         for s in reversed(config.steps)
         if s.compensate_tool is not None
         and state["step_states"].get(s.name) == "completed"
     ]
+
+
+def _on_compensation_started(
+    e: Event, state: dict[str, Any], config: SagaConfig
+) -> None:
+    """``saga.<name>.<step>.compensation_started`` (ADR-069 §11.18.2):
+    the saga dispatched the compensation tool for ``<step>``.
+
+    This is the durable marker that compensation is in
+    flight. The fold projection reads it from the EventLog
+    to reconstruct the exact compensated-step list after a
+    process crash. A crash between this event and the
+    matching ``compensated`` is recovered by re-dispatching
+    on the next tick (the ``compensation_started`` is the
+    durable signal; the system is idempotent because the
+    worker receives the same ``compensate_when`` context
+    on replay).
+    """
+    step_name = str(e.data.get("step_name", ""))
+    if not step_name:
+        return
+    # Add to the stack (LIFO order — most recent last).
+    stack = list(state["compensate_stack"])
+    if step_name not in stack:
+        # Insert at the end (will be compensated first in
+        # LIFO order; the saga system walks reversed()).
+        stack.append(step_name)
+        state["compensate_stack"] = stack
+    state["step_states"][step_name] = "compensating_started"
+
+
+def _on_compensated(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+    """``saga.<name>.<step>.compensated`` (ADR-069 §11.18.2):
+    the compensation tool for ``<step>`` completed.
+
+    Removes the step from the ``compensate_stack`` (LIFO).
+    """
+    step_name = str(e.data.get("step_name", ""))
+    if not step_name:
+        return
+    stack = list(state["compensate_stack"])
+    if step_name in stack:
+        stack.remove(step_name)
+        state["compensate_stack"] = stack
+    state["step_states"][step_name] = "compensated"
 
 
 def _on_completed(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
@@ -225,10 +279,18 @@ def _fold_agent(
         suffix = e.event_type[len(prefix) :]
         handler = _HANDLERS.get(suffix)
         if handler is None:
-            # ``saga.<name>.<step>.awaiting_approval`` — the step
-            # name is dynamic, so the suffix is ``<step>.awaiting_approval``.
+            # Dynamic-suffix events (step name is in the middle):
+            # - ``saga.<name>.<step>.awaiting_approval``
+            # - ``saga.<name>.<step>.compensation_started``
+            #   (ADR-069 §11.18.2)
+            # - ``saga.<name>.<step>.compensated``
+            #   (ADR-069 §11.18.2)
             if suffix.endswith(".awaiting_approval"):
                 handler = _on_awaiting_approval
+            elif suffix.endswith(".compensation_started"):
+                handler = _on_compensation_started
+            elif suffix.endswith(".compensated"):
+                handler = _on_compensated
             else:
                 continue
         saw_event = True

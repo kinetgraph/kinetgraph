@@ -237,3 +237,146 @@ def test_projection_preserves_base_without_saga_events() -> None:
     saga = _run_projection(_saga_config(), events, base=base)
     assert saga is not None
     assert saga.current_step == "validate_fiscal"
+
+
+# ---------------------------------------------------------------------------
+# ADR-069 §11.18.2: granular compensation events
+# ---------------------------------------------------------------------------
+
+
+def test_projection_compensation_started_tracks_stack() -> None:
+    """``saga.<name>.<step>.compensation_started`` (ADR-069 §11.18.2)
+    adds the step to the ``compensate_stack``. The granular event
+    refines the stack seeded by ``compensating``.
+    """
+    events = [
+        _event("agent-1", "saga.nfe_emission.started", {"saga_id": "s-1"}),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.compensating",
+            {"reason": "step_failure", "saga_id": "s-1"},
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.register_receivable.compensation_started",
+            {"step_name": "register_receivable", "saga_id": "s-1"},
+        ),
+    ]
+    saga = _run_projection(_saga_config(), events)
+    assert saga is not None
+    assert saga.direction == "compensating"
+    # register_receivable was added by the granular event.
+    assert "register_receivable" in saga.compensate_stack
+
+
+def test_projection_compensated_removes_from_stack() -> None:
+    """``saga.<name>.<step>.compensated`` (ADR-069 §11.18.2)
+    removes the step from the ``compensate_stack`` (LIFO).
+
+    A crash-safe compensation: the EventLog records each
+    compensation step completion individually, so the
+    fold can reconstruct the exact compensated-step list
+    even after a process restart.
+    """
+    events = [
+        _event("agent-1", "saga.nfe_emission.started", {"saga_id": "s-1"}),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.compensating",
+            {"reason": "step_failure", "saga_id": "s-1"},
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.register_receivable.compensation_started",
+            {"step_name": "register_receivable", "saga_id": "s-1"},
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.register_receivable.compensated",
+            {"step_name": "register_receivable", "saga_id": "s-1"},
+        ),
+    ]
+    saga = _run_projection(_saga_config(), events)
+    assert saga is not None
+    assert saga.direction == "compensating"
+    # register_receivable was compensated -- removed from stack.
+    assert "register_receivable" not in saga.compensate_stack
+    # The step_state reflects "compensated".
+    assert saga.step_states["register_receivable"] == "compensated"
+
+
+def test_projection_crash_safe_compensation_recovery() -> None:
+    """A fold after a crash mid-compensation reconstructs the
+    exact compensated-step list from the EventLog
+    (ADR-069 §11.18.2).
+
+    Scenario: ``register_receivable.compensation_started``
+    is emitted, the saga process crashes BEFORE the
+    matching ``compensated``. On restart, the fold sees
+    the ``compensation_started`` but not the
+    ``compensated``; the step remains on the
+    compensate_stack for re-dispatch on the next tick.
+    """
+    # Step 1: pre-compensation state (all steps completed
+    # forward, saga entering compensation).
+    events = [
+        _event("agent-1", "saga.nfe_emission.started", {"saga_id": "s-1"}),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.step_completed",
+            {
+                "step_name": "validate_fiscal",
+                "saga_id": "s-1",
+                "step_states": {"validate_fiscal": "completed"},
+                "step_results": {},
+            },
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.step_completed",
+            {
+                "step_name": "emit_nfe",
+                "saga_id": "s-1",
+                "step_states": {
+                    "validate_fiscal": "completed",
+                    "emit_nfe": "completed",
+                },
+                "step_results": {},
+            },
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.step_completed",
+            {
+                "step_name": "register_receivable",
+                "saga_id": "s-1",
+                "step_states": {
+                    "validate_fiscal": "completed",
+                    "emit_nfe": "completed",
+                    "register_receivable": "completed",
+                },
+                "step_results": {},
+            },
+        ),
+        _event(
+            "agent-1",
+            "saga.nfe_emission.compensating",
+            {"reason": "step_failure", "saga_id": "s-1"},
+        ),
+        # Step 2: dispatch register_receivable compensation,
+        # then the process crashes. The ``compensated`` is
+        # never seen.
+        _event(
+            "agent-1",
+            "saga.nfe_emission.register_receivable.compensation_started",
+            {"step_name": "register_receivable", "saga_id": "s-1"},
+        ),
+    ]
+    saga = _run_projection(_saga_config(), events)
+    assert saga is not None
+    assert saga.direction == "compensating"
+    # After the crash, register_receivable is on the stack:
+    # the saga will re-dispatch it on the next tick.
+    assert "register_receivable" in saga.compensate_stack
+    # emit_nfe was NOT yet compensated (also on the stack).
+    assert "emit_nfe" in saga.compensate_stack

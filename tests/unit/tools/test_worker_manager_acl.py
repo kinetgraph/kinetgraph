@@ -110,7 +110,7 @@ class TestWorkerManagerACL:
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
         manager, redis_mock, event_log_mock = self._make_manager()
-        manager.register(LiteLLMToolWorker)
+        manager.register(LiteLLMToolWorker, acl=None)
 
         request = self._make_request(producer_principal_id="tenant-a.agent-1")
         message_id, data = self._stream_message(request)
@@ -283,7 +283,7 @@ class TestWorkerManagerACL:
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
         manager, _, _ = self._make_manager()
-        manager.register(LiteLLMToolWorker)
+        manager.register(LiteLLMToolWorker, acl=None)
         assert manager.acl_for("chat_llm") is None
 
     def test_acl_for_returns_toolacl_for_explicit_register(self):

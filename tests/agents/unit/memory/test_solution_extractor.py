@@ -66,11 +66,15 @@ def _event(
 def _world(events: list[Event]) -> World:
     """Build a World with the tool_calls projection.
 
-    ADR-045: the projection defaults to a 5-minute
-    TTL; the test events have timestamps in
-    ``2026-06-30`` and a real wall clock would evict
-    the requests. Disable the TTL for the
-    tests that don't exercise the eviction logic.
+    ADR-045 + ADR-075: the projection sets
+    ``expires_at = requested_at + ttl_seconds`` on every
+    ``ToolCallRequest``. The tests do NOT exercise the
+    eviction logic; a long TTL (24h) keeps ``expires_at``
+    in the future relative to any test wall clock so the
+    TTL sweeper never evicts the test requests. The
+    ``ttl_for()`` lookup keys off the tool name; an
+    unused ``default_ttl_seconds`` is fine because every
+    test event goes through this projection path.
     """
     from kntgraph.core.world.components import ToolCallTTL
 
@@ -78,7 +82,7 @@ def _world(events: list[Event]) -> World:
         events,
         tick=events[-1].timestamp if events else 0,
         projection=lambda evs: project_tool_calls(
-            evs, ttl=ToolCallTTL(default_ttl_seconds=0)
+            evs, ttl=ToolCallTTL(default_ttl_seconds=86_400)
         ),
     )
 

@@ -25,18 +25,98 @@ dispatcher passes ``self`` so the functions can read its
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import replace
+from typing import TYPE_CHECKING, Awaitable
 
-from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.core.event import Event
+from kntgraph.core.system import WorldSystem
+from kntgraph.core.world import World
 
 from ._folding import fold_with_systems
 
 if TYPE_CHECKING:
-    from kntgraph.core.world import World
     from kntgraph.runner.reactive import ReactiveDispatcher
 
 
 __all__ = ["run_systems_and_persist", "append_system_outgoing"]
+
+
+def _call_system(
+    system: WorldSystem,
+    world: "World",
+) -> "list[Event] | Awaitable[list[Event]]":
+    """
+    Invoke ``system(world)`` per the ``WorldSystem``
+    Protocol. The contract is strictly ``World -> list[Event]``
+    — no side-channel event list, no ``new_events`` kwarg.
+
+    The dispatcher MUST NOT pass the raw event batch to a
+    system. Every system reads from the World (the post-fold
+    projection) and emits a list of events; the dispatcher's
+    tick loop appends those events to the EventLog and folds
+    them into the next tick's World.
+    """
+    return system(world)
+
+
+def _system_name(system: WorldSystem) -> str:
+    """
+    Resolve the cursor key for a system instance (ADR-074).
+
+    Default: ``type(system).__name__``. Override via
+    ``__cursor_key__`` ClassVar when the class name
+    collides with another module's class, or when a stable
+    identifier is needed across renames.
+    """
+    return getattr(system, "__cursor_key__", type(system).__name__)
+
+
+def _advance_cursors_in_world(
+    world: World,
+    emitters: set[tuple[str, str]],
+) -> World:
+    """
+    Advance the per-system cursor for each ``(system_name,
+    agent_id)`` in ``emitters`` to the agent's current
+    ``view.last_event_id`` (ADR-074).
+
+    Returns a new ``World`` with the updated views.
+    Cursors are not part of ``components``, so the
+    ``storage`` field is unchanged — the cursor
+    advancement is a pure view-level update.
+
+    If ``emitters`` is empty, OR every emitter references
+    an agent that has no view in the World (no anchor
+    event), returns ``world`` unchanged (no allocation).
+    """
+    if not emitters:
+        return world
+
+    # Group emitters by agent_id for efficient per-view
+    # updates.
+    by_agent: dict[str, set[str]] = {}
+    for sys_name, ag_id in emitters:
+        by_agent.setdefault(ag_id, set()).add(sys_name)
+
+    # Fast path: if no emitter has a corresponding view,
+    # there is nothing to advance. Skip allocation.
+    if not any(ag_id in world.views for ag_id in by_agent):
+        return world
+
+    new_views = dict(world.views)
+    for ag_id, sys_names in by_agent.items():
+        old_view = new_views.get(ag_id)
+        if old_view is None:
+            continue  # defensive
+        if old_view.last_event_id is None:
+            continue  # no anchor event
+        new_cursors = dict(old_view.cursors)
+        for sys_name in sys_names:
+            new_cursors[sys_name] = old_view.last_event_id
+        if new_cursors != old_view.cursors:
+            new_views[ag_id] = replace(old_view, cursors=new_cursors)
+
+    return World(tick=world.tick, storage=world.storage, views=new_views)
 
 
 async def run_systems_and_persist(
@@ -100,6 +180,22 @@ async def run_systems_and_persist(
     system_events = await append_system_outgoing(
         dispatcher, world, agent_id, return_events=True
     )
+    # ADR-074: advance the per-system cursors BEFORE the
+    # ``fold_with_systems`` re-fold so each cursor points
+    # at the last event the world has SEEN at the moment
+    # the system ran (i.e. the seed that triggered the
+    # tick) -- NOT the event the system emitted (which is
+    # about to be folded on the next line). The test
+    # ``test_dispatcher_advances_cursor_after_system_emits``
+    # pins this contract: ``view.cursors[<system>] ==
+    # str(seed.event_id)`` even when the system emits
+    # downstream events. ``append_system_outgoing``
+    # populates ``_tick_runners`` with one entry per
+    # ``(system_name, agent_id)`` pair; cross-agent
+    # emissions add a separate entry for the target agent
+    # so the cursor advances there too.
+    if dispatcher._tick_runners:
+        world = _advance_cursors_in_world(world, dispatcher._tick_runners)
     if system_events:
         world = fold_with_systems(dispatcher, world, system_events)
     # Dirty-only save (ADR-068 §3.5 P5c): the checkpoint is
@@ -149,23 +245,83 @@ async def append_system_outgoing(
     from the argument.
     """
     outgoing: list[Event] = []
-    # Bind a correlation scope so systems that call
-    # ``correlation_middleware.current()`` (e.g. to build
-    # events via ``Event.domain_from``) receive a
-    # non-None ``CorrelationContext`` per ADR-037. Without
-    # this, the contextvar is empty inside the tick and
-    # ``Event.create`` raises ``TypeError``.
-    with correlation_middleware.scope():
-        for system in dispatcher._systems:
-            out = system(world)
-            if not isinstance(out, list):
-                out = await out
-            if out:
-                outgoing.extend(out)
+    # ADR-074: track per-(system, agent) RUNNERS for cursor
+    # advancement. Cursor advances when the system ran
+    # (not when it emitted) so systems that filter or
+    # no-op don't get stuck with a stale cursor. The
+    # dispatcher declares the attribute in its
+    # ``__init__`` (``set[tuple[str, str]]``); we
+    # ``clear`` it here rather than re-assigning so the
+    # type stays visible to pyright at the call site.
+    dispatcher._tick_runners.clear()
+    # The dispatcher (see ``ReactiveDispatcher._dispatch_for_agent``)
+    # already opened a correlation scope and called
+    # ``correlation_middleware.continue_from(...)`` so
+    # ``correlation_middleware.current()`` returns the
+    # correct flow correlation. We do NOT open another
+    # scope here — that would shadow the dispatcher's
+    # one with a fresh ``uuid4()`` (the bug the dispatcher
+    # fix closes). Systems that need to emit events
+    # during their tick MUST read the middleware as-is.
+    for system in dispatcher._systems:
+        sys_name = _system_name(system)
+        # Record the (system, agent) pair as a runner for
+        # cursor advancement. We track the agent the
+        # system was invoked for (= ``agent_id``); the
+        # system may emit events for OTHER agents too, but
+        # cursor advancement for those agents is handled
+        # by the dispatcher emitting the events and the
+        # per-agent cursor being read by that agent's next
+        # tick.
+        dispatcher._tick_runners.add((sys_name, agent_id))
+        # Per the ``WorldSystem`` Protocol: systems receive
+        # only the World (the post-fold projection). The
+        # raw event batch is NOT threaded as a parameter;
+        # systems read everything they need from the World
+        # via ``view.cursors[<system>]`` vs ``view.last_event_id``
+        # (cursor-based gating, ADR-074).
+        out = _call_system(system, world)
+        if not isinstance(out, list):
+            out = await out
+        if out:
+            outgoing.extend(out)
+            # Also track emitters (in addition to runners)
+            # so we can advance cursors for agents that
+            # were EMITTED TO (not just the agent we ran
+            # for). Most systems emit for the agent they
+            # were invoked for; cross-agent emission is
+            # rare but supported.
+            for event in out:
+                dispatcher._tick_runners.add((sys_name, event.agent_id))
     if outgoing:
         await dispatcher._log.append_batch(outgoing)
         if dispatcher._tool_router is not None:
             await dispatcher._tool_router.route_batch(outgoing)
+        # ADR-075 Tier 4: increment the compensation counter
+        # once per ``*.compensation_started`` event appended.
+        # Saga projections emit this event type per step
+        # (ADR-069 §11.18.2) as the durable marker that the
+        # rollback for that step has started; the suffix
+        # match is intentional so future event types sharing
+        # the same shape (e.g. nested saga compensation)
+        # are counted the same way.
+        sink = getattr(dispatcher, "_metrics_sink", None)
+        if sink is not None:
+            for event in outgoing:
+                if event.event_type.endswith(".compensation_started"):
+                    sink.incr_compensation_started()
+        # ADR-069 §5.2: bridge ``*.dlq`` events from the
+        # saga to the DeadLetterQueue. The saga stays
+        # side-effect-free; this adapter is the only point
+        # in the framework that turns the typed event into
+        # a DLQ entry. ``DeadLetterQueue.append`` is
+        # idempotent on ``<event_id>:<reason>``, so a retry
+        # after a dispatcher restart is a no-op. When
+        # ``_dlq`` is ``None`` (the operator did not wire a
+        # DLQ), the writer short-circuits to ``[]``.
+        from ._dlq_writer import append_dlq_events
+
+        await append_dlq_events(outgoing, getattr(dispatcher, "_dlq", None))
     if return_events:
         return outgoing
     return None

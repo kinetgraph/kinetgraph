@@ -34,7 +34,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING, Callable, Mapping
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     )
     from kntgraph.core.event.correlation import CorrelationContext
     from kntgraph.core.world.component import DomainComponent
-    from kntgraph.core.world.world import World
+    from kntgraph.core.world.view import AgentView
 
 __all__ = [
     "AndSpec",
@@ -74,20 +74,36 @@ class StepContext:
     source; reading ``datetime.now()`` inside
     ``is_satisfied_by`` would break replay determinism.
 
-    **World access policy.** ``world`` is the full
-    post-fold ``World``. Specifications MAY read any
-    agent's view via ``world.get_agent(agent_id)`` or
-    iterate via ``world.agents``. This is required for
-    cross-agent rules (e.g. "only proceed if the
-    financial-control agent's tier is VIP") and is the
-    documented escape hatch for Specifications that need
-    global state.
+    ``trigger_data`` is the data payload of the event
+    that triggered the current evaluation (e.g., the
+    transition event for an FSM guard, the trigger event
+    for a saga). The mini-language's ``event.data.*``
+    paths resolve via this field. ``None`` when no
+    trigger is in scope (e.g., for a saga step-result
+    evaluation that only cares about ``step_results``).
 
-    Specifications MUST NOT mutate the World, emit events,
-    or perform I/O. The ``is_satisfied_by`` method is
-    pure; the emitted events belong to the system that
-    called the Specification, not to the Specification
-    itself.
+    **Cross-agent access is opt-in.** A Specification
+    that needs to read another agent's view (e.g.
+    "proceed iff the financial-control agent's tier
+    is VIP") declares an opt-in by accepting a
+    ``cross_agent_resolver`` callable and calling it
+    inside ``is_satisfied_by``. The resolver is built by
+    the system that constructs the ``StepContext``
+    (typically a closure over the post-fold ``World``).
+
+    The ``StepContext`` itself does NOT carry the
+    ``World``: that would make every guard FSM an O(N)
+    scan over ``world.agents`` and break the "FSM
+    guard is cheap" contract. Specifications that do
+    NOT need cross-agent access receive
+    ``cross_agent_resolver=None`` and cannot reach
+    the World.
+
+    Specifications MUST NOT mutate any agent view,
+    emit events, or perform I/O. The
+    ``is_satisfied_by`` method is pure; the emitted
+    events belong to the system that called the
+    Specification, not to the Specification itself.
     """
 
     step_results: MappingProxyType[str, "JsonValue"]
@@ -95,9 +111,10 @@ class StepContext:
     domain: "DomainComponent | None"
     continuity: "ContinuityComponent | None"
     profile: "ProfileComponent | None"
-    world: "World"
     agent_id: str
     now: datetime
+    trigger_data: "MappingProxyType[str, JsonValue] | None" = None
+    cross_agent_resolver: "Callable[[str], AgentView | None] | None" = None
 
 
 class Composable:
@@ -204,3 +221,4 @@ class ViewTrigger:
     data: Mapping[str, "JsonValue"]
     correlation: "CorrelationContext | None"
     causation_id: UUID | None = None
+    producer_principal_id: str | None = None

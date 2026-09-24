@@ -128,7 +128,7 @@ class TestInitBranches:
             log=log,
             world_store=store,
             systems=[],
-            tool_ttls=ToolCallTTL(),
+            tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
         )
         # The auto-registered system is the LAST entry.
         # The dispatcher must now have exactly one system.
@@ -292,7 +292,7 @@ class TestDispatchForAgentBranches:
             world_store=store,
             systems=[],
             filter_fn=lambda _e: False,
-            tool_ttls=ToolCallTTL(),
+            tool_ttls=ToolCallTTL(default_ttl_seconds=300.0),
         )
         # The dispatcher auto-registered the sweeper
         # in __init__; with ``tool_ttls`` set, the

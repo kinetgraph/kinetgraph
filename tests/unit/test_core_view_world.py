@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import pytest
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World, DomainComponent, domain_component
 from kntgraph.core.world.view import AgentView
@@ -15,6 +16,24 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class MockComponent(DomainComponent):
     value: int
+
+
+@pytest.fixture(autouse=True)
+def _ensure_mock_component_registered() -> None:
+    """Re-register ``MockComponent`` before every test.
+
+    The ``@domain_component`` decorator runs at module-import
+    time, but other test files in this suite (``test_domain_component_registry``)
+    have an autouse fixture that calls ``reset_domain_registry()``
+    on setup/teardown. If that file runs first, the registry is
+    cleared and the imported ``MockComponent`` mapping is lost --
+    the fold then cannot hydrate the typed component and three
+    tests in this file fail. Re-applying the decorator before
+    every test is idempotent (the ``is`` check inside ``domain_component``
+    sees the same class object) and makes this file self-contained.
+    """
+    domain_component("test.component.loaded")(MockComponent)
+    yield
 
 
 def _event(agent_id: str, event_type: str, *, event_class: str = "domain") -> Event:

@@ -4,7 +4,7 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# BusinessFSM — the pure state machine Concordo (ADR-069 §3)
+# BusinessFSM — the pure state machine Concordo (ADR-071 §3)
 
 A **BusinessFSM** (Business Finite State Machine) declares the
 lifecycle of a business object as an explicit state machine over
@@ -13,7 +13,7 @@ tool calls. It reacts to domain events, validates transitions, and
 emits `fsm.transitioned` or `fsm.transition_rejected`. State is
 carried by the `DomainComponent` — the FSM does not duplicate it.
 
-This is the C-01 Concordo of ADR-069. It composes with the
+This is the C-01 Concordo of ADR-071. It composes with the
 WorkflowSaga (C-02): the Saga drives execution; upon completion it
 emits an event that the FSM uses to advance state.
 
@@ -52,7 +52,7 @@ transition table. It emits events; it never performs I/O.
 
 The FSM does **not** subscribe to event types. Every tick it reads
 the post-fold view and derives the trigger from the existing fields
-(ADR-069 §11.16):
+(ADR-071 §11.16):
 
 - `view.domain_phase` — the **type** of the most recent domain event.
 - `view.last_event_id` — the **id** of that event (used as the
@@ -68,7 +68,7 @@ The FSM does not introduce a new component for state. The
 the current state. The FSM reads it; the projection (ADR-059)
 materialises the component from domain events.
 
-**State advance (ADR-069 §9.2 item 1).** The FSM emits
+**State advance (ADR-071 §9.2 item 1).** The FSM emits
 `fsm.transitioned`; the `FSMProjection` (a dedicated
 `WorldProjection`, option b) advances the configured
 `DomainComponent`'s `state_field` from that event. It does
@@ -143,7 +143,7 @@ is emitted with `reason="guard_failed"`.
 ## 4. Guards as Specifications
 
 A guard is a `Specification` — a pure, immutable, composable
-predicate over a `StepContext` (ADR-069 §2). The framework ships a
+predicate over a `StepContext` (ADR-071 §2). The framework ships a
 standard library in `kntgraph.concordos.specs`:
 
 | Specification | True when |
@@ -268,11 +268,11 @@ KNT_REDIS_FAKE=1 uv run python examples/23_business_fsm.py
 
 ## 9. See also
 
-- [ADR-069 §3](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-071 §3](../../ADRs/ADR-071-Agent-Concordo-Macro-Behaviors.md) —
   the BusinessFSM design record.
-- [ADR-069 §2](../../ADRs/ADR-069-Agent-Concordo-Macro-Behaviors.md) —
+- [ADR-071 §2](../../ADRs/ADR-071-Agent-Concordo-Macro-Behaviors.md) —
   the Specification Pattern.
 - [ECS](ecs.md) — `World`, `AgentView`, `WorldSystem`.
 - [Event Sourcing](event_sourcing.md) — `EventLog`, `World.fold`.
-- [DEBT §2.34](../../DEBT.md) — the ADR-069 follow-up tracker
+- [DEBT §2.34](../../DEBT.md) — the ADR-071 follow-up tracker
   (items 1, 2, 3, 6 closed).

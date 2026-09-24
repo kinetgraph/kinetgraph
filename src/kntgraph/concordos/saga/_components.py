@@ -14,12 +14,32 @@ from the EventLog and carried as a cache for system reads.
 
 from __future__ import annotations
 
+import copyreg
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from kntgraph.core.world.component import DomainComponent
+
+
+def _reconstruct_mapping_proxy(d: dict) -> MappingProxyType:
+    return MappingProxyType(d)
+
+
+# Register pickle reducer for MappingProxyType so WorldCheckpoint
+# serialization works with ``pickle.dumps``. The
+# ``SagaProgressComponent`` exposes ``step_states`` /
+# ``step_results`` / ``awaiting_approval_at`` as
+# ``MappingProxyType`` (read-only view); pickle.dumps on a
+# frozen dataclass with a MappingProxyType slot raises
+# ``TypeError: cannot pickle 'mappingproxy' object`` without
+# this reducer (the framework's WorldCheckpoint is the
+# canonical persistence — see ``core.world.checkpoint``).
+copyreg.pickle(
+    MappingProxyType,
+    lambda m: (_reconstruct_mapping_proxy, (dict(m),)),
+)
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue

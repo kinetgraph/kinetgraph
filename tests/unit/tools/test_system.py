@@ -49,6 +49,8 @@ def test_tool_aware_system_getters():
         agent_id="a-1",
         params={"x": 2},
         requested_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc)
+        + __import__("datetime").timedelta(seconds=300),
     )
 
     comp = ToolCallCompletion(
@@ -90,6 +92,8 @@ def test_tool_aware_system_pending_state():
         agent_id="a-1",
         params={"text": "John"},
         requested_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc)
+        + __import__("datetime").timedelta(seconds=300),
     )
 
     view = AgentView(

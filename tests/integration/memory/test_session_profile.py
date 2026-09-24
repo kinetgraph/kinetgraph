@@ -272,11 +272,16 @@ class TestConsolidator:
         cons = Consolidator(log, bus, sm, pm)
         warmer = CacheWarmer(bus, sm, pm)
 
-        # Set up + delete caches
+        # Set up + invalidate caches (cache payload AND
+        # fold cursor). The cursor lives at a parallel
+        # Redis key (``<key>:fold_cursor``); without
+        # dropping it, ``refresh_cache_incremental`` sees
+        # an empty delta and short-circuits without
+        # repopulating. ``invalidate_cache`` drops both.
         await sm.start("s-1", user_id="u", tenant_id="t")
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
-        await clean_redis.delete("knt:session:s-1")
-        await clean_redis.delete("knt:profile:t-1:u-1")
+        await sm.invalidate_cache("s-1")
+        await pm.invalidate_cache("t-1", "u-1")
 
         # Publish via the Consolidator's cyclic system
         from kntgraph.stream.projection import fold_world

@@ -77,5 +77,60 @@ class WorldCheckpointStorage(Protocol):
         """Drop the checkpoint. Idempotent."""
         ...
 
+    # ------------------------------------------------------------------
+    # Stream inspection (ADR-075 Tier 4: ``stuck_in_queue`` query).
+    #
+    # The dispatcher needs to know whether a tool's queue stream
+    # (``knt:tools:<name>:queue``) is non-empty AND has no active
+    # consumer — that's the "stuck" signal. The Protocol exposes
+    # the two primitives directly so the dispatcher's
+    # observability layer never reaches into the Redis client
+    # for ``xlen`` / ``xpending`` (which are NOT part of the
+    # framework's ``RedisLike`` Protocol). Implementations map
+    # these to whatever backend they sit on: the Redis impl uses
+    # ``XINFO STREAM`` (length) and a single ``XPENDING`` summary
+    # probe; an in-memory test stub can satisfy the Protocol
+    # without spinning up Redis.
+    #
+    # Return contract (AGENTS.md §6):
+    #
+    #   - Returns ``0`` for a missing key (no such stream). The
+    #     caller interprets ``0`` as "no work, no stuck".
+    #   - Returns ``>= 0`` for an existing stream.
+    #   - On backend failure, the implementation may either
+    #     return ``0`` (fail-soft; the query is best-effort and
+    #     the dispatcher will rerun it on the next tick) or
+    #     raise; the dispatcher treats both as "no stuck
+    #     detected this tick" so a Redis hiccup never escalates
+    #     into a recovery loop.
+
+    async def queue_length(self, stream_key: str) -> int:
+        """Return the number of entries in ``stream_key``.
+
+        Maps to ``XLEN`` on Redis. ``0`` means the stream does
+        not exist or is empty.
+        """
+        ...
+
+    async def pending_count(self, stream_key: str) -> int:
+        """Return a positive count if ``stream_key`` has any
+        pending (un-acked) entries in its consumer group.
+
+        ``0`` means the PEL is empty (or the stream/group
+        does not exist). Any positive value means at least
+        one entry is held by a consumer — the dispatcher's
+        stuck-in-queue query interprets "positive" as "a
+        worker is processing, NOT stuck".
+
+        Implementations return a binary-ish count (``0`` or
+        ``1``) by design: the dispatcher's stuck detection
+        only branches on the existence of pending entries,
+        not their count. Returning the exact count would
+        require either a Protocol extension (``XINFO
+        GROUPS``) or full PEL enumeration; the dispatcher's
+        decision does not justify either cost.
+        """
+        ...
+
 
 __all__ = ["WorldCheckpointStorage"]

@@ -189,5 +189,23 @@ class RedisSessionStorage:
             return Err(MemoryError(f"redis error: {e}", key=key))
         return Ok(None)
 
+    async def delete_fold_cursor(self, key: str) -> Result[None, MemoryError]:
+        """Drop the fold cursor at ``<key>:fold_cursor``.
+
+        Idempotent: a missing key returns ``Ok(None)`` so the
+        caller can use this on a hot path without first
+        checking for existence.
+        """
+        try:
+            await self.client.delete(key)
+        except Exception as e:
+            logger.warning(
+                "session_storage.delete_fold_cursor.redis_error",
+                key=key,
+                error=str(e),
+            )
+            return Err(MemoryError(f"redis error: {e}", key=key))
+        return Ok(None)
+
 
 __all__ = ["RedisSessionStorage"]

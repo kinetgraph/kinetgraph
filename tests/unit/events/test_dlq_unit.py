@@ -123,6 +123,27 @@ class TestDeadLetterEventCodec:
         assert decoded.error_message == original.error_message
         assert decoded.retry_count == original.retry_count
 
+    async def test_to_dict_then_from_dict_with_causation_and_span_ids(self):
+        causation_id = uuid.uuid4()
+        span_id = uuid.uuid4()
+        event = Event.domain_from(
+            agent_id="agent-1",
+            type="test.causation",
+            data={"y": 2},
+            correlation=CorrelationContext.new(
+                correlation_id=uuid.uuid4(),
+                causation_id=causation_id,
+                span_id=span_id,
+            ),
+        )
+        original = _make_dlq_event(event=event)
+        d = original.to_dict()
+        assert d["causation_id"] == str(causation_id)
+        assert d["span_id"] == str(span_id)
+        decoded = DeadLetterEvent.from_dict(d)
+        assert decoded.event.correlation.causation_id == causation_id
+        assert decoded.event.correlation.span_id == span_id
+
     async def test_dlq_id_stable_on_event_id(self):
         event = _make_event()
         dl = _make_dlq_event(event=event)
@@ -286,6 +307,28 @@ class TestErrorBranches:
         assert result.is_err()
         assert isinstance(result.err_value(), PersistenceError)
 
+    async def test_append_returns_placeholder_when_storage_returns_placeholder(self):
+        from kntgraph.infra.redis._dlq import PLACEHOLDER
+
+        storage = MagicMock()
+        storage.append = AsyncMock(return_value=Ok(PLACEHOLDER))
+        queue = DeadLetterQueue(storage)
+
+        result = await queue.append(_make_dlq_event())
+        assert result.is_ok()
+        assert result.ok_value() == PLACEHOLDER
+
+    async def test_append_when_storage_client_is_none(self):
+        storage = MagicMock()
+        storage.append = AsyncMock(return_value=Ok("1000-0"))
+        storage.bump_reason_counter = AsyncMock(return_value=Ok(1))
+        storage.client = None
+        queue = DeadLetterQueue(storage)
+
+        result = await queue.append(_make_dlq_event())
+        assert result.is_ok()
+        assert result.ok_value() == "1000-0"
+
     async def test_append_warns_when_counter_bump_fails(self, queue, monkeypatch):
         from kntgraph.infra.redis._dlq import PLACEHOLDER
         from kntgraph.infra.redis._errors import MemoryError
@@ -305,6 +348,14 @@ class TestErrorBranches:
         storage = MagicMock()
         storage.find_by_event_id = AsyncMock(return_value=Ok("1234-0"))
         storage.read = AsyncMock(return_value=Err(MemoryError("read fail")))
+        queue = DeadLetterQueue(storage)
+
+        assert await queue.get_event("any") is None
+
+    async def test_get_event_returns_none_when_read_returns_none(self):
+        storage = MagicMock()
+        storage.find_by_event_id = AsyncMock(return_value=Ok("1234-0"))
+        storage.read = AsyncMock(return_value=Ok(None))
         queue = DeadLetterQueue(storage)
 
         assert await queue.get_event("any") is None

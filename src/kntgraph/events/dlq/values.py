@@ -32,9 +32,13 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import TYPE_CHECKING, Mapping, cast
 from uuid import UUID
 
 from ...core.event import CorrelationContext, Event
+
+if TYPE_CHECKING:
+    from ...core._typing import JsonValue
 
 
 # Redis keys for the DLQ.
@@ -45,7 +49,16 @@ DLQ_EVENT_INDEX = "knt:dlq:by_event_id"
 
 
 class DLQReason(str, Enum):
-    """Why an event ended up in the DLQ."""
+    """Why an event ended up in the DLQ.
+
+    Reasons 0–5 cover worker-side failures (the worker hard
+    crashed, exceeded its retry budget, etc.). **Reasons
+    6–7 cover tool-task recoveries emitted by the TTL
+    sweeper** when a stale request couldn't be safely
+    re-dispatched (ADR-075 §2.3.2). The existing reasons
+    stay unchanged so existing operators' dashboards don't
+    break.
+    """
 
     PROCESSING_FAILED = "processing_failed"
     MAX_RETRIES_EXCEEDED = "max_retries_exceeded"
@@ -54,6 +67,17 @@ class DLQReason(str, Enum):
     CIRCUIT_BREAKER_OPEN = "circuit_breaker_open"
     POISON_PILL = "poison_pill"
     UNKNOWN_ERROR = "unknown_error"
+
+    # ADR-075 §3.1 — emitted by ToolCallTTLSweeperSystem when
+    # a stale request cannot be re-dispatched because the tool
+    # is non-idempotent. The worker may have started the task
+    # (acked) before crashing.
+    TOOL_STALE_ACKNOWLEDGED = "tool_stale_acknowledged"
+
+    # ADR-075 §3.1 — emitted by ToolCallTTLSweeperSystem when
+    # a stale request was never picked up by any worker
+    # (message stuck in the queue; no XPENDING entry).
+    TOOL_STALE_UNACKNOWLEDGED = "tool_stale_unacknowledged"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +92,9 @@ class DeadLetterEvent:
     original_timestamp: datetime
     dlq_timestamp: datetime
     retry_count: int = 0
-    metadata: dict = field(default_factory=dict)
+    metadata: Mapping[str, "JsonValue"] = field(
+        default_factory=lambda: cast("Mapping[str, JsonValue]", {})
+    )
 
     @property
     def dlq_id(self) -> str:
@@ -77,7 +103,7 @@ class DeadLetterEvent:
         same dlq_id (used as the idempotency key)."""
         return f"dlq:{self.event.event_id}"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str]:
         return {
             "event_id": str(self.event.event_id),
             "agent_id": self.event.agent_id,
@@ -108,9 +134,14 @@ class DeadLetterEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DeadLetterEvent":
+    def from_dict(cls, data: Mapping[str, str]) -> "DeadLetterEvent":
         def s(key: str, default: str = "") -> str:
-            return data.get(key, default)
+            # ``Mapping.get`` returns ``str | None`` even when
+            # a ``default`` is supplied; narrow with the
+            # ``or`` short-circuit so the returned value is
+            # always ``str``.
+            value = data.get(key, default)
+            return value if value is not None else default
 
         correlation = CorrelationContext(
             correlation_id=UUID(s("correlation_id")),

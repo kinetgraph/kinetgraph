@@ -127,6 +127,17 @@ class RedisLike(Protocol):
         fields: dict,
         maxlen: int | None = None,
     ) -> bytes | str: ...
+    # The framework's Protocol guarantees ``list`` for both
+    # ``xrange`` and ``xrevrange``. The underlying redis-py
+    # library types them as ``StreamRangeResponse | None``
+    # because a Redis server can reply with ``*0\r\n``
+    # (encoded as Python ``None`` by some client bindings).
+    # Adapters MUST route through :func:`safe_xrange` /
+    # :func:`safe_xrevrange` to uphold the Protocol — direct
+    # ``self.client.xrange(...)`` calls would expose the
+    # ``None`` case to the framework and break the consumer
+    # contract (``for mid, mdata in messages`` would raise
+    # ``TypeError``).
     async def xrange(
         self,
         name: str,
@@ -207,4 +218,45 @@ class RedisLike(Protocol):
     async def aclose(self) -> None: ...
 
 
-__all__ = ["PipelineLike", "RedisLike"]
+async def safe_xrange(
+    client: "RedisLike",
+    name: str,
+    *,
+    min: str = "-",
+    max: str = "+",
+    count: int | None = None,
+) -> list:
+    """``xrange`` wrapper that upholds the ``RedisLike``
+    Protocol's ``list`` return contract.
+
+    The redis-py library declares ``StreamRangeResponse |
+    None``: a server reply of ``*0\r\n`` round-trips to
+    ``None`` in some bindings. The framework's Protocol
+    promises ``list``; this helper enforces that promise by
+    converting ``None`` to ``[]`` before returning.
+
+    Every adapter call site MUST route ``xrange`` through
+    this helper rather than calling ``self.client.xrange``
+    directly — see the Protocol docstring above for the
+    contract.
+    """
+    result = await client.xrange(name, min=min, max=max, count=count)
+    return result if result is not None else []
+
+
+async def safe_xrevrange(
+    client: "RedisLike",
+    name: str,
+    *,
+    max: str = "+",
+    min: str = "-",
+    count: int | None = None,
+) -> list:
+    """``xrevrange`` wrapper that upholds the ``RedisLike``
+    Protocol's ``list`` return contract. Mirrors
+    :func:`safe_xrange` for the reverse-direction scan."""
+    result = await client.xrevrange(name, max=max, min=min, count=count)
+    return result if result is not None else []
+
+
+__all__ = ["PipelineLike", "RedisLike", "safe_xrange", "safe_xrevrange"]
