@@ -97,7 +97,7 @@ def test_fsm_allows_valid_transition() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -123,7 +123,7 @@ def test_fsm_rejects_terminal_state() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -145,7 +145,7 @@ def test_fsm_rejects_undeclared_transition() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -174,7 +174,7 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -202,7 +202,7 @@ def test_fsm_guard_allows_when_nfe_emitter_not_last() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -222,7 +222,7 @@ def test_fsm_emits_nothing_without_domain_event() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -237,7 +237,7 @@ def test_fsm_emits_nothing_for_agent_without_component() -> None:
     view = AgentViewBuilder("other-1").with_trigger("invoice.approved").build()
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -257,7 +257,7 @@ def test_fsm_transition_without_guard() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -279,7 +279,7 @@ def test_fsm_transition_without_on_entry() -> None:
     )
     world = WorldBuilder().with_agent(view).build()
     out = run_system(
-        FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+        FSMSystem(invoice_fsm, now=fixed_now),
         world,
         correlation=ctx,
     )
@@ -293,7 +293,7 @@ def test_fsm_events_for_agent_guards_missing_component() -> None:
     ``_events_for_agent`` returns ``[]`` (exercised directly, since
     ``query_agents`` already filters by component type)."""
     view = AgentViewBuilder("inv-1").with_trigger("invoice.approved").build()
-    system = FSMSystem(invoice_fsm, now=lambda: fixed_now())
+    system = FSMSystem(invoice_fsm, now=fixed_now)
     world = WorldBuilder().with_agent(view).build()
     assert system._events_for_agent(view, world) == []
 
@@ -337,7 +337,7 @@ class TestFSMCursor:
         )
         world = WorldBuilder().with_agent(view).build()
         out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+            FSMSystem(invoice_fsm, now=fixed_now),
             world,
             correlation=ctx,
         )
@@ -363,7 +363,7 @@ class TestFSMCursor:
         )
         world = WorldBuilder().with_agent(view_with_cursor).build()
         out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+            FSMSystem(invoice_fsm, now=fixed_now),
             world,
             correlation=ctx,
         )
@@ -390,7 +390,7 @@ class TestFSMCursor:
         )
         world = WorldBuilder().with_agent(view_with_cursor).build()
         out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+            FSMSystem(invoice_fsm, now=fixed_now),
             world,
             correlation=ctx,
         )
@@ -410,7 +410,7 @@ class TestFSMCursor:
             .build()
         )
         world = WorldBuilder().with_agent(view).build()
-        system = FSMSystem(invoice_fsm, now=lambda: fixed_now())
+        system = FSMSystem(invoice_fsm, now=fixed_now)
 
         # First run: cursor absent, FSM processes.
         first = run_system(system, world, correlation=ctx)
@@ -456,7 +456,7 @@ class TestFSMCursor:
 
         world = WorldBuilder().with_agent(view_a).with_agent(view_b).build()
         out = run_system(
-            FSMSystem(invoice_fsm, now=lambda: fixed_now()),
+            FSMSystem(invoice_fsm, now=fixed_now),
             world,
             correlation=ctx,
         )

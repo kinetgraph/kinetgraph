@@ -7,9 +7,9 @@ testing.clock -- deterministic clock helpers for tests.
 Production code MUST inject the framework's canonical
 ``injectable_clock(now)`` (see ``core.clock``). Tests follow
 the same pattern: they construct a ``WorldSystem`` with
-``now=lambda: fixed_now()`` so saga deadlines / FSM
-transitions / etc. are evaluated against a frozen instant
-rather than wall-clock.
+``now=fixed_now`` so saga deadlines / FSM transitions /
+etc. are evaluated against a frozen instant rather than
+wall-clock.
 
 Before this module each test file redeclared the same
 ``FIXED_NOW = datetime(...)`` constant (a 3-way copy). The
@@ -35,15 +35,17 @@ def fixed_now() -> datetime:
     """Return the framework's canonical frozen ``now`` for
     tests.
 
-    The clock-injection convention is::
+    ``fixed_now`` is itself a :class:`~kntgraph.core.clock.Clock``
+    (``Callable[[], datetime]``), so the clock-injection
+    convention is the direct form::
 
-        system = FSMSystem(config, now=lambda: fixed_now())
+        system = FSMSystem(config, now=fixed_now)
         out = run_system(system, world, correlation=ctx)
 
-    The lambda ensures the system evaluates ``self._now()``
-    against the test's frozen clock on every call (so a
-    saga deadline check, say, is reproducible), while the
-    constant itself is stable for the lifetime of the test.
+    The framework re-evaluates ``self._now()`` on every
+    check (saga deadline, FSM transition timestamp, etc.);
+    each call returns the same frozen ``_FIXED_NOW`` for the
+    lifetime of the test run.
 
     Production code MUST NOT call this — it is test-only.
     The framework's wall-clock is ``core.clock.utcnow``.
