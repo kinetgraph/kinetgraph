@@ -19,7 +19,6 @@ _records``).
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
@@ -296,7 +295,6 @@ async def stuck_in_queue(
     """
     if stream_inspector is None:
         return []
-    now = now if now is not None else time.monotonic()
     out: list[str] = []
     # Iterate the views to discover tools currently in
     # flight; for each, check its stream.
