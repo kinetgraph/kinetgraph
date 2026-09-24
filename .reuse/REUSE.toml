@@ -47,3 +47,24 @@ SPDX-License-Identifier = "CC0-1.0"
 path = "dist/**"
 SPDX-FileCopyrightText = "2026 kinetgraph"
 SPDX-License-Identifier = "CC0-1.0"
+
+# Coverage JSON baselines at the repo root. These are
+# written by ``coverage.py`` at the end of the
+# ``reliability`` and ``verticals`` gates. The
+# annotation matches the canonical REUSE sidecar
+# naming convention (``.license``); both
+# files are also listed explicitly for clarity.
+[[annotations]]
+path = ".coverage"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ".coverage-reliability.json"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
+
+[[annotations]]
+path = ".coverage-verticals.json"
+SPDX-FileCopyrightText = "2026 kinetgraph"
+SPDX-License-Identifier = "CC0-1.0"
