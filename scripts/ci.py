@@ -495,11 +495,28 @@ def _run_radon_mi() -> dict[str, Any]:
     return json.loads(result.stdout or "{}")
 
 
+def _relpath(filepath: str) -> str:
+    """Make ``filepath`` relative to ``ROOT`` so the baseline
+    is portable across machines (developer laptop vs CI
+    runner with a different absolute checkout path).
+
+    Falls back to the original path when it is not under
+    ``ROOT`` (e.g. third-party radon output that landed
+    outside the repo). The fallback keeps the snapshot
+    usable without crashing the gate.
+    """
+    try:
+        return str(Path(filepath).resolve().relative_to(ROOT))
+    except ValueError:
+        return filepath
+
+
 def _cc_snapshot(cc_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     flat: dict[str, dict[str, Any]] = {}
     for filepath, blocks in cc_data.items():
+        rel = _relpath(filepath)
         for block in blocks:
-            key = f"{filepath}:{block['type']}:{block['name']}"
+            key = f"{rel}:{block['type']}:{block['name']}"
             flat[key] = {
                 "complexity": block["complexity"],
                 "rank": block["rank"],
@@ -510,7 +527,7 @@ def _cc_snapshot(cc_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def _mi_snapshot(mi_data: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
-        filepath: {"mi": float(info["mi"]), "rank": info["rank"]}
+        _relpath(filepath): {"mi": float(info["mi"]), "rank": info["rank"]}
         for filepath, info in mi_data.items()
     }
 
