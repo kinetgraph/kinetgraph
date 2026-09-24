@@ -124,6 +124,7 @@ def test_first_registration_survives_failed_conflict() -> None:
         pass
 
     with pytest.raises(ValueError):
+
         @domain_component("test.preserve")
         @dataclass(frozen=True, slots=True)
         class Other(DomainComponent):

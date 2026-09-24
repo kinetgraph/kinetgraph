@@ -848,11 +848,9 @@ def _err_result():
 
     return Err(PersistenceError("mock persistence failure"))
 
-
-# ---------------------------------------------------------------------------
-# Branch coverage: continuity cache_codec + manager + consolidation
-# ---------------------------------------------------------------------------
-
+    # ---------------------------------------------------------------------------
+    # Branch coverage: continuity cache_codec + manager + consolidation
+    # ---------------------------------------------------------------------------
 
     """Branch coverage for ``consolidation.py`` (lines 405,
     421->416, 424->416, 426-428).

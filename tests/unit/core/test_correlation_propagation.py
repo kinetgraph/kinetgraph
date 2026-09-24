@@ -114,9 +114,7 @@ def _emit_system_event_using_middleware(
     )
 
 
-def _simulate_worker_manager_completion(
-    request: Event, result: dict
-) -> Event:
+def _simulate_worker_manager_completion(request: Event, result: dict) -> Event:
     """Mimic the ``WorkerManager`` completion path
     (``tools/manager.py:625-632``).
 
@@ -232,7 +230,10 @@ class TestWorkerManagerCompletionCorrelation:
 
         # The completion carries the request's correlation,
         # which equals the entry's correlation.
-        assert completion.correlation.correlation_id == tool_request.correlation.correlation_id
+        assert (
+            completion.correlation.correlation_id
+            == tool_request.correlation.correlation_id
+        )
         assert completion.correlation.correlation_id == ENTRY_CORRELATION_ID
 
 
@@ -273,7 +274,8 @@ class TestAuditTrailByCorrelationId:
         all_events = [entry, tool_request, completion]
 
         by_entry = [
-            e for e in all_events
+            e
+            for e in all_events
             if e.correlation.correlation_id == ENTRY_CORRELATION_ID
         ]
 
@@ -323,7 +325,8 @@ class TestCanonicalContinueFromPattern:
 
         all_events = [entry, tool_request, completion]
         by_entry = [
-            e for e in all_events
+            e
+            for e in all_events
             if e.correlation.correlation_id == ENTRY_CORRELATION_ID
         ]
         assert len(by_entry) == 3

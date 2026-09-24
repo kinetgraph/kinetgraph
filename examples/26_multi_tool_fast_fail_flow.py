@@ -291,7 +291,9 @@ async def main() -> None:
     agent_id = "proc-multi-tool-001"
 
     # Seed entry event
-    print(f"\n🚀 [0.0s] Seeding entry event 'process.started' for agent '{agent_id}'...")
+    print(
+        f"\n🚀 [0.0s] Seeding entry event 'process.started' for agent '{agent_id}'..."
+    )
     correlation_middleware.start(metadata={"flow": "3_tool_test"})
     await event_log.append(
         Event.create(
@@ -350,7 +352,9 @@ async def main() -> None:
     await redis.aclose()
 
     print("\n=========================================================================")
-    print(f"  SUCCESS: Workflow failed fast in {failed_at}s without waiting for 10s tool!")
+    print(
+        f"  SUCCESS: Workflow failed fast in {failed_at}s without waiting for 10s tool!"
+    )
     print("=========================================================================\n")
 
 

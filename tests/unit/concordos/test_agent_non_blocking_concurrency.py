@@ -72,7 +72,10 @@ class InterleavedAgentProjection:
             if comp is None:
                 continue
 
-            if event.event_type == "tool.fast_005s_tool.completed" and not comp.fast_completed:
+            if (
+                event.event_type == "tool.fast_005s_tool.completed"
+                and not comp.fast_completed
+            ):
                 new_comp = replace(
                     comp,
                     fast_completed=True,
@@ -83,7 +86,10 @@ class InterleavedAgentProjection:
                 new_views[agent_id] = replace(view, components=new_components)
                 changed = True
 
-            elif event.event_type == "tool.slow_3s_tool.completed" and not comp.slow_completed:
+            elif (
+                event.event_type == "tool.slow_3s_tool.completed"
+                and not comp.slow_completed
+            ):
                 new_comp = replace(
                     comp,
                     slow_completed=True,
@@ -252,8 +258,12 @@ async def test_agent_does_not_block_on_slow_tool() -> None:
     # Verify events emitted to agent event_log at t ~ 0.2s (slow tool still running)
     events_at_fast = await event_log.read(agent_id)
     types_at_fast = [e.event_type for e in events_at_fast]
-    assert "tool.fast_005s_tool.completed" in types_at_fast, "Fast tool completion missing in EventLog!"
-    assert "tool.slow_3s_tool.completed" not in types_at_fast, "Slow tool should NOT be completed yet at t < 0.5s!"
+    assert "tool.fast_005s_tool.completed" in types_at_fast, (
+        "Fast tool completion missing in EventLog!"
+    )
+    assert "tool.slow_3s_tool.completed" not in types_at_fast, (
+        "Slow tool should NOT be completed yet at t < 0.5s!"
+    )
 
     # Step 2: Now wait for the slow tool to finish (~3.0s total)
     slow_processed_time: float | None = None
@@ -270,7 +280,9 @@ async def test_agent_does_not_block_on_slow_tool() -> None:
 
     # 🚨 CRITICAL ASSERTION 2: Slow tool completes at ~3.0s
     assert slow_processed_time is not None, "Slow tool failed to complete."
-    assert slow_processed_time >= 2.8, f"Slow tool completed too early ({slow_processed_time}s)."
+    assert slow_processed_time >= 2.8, (
+        f"Slow tool completed too early ({slow_processed_time}s)."
+    )
 
     # Delta assertion: Fast tool was processed ~2.7s before slow tool finished!
     delta = round(slow_processed_time - fast_processed_time, 2)

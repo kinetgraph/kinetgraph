@@ -42,7 +42,7 @@ application uses for any custom system (ADR-069 §11.11).
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from .base import (
     AndSpec,
@@ -217,7 +217,7 @@ def _bundle_to_concordos(loaded) -> tuple[Concordo, ...]:
 
     concordos: list[Concordo] = []
     if loaded.fsm is not None:
-        concordos.append(BusinessFSMConcordo(loaded.fsm))
+        concordos.append(cast(Concordo, BusinessFSMConcordo(loaded.fsm)))
     for saga in loaded.sagas:
-        concordos.append(WorkflowSagaConcordo(saga))
+        concordos.append(cast(Concordo, WorkflowSagaConcordo(saga)))
     return tuple(concordos)

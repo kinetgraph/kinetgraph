@@ -25,7 +25,7 @@ Two entry points:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from ..base import StepContext, ViewTrigger
 
@@ -35,27 +35,17 @@ if TYPE_CHECKING:
     from kntgraph.core.world.view import AgentView
     from kntgraph.core.world.world import World
     from kntgraph.concordos.saga._components import SagaProgressComponent
-    from kntgraph.concordos.saga._config import SagaConfig, SagaStepConfig
 
 
 __all__ = ["begin_compensation", "is_compensation_failure", "step_result_payload"]
 
 
-class _SagaSystemLike(Protocol):
-    """Structural type for the saga-system argument.
-
-    The helpers access ``_cfg.name`` and ``_step_map`` on
-    the saga system. A ``Protocol`` captures this contract
-    without importing ``SagaSystem`` at runtime (which
-    would create a circular dependency: ``_system.py``
-    imports these helpers).
-    """
-
-    @property
-    def _cfg(self) -> "SagaConfig": ...
-    @property
-    def _step_map(self) -> "dict[str, SagaStepConfig]": ...
-    def _now(self) -> "object": ...
+# Reuse the canonical ``_SagaSystemLike`` Protocol from
+# ``_records.py`` (single source of truth). The duplicate
+# Protocols that previously lived here and in ``_dispatch.py``
+# were inconsistent with the canonical one -- pyright could
+# not verify that ``SagaSystem`` matched both shapes.
+from ._records import _SagaSystemLike  # noqa: F401
 
 
 def begin_compensation(

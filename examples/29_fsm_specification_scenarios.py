@@ -275,7 +275,9 @@ interleaved_spec_fsm_config = FSMConfig(
         "executing": {
             "tool.ex29_fast_005s_tool.completed": FSMTransition(
                 to="partially_completed",
-                guard=DomainStateIs("stage", "executing"),  # <--- Built-in Specification Guard
+                guard=DomainStateIs(
+                    "stage", "executing"
+                ),  # <--- Built-in Specification Guard
             ),
             "tool.ex29_slow_3s_tool.completed": FSMTransition(to="fully_completed"),
         },
@@ -383,7 +385,9 @@ async def run_scenario_1(redis) -> None:
     await dispatcher.stop()
     await worker_manager.stop()
 
-    print(f"\n✅ Scenario 1 Passed: Specification-guarded FSM rejected in {rejected_elapsed}s!")
+    print(
+        f"\n✅ Scenario 1 Passed: Specification-guarded FSM rejected in {rejected_elapsed}s!"
+    )
 
 
 async def run_scenario_2(redis) -> None:
@@ -463,10 +467,14 @@ async def run_scenario_2(redis) -> None:
                 to_state = e.data.get("to")
                 if to_state == "partially_completed" and partial_at is None:
                     partial_at = elapsed
-                    print(f"\n⚡ [{elapsed}s] SPEC FSM TRANSITIONED TO 'partially_completed'!")
+                    print(
+                        f"\n⚡ [{elapsed}s] SPEC FSM TRANSITIONED TO 'partially_completed'!"
+                    )
                 elif to_state == "fully_completed" and full_at is None:
                     full_at = elapsed
-                    print(f"\n🐢 [{elapsed}s] SPEC FSM TRANSITIONED TO 'fully_completed'!")
+                    print(
+                        f"\n🐢 [{elapsed}s] SPEC FSM TRANSITIONED TO 'fully_completed'!"
+                    )
         if full_at is not None:
             break
         await asyncio.sleep(0.05)
@@ -475,7 +483,9 @@ async def run_scenario_2(redis) -> None:
     await worker_manager.stop()
 
     delta = round(full_at - partial_at, 2) if (full_at and partial_at) else 0.0
-    print(f"\n✅ Scenario 2 Passed: Specification-guarded FSM completed fast at {partial_at}s, {delta}s before slow tool!")
+    print(
+        f"\n✅ Scenario 2 Passed: Specification-guarded FSM completed fast at {partial_at}s, {delta}s before slow tool!"
+    )
 
 
 async def main() -> None:

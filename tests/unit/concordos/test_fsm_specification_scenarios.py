@@ -40,11 +40,8 @@ from kntgraph.concordos.fsm import (
     FSMTransition,
 )
 from kntgraph.concordos.specs import (
-    ContinuityToolUsed,
     DomainStateIs,
-    ProfileTierIs,
 )
-from kntgraph.core.components.memory import ProfileComponent
 from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import DomainComponent, World, domain_component
@@ -283,14 +280,18 @@ interleaved_spec_fsm_config = FSMConfig(
         "executing": {
             "tool.fsm_spec_fast_005s.completed": FSMTransition(
                 to="partially_completed",
-                guard=DomainStateIs("stage", "executing"),  # <--- Built-in Specification
+                guard=DomainStateIs(
+                    "stage", "executing"
+                ),  # <--- Built-in Specification
             ),
             "tool.fsm_spec_slow_3s.completed": FSMTransition(to="fully_completed"),
         },
         "partially_completed": {
             "tool.fsm_spec_slow_3s.completed": FSMTransition(
                 to="fully_completed",
-                guard=DomainStateIs("stage", "partially_completed"),  # <--- Built-in Specification
+                guard=DomainStateIs(
+                    "stage", "partially_completed"
+                ),  # <--- Built-in Specification
             ),
         },
     },
@@ -351,7 +352,6 @@ five_orders_spec_fsm_config = FSMConfig(
     },
     terminal=frozenset({"completed", "failed"}),
 )
-
 
 
 # ===========================================================================
@@ -429,10 +429,7 @@ async def test_fsm_spec_parallel_multi_tool_fast_fail() -> None:
     for _ in range(40):
         events = await event_log.read(agent_id)
         for e in events:
-            if (
-                e.event_type == "fsm.transitioned"
-                and e.data.get("to") == "rejected"
-            ):
+            if e.event_type == "fsm.transitioned" and e.data.get("to") == "rejected":
                 rejected_event = e
                 rejected_elapsed = time.monotonic() - start_time
                 break
@@ -443,7 +440,9 @@ async def test_fsm_spec_parallel_multi_tool_fast_fail() -> None:
     await dispatcher.stop()
     await worker_manager.stop()
 
-    assert rejected_event is not None, "Specification-guarded FSM did not transition to 'rejected'."
+    assert rejected_event is not None, (
+        "Specification-guarded FSM did not transition to 'rejected'."
+    )
     assert rejected_elapsed is not None and rejected_elapsed < 0.5, (
         f"Fast-fail transition took {rejected_elapsed}s, expected < 0.5s."
     )
@@ -611,7 +610,6 @@ async def test_fsm_spec_five_concurrent_process_executions() -> None:
         dispatcher.track_agent(agent_id)
         correlation_middleware.clear()
 
-    start_time = time.monotonic()
     await dispatcher.start()
     await worker_manager.start()
 
@@ -642,6 +640,14 @@ async def test_fsm_spec_five_concurrent_process_executions() -> None:
     for agent_id in agent_ids:
         events = await event_log.read(agent_id)
         transitions = [e for e in events if e.event_type == "fsm.transitioned"]
-        assert len(transitions) == 2, f"Agent {agent_id} expected 2 transitions, got {len(transitions)}"
-        assert transitions[0].data["from"] == "created" and transitions[0].data["to"] == "payment_pending"
-        assert transitions[1].data["from"] == "payment_pending" and transitions[1].data["to"] == "completed"
+        assert len(transitions) == 2, (
+            f"Agent {agent_id} expected 2 transitions, got {len(transitions)}"
+        )
+        assert (
+            transitions[0].data["from"] == "created"
+            and transitions[0].data["to"] == "payment_pending"
+        )
+        assert (
+            transitions[1].data["from"] == "payment_pending"
+            and transitions[1].data["to"] == "completed"
+        )

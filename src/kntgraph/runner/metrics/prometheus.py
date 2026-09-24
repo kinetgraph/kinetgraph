@@ -63,7 +63,7 @@ if TYPE_CHECKING:
     # ``require_optional`` boundary. The
     # ``# type: ignore`` on the import silences the
     # resulting ``reportUnknownVariableType`` warning.
-    from prometheus_client import CollectorRegistry  # type: ignore[reportUnknownVariableType]
+    from prometheus_client import CollectorRegistry
 
 
 # Metric names are constants so dashboards and alert rules
@@ -125,7 +125,7 @@ class PrometheusMetricsSink(MetricsSink):
         # constructor forwards ``registry`` to
         # ``prometheus_client.Gauge`` / ``Counter`` and
         # rejects anything that is not the real type.
-        registry: Optional["CollectorRegistry"] = None,  # type: ignore[reportUnknownVariableType]
+        registry: Optional["CollectorRegistry"] = None,
         namespace: str = "kntgraph",
     ) -> None:
         """Build the sink and register the five metrics.
@@ -241,7 +241,7 @@ class PrometheusMetricsSink(MetricsSink):
         # See the matching note on ``__init__``: the
         # type is unresolvable through the
         # TYPE_CHECKING / lazy-import boundary.
-        registry: Optional["CollectorRegistry"] = None,  # type: ignore[reportUnknownVariableType]
+        registry: Optional["CollectorRegistry"] = None,
     ) -> None:
         """Convenience wrapper around
         ``prometheus_client.start_http_server``.

@@ -112,7 +112,9 @@ def _banner(title: str) -> None:
 
 
 def main() -> None:
-    print("=== Specification Pattern & Composition Operators in kinetgraph (ADR-069 §2) ===")
+    print(
+        "=== Specification Pattern & Composition Operators in kinetgraph (ADR-069 §2) ==="
+    )
 
     # Setup sample contexts
     order_low_risk = OrderDomainComponent(
@@ -171,10 +173,16 @@ def main() -> None:
     spec_is_vip = ProfileTierIs("vip")
     spec_fraud_alert = ContinuityToolUsed("fraud_alert")
 
-    print(f"spec_amount_10k on vip_safe:   {spec_amount_10k.is_satisfied_by(ctx_vip_safe)}")
-    print(f"spec_amount_10k on risky:      {spec_amount_10k.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"spec_amount_10k on vip_safe:   {spec_amount_10k.is_satisfied_by(ctx_vip_safe)}"
+    )
+    print(
+        f"spec_amount_10k on risky:      {spec_amount_10k.is_satisfied_by(ctx_basic_risky)}"
+    )
     print(f"spec_is_vip on vip_safe:       {spec_is_vip.is_satisfied_by(ctx_vip_safe)}")
-    print(f"spec_fraud_alert on risky:     {spec_fraud_alert.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"spec_fraud_alert on risky:     {spec_fraud_alert.is_satisfied_by(ctx_basic_risky)}"
+    )
 
     # -----------------------------------------------------------------------
     # 2. Composition via Method Chaining (.and_(), .or_(), .not_())
@@ -183,18 +191,30 @@ def main() -> None:
 
     # AND composition: Low amount AND Low Risk
     spec_safe_standard = spec_amount_10k.and_(spec_risk_30)
-    print(f"AND (Low Amount & Low Risk) on vip_safe:  {spec_safe_standard.is_satisfied_by(ctx_vip_safe)}")
-    print(f"AND (Low Amount & Low Risk) on risky:     {spec_safe_standard.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"AND (Low Amount & Low Risk) on vip_safe:  {spec_safe_standard.is_satisfied_by(ctx_vip_safe)}"
+    )
+    print(
+        f"AND (Low Amount & Low Risk) on risky:     {spec_safe_standard.is_satisfied_by(ctx_basic_risky)}"
+    )
 
     # OR composition: VIP Profile OR Sufficient Credit
     spec_vip_or_credit = spec_is_vip.or_(CustomerCreditSufficient())
-    print(f"OR (VIP or Sufficient Credit) on vip_safe: {spec_vip_or_credit.is_satisfied_by(ctx_vip_safe)}")
-    print(f"OR (VIP or Sufficient Credit) on risky:    {spec_vip_or_credit.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"OR (VIP or Sufficient Credit) on vip_safe: {spec_vip_or_credit.is_satisfied_by(ctx_vip_safe)}"
+    )
+    print(
+        f"OR (VIP or Sufficient Credit) on risky:    {spec_vip_or_credit.is_satisfied_by(ctx_basic_risky)}"
+    )
 
     # NOT composition: NOT Fraud Alert Recently Triggered
     spec_no_fraud_alert = spec_fraud_alert.not_()
-    print(f"NOT (Fraud Alert Used) on vip_safe:        {spec_no_fraud_alert.is_satisfied_by(ctx_vip_safe)}")
-    print(f"NOT (Fraud Alert Used) on risky:           {spec_no_fraud_alert.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"NOT (Fraud Alert Used) on vip_safe:        {spec_no_fraud_alert.is_satisfied_by(ctx_vip_safe)}"
+    )
+    print(
+        f"NOT (Fraud Alert Used) on risky:           {spec_no_fraud_alert.is_satisfied_by(ctx_basic_risky)}"
+    )
 
     # -----------------------------------------------------------------------
     # 3. Composition via Explicit Class Constructors (AndSpec, OrSpec, NotSpec)
@@ -206,12 +226,14 @@ def main() -> None:
             left=ProfileTierIs("vip"),
             right=RiskScoreBelow(20),
         ),
-        right=NotSpec(
-            inner=ContinuityToolUsed("fraud_alert")
-        ),
+        right=NotSpec(inner=ContinuityToolUsed("fraud_alert")),
     )
-    print(f"Explicit ( (VIP or Low Risk) AND NOT FraudAlert ) on vip_safe: {explicit_spec.is_satisfied_by(ctx_vip_safe)}")
-    print(f"Explicit ( (VIP or Low Risk) AND NOT FraudAlert ) on risky:    {explicit_spec.is_satisfied_by(ctx_basic_risky)}")
+    print(
+        f"Explicit ( (VIP or Low Risk) AND NOT FraudAlert ) on vip_safe: {explicit_spec.is_satisfied_by(ctx_vip_safe)}"
+    )
+    print(
+        f"Explicit ( (VIP or Low Risk) AND NOT FraudAlert ) on risky:    {explicit_spec.is_satisfied_by(ctx_basic_risky)}"
+    )
 
     # -----------------------------------------------------------------------
     # 4. Complex Business Validation Policy (Combined Multi-tier Rules)
@@ -220,9 +242,7 @@ def main() -> None:
 
     # Fast-track Rule A: VIP customer buying under $50,000 with low risk
     fast_track_vip = (
-        ProfileTierIs("vip")
-        .and_(OrderAmountBelow(50000.0))
-        .and_(RiskScoreBelow(40))
+        ProfileTierIs("vip").and_(OrderAmountBelow(50000.0)).and_(RiskScoreBelow(40))
     )
 
     # Fast-track Rule B: Standard customer with low amount, sufficient credit, and no recent fraud alerts
@@ -236,9 +256,15 @@ def main() -> None:
     # Combined Auto-Approve Specification: Rule A OR Rule B
     auto_approve_policy = fast_track_vip.or_(fast_track_standard)
 
-    print("Policy: Fast-Track VIP OR (Low Amount & Low Risk & Credit OK & NOT FraudAlert)")
-    print(f"  -> Evaluation on VIP Safe Order:   {auto_approve_policy.is_satisfied_by(ctx_vip_safe)} (APPROVED)")
-    print(f"  -> Evaluation on Risky Order:     {auto_approve_policy.is_satisfied_by(ctx_basic_risky)} (REJECTED)")
+    print(
+        "Policy: Fast-Track VIP OR (Low Amount & Low Risk & Credit OK & NOT FraudAlert)"
+    )
+    print(
+        f"  -> Evaluation on VIP Safe Order:   {auto_approve_policy.is_satisfied_by(ctx_vip_safe)} (APPROVED)"
+    )
+    print(
+        f"  -> Evaluation on Risky Order:     {auto_approve_policy.is_satisfied_by(ctx_basic_risky)} (REJECTED)"
+    )
 
     # -----------------------------------------------------------------------
     # 5. Integration with BusinessFSM Transition Guard
@@ -269,7 +295,9 @@ def main() -> None:
         .build()
     )
     world_vip = WorldBuilder().with_agent(view_vip).build()
-    events_vip = run_system(FSMSystem(order_fsm_config, now=lambda: FIXED_NOW), world_vip)
+    events_vip = run_system(
+        FSMSystem(order_fsm_config, now=lambda: FIXED_NOW), world_vip
+    )
 
     print("Attempting 'order.approve' for VIP Safe Agent:")
     for evt in events_vip:
@@ -286,7 +314,9 @@ def main() -> None:
         .build()
     )
     world_risky = WorldBuilder().with_agent(view_risky).build()
-    events_risky = run_system(FSMSystem(order_fsm_config, now=lambda: FIXED_NOW), world_risky)
+    events_risky = run_system(
+        FSMSystem(order_fsm_config, now=lambda: FIXED_NOW), world_risky
+    )
 
     print("\nAttempting 'order.approve' for Risky Agent:")
     for evt in events_risky:

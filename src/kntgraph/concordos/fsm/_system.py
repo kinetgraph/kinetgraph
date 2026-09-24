@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
     from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
+    from kntgraph.core.world.component import DomainComponent
     from kntgraph.core.world.view import AgentView
     from kntgraph.core.world.world import World
 
@@ -214,7 +215,7 @@ class FSMSystem:
         self,
         trigger: "ViewTrigger",
         current_state: str,
-        component: object,
+        component: "DomainComponent | None",
         view: "AgentView",
         world: "World",
     ) -> tuple[list["Event"], str | None]:

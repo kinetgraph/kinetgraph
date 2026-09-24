@@ -360,9 +360,7 @@ class TestSweeperSkipsCompletedRequests:
         # request's event_id.
         completion_slot = view.components["tool_completions"]
         assert isinstance(completion_slot, dict)
-        completion_values: list[ToolCallCompletion] = list(
-            completion_slot.values()
-        )
+        completion_values: list[ToolCallCompletion] = list(completion_slot.values())
         assert len(completion_values) == 1
         assert isinstance(completion_values[0], ToolCallCompletion)
 

@@ -1,7 +1,9 @@
 import asyncio
 import redis.asyncio as redis
+
 # Substitua pela URL da sua Cloud Redis (ex: redis://:senha@host:porta)
 REDIS_URL = "redis://default:A6HXlIKJ2O1SnTazWbCmlIkXOaesxVdH@rod-toys-paramount-66968.db.redis.io:19251"
+
 
 async def purge_unexpired_idempotency_keys():
     client = redis.from_url(REDIS_URL)
@@ -17,9 +19,7 @@ async def purge_unexpired_idempotency_keys():
             count += 1
             if count % 10000 == 0:
                 print(f"Processadas {count} chaves...")
-    print(
-        f"✅ Concluído! Expiração aplicada em {count} chaves antigas acumuladas."
-    )
+    print(f"✅ Concluído! Expiração aplicada em {count} chaves antigas acumuladas.")
     await client.close()
 
 

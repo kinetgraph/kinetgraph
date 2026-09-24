@@ -150,7 +150,6 @@ class TestDeadLetterEventCodec:
         assert dl.dlq_id == f"dlq:{event.event_id}"
 
 
-
 # ---------------------------------------------------------------------------
 # DeadLetterQueue.append (idempotency)
 # ---------------------------------------------------------------------------
@@ -330,7 +329,6 @@ class TestErrorBranches:
         assert result.is_ok()
         assert result.ok_value() == "1000-0"
 
-
     async def test_append_warns_when_counter_bump_fails(self, queue, monkeypatch):
         from kntgraph.infra.redis._dlq import PLACEHOLDER
         from kntgraph.infra.redis._errors import MemoryError
@@ -361,7 +359,6 @@ class TestErrorBranches:
         queue = DeadLetterQueue(storage)
 
         assert await queue.get_event("any") is None
-
 
     async def test_list_by_reason_returns_empty_on_storage_error(self):
         storage = MagicMock()

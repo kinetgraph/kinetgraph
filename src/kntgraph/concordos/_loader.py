@@ -28,7 +28,7 @@ import importlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from kntgraph.concordos.schemas import (
     BundleSchema,
@@ -332,7 +332,7 @@ def load_bundle_dict(d: dict) -> LoadedBundle:
     except Exception as exc:
         # Pydantic ValidationError has a ``.errors()`` method
         # that returns a list of error dicts. Call it.
-        errors_callable = getattr(exc, "errors", None)
+        errors_callable: Callable[[], Any] | None = getattr(exc, "errors", None)
         errors: list[dict[str, Any]] = []
         if callable(errors_callable):
             try:

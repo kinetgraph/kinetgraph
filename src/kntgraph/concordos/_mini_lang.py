@@ -78,7 +78,7 @@ from __future__ import annotations
 import enum
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 if TYPE_CHECKING:
     from .base import Specification, StepContext
@@ -181,7 +181,7 @@ class Compare(Expr):
 
     path: "Path"
     op: str  # "==" | "!=" | "<=" | ">=" | "<" | ">"
-    value: "Literal"
+    value: "Expr"
 
 
 @dataclass(frozen=True)
@@ -208,7 +208,7 @@ class Literal(Expr):
 
 
 # Operators recognised by the parser.
-_COMPARISONS: ClassVar[frozenset[str]] = frozenset({"==", "!=", "<=", ">=", "<", ">"})
+_COMPARISONS: frozenset[str] = frozenset({"==", "!=", "<=", ">=", "<", ">"})
 
 
 # ---------------------------------------------------------------------------

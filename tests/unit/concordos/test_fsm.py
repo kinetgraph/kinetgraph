@@ -23,7 +23,7 @@ that lets ``run_system`` mint a fresh ``uuid4`` per call.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from kntgraph.concordos.fsm import FSMConfig, FSMTransition, FSMSystem
 from kntgraph.concordos.specs import ContinuityToolUsed

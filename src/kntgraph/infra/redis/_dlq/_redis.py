@@ -190,7 +190,9 @@ class RedisDLQStorage:
         result = await self.list_all(count)
         if result.is_err():
             return result
-        messages = result.ok_value()
+        messages: list[Mapping[str, str]] | None = result.ok_value()
+        if messages is None:
+            return Ok([])
         return Ok([m for m in messages if m.get("reason") == reason])
 
     async def list_all(

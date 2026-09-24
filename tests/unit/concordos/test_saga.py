@@ -31,7 +31,6 @@ from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.testing import (
     AgentViewBuilder,
     WorldBuilder,
-    assert_all_correlation_ids,
     run_system,
 )
 
@@ -44,6 +43,7 @@ def _flow() -> CorrelationContext:
     trail invariant (ADR-037 §1.1) is enforced by the test
     suite, not just by reviewer vigilance."""
     return CorrelationContext(correlation_id=uuid4())
+
 
 FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
 
@@ -136,7 +136,9 @@ def test_saga_dispatches_first_step_on_start() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "tool.sefaz_validator.requested" for e in out)
 
 
@@ -167,7 +169,9 @@ def test_saga_skips_nfe_when_not_required() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert not any(e.event_type == "tool.nfe_emitter.requested" for e in out)
 
 
@@ -202,7 +206,9 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert not any(e.event_type == "tool.nfe_canceller.requested" for e in out)
 
 
@@ -258,7 +264,9 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "saga.nfe_emission.dlq" for e in out)
 
 
@@ -288,7 +296,9 @@ def test_saga_advances_to_next_step_on_completion() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "tool.nfe_emitter.requested" for e in out)
 
 
@@ -322,7 +332,9 @@ def test_saga_completes_when_last_step_done() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "saga.nfe_emission.completed" for e in out)
 
 
@@ -362,7 +374,9 @@ def test_saga_compensates_when_compensate_when_satisfied() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(fail_first, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(fail_first, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     # emit_nfe failed (not timed out) → nfe_canceller IS dispatched.
     assert any(e.event_type == "tool.nfe_canceller.requested" for e in out)
 
@@ -432,7 +446,6 @@ def test_saga_timeout_system_skips_not_yet_expired() -> None:
 
 
 def test_saga_step_config_rejects_empty_tool_name() -> None:
-    ctx = _flow()
     """An empty ``tool_name`` (a typo for the ``None`` human-step
     signal) is rejected at construction."""
     import pytest
@@ -480,7 +493,9 @@ def test_saga_proceed_when_failure_treated_as_failure() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(proceed_config, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(proceed_config, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     # proceed_when not met → treated as failure → saga compensates.
     assert any(e.event_type == "saga.nfe_emission.compensating" for e in out)
 
@@ -513,7 +528,9 @@ def test_saga_start_completes_when_all_steps_skipped() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(skip_all, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(skip_all, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "saga.nfe_emission.completed" for e in out)
 
 
@@ -550,7 +567,9 @@ def test_saga_continues_after_non_fatal_failure() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     # Continues to the next step (register_receivable) instead of
     # compensating.
     assert any(e.event_type == "tool.erp_receivable_tool.requested" for e in out)
@@ -583,7 +602,9 @@ def test_saga_ignores_tool_event_without_matching_step() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert out == []
 
 
@@ -609,7 +630,9 @@ def test_saga_human_step_emits_awaiting_approval() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(human_config, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(human_config, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(
         e.event_type == "saga.nfe_emission.approve.awaiting_approval" for e in out
     )
@@ -646,7 +669,9 @@ def test_saga_compensates_step_without_compensate_tool() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(no_comp_config, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(no_comp_config, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     # validate_fiscal has no compensate_tool → only the
     # compensating marker is emitted, no tool compensation.
     assert any(e.event_type == "saga.nfe_emission.compensating" for e in out)
@@ -654,7 +679,6 @@ def test_saga_compensates_step_without_compensate_tool() -> None:
 
 
 def test_saga_events_for_agent_guards_missing_component() -> None:
-    ctx = _flow()
     """The defensive ``saga is None`` guard returns ``[]``."""
     view = AgentViewBuilder("agent-1").with_trigger("saga.nfe_emission.started").build()
     system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
@@ -663,7 +687,6 @@ def test_saga_events_for_agent_guards_missing_component() -> None:
 
 
 def test_saga_events_for_agent_guards_missing_trigger() -> None:
-    ctx = _flow()
     """The defensive ``trigger_type is None`` guard returns
     ``[]``."""
     view = (
@@ -687,7 +710,9 @@ def test_saga_ignores_non_tool_trigger() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert out == []
 
 
@@ -708,7 +733,9 @@ def test_saga_compensates_on_saga_timeout() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "saga.nfe_emission.compensating" for e in out)
 
 
@@ -756,7 +783,9 @@ def test_saga_emits_compensation_started_for_each_step() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(fail_first, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(fail_first, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     # Granular per-step "compensation_started" markers
     # (ADR-069 §11.18.2).
     started_events = [e for e in out if e.event_type.endswith(".compensation_started")]
@@ -794,7 +823,9 @@ def test_saga_ignores_saga_timeout_when_not_forward() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert out == []
 
 
@@ -815,7 +846,9 @@ def test_saga_dlq_on_compensation_failed_trigger() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(_saga_config(), now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "saga.nfe_emission.dlq" for e in out)
 
 
@@ -856,12 +889,13 @@ def test_saga_compensates_step_without_compensate_when() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(always_comp, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(always_comp, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     assert any(e.event_type == "tool.nfe_canceller.requested" for e in out)
 
 
 def test_saga_step_result_payload_non_mapping() -> None:
-    ctx = _flow()
     """``step_result_payload`` returns ``{}`` when the step result
     is not a mapping."""
     from kntgraph.concordos.saga._compensation import step_result_payload
@@ -903,7 +937,9 @@ def test_saga_dispatch_enrich_from_non_mapping_previous() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(enrich_config, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(enrich_config, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     requested = next(e for e in out if e.event_type == "tool.nfe_emitter.requested")
     assert "cfop" not in requested.data
 
@@ -947,7 +983,9 @@ def test_saga_dispatch_enrich_from_continuity() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(SagaSystem(enrich_config, now=lambda: FIXED_NOW), world, correlation=ctx)
+    out = run_system(
+        SagaSystem(enrich_config, now=lambda: FIXED_NOW), world, correlation=ctx
+    )
     requested = next(e for e in out if e.event_type == "tool.nfe_emitter.requested")
     # ``cfop`` is not in continuity → omitted; ``last_entity`` is.
     assert "cfop" not in requested.data

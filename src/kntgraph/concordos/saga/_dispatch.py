@@ -21,7 +21,7 @@ Two main functions:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from kntgraph.core.components.memory import ContinuityComponent
 
@@ -30,25 +30,15 @@ if TYPE_CHECKING:
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.view import AgentView
     from kntgraph.concordos.base import ViewTrigger
-    from kntgraph.concordos.saga._config import SagaConfig, SagaStepConfig
+    from kntgraph.concordos.saga._config import SagaStepConfig
 
 
 __all__ = ["dispatch_step", "enrich_params"]
 
 
-class _SagaSystemLike(Protocol):
-    """Structural type for the saga-system argument.
-
-    The helpers only access ``_cfg.name`` on the saga
-    system (to build ``saga.<name>.<...>`` event types).
-    A ``Protocol`` captures this contract without importing
-    ``SagaSystem`` at runtime (which would create a
-    circular dependency: ``_system.py`` imports these
-    helpers).
-    """
-
-    @property
-    def _cfg(self) -> "SagaConfig": ...
+# Reuse the canonical ``_SagaSystemLike`` Protocol from
+# ``_records.py`` (single source of truth).
+from ._records import _SagaSystemLike  # noqa: F401
 
 
 def dispatch_step(

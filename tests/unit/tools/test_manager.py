@@ -179,7 +179,6 @@ class TestLifecycle:
         with pytest.raises(TypeError, match="@tool_worker"):
             manager.register(_NotDecorated, acl=None)
 
-
     async def test_start_initialises_pool_and_groups(self, manager, redis_mock):
         manager.register(_EchoTool, acl=None)
 

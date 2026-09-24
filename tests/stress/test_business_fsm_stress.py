@@ -260,7 +260,9 @@ async def run_fsm_telemetry_benchmark(
         if isinstance(pending_info, dict)
         else (pending_info or 0)
     )
-    assert pending_count == 0, f"PEL for {tool_name} has {pending_count} unacked messages."
+    assert pending_count == 0, (
+        f"PEL for {tool_name} has {pending_count} unacked messages."
+    )
 
     gc.collect()
     leaked: list[asyncio.Task] = []
@@ -276,7 +278,9 @@ async def run_fsm_telemetry_benchmark(
         qualname = getattr(coro, "__qualname__", "")
         if qualname.startswith(("WorkerManager.", "ReactiveDispatcher.")):
             leaked.append(t)
-    assert leaked == [], f"Found {len(leaked)} leaked tasks: {[t.get_name() for t in leaked]}"
+    assert leaked == [], (
+        f"Found {len(leaked)} leaked tasks: {[t.get_name() for t in leaked]}"
+    )
 
     return metrics
 
@@ -359,15 +363,23 @@ async def _run_benchmark_cli():
     print("        BUSINESS FSM PROCESS EXECUTION TELEMETRY (REAL REDIS)           ")
     print("=========================================================================")
     print("Scenario 1: Tool Completing Fast (Success)")
-    print(f"  - Process Executions Completed : {m_succ['completed_processes']} / {m_succ['total_processes']}")
-    print(f"  - Process Throughput           : {m_succ['process_throughput_sec']} processes/sec")
+    print(
+        f"  - Process Executions Completed : {m_succ['completed_processes']} / {m_succ['total_processes']}"
+    )
+    print(
+        f"  - Process Throughput           : {m_succ['process_throughput_sec']} processes/sec"
+    )
     print(f"  - Peak FSM Transitions (TPS)   : {m_succ['peak_tps']} TPS")
     print(f"  - Total Tool Completions       : {m_succ['completions']}")
     print(f"  - Total Duration               : {m_succ['duration_sec']}s")
     print("-------------------------------------------------------------------------")
     print("Scenario 2: Tool Failing Fast (Error)")
-    print(f"  - Process Executions Completed : {m_fail['completed_processes']} / {m_fail['total_processes']}")
-    print(f"  - Process Throughput           : {m_fail['process_throughput_sec']} processes/sec")
+    print(
+        f"  - Process Executions Completed : {m_fail['completed_processes']} / {m_fail['total_processes']}"
+    )
+    print(
+        f"  - Process Throughput           : {m_fail['process_throughput_sec']} processes/sec"
+    )
     print(f"  - Peak FSM Transitions (TPS)   : {m_fail['peak_tps']} TPS")
     print(f"  - Total Tool Failures          : {m_fail['failures']}")
     print(f"  - Total Duration               : {m_fail['duration_sec']}s")

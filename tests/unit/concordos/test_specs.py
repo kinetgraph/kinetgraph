@@ -330,6 +330,7 @@ class TestCrossAgentResolver:
         # The resolver returns None for missing agents.
         def resolver(aid):
             return None
+
         assert not OtherAgentIsVIP().is_satisfied_by(
             _ctx(cross_agent_resolver=resolver)
         )
@@ -343,8 +344,10 @@ class TestCrossAgentResolver:
                 )
             },
         )
+
         def resolver(aid):
             return finance_view if aid == "finance-1" else None
+
         assert OtherAgentIsVIP().is_satisfied_by(_ctx(cross_agent_resolver=resolver))
 
     def test_no_world_field_on_step_context(self) -> None:

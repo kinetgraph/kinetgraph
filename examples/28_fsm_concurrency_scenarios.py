@@ -244,7 +244,9 @@ interleaved_fsm_config = FSMConfig(
             "process.start": FSMTransition(to="executing"),
         },
         "executing": {
-            "tool.ex28_fast_005s_tool.completed": FSMTransition(to="partially_completed"),
+            "tool.ex28_fast_005s_tool.completed": FSMTransition(
+                to="partially_completed"
+            ),
             "tool.ex28_slow_3s_tool.completed": FSMTransition(to="fully_completed"),
         },
         "partially_completed": {
@@ -353,7 +355,9 @@ async def run_scenario_1(redis) -> None:
     await dispatcher.stop()
     await worker_manager.stop()
 
-    print(f"\n✅ Scenario 1 Passed: FSM rejected in {rejected_elapsed}s without waiting for 10s tool!")
+    print(
+        f"\n✅ Scenario 1 Passed: FSM rejected in {rejected_elapsed}s without waiting for 10s tool!"
+    )
 
 
 async def run_scenario_2(redis) -> None:
@@ -433,10 +437,14 @@ async def run_scenario_2(redis) -> None:
                 to_state = e.data.get("to")
                 if to_state == "partially_completed" and partial_at is None:
                     partial_at = elapsed
-                    print(f"\n⚡ [{elapsed}s] FSM TRANSITIONED TO 'partially_completed' (Fast Tool Done)!")
+                    print(
+                        f"\n⚡ [{elapsed}s] FSM TRANSITIONED TO 'partially_completed' (Fast Tool Done)!"
+                    )
                 elif to_state == "fully_completed" and full_at is None:
                     full_at = elapsed
-                    print(f"\n🐢 [{elapsed}s] FSM TRANSITIONED TO 'fully_completed' (Slow Tool Done)!")
+                    print(
+                        f"\n🐢 [{elapsed}s] FSM TRANSITIONED TO 'fully_completed' (Slow Tool Done)!"
+                    )
         if full_at is not None:
             break
         await asyncio.sleep(0.05)
@@ -450,7 +458,9 @@ async def run_scenario_2(redis) -> None:
     await worker_manager.stop()
 
     delta = round(full_at - partial_at, 2) if (full_at and partial_at) else 0.0
-    print(f"\n✅ Scenario 2 Passed: FSM transitioned fast at {partial_at}s, {delta}s before slow tool!")
+    print(
+        f"\n✅ Scenario 2 Passed: FSM transitioned fast at {partial_at}s, {delta}s before slow tool!"
+    )
 
 
 async def main() -> None:

@@ -69,14 +69,20 @@ class InterleavedAgentProjection:
             if comp is None:
                 continue
 
-            if event.event_type == "tool.fast_005s_tool.completed" and not comp.fast_completed:
+            if (
+                event.event_type == "tool.fast_005s_tool.completed"
+                and not comp.fast_completed
+            ):
                 new_comp = replace(comp, fast_completed=True)
                 new_components = dict(view.components)
                 new_components[InterleavedAgentComponent] = new_comp
                 new_views[agent_id] = replace(view, components=new_components)
                 changed = True
 
-            elif event.event_type == "tool.slow_3s_tool.completed" and not comp.slow_completed:
+            elif (
+                event.event_type == "tool.slow_3s_tool.completed"
+                and not comp.slow_completed
+            ):
                 new_comp = replace(comp, slow_completed=True)
                 new_components = dict(view.components)
                 new_components[InterleavedAgentComponent] = new_comp

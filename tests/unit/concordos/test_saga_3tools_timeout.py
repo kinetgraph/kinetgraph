@@ -21,8 +21,6 @@ Flow:
 from __future__ import annotations
 
 import asyncio
-import time
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -34,7 +32,6 @@ from kntgraph.concordos import ConcordoCatalog
 from kntgraph.concordos.saga import (
     SagaConfig,
     SagaProgressComponent,
-    SagaProjection,
     SagaStepConfig,
     SagaSystem,
     WorkflowSagaConcordo,
@@ -90,7 +87,9 @@ def _three_tool_saga_config() -> SagaConfig:
 # ===========================================================================
 
 
-async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation() -> None:
+async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation() -> (
+    None
+):
     """Pure World test asserting step 2 timeout skips step 3 and compensates step 1."""
     corr = CorrelationContext.new()
     config = _three_tool_saga_config()
@@ -158,7 +157,9 @@ async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation
     )
 
     # Verify data passed to payment_releaser contains step 1 results
-    comp_event = next(e for e in out_events if e.event_type == "tool.payment_releaser.requested")
+    comp_event = next(
+        e for e in out_events if e.event_type == "tool.payment_releaser.requested"
+    )
     assert comp_event.data.get("reservation_id") == "res-999"
 
 
@@ -188,7 +189,12 @@ class PaymentReleaserTool:
         state: str = "",
         **kwargs: Any,
     ) -> Result[dict, ToolError]:
-        return Ok({"status": "payment_released", "reservation_id": kwargs.get("reservation_id")})
+        return Ok(
+            {
+                "status": "payment_released",
+                "reservation_id": kwargs.get("reservation_id"),
+            }
+        )
 
 
 @tool_worker(name="inventory_locker", max_concurrency=10, retries=0)
@@ -213,7 +219,9 @@ class ShippingSchedulerTool:
         state: str = "",
         **kwargs: Any,
     ) -> Result[dict, ToolError]:
-        pytest.fail("Step 3 (ShippingSchedulerTool) should NEVER be invoked when Step 2 times out!")
+        pytest.fail(
+            "Step 3 (ShippingSchedulerTool) should NEVER be invoked when Step 2 times out!"
+        )
 
 
 async def test_e2e_saga_3tools_step2_timeout_scenario() -> None:
@@ -281,7 +289,6 @@ async def test_e2e_saga_3tools_step2_timeout_scenario() -> None:
     await dispatcher.start()
     await worker_manager.start()
 
-    compensated_event = None
     releaser_completed = None
 
     for _ in range(120):
@@ -289,8 +296,6 @@ async def test_e2e_saga_3tools_step2_timeout_scenario() -> None:
         for e in events:
             if e.event_type == "tool.payment_releaser.completed":
                 releaser_completed = e
-            if e.event_type in ("saga.order_fulfillment.failed", "saga.order_fulfillment.compensated"):
-                compensated_event = e
 
         if releaser_completed is not None:
             break
@@ -307,7 +312,10 @@ async def test_e2e_saga_3tools_step2_timeout_scenario() -> None:
 
     # Verify Step 2 requested & failed/timed out
     assert "tool.inventory_locker.requested" in event_types
-    assert "tool.inventory_locker.failed" in event_types or "tool.inventory_locker.timed_out" in event_types
+    assert (
+        "tool.inventory_locker.failed" in event_types
+        or "tool.inventory_locker.timed_out" in event_types
+    )
 
     # Verify Step 3 was NEVER requested
     assert "tool.shipping_scheduler.requested" not in event_types

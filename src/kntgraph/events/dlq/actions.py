@@ -128,9 +128,11 @@ class DeadLetterActions:
             return await self._queue.get_event(event_id)
         # No queue — fall back to direct storage scan.
         lookup = await self._storage.find_by_event_id(event_id)
-        if lookup.is_err() or lookup.ok_value() is None:
+        if lookup.is_err():
             return None
-        stream_id = lookup.ok_value()
+        stream_id: str | None = lookup.ok_value()
+        if stream_id is None:
+            return None
         entry_result = await self._storage.read(stream_id)
 
         if entry_result.is_err() or entry_result.ok_value() is None:

@@ -177,7 +177,9 @@ def test_run_system_awaits_async_system() -> None:
         async def __call__(self, world: World) -> list[Event]:
             return []
 
-    ctx = CorrelationContext(correlation_id=UUID("22222222-2222-2222-2222-222222222222"))
+    ctx = CorrelationContext(
+        correlation_id=UUID("22222222-2222-2222-2222-222222222222")
+    )
     view = AgentViewBuilder("inv-1").with_trigger("invoice.approved").build()
     world = WorldBuilder().with_agent(view).build()
     assert run_system(AsyncSystem(), world, correlation=ctx) == []

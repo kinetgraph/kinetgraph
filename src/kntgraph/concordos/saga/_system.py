@@ -40,7 +40,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from kntgraph.core.clock import injectable_clock
@@ -61,8 +61,23 @@ if TYPE_CHECKING:
     from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.view import AgentView
+    from ._records import _SagaSystemLike
 
 __all__ = ["SagaSystem"]
+
+
+def _saga_self(self: "SagaSystem") -> "_SagaSystemLike":
+    """Cast ``self`` to ``_SagaSystemLike`` for helper calls.
+
+    Runtime conformance is guaranteed by ``SagaSystem.__slots__``
+    matching the Protocol attributes exactly. The cast exists
+    because pyright cannot verify the structural match across
+    the ``_records`` / ``_system`` import boundary: that
+    boundary is needed to avoid a runtime circular dependency
+    (``_system`` imports the helpers; the helpers' Protocol
+    must not import ``_system``).
+    """
+    return cast("_SagaSystemLike", self)
 
 
 class SagaSystem:
@@ -86,6 +101,16 @@ class SagaSystem:
     ADR-034). Does NOT re-implement in-flight or resolution
     tracking.
     """
+
+    # Class-level annotations so pyright can verify the
+    # structural ``_SagaSystemLike`` Protocol match (the
+    # ``__slots__`` tuple below carries no type info).
+    # The annotations use ``Mapping`` (not ``dict``) to
+    # match the Protocol exactly -- structural matching
+    # is invariant on the declared type.
+    _cfg: "SagaConfig"
+    _step_map: "Mapping[str, SagaStepConfig]"
+    _now: "Clock"
 
     __slots__ = ("_cfg", "_step_map", "_now")
 
@@ -135,7 +160,7 @@ class SagaSystem:
         if trigger.event_type == f"saga.{self._cfg.name}.compensation_failed":
             from ._records import dlq_event
 
-            return [dlq_event(self, saga, trigger)]
+            return [dlq_event(_saga_self(self), saga, trigger)]
 
         # A compensation tool that itself fails while the saga is
         # compensating (§4.5.1): emit ``compensation_failed`` then
@@ -185,7 +210,7 @@ class SagaSystem:
             from ._compensation import begin_compensation
 
             return begin_compensation(
-                self, world, view, saga, trigger, reason="saga_timeout"
+                _saga_self(self), world, view, saga, trigger, reason="saga_timeout"
             )
         return []
 
@@ -200,7 +225,7 @@ class SagaSystem:
 
         return [
             emit(
-                self,
+                _saga_self(self),
                 trigger,
                 event_type=f"saga.{self._cfg.name}.compensation_failed",
                 data={
@@ -208,7 +233,7 @@ class SagaSystem:
                     "stuck_step": saga.current_step,
                 },
             ),
-            dlq_event(self, saga, trigger),
+            dlq_event(_saga_self(self), saga, trigger),
         ]
 
     def _is_tool_trigger(self, trigger: "ViewTrigger") -> bool:
@@ -256,7 +281,7 @@ class SagaSystem:
         itself failed)."""
         from ._compensation import is_compensation_failure
 
-        return is_compensation_failure(self, trigger, saga)
+        return is_compensation_failure(_saga_self(self), trigger, saga)
 
     def _completion_for_step(
         self,
@@ -300,13 +325,13 @@ class SagaSystem:
         from ._dispatch import dispatch_step
         from ._records import first_non_skipped_step, record_start, saga_completed
 
-        step_config = first_non_skipped_step(self, saga, trigger)
+        step_config = first_non_skipped_step(_saga_self(self), saga, trigger)
         if step_config is None:
             # All steps skipped: saga completes immediately
-            return [saga_completed(self, trigger, saga)]
+            return [saga_completed(_saga_self(self), trigger, saga)]
         return [
-            record_start(self, trigger, saga, step_config),
-            dispatch_step(self, view, step_config, trigger),
+            record_start(_saga_self(self), trigger, saga, step_config),
+            dispatch_step(_saga_self(self), view, step_config, trigger),
         ]
 
     def _handle_completion(
@@ -398,13 +423,13 @@ class SagaSystem:
             saga_completed,
         )
 
-        next_step = next_non_skipped_step(self, current_step, ctx)
+        next_step = next_non_skipped_step(_saga_self(self), current_step, ctx)
         record = record_step_completed(
-            self, saga, current_step, trigger, new_states, new_results
+            _saga_self(self), saga, current_step, trigger, new_states, new_results
         )
         if next_step is None:
-            return [record, saga_completed(self, trigger, saga)]
-        return [record, dispatch_step(self, view, next_step, trigger)]
+            return [record, saga_completed(_saga_self(self), trigger, saga)]
+        return [record, dispatch_step(_saga_self(self), view, next_step, trigger)]
 
     def _handle_failure(
         self,
@@ -429,14 +454,14 @@ class SagaSystem:
             else True  # default: fail on first failure
         )
         record = record_step_failed(
-            self, saga, step_config, trigger, new_states, new_results
+            _saga_self(self), saga, step_config, trigger, new_states, new_results
         )
         if should_fail:
             return [record] + begin_compensation(
-                self, world, view, saga, trigger, reason="step_failure"
+                _saga_self(self), world, view, saga, trigger, reason="step_failure"
             )
         # continue to next step despite this step's failure
-        next_step = next_non_skipped_step(self, step_config, ctx)
+        next_step = next_non_skipped_step(_saga_self(self), step_config, ctx)
         if next_step is None:
-            return [record, saga_completed(self, trigger, saga)]
-        return [record, dispatch_step(self, view, next_step, trigger)]
+            return [record, saga_completed(_saga_self(self), trigger, saga)]
+        return [record, dispatch_step(_saga_self(self), view, next_step, trigger)]

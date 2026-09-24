@@ -263,7 +263,9 @@ interleaved_fsm_config = FSMConfig(
             "process.start": FSMTransition(to="executing"),
         },
         "executing": {
-            "tool.fsm_fast_005s_tool.completed": FSMTransition(to="partially_completed"),
+            "tool.fsm_fast_005s_tool.completed": FSMTransition(
+                to="partially_completed"
+            ),
             "tool.fsm_slow_3s_tool.completed": FSMTransition(to="fully_completed"),
         },
         "partially_completed": {
@@ -351,10 +353,7 @@ async def test_fsm_parallel_multi_tool_fast_fail() -> None:
     for _ in range(40):  # Poll up to 2.0s
         events = await event_log.read(agent_id)
         for e in events:
-            if (
-                e.event_type == "fsm.transitioned"
-                and e.data.get("to") == "rejected"
-            ):
+            if e.event_type == "fsm.transitioned" and e.data.get("to") == "rejected":
                 rejected_event = e
                 rejected_elapsed = time.monotonic() - start_time
                 break
@@ -497,7 +496,9 @@ async def test_fsm_non_blocking_interleaved_tools() -> None:
     await worker_manager.stop()
 
     # 🚨 ASSERTION 2: FSM transitioned to 'fully_completed' at t ~ 3.0s
-    assert fully_completed_time is not None, "FSM did NOT transition to 'fully_completed'."
+    assert fully_completed_time is not None, (
+        "FSM did NOT transition to 'fully_completed'."
+    )
     assert fully_completed_time >= 2.8, (
         f"FSM fully_completed happened too early ({fully_completed_time}s)."
     )
@@ -620,7 +621,6 @@ async def test_fsm_five_concurrent_process_executions() -> None:
         dispatcher.track_agent(agent_id)
         correlation_middleware.clear()
 
-    start_time = time.monotonic()
     await dispatcher.start()
     await worker_manager.start()
 
@@ -644,8 +644,6 @@ async def test_fsm_five_concurrent_process_executions() -> None:
     await dispatcher.stop()
     await worker_manager.stop()
 
-    elapsed = round(time.monotonic() - start_time, 2)
-
     # 🚨 ASSERTIONS
     assert len(completed_agents) == 5, (
         f"Expected all 5 FSM agents to reach 'completed', got {len(completed_agents)} ({completed_agents})."
@@ -663,8 +661,14 @@ async def test_fsm_five_concurrent_process_executions() -> None:
         assert len(transitions) == 2, (
             f"Agent {agent_id} expected 2 transitions, got {len(transitions)}"
         )
-        assert transitions[0].data["from"] == "created" and transitions[0].data["to"] == "payment_pending"
-        assert transitions[1].data["from"] == "payment_pending" and transitions[1].data["to"] == "completed"
+        assert (
+            transitions[0].data["from"] == "created"
+            and transitions[0].data["to"] == "payment_pending"
+        )
+        assert (
+            transitions[1].data["from"] == "payment_pending"
+            and transitions[1].data["to"] == "completed"
+        )
 
         # Audit trail invariant (ADR-037 §1.1): every event
         # for this agent carries the entry's correlation_id.

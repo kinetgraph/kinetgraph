@@ -25,15 +25,25 @@ Three groups:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ..base import StepContext, ViewTrigger
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
+    from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
     from kntgraph.concordos.saga._components import SagaProgressComponent
     from kntgraph.concordos.saga._config import SagaConfig, SagaStepConfig
+
+    # Imported only for pyright's structural Protocol check:
+    # ``SagaSystem`` is the canonical implementation of
+    # ``_SagaSystemLike``, but importing it at runtime
+    # would create a circular dependency. The
+    # ``TYPE_CHECKING`` import gives pyright the full
+    # type information it needs to verify that
+    # ``SagaSystem`` matches the Protocol.
+    from kntgraph.concordos.saga._system import SagaSystem  # noqa: F401
 
 
 __all__ = [
@@ -48,22 +58,31 @@ __all__ = [
 ]
 
 
+@runtime_checkable
 class _SagaSystemLike(Protocol):
     """Structural type for the saga-system argument.
 
-    The helper functions in this module only access
-    ``_cfg.name`` on the saga system. A ``Protocol``
-    captures this contract without importing
+    The helper functions in this module access ``_cfg``,
+    ``_step_map``, and ``_now`` on the saga system. A
+    ``Protocol`` captures this contract without importing
     ``SagaSystem`` at runtime (which would create a
     circular dependency: ``_system.py`` imports these
     helpers).
 
     Any object with the same shape satisfies the
     structural type; ``SagaSystem`` is one such object.
+
+    The attributes are declared as plain instance
+    attributes (not ``@property``) to match the
+    ``SagaSystem.__slots__`` layout -- a Protocol with
+    ``@property`` would not be structurally assignable
+    from a class that exposes the same name as a plain
+    attribute.
     """
 
-    @property
-    def _cfg(self) -> "SagaConfig": ...
+    _cfg: "SagaConfig"
+    _step_map: "Mapping[str, SagaStepConfig]"
+    _now: "Clock"
 
 
 # ---------------------------------------------------------------------------
