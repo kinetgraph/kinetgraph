@@ -15,6 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Service-scoped Redis key prefix via `KNT_REDIS_KEY_PREFIX` (ADR-076):**
+  New env var scopes every Redis key the framework writes under
+  a configurable namespace, so two services sharing one Redis do
+  not cross-talk. Default is empty string (pre-076 wire format,
+  byte-for-byte). Validated at boot; one-shot migration script
+  (`scripts/migrate_redis_keys.py`) uses `SCAN` + `RENAME`
+  (atomic, preserves TTL) to adopt the prefix in existing
+  deployments. See `docs/adr-068-operational.md` (Key namespace
+  prefix) for the operator playbook.
+
 ### Fixed
 
 - **ReactiveDispatcher push-first spin-loop fix (ADR-068 §3.2):**
