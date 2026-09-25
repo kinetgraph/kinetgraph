@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-09-24
+
 ### Added
 
 - **Service-scoped Redis key prefix via `KNT_REDIS_KEY_PREFIX` (ADR-076):**
@@ -26,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (atomic, preserves TTL) to adopt the prefix in existing
   deployments. See `docs/adr-068-operational.md` (Key namespace
   prefix) for the operator playbook.
+
 
 ## [0.15.3] — 2026-09-14
 
