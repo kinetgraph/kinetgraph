@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-09-25
+
 ### Fixed
 - **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
   `WorkerManager`, `ToolRouter`, and `ReactiveDispatcher`
@@ -74,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `scripts/migrate_redis_keys.py` already
     scans `knt:*` broadly, so the migration
     script needs no change.
+
 
 ## [0.16.0] — 2026-09-24
 
