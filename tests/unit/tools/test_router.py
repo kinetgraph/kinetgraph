@@ -181,3 +181,66 @@ class TestRouteBatch:
         # should at least be a string.
         assert isinstance(fields["payload"], str)
         assert "tool.echo.requested" in fields["payload"]
+
+
+# ---------------------------------------------------------------------------
+# Key prefix (ADR-076 / DEBT §2.35)
+# ---------------------------------------------------------------------------
+#
+# The ``key_prefix`` kwarg on ``ToolRouter.__init__`` namespaces the
+# per-tool queue key. Two services sharing one Redis with different
+# prefixes must not cross-talk -- a canonical form ``tool.<name>.requested``
+# event from service A must NOT land in service B's queue.
+
+
+class TestKeyPrefix:
+    """``ToolRouter.route_batch`` writes the per-tool
+    ``xadd`` to ``_stream_key(tool_name)`` which composes
+    the namespace prefix via :func:`tool_queue_key`. Empty
+    ``key_prefix`` keeps the pre-076 wire format
+    byte-for-byte; non-empty prefix namespaces every
+    stream key the router writes.
+    """
+
+    async def test_default_prefix_writes_unprefixed_stream_key(self, redis_mock):
+        """Empty ``key_prefix`` (the default) keeps the
+        pre-ADR-076 wire format -- ``xadd`` is awaited with
+        ``"knt:tools:echo:queue"``.
+        """
+        router = ToolRouter(redis_mock)
+        event = _make_canonical_requested("agent-1", "echo")
+        await router.route_batch([event])
+        stream_key, _ = redis_mock.xadd.await_args.args
+        assert stream_key == "knt:tools:echo:queue"
+
+    async def test_prefixed_router_writes_namespaced_stream_key(self, redis_mock):
+        """Non-empty ``key_prefix`` namespaces the
+        ``xadd`` target -- the canonical multi-service
+        use case from ADR-076 §1.1.
+        """
+        router = ToolRouter(redis_mock, key_prefix="acme-billing:")
+        event = _make_canonical_requested("agent-1", "echo")
+        await router.route_batch([event])
+        stream_key, _ = redis_mock.xadd.await_args.args
+        assert stream_key == "acme-billing:knt:tools:echo:queue"
+
+    async def test_prefixed_router_namespaces_legacy_form(self, redis_mock):
+        """Legacy ``event_type == "tool.requested"`` form
+        also flows through the same ``_stream_key`` helper
+        so the prefix composes uniformly across both event
+        shapes (canonical and legacy).
+        """
+        router = ToolRouter(redis_mock, key_prefix="acme:")
+        event = _make_legacy_requested("agent-1", "echo")
+        await router.route_batch([event])
+        stream_key, _ = redis_mock.xadd.await_args.args
+        assert stream_key == "acme:knt:tools:echo:queue"
+
+    async def test_invalid_prefix_rejected_at_construction(self, redis_mock):
+        """``validate_prefix`` runs once at construction;
+        a malformed prefix raises ``ValueError`` immediately
+        instead of producing malformed Redis keys at
+        routing time.
+        """
+        with pytest.raises(ValueError, match="redis_key_prefix"):
+            ToolRouter(redis_mock, key_prefix="acme:{")

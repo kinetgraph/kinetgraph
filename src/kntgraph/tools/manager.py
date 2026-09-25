@@ -74,6 +74,8 @@ import structlog
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
+from kntgraph.infra.redis._prefix import validate_prefix
+from kntgraph.infra.redis._tools import tool_queue_key
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
@@ -130,11 +132,23 @@ class WorkerManager:
         reaper_interval: float = 60.0,
         reaper_idle_time: float = 300.0,
         heartbeat_interval_seconds: float = 30.0,
+        *,
+        key_prefix: str = "",
     ):
+        # ADR-076 / DEBT §2.35: namespace prefix for
+        # every Redis key the manager writes or reads
+        # (``knt:tools:<tool>:queue`` -- the consumer
+        # group creation, the consume loop, and the
+        # reaper loop all flow through ``_stream_key``
+        # so the prefix is applied consistently).
+        # Empty string (default) is byte-for-byte
+        # identical to the pre-076 wire format.
+        validate_prefix(key_prefix)
         self._redis = redis
         self._event_log = event_log
         self._group_name = group_name
         self._consumer_name = consumer_name
+        self._key_prefix = key_prefix
 
         self._reaper_interval = reaper_interval
         self._reaper_idle_time = reaper_idle_time
@@ -257,6 +271,18 @@ class WorkerManager:
         """
         return self._tools.get(name)
 
+    def _stream_key(self, tool_name: str) -> str:
+        """Compose the namespaced Stream key for ``tool_name``.
+
+        ADR-076 / DEBT §2.35: the consumer-group creation
+        in ``start``, the consume loop, and the reaper
+        loop all flow through this helper so the namespace
+        prefix applies uniformly. Empty prefix returns the
+        unprefixed ``knt:tools:<tool>:queue`` key (the
+        pre-076 wire format).
+        """
+        return tool_queue_key(self._key_prefix, tool_name)
+
     def names(self) -> list[str]:
         """Return the names of every registered tool.
 
@@ -341,7 +367,7 @@ class WorkerManager:
 
         for tool_name in self._tools:
             # Ensure Consumer Group exists
-            stream_key = f"knt:tools:{tool_name}:queue"
+            stream_key = self._stream_key(tool_name)
             try:
                 await self._redis.xgroup_create(
                     stream_key, self._group_name, id="0", mkstream=True
@@ -378,7 +404,7 @@ class WorkerManager:
             self._pool = None
 
     async def _consume_loop(self, tool_name: str) -> None:
-        stream_key = f"knt:tools:{tool_name}:queue"
+        stream_key = self._stream_key(tool_name)
         tool_cls = self._tools[tool_name]
         max_concurrency = getattr(tool_cls, "__tool_worker_max_concurrency__", 16)
         sem = asyncio.Semaphore(max_concurrency)
@@ -692,7 +718,7 @@ class WorkerManager:
 
     async def _reaper_loop(self, tool_name: str) -> None:
         """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
-        stream_key = f"knt:tools:{tool_name}:queue"
+        stream_key = self._stream_key(tool_name)
         # Idle time is in milliseconds for redis
         idle_time_ms = int(self._reaper_idle_time * 1000)
 

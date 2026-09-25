@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 
 from kntgraph.core.event import Event
 from kntgraph.core.tool_event import ToolEventKind, parse_tool_event
+from kntgraph.infra.redis._prefix import validate_prefix
+from kntgraph.infra.redis._tools import tool_queue_key
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +31,26 @@ class ToolRouter:
     Observes outgoing events from systems and routes any 'tool.*.requested'
     events to the global tool queues (knt:tools:<name>:queue), allowing
     the Tool Workers to execute without querying the agent's EventLog.
+
+    ``key_prefix`` (ADR-076, DEBT §2.35) namespaces the
+    queue key so two services sharing one Redis do not
+    cross-talk at the tool-dispatcher boundary. The
+    default ``""`` preserves the pre-ADR-076 wire format
+    byte-for-byte.
     """
 
-    def __init__(self, redis: "RedisLike"):
+    def __init__(self, redis: "RedisLike", *, key_prefix: str = ""):
+        # Validated once at construction (same pattern as
+        # ``RedisPool.__init__`` in
+        # ``infra/redis/_pool.py``); the per-call path
+        # (``_stream_key`` below) does not re-check.
+        validate_prefix(key_prefix)
         self._redis = redis
+        self._key_prefix = key_prefix
+
+    def _stream_key(self, tool_name: str) -> str:
+        """Compose the namespaced Stream key for ``tool_name``."""
+        return tool_queue_key(self._key_prefix, tool_name)
 
     async def route_batch(self, events: Iterable[Event]) -> None:
         """
@@ -54,7 +72,7 @@ class ToolRouter:
                     tool_name = parsed.tool_name
 
             if tool_name:
-                stream_key = f"knt:tools:{tool_name}:queue"
+                stream_key = self._stream_key(tool_name)
                 try:
                     payload = event.to_json()
                     await self._redis.xadd(stream_key, {"payload": payload})

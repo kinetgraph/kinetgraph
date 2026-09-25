@@ -15,6 +15,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
+  `WorkerManager`, `ToolRouter`, and `ReactiveDispatcher`
+  now accept the `key_prefix=` kwarg and compose
+  every tool-queue Stream key (`knt:tools:<name>:queue`)
+  with the operator-set `KNT_REDIS_KEY_PREFIX`.
+  Two services sharing one Redis with different
+  prefixes no longer cross-talk at the tool
+  dispatcher (the gap that v0.16.0 left open).
+
+  - New helper module
+    `src/kntgraph/infra/redis/_tools/_keys.py`
+    with `TOOL_QUEUE_KEY_TEMPLATE` and
+    `tool_queue_key(prefix, tool_name)` (the
+    single source of truth for the per-tool
+    Stream key, mirroring
+    `infra/redis/_event_log/_keys.py`).
+  - `WorkerManager.__init__` gains a keyword-only
+    `key_prefix=""` parameter; the consumer-group
+    creation, the consume loop, and the reaper
+    loop all flow through a private
+    `_stream_key(tool_name)` helper so the prefix
+    applies uniformly (was: three separate
+    `f"knt:tools:{tool_name}:queue"` literals at
+    `manager.py:344,381,695`).
+  - `ToolRouter.__init__` gains the same
+    `key_prefix=""` parameter; the single literal
+    at `router.py:57` becomes the same helper
+    (canonical and legacy event shapes both flow
+    through it).
+  - `ReactiveDispatcher.__init__` gains the same
+    `key_prefix=""` parameter; it composes with
+    the existing `tool_stream_prefix` via
+    `namespaced` so the `stuck_in_queue` query
+    targets the prefixed stream (`"acme:knt:tools"`,
+    not `"knt:tools"`).
+  - CLI scaffold (`main.py.jinja`,
+    `dispatcher.py.jinja`) reads
+    `fresh_settings().redis_key_prefix` once and
+    threads it through every constructor so a
+    CLI-generated app honours the env var
+    out-of-the-box.
+  - 21 new tests:
+    `tests/unit/infra/redis/test_tools_keys.py`
+    (8), `tests/unit/tools/test_manager.py`
+    `TestKeyPrefix` (5),
+    `tests/unit/tools/test_router.py`
+    `TestKeyPrefix` (4),
+    `tests/unit/runner/test_reactive_dispatcher_init_branches.py`
+    `TestKeyPrefix` (4), and the new
+    `tests/integration/infra/test_redis_prefix.py`
+    end-to-end isolation test (3, requires the
+    `integration` CI step).
+  - Zero behaviour change for single-service
+    deploys (`key_prefix=""` default is
+    byte-for-byte identical to pre-v0.16.0).
+    `scripts/migrate_redis_keys.py` already
+    scans `knt:*` broadly, so the migration
+    script needs no change.
+
 ## [0.16.0] — 2026-09-24
 
 ### Added

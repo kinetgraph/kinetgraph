@@ -391,3 +391,103 @@ class TestLifecycleBranches:
         with patch("kntgraph.runner.reactive.logger") as mock_logger:
             dispatcher._maybe_emit_heartbeat()
             mock_logger.info.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Key prefix composition (ADR-076 / DEBT §2.35)
+# ---------------------------------------------------------------------------
+#
+# The ``key_prefix`` kwarg on ``ReactiveDispatcher.__init__`` composes
+# with ``tool_stream_prefix`` via ``namespaced``. The composed value
+# flows into the ``stuck_in_queue`` query so two services sharing one
+# Redis with different prefixes see independent stuck-task reports.
+#
+# Empty ``key_prefix`` keeps the pre-076 wire format byte-for-byte
+# (the composed prefix equals the legacy ``tool_stream_prefix`` value).
+
+
+class TestKeyPrefix:
+    """The dispatcher's ``_tool_stream_prefix`` is the
+    namespaced key passed to :func:`stuck_in_queue`. The
+    composition rule:
+
+      ``_tool_stream_prefix = namespaced(key_prefix, tool_stream_prefix)``
+
+    Empty ``key_prefix`` is the fast path that returns
+    ``tool_stream_prefix`` unchanged (byte-for-byte identical
+    to pre-076 behaviour). Non-empty ``key_prefix`` prepends
+    the namespace.
+    """
+
+    async def test_default_key_prefix_leaves_stream_prefix_unchanged(self) -> None:
+        """``key_prefix=""`` (the default) keeps
+        ``_tool_stream_prefix`` equal to ``"knt:tools"`` --
+        byte-for-byte identical to the pre-076 wire format.
+        Pinned so the deprecation path does not silently
+        break single-service deploys.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+        )
+        assert dispatcher._tool_stream_prefix == "knt:tools"
+
+    async def test_explicit_key_prefix_composes_with_default_tool_stream_prefix(
+        self,
+    ) -> None:
+        """``key_prefix="acme-billing:"`` produces
+        ``_tool_stream_prefix="acme-billing:knt:tools"`` --
+        the canonical multi-service-on-one-Redis shape
+        from ADR-076 §1.1.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+            key_prefix="acme-billing:",
+        )
+        assert dispatcher._tool_stream_prefix == "acme-billing:knt:tools"
+
+    async def test_custom_tool_stream_prefix_composes_with_key_prefix(
+        self,
+    ) -> None:
+        """A non-default ``tool_stream_prefix`` (e.g. a
+        future convention) composes with ``key_prefix`` the
+        same way -- the namespace is prepended in front of
+        whatever suffix the caller passes.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            systems=[],
+            tool_stream_prefix="custom.tools",
+            key_prefix="acme:",
+        )
+        assert dispatcher._tool_stream_prefix == "acme:custom.tools"
+
+    async def test_invalid_key_prefix_rejected_at_construction(self) -> None:
+        """``validate_prefix`` runs once at construction;
+        a malformed prefix raises ``ValueError`` immediately
+        instead of producing a bad ``stream_prefix`` that
+        silently breaks the ``stuck_in_queue`` query.
+        """
+        cap = _Captured()
+        log = _FakeEventLog(cap)
+        store = _FakeWorldStore(cap)
+        with pytest.raises(ValueError, match="redis_key_prefix"):
+            ReactiveDispatcher(
+                log=log,
+                world_store=store,
+                systems=[],
+                key_prefix="acme:*",
+            )

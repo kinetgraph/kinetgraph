@@ -3387,6 +3387,140 @@ re-reading the whole ADR.
 **Trigger:** a vertical adopts a Concordo and hits one of
 these gaps, or a dedicated ADR-069 follow-up session.
 
+## 2.35 ADR-076 §5 Commit 2 partial landing — tools layer not prefixed
+
+**Status:** Closed (2026-09-25, this session).
+
+**Delivered in this iteration:**
+
+  - **New file**
+    `src/kntgraph/infra/redis/_tools/_keys.py`
+    (33 LOC). The single source of truth for
+    the per-tool Stream key: ``TOOL_QUEUE_KEY_TEMPLATE``
+    (the bare suffix template) and
+    :func:`tool_queue_key` (the composition helper
+    that delegates to ``namespaced``). Mirrors
+    the convention in
+    ``src/kntgraph/infra/redis/_event_log/_keys.py``.
+
+  - **New sub-package**
+    `src/kntgraph/infra/redis/_tools/__init__.py`
+    re-exports the two symbols; the
+    ``infra/redis/`` package re-exports them at
+    the top level so external callers use
+    ``kntgraph.infra.redis.tool_queue_key``
+    directly (consistent with
+    ``stream_key_for_agent``).
+
+  - **`WorkerManager.__init__`** gains a
+    keyword-only ``key_prefix=""`` parameter;
+    ``validate_prefix`` runs once at
+    construction (same pattern as
+    ``RedisPool.__init__``); the three
+    ``f"knt:tools:{tool_name}:queue"`` literals
+    at the previous ``manager.py:344,381,695``
+    become a private ``_stream_key(tool_name)``
+    helper. The consumer-group creation in
+    ``start``, the consume loop, and the reaper
+    loop all flow through the helper.
+
+  - **`ToolRouter.__init__`** gains the same
+    ``key_prefix=""`` parameter; the single
+    literal at the previous ``router.py:57``
+    becomes the same ``_stream_key`` helper.
+    Both the canonical
+    (``tool.<name>.requested``) and legacy
+    (``tool.requested`` + ``data["tool"]``) event
+    shapes flow through the helper, so the
+    prefix composes uniformly across both.
+
+  - **`ReactiveDispatcher.__init__`** gains the
+    same ``key_prefix=""`` parameter; it
+    composes with the existing
+    ``tool_stream_prefix`` via ``namespaced`` so
+    the ``stuck_in_queue`` query
+    (``reactive.py:1012`` →
+    ``runner/_observability.py:310`` →
+    ``IncrementalWorldStore.queue_length``)
+    targets the prefixed stream. Empty
+    ``key_prefix`` (default) leaves
+    ``_tool_stream_prefix`` equal to the legacy
+    ``"knt:tools"`` value -- byte-for-byte
+    identical to the pre-076 wire format.
+
+  - **CLI scaffold** (`main.py.jinja`,
+    `dispatcher.py.jinja`) reads
+    ``fresh_settings().redis_key_prefix`` once
+    and threads it through ``WorkerManager``,
+    ``ToolRouter``, ``EventLog``, and
+    ``ReactiveDispatcher`` so a CLI-generated
+    app honours ``KNT_REDIS_KEY_PREFIX``
+    out-of-the-box. The
+    ``RedisEventLogAdapter(client=redis,
+    key_prefix=key_prefix)`` thread closes the
+    last DI seam.
+
+  - **21 new tests:**
+
+    - `tests/unit/infra/redis/test_tools_keys.py`
+      (8 tests): the template shape, the
+      empty/prefixed/compound composition paths,
+      the dotted tool name, the deterministic
+      idempotency contract.
+    - `tests/unit/tools/test_manager.py`
+      `TestKeyPrefix` (5 tests): the
+      ``xgroup_create`` namespacing, the consume
+      loop's ``xreadgroup`` reading from the
+      prefixed stream, the reaper loop's
+      ``xautoclaim`` targeting the prefixed
+      stream, the byte-for-byte default wire
+      format, the ``validate_prefix`` failure
+      at construction.
+    - `tests/unit/tools/test_router.py`
+      `TestKeyPrefix` (4 tests): the
+      ``xadd`` namespacing, the legacy form
+      composition, the byte-for-byte default
+      wire format, the ``validate_prefix``
+      failure at construction.
+    - `tests/unit/runner/test_reactive_dispatcher_init_branches.py`
+      `TestKeyPrefix` (4 tests): the default
+      ``_tool_stream_prefix``, the explicit
+      prefix composition, the custom
+      ``tool_stream_prefix`` composition, the
+      ``validate_prefix`` failure at
+      construction.
+    - `tests/integration/infra/test_redis_prefix.py`
+      (3 tests, ``integration`` step): the
+      end-to-end isolation between two services
+      sharing one Redis with different prefixes
+      (``acme:`` and ``crm:``), the prefixed
+      consumer-group creation, the prefix-aware
+      ``xrange`` read.
+
+  - **Zero behaviour change** for single-service
+    deploys (``key_prefix=""`` default is
+    byte-for-byte identical to the pre-076 wire
+    format, which is the §5 Commit 1 acceptance
+    criterion).
+
+  - **No ``scripts/migrate_redis_keys.py``
+    change**: the script already scans ``knt:*``
+    broadly, so ``knt:tools:*:queue`` keys are
+    picked up by the existing ``--dry-run`` /
+    ``--commit`` flow.
+
+**Acceptable:** N/A -- closed. The multi-service
+guarantee from ADR-076 §3.1 now holds for both
+the storage adapters (EventLog, DLQ, memory
+tiers, world/reactive checkpoints, auth,
+knowledge) AND the dispatcher components
+(``WorkerManager``, ``ToolRouter``,
+``ReactiveDispatcher``); two services sharing
+one Redis with different ``KNT_REDIS_KEY_PREFIX``
+values stay fully isolated.
+
+**Closed in 2026-09-25 (this session).**
+
 ## 4.1 Agent discovery — `agent.spawned` push rejected, poll kept (2026-09-08)
 
 **Status:** Decided (no code change).

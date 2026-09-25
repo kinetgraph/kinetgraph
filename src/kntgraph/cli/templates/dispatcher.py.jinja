@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from kntgraph.infra.config import fresh_settings
 from kntgraph.runner import ReactiveDispatcher, Runner
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.acl import default_acl
@@ -30,6 +31,14 @@ def build_{{ context_name }}_dispatcher(
     pool internally when ``redis`` is None).
     """
 
+    # 1. Resolve the Redis key namespace prefix (ADR-076).
+    # Read once at process boot from ``Settings`` and
+    # thread it through every component that writes a
+    # Redis key, so two services sharing one Redis do
+    # not cross-talk at the tool-queue boundary (the
+    # pre-fix gap closed in DEBT §2.35).
+    key_prefix = fresh_settings().redis_key_prefix
+
     # 1. Aggregate Tools
     # tools = get_checkout_agent_tools() + ...
     tools = []
@@ -46,6 +55,7 @@ def build_{{ context_name }}_dispatcher(
     worker_manager = WorkerManager(
         redis=redis,
         event_log=log,
+        key_prefix=key_prefix,
     )
     for tool in tools:
         worker_manager.register(tool, acl=default_acl())
@@ -67,6 +77,7 @@ def build_{{ context_name }}_dispatcher(
         systems=systems,
         redis=redis,
         tool_router=tool_router,
+        key_prefix=key_prefix,
     )
 
     return dispatcher
