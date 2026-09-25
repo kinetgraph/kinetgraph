@@ -140,6 +140,7 @@ class TestToolDispatcherKeyPrefix:
         await manager.start()
         try:
             groups = await clean_redis.xinfo_groups("acme:knt:tools:echo:queue")
+
             # ``XINFO GROUPS`` returns ``str`` keys even with
             # ``decode_responses=False`` (Redis 7 behaviour),
             # so we look up both shapes to be robust across
@@ -150,8 +151,6 @@ class TestToolDispatcherKeyPrefix:
             assert any(
                 _group_name(g) in (b"fmh_tool_workers", "fmh_tool_workers")
                 for g in groups
-            ), (
-                f"Consumer group not found on prefixed stream; groups={groups!r}"
-            )
+            ), f"Consumer group not found on prefixed stream; groups={groups!r}"
         finally:
             await manager.stop()
