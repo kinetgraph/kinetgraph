@@ -323,4 +323,6 @@ class TestDelete:
 
         client.delete = AsyncMock(return_value=1)
         await adapter.delete("agent-1")
-        client.delete.assert_awaited_once_with(stream_key_for_agent("agent-1"))
+        client.delete.assert_awaited_once_with(
+            stream_key_for_agent(adapter.key_prefix, "agent-1")
+        )

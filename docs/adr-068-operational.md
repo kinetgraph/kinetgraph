@@ -38,6 +38,50 @@ export KNT_REDIS_URL="redis://localhost:6379"
 export KNT_REDIS_URL="redis://:mypassword@localhost:6379/0"
 ```
 
+### Key namespace prefix (ADR-076)
+
+When two services share one Redis, set `KNT_REDIS_KEY_PREFIX`
+to scope each service's keys under its own namespace. Every
+Redis key the framework writes (``knt:agents:<id>:events``,
+``knt:dlq:events``, ``knt:tools:<name>:queue``, etc.) is
+prepended with the prefix.
+
+```bash
+# Two services on the same Redis, no overlap:
+# Service A
+export KNT_REDIS_KEY_PREFIX="acme-billing:knt:"
+
+# Service B
+export KNT_REDIS_KEY_PREFIX="acme-crm:knt:"
+```
+
+Default (unset / empty string) preserves the pre-076
+wire format. The prefix is **not** a security boundary --
+Redis has no per-prefix ACL; it is namespace scoping so two
+services do not cross-talk. The character set is restricted
+to `[a-zA-Z0-9_.:-]`; typos like `acme*` fail-fast at
+`Settings()` construction.
+
+**Adopting the prefix in an existing deployment.** The
+`scripts/migrate_redis_keys.py` one-shot script does the
+move via `SCAN` + `RENAME` (atomic, preserves TTL):
+
+```bash
+# Dry-run first (default).
+KNT_REDIS_KEY_PREFIX="acme-billing:knt:" \
+    python scripts/migrate_redis_keys.py
+
+# Apply.
+KNT_REDIS_KEY_PREFIX="acme-billing:knt:" \
+    python scripts/migrate_redis_keys.py --commit
+```
+
+The script is idempotent: a re-run on already-migrated
+data counts as ``skipped`` (not ``errors``). The
+idempotency index's 24h TTL (ADR-019) survives the
+``RENAME`` so dedup continues working immediately after
+the cutover.
+
 ### Redis Cluster Considerations
 
 The current implementation uses a **single Redis instance** (standalone mode). 
@@ -56,6 +100,7 @@ behavior and can be tuned without code redeployment:
 | `KNT_REACTIVE_REDISCOVERY_SECONDS` | `5` | How often the dispatcher re-discovers agents (seconds) | `export KNT_REACTIVE_REDISCOVERY_SECONDS=10` |
 | `KNT_WARMER_PUMP_INTERVAL` | `0.25` | How often the cache warmer runs its pump (seconds) | `export KNT_WARMER_PUMP_INTERVAL=2.0` |
 | `KNT_FALLBACK_POLL_INTERVAL` | `5` | Fallback poll interval when no events are received (seconds) | `export KNT_FALLBACK_POLL_INTERVAL=10` |
+| `KNT_REDIS_KEY_PREFIX` | `""` (empty) | Namespace prefix for every Redis key (ADR-076). Empty = pre-076 wire format. Set when two services share one Redis. | `export KNT_REDIS_KEY_PREFIX=acme-billing:knt:` |
 
 ### Verifying at Runtime
 

@@ -5,7 +5,8 @@
 """
 dlq.values -- Data types and constants for the Dead Letter Queue.
 
-Two layers:
+Three layers, kept on this module because each is small
+and they are consumed together by ``events/dlq/store.py``:
 
   - `DLQReason` (enum): the closed set of failure modes
     that can land an event in the DLQ.
@@ -16,7 +17,14 @@ Two layers:
     retry_count, original_timestamp, dlq_timestamp,
     metadata).
 
-  - The four Redis key constants (stream + 3 indexes).
+  - The four Redis key **suffix templates** (stream + 3
+    indexes). These are bare ``"knt:dlq:..."`` strings;
+    the storage adapter composes them with the namespace
+    prefix at every read/write (ADR-076). Single source of
+    truth lives in :mod:`kntgraph.infra.redis._dlq`; this
+    module re-exports them so legacy callers (and the
+    ``DeadLetterQueue`` orchestrator) do not need to import
+    across the framework boundary.
 
 The codec (`to_dict` / `from_dict`) lives on
 `DeadLetterEvent` because the shape is intrinsically
@@ -37,15 +45,30 @@ from uuid import UUID
 
 from ...core.event import CorrelationContext, Event
 
+# ADR-076: Redis key suffix templates are the single source
+# of truth in ``infra.redis._dlq``. Re-export them here so
+# the vertical (``events/dlq``) does not duplicate the
+# wire format -- the prefix composition lives in the
+# adapter, the suffixes here are pure strings.
+from ...infra.redis._dlq import (
+    DLQ_AGENT_INDEX,
+    DLQ_EVENT_INDEX,
+    DLQ_REASON_INDEX,
+    DLQ_STREAM_KEY,
+)
+
 if TYPE_CHECKING:
     from ...core._typing import JsonValue
 
 
-# Redis keys for the DLQ.
-DLQ_STREAM_KEY = "knt:dlq:events"
-DLQ_REASON_INDEX = "knt:dlq:reasons"
-DLQ_AGENT_INDEX = "knt:dlq:by_agent"
-DLQ_EVENT_INDEX = "knt:dlq:by_event_id"
+__all__ = [
+    "DLQ_AGENT_INDEX",
+    "DLQ_EVENT_INDEX",
+    "DLQ_REASON_INDEX",
+    "DLQ_STREAM_KEY",
+    "DLQReason",
+    "DeadLetterEvent",
+]
 
 
 class DLQReason(str, Enum):

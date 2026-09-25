@@ -152,9 +152,9 @@ def _encode(solution: CachedSolution) -> bytes:
 
 class TestKeyLayout:
     def test_key_uses_prefix_and_tool_name(self) -> None:
-        assert RedisSolutionStore._key("knowledge_lookup") == (
-            SOLUTION_KEY_PREFIX + "knowledge_lookup"
-        )
+        assert RedisSolutionStore(client=None, key_prefix="")._key(  # type: ignore[arg-type]
+            "knowledge_lookup"
+        ) == (SOLUTION_KEY_PREFIX + "knowledge_lookup")
 
     def test_key_prefix_is_namespaced(self) -> None:
         # Sanity: the prefix is namespaced so a

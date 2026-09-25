@@ -21,6 +21,17 @@ Wire format
   - ``knt:dlq:reasons``          — Hash: ``reason`` → counter
 
 Result contract (AGENTS.md §6): see ``DLQStorage``.
+
+ADR-076 (namespace prefix)
+-------------------------
+
+The constants below are the canonical **suffix templates**.
+At every read/write the adapter composes them with the
+namespace prefix via :func:`infra.redis._prefix.namespaced`,
+so two services on the same Redis do not cross-talk.
+Empty ``key_prefix`` preserves the pre-076 wire format
+byte-for-byte. ``ALL_KEYS`` returns the prefixed view
+of all 4 keys (used by ``purge``).
 """
 
 from __future__ import annotations
@@ -35,13 +46,15 @@ from kntgraph.core.result import Err, Ok, Result
 from .._client import RedisLike, safe_xrange
 from .._codec import decode_dict, decode_value
 from .._errors import MemoryError
+from .._prefix import namespaced
 
 
 logger = structlog.get_logger()
 
 
-# Key prefix conventions. Centralised here so the queue
-# does not need to know the wire convention.
+# Key suffix conventions. Centralised here so the queue
+# does not need to know the wire convention. The adapter
+# prepends the namespace prefix at every key build.
 DLQ_STREAM_KEY = "knt:dlq:events"
 DLQ_REASON_INDEX = "knt:dlq:reasons"
 DLQ_AGENT_INDEX = "knt:dlq:by_agent"
@@ -57,7 +70,8 @@ PLACEHOLDER = "PLACEHOLDER"
 # 1M entries is the default.
 MAXLEN_DEFAULT = 1_000_000
 
-# All 4 keys, in dependency order.
+# All 4 suffix templates, in dependency order. The adapter
+# composes them with the prefix at runtime.
 ALL_KEYS: tuple[str, ...] = (
     DLQ_STREAM_KEY,
     DLQ_AGENT_INDEX,
@@ -67,16 +81,36 @@ ALL_KEYS: tuple[str, ...] = (
 
 
 def idem_key_for(event_id: str, reason: str) -> str:
-    """Build the per-(event_id, reason) idempotency key."""
+    """Build the per-(event_id, reason) idempotency suffix."""
     return f"{event_id}:{reason}"
 
 
 @dataclass(frozen=True)
 class RedisDLQStorage:
-    """Redis impl of :class:`DLQStorage`."""
+    """Redis impl of :class:`DLQStorage`.
+
+    ``key_prefix`` is the namespace prefix (ADR-076); see
+    :mod:`infra.redis._prefix`. The composition rule lives
+    in :meth:`_k` and is the only place every key is built.
+    """
 
     client: RedisLike
     maxlen: int = MAXLEN_DEFAULT
+    key_prefix: str = ""
+
+    def _k(self, suffix: str) -> str:
+        """Compose a namespaced Redis key from a suffix template."""
+        return namespaced(self.key_prefix, suffix)
+
+    def _all_keys(self) -> tuple[str, ...]:
+        """Return the prefixed view of :data:`ALL_KEYS`.
+
+        Used by :meth:`purge` to wipe every DLQ key the
+        adapter owns. The order matches ``ALL_KEYS``
+        (dependency order: stream first, then the index
+        hashes that reference it).
+        """
+        return tuple(self._k(suffix) for suffix in ALL_KEYS)
 
     async def append(
         self,
@@ -103,7 +137,7 @@ class RedisDLQStorage:
         """
         try:
             # Check if already exists (sequential idempotency)
-            existing = await self.client.hget(DLQ_EVENT_INDEX, idem_key)
+            existing = await self.client.hget(self._k(DLQ_EVENT_INDEX), idem_key)
             if existing is not None:
                 return Ok(
                     existing.decode("utf-8")
@@ -112,12 +146,14 @@ class RedisDLQStorage:
                 )
 
             stream_id_bytes = await self.client.xadd(
-                DLQ_STREAM_KEY,
+                self._k(DLQ_STREAM_KEY),
                 dict(payload),
                 maxlen=self.maxlen,
             )
             # Two-phase claim: placeholder → final id.
-            success = await self.client.hsetnx(DLQ_EVENT_INDEX, idem_key, PLACEHOLDER)
+            success = await self.client.hsetnx(
+                self._k(DLQ_EVENT_INDEX), idem_key, PLACEHOLDER
+            )
             stream_id = (
                 stream_id_bytes.decode("utf-8")
                 if isinstance(stream_id_bytes, (bytes, bytearray))
@@ -126,7 +162,7 @@ class RedisDLQStorage:
             if not success:
                 # Concurrent insert won the race to set placeholder/final id.
                 # Retrieve the winner's stream_id.
-                val = await self.client.hget(DLQ_EVENT_INDEX, idem_key)
+                val = await self.client.hget(self._k(DLQ_EVENT_INDEX), idem_key)
                 if val is not None:
                     return Ok(
                         val.decode("utf-8")
@@ -135,7 +171,7 @@ class RedisDLQStorage:
                     )
                 return Ok(PLACEHOLDER)
 
-            await self.client.hset(DLQ_EVENT_INDEX, idem_key, stream_id)
+            await self.client.hset(self._k(DLQ_EVENT_INDEX), idem_key, stream_id)
             return Ok(stream_id)
         except Exception as e:
             logger.warning(
@@ -151,7 +187,7 @@ class RedisDLQStorage:
         """Read a single DLQ entry by stream id."""
         try:
             messages = await safe_xrange(
-                self.client, DLQ_STREAM_KEY, min=stream_id, max=stream_id
+                self.client, self._k(DLQ_STREAM_KEY), min=stream_id, max=stream_id
             )
         except Exception as e:
             logger.warning(
@@ -170,7 +206,7 @@ class RedisDLQStorage:
     ) -> Result[list[Mapping[str, str]], MemoryError]:
         """List DLQ entries for one agent (forward-scan from head)."""
         try:
-            raw = await self.client.hget(DLQ_AGENT_INDEX, agent_id)
+            raw = await self.client.hget(self._k(DLQ_AGENT_INDEX), agent_id)
         except Exception as e:
             logger.warning(
                 "dlq_storage.list_for_agent.redis_error",
@@ -201,7 +237,7 @@ class RedisDLQStorage:
         """List DLQ entries (full scan)."""
         try:
             messages = await safe_xrange(
-                self.client, DLQ_STREAM_KEY, min="-", max="+", count=count
+                self.client, self._k(DLQ_STREAM_KEY), min="-", max="+", count=count
             )
         except Exception as e:
             logger.warning("dlq_storage.list_all.redis_error", error=str(e))
@@ -214,7 +250,7 @@ class RedisDLQStorage:
         """Look up the stream id for ``(event_id, reason)``."""
         try:
             raw = await self.client.hget(
-                DLQ_EVENT_INDEX, idem_key_for(event_id, reason)
+                self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)
             )
         except Exception as e:
             logger.warning(
@@ -235,7 +271,7 @@ class RedisDLQStorage:
         """
         try:
             async for _, stream_id in self.client.hscan_iter(
-                DLQ_EVENT_INDEX, match=f"{event_id}:*"
+                self._k(DLQ_EVENT_INDEX), match=f"{event_id}:*"
             ):
                 decoded = decode_value(stream_id)
                 if decoded is None or decoded == PLACEHOLDER:
@@ -255,7 +291,7 @@ class RedisDLQStorage:
     ) -> Result[None, MemoryError]:
         """HINCRBY the per-reason counter by ``delta``."""
         try:
-            await self.client.hincrby(DLQ_REASON_INDEX, reason, delta)
+            await self.client.hincrby(self._k(DLQ_REASON_INDEX), reason, delta)
         except Exception as e:
             logger.warning(
                 "dlq_storage.bump_reason_counter.redis_error",
@@ -271,15 +307,15 @@ class RedisDLQStorage:
         try:
             length = 0
             try:
-                info = await self.client.xinfo_stream(DLQ_STREAM_KEY)
+                info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
                 length = int(info.get("length", 0))
             except Exception:
                 # XINFO raises when the stream does not exist;
                 # treat that as 0 entries.
                 length = 0
-            reasons_raw = await self.client.hgetall(DLQ_REASON_INDEX)
+            reasons_raw = await self.client.hgetall(self._k(DLQ_REASON_INDEX))
             reasons = _decode_int_dict(reasons_raw)
-            agents_count = await self.client.hlen(DLQ_AGENT_INDEX)
+            agents_count = await self.client.hlen(self._k(DLQ_AGENT_INDEX))
             return Ok(
                 {
                     "total_events": length,
@@ -296,11 +332,11 @@ class RedisDLQStorage:
         try:
             length = 0
             try:
-                info = await self.client.xinfo_stream(DLQ_STREAM_KEY)
+                info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
                 length = int(info.get("length", 0))
             except Exception:
                 length = 0
-            await self.client.delete(*ALL_KEYS)
+            await self.client.delete(*self._all_keys())
             return Ok(length)
         except Exception as e:
             logger.warning("dlq_storage.purge.redis_error", error=str(e))
@@ -321,8 +357,10 @@ class RedisDLQStorage:
         """
         try:
             if stream_id and stream_id != PLACEHOLDER:
-                await self.client.xdel(DLQ_STREAM_KEY, stream_id)
-            await self.client.hdel(DLQ_EVENT_INDEX, idem_key_for(event_id, reason))
+                await self.client.xdel(self._k(DLQ_STREAM_KEY), stream_id)
+            await self.client.hdel(
+                self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)
+            )
             return Ok(None)
         except Exception as e:
             logger.warning(
@@ -340,7 +378,7 @@ class RedisDLQStorage:
         try:
             messages = await safe_xrange(
                 self.client,
-                DLQ_STREAM_KEY,
+                self._k(DLQ_STREAM_KEY),
                 min=head_stream_id,
                 max="+",
                 count=count,

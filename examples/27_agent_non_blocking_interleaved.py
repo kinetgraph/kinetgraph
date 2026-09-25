@@ -276,7 +276,7 @@ async def main() -> None:
 
     delta = round(slow_at - fast_at, 2) if (slow_at and fast_at) else 0.0
     print("\n=========================================================================")
-    print(f"  VERIFICATION PASSED!")
+    print("  VERIFICATION PASSED!")
     print(f"  - Fast Tool Processed : {fast_at}s (agent did NOT block!)")
     print(f"  - Slow Tool Processed : {slow_at}s")
     print(f"  - Difference          : Fast tool processed {delta}s BEFORE slow tool!")

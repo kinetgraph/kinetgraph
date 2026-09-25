@@ -34,7 +34,6 @@ from typing import Any
 from kntgraph.concordos.fsm import (
     BusinessFSMConcordo,
     FSMConfig,
-    FSMSystem,
     FSMTransition,
 )
 from kntgraph.core.event import Event, correlation_middleware

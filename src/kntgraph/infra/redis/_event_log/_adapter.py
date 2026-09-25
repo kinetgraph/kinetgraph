@@ -37,9 +37,9 @@ from . import _idempotency
 from ._keys import (
     IDEMPOTENCY_TTL_DEFAULT,
     MAXLEN_DEFAULT,
-    SCAN_PATTERN,
     event_id_key,
     parse_agent_id_from_stream_key,
+    scan_pattern,
     stream_key_for_agent,
 )
 
@@ -128,11 +128,18 @@ class RedisEventLogAdapter:
     conventions). The ``EventLog`` class above this adapter
     is responsible only for validation, signature, resilience
     and the public ``Result`` contract.
+
+    ``key_prefix`` is the namespace prefix (ADR-076). Every
+    Redis key the adapter writes or reads is composed via
+    :func:`infra.redis._prefix.namespaced` so two services
+    on the same Redis do not cross-talk. Empty string
+    preserves the pre-076 wire format byte-for-byte.
     """
 
     client: RedisLike
     maxlen: int = MAXLEN_DEFAULT
     idempotency_ttl: int = IDEMPOTENCY_TTL_DEFAULT
+    key_prefix: str = ""
 
     async def append(
         self, *, agent_id: str, event: Event
@@ -143,8 +150,8 @@ class RedisEventLogAdapter:
             # the patch apply here.
             stream_id = await _idempotency.claim_event_id_slot(
                 redis=self.client,
-                idem_key=event_id_key(str(event.event_id)),
-                stream_key=stream_key_for_agent(agent_id),
+                idem_key=event_id_key(self.key_prefix, str(event.event_id)),
+                stream_key=stream_key_for_agent(self.key_prefix, agent_id),
                 payload=_event_to_redis(event),
                 maxlen=self.maxlen,
                 ttl_seconds=self.idempotency_ttl,
@@ -184,7 +191,7 @@ class RedisEventLogAdapter:
         if count is not None:
             kwargs["count"] = count
         messages = await safe_xrange(
-            self.client, stream_key_for_agent(agent_id), **kwargs
+            self.client, stream_key_for_agent(self.key_prefix, agent_id), **kwargs
         )
         return [_parse_event(mid, mdata) for mid, mdata in messages]
 
@@ -197,7 +204,10 @@ class RedisEventLogAdapter:
             start = f"({cursor}"
 
         messages = await safe_xrange(
-            self.client, stream_key_for_agent(agent_id), min=start, max="+"
+            self.client,
+            stream_key_for_agent(self.key_prefix, agent_id),
+            min=start,
+            max="+",
         )
 
         if not messages:
@@ -214,7 +224,7 @@ class RedisEventLogAdapter:
     async def read_latest(self, agent_id: str, n: int = 1) -> list[Event]:
         messages = await safe_xrevrange(
             self.client,
-            stream_key_for_agent(agent_id),
+            stream_key_for_agent(self.key_prefix, agent_id),
             min="-",
             max="+",
             count=n,
@@ -235,7 +245,7 @@ class RedisEventLogAdapter:
         try:
             messages = await safe_xrevrange(
                 self.client,
-                stream_key_for_agent(agent_id),
+                stream_key_for_agent(self.key_prefix, agent_id),
                 min="-",
                 max="+",
                 count=1,
@@ -251,24 +261,28 @@ class RedisEventLogAdapter:
 
     async def stream_len(self, agent_id: str) -> int:
         try:
-            info = await self.client.xinfo_stream(stream_key_for_agent(agent_id))
+            info = await self.client.xinfo_stream(
+                stream_key_for_agent(self.key_prefix, agent_id)
+            )
         except self._response_error():
             return 0
         return int(info.get("length", 0))
 
     async def list_agents(self) -> list[str]:
         ids: list[str] = []
-        async for key in self.client.scan_iter(match=SCAN_PATTERN, count=100):
+        async for key in self.client.scan_iter(
+            match=scan_pattern(self.key_prefix), count=100
+        ):
             from .._codec import decode_value
 
             decoded = decode_value(key) or ""
-            agent_id = parse_agent_id_from_stream_key(decoded)
+            agent_id = parse_agent_id_from_stream_key(decoded, self.key_prefix)
             if agent_id is not None:
                 ids.append(agent_id)
         return ids
 
     async def delete(self, agent_id: str) -> None:
-        await self.client.delete(stream_key_for_agent(agent_id))
+        await self.client.delete(stream_key_for_agent(self.key_prefix, agent_id))
 
     async def subscribe(
         self,
@@ -309,12 +323,12 @@ class RedisEventLogAdapter:
         for agent_id in agent_ids:
             cursor = (cursors or {}).get(agent_id)
             if not cursor or cursor == "-":
-                streams[stream_key_for_agent(agent_id)] = "0-0"
+                streams[stream_key_for_agent(self.key_prefix, agent_id)] = "0-0"
             else:
-                streams[stream_key_for_agent(agent_id)] = cursor
+                streams[stream_key_for_agent(self.key_prefix, agent_id)] = cursor
 
         response = await self.client.xread(streams=streams, count=count, block=block_ms)
-        return _flatten_xread_response(response)
+        return _flatten_xread_response(response, self.key_prefix)
 
     @staticmethod
     def _response_error() -> type[Exception]:
@@ -324,7 +338,9 @@ class RedisEventLogAdapter:
         return ResponseError
 
 
-def _flatten_xread_response(response: list) -> tuple[dict[str, str], list[Event]]:
+def _flatten_xread_response(
+    response: list, prefix: str
+) -> tuple[dict[str, str], list[Event]]:
     """Decode an ``xread`` response into ``(new_cursors, events)``.
 
     The wire shape is
@@ -335,12 +351,17 @@ def _flatten_xread_response(response: list) -> tuple[dict[str, str], list[Event]
     outside the ``knt:agents:*:events`` convention cannot
     happen (the adapter built the stream dict), but is
     skipped silently rather than crashing the consumer.
+
+    ``prefix`` is the namespace prefix (ADR-076) the
+    adapter used when building the stream dict, passed
+    back here so the parser strips the right slice off
+    each key.
     """
     new_cursors: dict[str, str] = {}
     events: list[Event] = []
     for raw_key, entries in response:
         raw_key_str = raw_key.decode("utf-8") if isinstance(raw_key, bytes) else raw_key
-        agent_id = parse_agent_id_from_stream_key(raw_key_str)
+        agent_id = parse_agent_id_from_stream_key(raw_key_str, prefix)
         if agent_id is None:
             continue
         last_entry_id: bytes | str | None = None
