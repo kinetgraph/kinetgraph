@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] — 2026-09-25
+
 ### Fixed
 - **ADR-076 auth-adapter prefix plumbing (closes
   DEBT §2.35 follow-up #2):** `RedisAPIKeyStorage`
@@ -57,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Zero behaviour change for single-service
     deploys (`key_prefix=""` default is
     byte-for-byte identical to pre-v0.16.0).
+
 
 ## [0.16.1] — 2026-09-25
 - **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
