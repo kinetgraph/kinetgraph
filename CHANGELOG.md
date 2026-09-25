@@ -27,6 +27,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deployments. See `docs/adr-068-operational.md` (Key namespace
   prefix) for the operator playbook.
 
+## [0.15.3] — 2026-09-14
+
+### Fixed
+
+- **ADR-037 correlation propagation (audit-trail integrity):**
+  The `ReactiveDispatcher` previously opened
+  `correlation_middleware.scope()` on every tick without a
+  `correlation_id` argument, which caused the underlying
+  `CorrelationMiddleware.start()` to mint a fresh `uuid4()` per
+  tick. Every system that pulled
+  `correlation_middleware.current()` therefore received a
+  brand-new correlation_id — unrelated to the entry event's
+  flow id — and the audit chain broke at the dispatcher
+  boundary (entry event → system-emitted child events were
+  assigned different correlation_ids).
+
+  The dispatcher now:
+
+  - **Threads the trigger event's correlation** into the
+    per-tick scope via `correlation_middleware.continue_from(entry)`.
+    Systems inherit the entry's correlation_id (or, on idle
+    ticks, the last-known `view.last_event_correlation` from
+    the projection).
+  - **Handles lifecycle events correctly** in mixed batches.
+    The first event of a batch may be an `agent.spawned`
+    bootstrap that has a fresh correlation_id; the
+    dispatcher picks the LAST domain event in the batch (or
+    falls back to `view.last_event_correlation`).
+
+  Concretely:
+
+  - `correlation_middleware.scope()` now accepts an optional
+    `correlation_id` kwarg and propagates it instead of
+    minting a fresh one.
+  - `AgentView.last_event_correlation` (new field) carries
+    the most-recent domain event's `CorrelationContext`,
+    populated by the default projection and preserved
+    across lifecycle events.
+  - `IncrementalWorldStore` forwards `last_event_correlation`
+    on idle ticks via `_anchor_event(...)`.
+
+### Added
+
+- **`BaseShortTermMemory.invalidate_cache(*key_parts)`:**
+  Force a cold-rebuild of a memory tier by dropping BOTH the
+  cache payload AND the fold cursor (ADR-068 §3.4 P4). The
+  next `refresh_cache_incremental` call sees the cold state
+  and seeds a fresh cursor + payload.
+- **`ShortMemoryStorage.delete_fold_cursor(key)`** (new
+  Protocol method) on all three tiers (continuity, profile,
+  session). Idempotent.
+
+## [0.15.2] — 2026-09-10
+
+### Changed
+
+- **Default TTL on event_id idempotency index (ADR-019 §X):**
+  `RedisEventLogAdapter` now writes a 24h TTL on every
+  idempotency-index entry by default. The previous
+  "no TTL" semantics meant a single ``XADD`` race that
+  evaded the dedup window kept the index entry forever
+  and silently blocked all later retries on the same
+  ``event_id`` even days later; the 24h cap matches
+  the framework's notion of "an event's interesting
+  lifetime" and lets operators explicitly opt into a
+  longer window via ``idempotency_ttl=`` when they need
+  it. Idempotency window is now opt-in per adapter
+  (default: ``IDEMPOTENCY_TTL_DEFAULT = 86_400``).
+
+## [0.15.1] — 2026-09-10
+
 ### Fixed
 
 - **ReactiveDispatcher push-first spin-loop fix (ADR-068 §3.2):**
