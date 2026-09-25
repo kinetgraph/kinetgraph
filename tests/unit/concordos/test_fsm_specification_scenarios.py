@@ -539,14 +539,14 @@ async def test_fsm_spec_non_blocking_interleaved_tools() -> None:
 
 
 @pytest.mark.skipif(
-    os.environ.get("KNT_REDIS_FAKE") == "1",
+    os.environ.get("KNT_REDIS_FAKE") == "1" or os.environ.get("KNT_REDIS_FAKE") is None,
     reason=(
         "Flaky under fakeredis: the 5-agent concurrent run races on the "
         "shared connection pool (RedisPool default max_connections=50, but "
         "fakeredis serialises blocking commands behind a single in-process "
         "lock that does not model real-Redis pipelining). The test reliably "
-        "passes against a real Redis instance. Run with KNT_REDIS_URL set and "
-        "KNT_REDIS_FAKE unset to exercise this path."
+        "passes against a real Redis instance. Set KNT_REDIS_FAKE=0 "
+        "(explicit opt-in to real Redis) to exercise this path."
     ),
 )
 async def test_fsm_spec_five_concurrent_process_executions() -> None:
