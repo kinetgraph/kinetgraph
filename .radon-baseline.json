@@ -3876,28 +3876,38 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py:class:RedisAPIKeyStorage": {
-      "complexity": 4,
-      "lineno": 42,
+      "complexity": 3,
+      "lineno": 80,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py:function:storage_key": {
       "complexity": 1,
-      "lineno": 36,
+      "lineno": 61,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_auth/_redis.py:method:__post_init__": {
+      "complexity": 1,
+      "lineno": 92,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py:method:delete": {
       "complexity": 2,
-      "lineno": 86,
+      "lineno": 148,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py:method:lookup": {
       "complexity": 5,
-      "lineno": 47,
+      "lineno": 109,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_auth/_redis.py:method:storage_key": {
+      "complexity": 1,
+      "lineno": 100,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py:method:store": {
       "complexity": 2,
-      "lineno": 73,
+      "lineno": 135,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_checkpoint/_adapter.py:class:CheckpointStorage": {
@@ -4457,52 +4467,57 @@
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_client": {
       "complexity": 2,
-      "lineno": 50,
+      "lineno": 51,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_global_maxlen": {
       "complexity": 4,
-      "lineno": 104,
+      "lineno": 105,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_key_prefix": {
       "complexity": 3,
-      "lineno": 60,
+      "lineno": 61,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_stream_maxlen": {
       "complexity": 4,
-      "lineno": 82,
+      "lineno": 83,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_factory.py:function:create_api_key_storage": {
+      "complexity": 1,
+      "lineno": 261,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_continuity_storage": {
       "complexity": 3,
-      "lineno": 193,
+      "lineno": 194,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_dlq_storage": {
       "complexity": 1,
-      "lineno": 216,
+      "lineno": 217,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_event_log_storage": {
       "complexity": 1,
-      "lineno": 124,
+      "lineno": 125,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_profile_storage": {
       "complexity": 3,
-      "lineno": 170,
+      "lineno": 171,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_session_storage": {
       "complexity": 3,
-      "lineno": 147,
+      "lineno": 148,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_solution_storage": {
       "complexity": 3,
-      "lineno": 236,
+      "lineno": 237,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_adapter.py:class:ShortMemoryStorage": {
@@ -8448,7 +8463,7 @@
       "rank": "A"
     },
     "src/kntgraph/api/_auth/_verifier.py": {
-      "mi": 78.69595659049517,
+      "mi": 78.3692538390268,
       "rank": "A"
     },
     "src/kntgraph/api/auth/__init__.py": {
@@ -8872,7 +8887,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_auth/_redis.py": {
-      "mi": 84.8918162077494,
+      "mi": 74.38765125010949,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_checkpoint/__init__.py": {
@@ -8928,7 +8943,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py": {
-      "mi": 69.04799577369843,
+      "mi": 68.56520971605454,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/__init__.py": {
