@@ -78,8 +78,13 @@ def build_monolith():
     # Configure the API Gateway (Intent Router).
     # Tools register exclusively via ``worker_manager``
     # above (ADR-066 §4.4: the legacy ``ToolRegistry``
-    # was removed in v0.18).
-    verifier = RedisAPIKeyVerifier(redis)
+    # was removed in v0.18). The verifier reads the API
+    # key binding table at ``<key_prefix>knt:api:keys:<digest>``
+    # (the framework's reserved ``knt:`` literal is appended
+    # by the storage, per ADR-076 §1.3); passing ``key_prefix=``
+    # so the gateway's auth lookup stays inside the same
+    # namespace as the rest of the service.
+    verifier = RedisAPIKeyVerifier.from_redis(redis, key_prefix=key_prefix)
 
     app = create_app(
         log=log, worker_manager=worker_manager, verifier=verifier

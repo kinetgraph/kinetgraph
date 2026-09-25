@@ -86,10 +86,23 @@ class RedisAPIKeyVerifier:
         self._storage = storage
 
     @classmethod
-    def from_redis(cls, client) -> "RedisAPIKeyVerifier":
+    def from_redis(
+        cls,
+        client,
+        *,
+        key_prefix: str = "",
+    ) -> "RedisAPIKeyVerifier":
         """
         Convenience constructor for the common case:
         build the verifier from a raw Redis-like client.
+
+        ``key_prefix`` (ADR-076) namespaces every binding
+        key the storage reads or writes. Empty string
+        (the default) preserves the pre-076 wire format
+        byte-for-byte. The CLI scaffold passes
+        ``fresh_settings().redis_key_prefix`` here so the
+        ``KNT_REDIS_KEY_PREFIX`` env var flows through
+        end-to-end.
 
         Kept for back-compat with call sites that hold a
         raw client (most tests, fmh_app's
@@ -97,7 +110,7 @@ class RedisAPIKeyVerifier:
         construct the ``APIKeyStorage`` directly and
         inject it.
         """
-        storage = RedisAPIKeyStorage(client=client)
+        storage = RedisAPIKeyStorage(client=client, key_prefix=key_prefix)
         return cls(storage=storage)
 
     async def verify(self, api_key: str) -> Result[Principal, AuthError]:

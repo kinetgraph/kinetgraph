@@ -2,15 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 """
-Integration test for the ADR-076 prefix plumbing at the
-tool dispatcher boundary (DEBT §2.35).
+Integration test for the ADR-076 prefix plumbing.
 
-Two ``ToolRouter`` + ``WorkerManager`` pairs with
-different ``key_prefix`` values on the same Redis MUST
-NOT see each other's data. Without this layer, two
-services sharing one Redis would cross-talk at the
-tool-queue boundary (the pre-fix gap that ADR-076 §1.1
-describes).
+Two adapters with different ``key_prefix`` values on the
+same Redis MUST NOT see each other's data. Without this
+layer, two services sharing one Redis would cross-talk
+at the storage boundary (the pre-fix gap that ADR-076
+§1.1 describes).
+
+Coverage:
+
+  - ``ToolRouter`` + ``WorkerManager`` (DEBT §2.35)
+  - ``RedisAPIKeyStorage`` (DEBT §2.35 follow-up #2)
 
 The test runs against a live Redis via the
 ``clean_redis`` fixture (``tests/integration/conftest.py``).
@@ -27,6 +30,7 @@ import redis.asyncio as aioredis
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.infra.redis._auth import RedisAPIKeyStorage
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
@@ -154,3 +158,68 @@ class TestToolDispatcherKeyPrefix:
             ), f"Consumer group not found on prefixed stream; groups={groups!r}"
         finally:
             await manager.stop()
+
+
+class TestAPIKeyStorageKeyPrefix:
+    """``RedisAPIKeyStorage`` namespaces every binding
+    key the storage reads or writes (DEBT §2.35
+    follow-up #2). Two services sharing one Redis with
+    different prefixes MUST NOT see each other's
+    bindings.
+    """
+
+    async def test_two_prefixes_store_at_distinct_keys(
+        self, clean_redis: aioredis.Redis
+    ) -> None:
+        """Two ``RedisAPIKeyStorage`` instances with
+        different prefixes on the same Redis MUST
+        write to disjoint keys.
+
+        Without the prefix plumbing the storage would
+        write to the unprefixed ``knt:api:keys:<digest>``
+        on both services -- the canonical §1.1 failure
+        mode for two services sharing one Redis.
+        """
+        acme_storage = RedisAPIKeyStorage(client=clean_redis, key_prefix="acme:")
+        crm_storage = RedisAPIKeyStorage(client=clean_redis, key_prefix="crm:")
+
+        # Same digest on both prefixes; the bytes are
+        # different per service. Without prefix plumbing
+        # the second ``store`` would overwrite the first.
+        await acme_storage.store("shared-digest", b"acme-payload")
+        await crm_storage.store("shared-digest", b"crm-payload")
+
+        acme_hit = await acme_storage.lookup("shared-digest")
+        crm_hit = await crm_storage.lookup("shared-digest")
+
+        assert acme_hit.is_ok() and acme_hit.ok_value() == b"acme-payload"
+        assert crm_hit.is_ok() and crm_hit.ok_value() == b"crm-payload"
+
+        # And the unprefixed legacy key is empty -- no
+        # service accidentally wrote to the pre-076
+        # wire format.
+        legacy_raw = await clean_redis.get("knt:api:keys:shared-digest")
+        assert legacy_raw is None
+
+    async def test_prefixed_storage_round_trip(
+        self, clean_redis: aioredis.Redis
+    ) -> None:
+        """A prefixed storage ``store`` followed by
+        ``lookup`` returns the same bytes; ``delete``
+        removes the binding; a follow-up ``lookup``
+        returns ``Ok(None)``.
+
+        Pin the symmetric ``store`` / ``lookup`` /
+        ``delete`` wiring so a future refactor does
+        not silently drop the prefix on one of the
+        three paths.
+        """
+        storage = RedisAPIKeyStorage(client=clean_redis, key_prefix="acme-billing:")
+
+        await storage.store("digest-xyz", b'{"role": "agent"}')
+        hit = await storage.lookup("digest-xyz")
+        assert hit.is_ok() and hit.ok_value() == b'{"role": "agent"}'
+
+        await storage.delete("digest-xyz")
+        miss = await storage.lookup("digest-xyz")
+        assert miss.is_ok() and miss.ok_value() is None

@@ -16,6 +16,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **ADR-076 auth-adapter prefix plumbing (closes
+  DEBT §2.35 follow-up #2):** `RedisAPIKeyStorage`
+  now accepts the `key_prefix=` field and composes
+  every `knt:api:keys:<digest>` binding key with
+  the operator-set `KNT_REDIS_KEY_PREFIX`. Two
+  services sharing one Redis with different
+  prefixes no longer cross-talk at the auth
+  binding table (the gap that v0.16.1 left open
+  in the auth layer).
+
+  - `RedisAPIKeyStorage` is now a `frozen=True`
+    dataclass with a `key_prefix` field validated
+    at construction via `validate_prefix` (the
+    same fail-fast pattern every other adapter
+    uses). The module-level `storage_key(prefix,
+    digest)` helper is the canonical composition
+    point (used by the migration script and
+    external code); the storage instance has the
+    same logic via `RedisAPIKeyStorage.storage_key`.
+  - `RedisAPIKeyVerifier.from_redis(client, *,
+    key_prefix="")` accepts the prefix and
+    threads it through to the underlying storage.
+  - New `create_api_key_storage(settings=...)`
+    factory in `infra/redis/_factory.py` (uses the
+    shared `_resolve_key_prefix` helper).
+  - CLI scaffold (`main.py.jinja`) reads
+    `fresh_settings().redis_key_prefix` once and
+    threads it through every constructor.
+  - 17 new unit tests in
+    `tests/unit/infra/redis/_auth/test_auth_prefix.py`
+    (the module-level `storage_key` helper, the
+    storage instance `storage_key` method, the
+    factory, and the verifier `from_redis`).
+  - 2 new integration tests in
+    `tests/integration/infra/test_redis_prefix.py`
+    (`TestAPIKeyStorageKeyPrefix`) cover the
+    end-to-end isolation between two services
+    sharing one Redis with different prefixes.
+  - Zero behaviour change for single-service
+    deploys (`key_prefix=""` default is
+    byte-for-byte identical to pre-v0.16.0).
+
+## [0.16.1] — 2026-09-25
 - **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
   `WorkerManager`, `ToolRouter`, and `ReactiveDispatcher`
   now accept the `key_prefix=` kwarg and compose

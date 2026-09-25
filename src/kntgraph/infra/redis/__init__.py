@@ -43,6 +43,7 @@ from ._event_log import (
 )
 from ._event_log._idempotency import claim_event_id_slot
 from ._factory import (
+    create_api_key_storage,
     create_continuity_storage,
     create_dlq_storage,
     create_event_log_storage,
@@ -110,5 +111,6 @@ __all__ = [
     "create_profile_storage",
     "create_continuity_storage",
     "create_solution_storage",
+    "create_api_key_storage",
     "create_dlq_storage",
 ]

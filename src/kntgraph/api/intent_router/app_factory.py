@@ -184,7 +184,9 @@ def create_app(
 
     worker_manager = WorkerManager(...)
     worker_manager.register(MyWorker, acl=default_acl())
-    verifier = RedisAPIKeyVerifier(redis_client)
+    verifier = RedisAPIKeyVerifier.from_redis(
+        redis_client, key_prefix=settings.redis_key_prefix
+    )
     app = create_app(
         log=event_log,
         worker_manager=worker_manager,

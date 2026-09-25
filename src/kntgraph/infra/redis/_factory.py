@@ -45,6 +45,7 @@ from ._memory import (
     ShortMemoryStorage,
 )
 from ._pool import RedisPool
+from ._auth import APIKeyStorage, RedisAPIKeyStorage
 
 
 def _resolve_client(
@@ -257,6 +258,36 @@ def create_solution_storage(
     )
 
 
+def create_api_key_storage(
+    settings: Settings | None = None,
+    *,
+    client: RedisLike | None = None,
+    key_prefix: str | None = None,
+) -> APIKeyStorage:
+    """Build the API key storage adapter (auth layer, ADR-019).
+
+    Empty ``client=`` falls back to the
+    ``Settings.redis_url``-derived pool. Empty
+    ``key_prefix=`` falls back to
+    ``settings.redis_key_prefix`` -- the operator's
+    ``KNT_REDIS_KEY_PREFIX`` env var. The composed key is
+    ``<prefix>knt:api:keys:<digest>`` (the framework's
+    reserved ``knt:`` literal is appended by the storage,
+    matching the ADR-076 §1.3 contract; see
+    ``RedisAPIKeyStorage.storage_key``).
+
+    The factory returns the ``APIKeyStorage`` Protocol
+    rather than the concrete ``RedisAPIKeyStorage`` so the
+    cache (``APIKeyCacheAdapter``) and the verifier
+    (``RedisAPIKeyVerifier``) compose without taking a
+    dependency on the Redis impl.
+    """
+    return RedisAPIKeyStorage(
+        client=_resolve_client(settings, client),
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
+    )
+
+
 __all__ = [
     "create_continuity_storage",
     "create_dlq_storage",
@@ -264,4 +295,6 @@ __all__ = [
     "create_profile_storage",
     "create_session_storage",
     "create_solution_storage",
+    "create_api_key_storage",
+    "create_dlq_storage",
 ]
