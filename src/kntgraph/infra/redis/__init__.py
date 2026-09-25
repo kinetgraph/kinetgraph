@@ -14,6 +14,7 @@ Sub-modules
 - :mod:`._errors`        — typed errors
 - :mod:`._factory`       — high-level factories (settings-driven)
 - :mod:`._event_log`     — EventLog storage adapter
+- :mod:`._tools`         — tool-queue key conventions (ADR-076)
 
 The framework never imports ``redis.asyncio`` outside this
 package; every Redis consumer accepts a ``RedisLike``
@@ -61,6 +62,7 @@ from ._memory import (
     SolutionStoreSerializationError,
 )
 from ._pool import RedisPool, create_redis_pool
+from ._tools import TOOL_QUEUE_KEY_TEMPLATE, tool_queue_key
 
 
 __all__ = [
@@ -94,9 +96,11 @@ __all__ = [
     "EVENT_ID_INDEX",
     "SCAN_PATTERN",
     "MAXLEN_DEFAULT",
+    "TOOL_QUEUE_KEY_TEMPLATE",
     "stream_key_for_agent",
     "event_id_key",
     "parse_agent_id_from_stream_key",
+    "tool_queue_key",
     # Idempotency
     "claim_event_id_slot",
     # Factories

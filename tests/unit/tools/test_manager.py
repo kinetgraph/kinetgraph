@@ -838,3 +838,124 @@ class TestObservability:
         # The message is still ACKed so the bad payload
         # does not loop forever in the PEL.
         redis_mock.xack.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Key prefix (ADR-076 / DEBT §2.35)
+# ---------------------------------------------------------------------------
+#
+# The ``key_prefix`` kwarg on ``WorkerManager.__init__`` namespaces the
+# tool-queue Stream key. Two services sharing one Redis with
+# different prefixes must not cross-talk at the tool dispatcher --
+# the gap closed in DEBT §2.35.
+
+
+class TestKeyPrefix:
+    """The consumer-group creation in ``start``, the consume
+    loop, and the reaper loop all flow through
+    :meth:`WorkerManager._stream_key`. Empty ``key_prefix``
+    keeps the pre-076 wire format byte-for-byte; a non-empty
+    prefix namespaces every Redis key the manager writes
+    or reads.
+    """
+
+    async def test_default_prefix_writes_unprefixed_stream_key(
+        self, redis_mock, event_log_mock
+    ):
+        """Empty ``key_prefix`` (the default) keeps the
+        pre-ADR-076 wire format -- ``xgroup_create`` is
+        awaited with ``"knt:tools:echo:queue"``.
+        """
+        manager = WorkerManager(redis_mock, event_log_mock)
+        manager.register(_EchoTool, acl=None)
+
+        await manager.start()
+        try:
+            redis_mock.xgroup_create.assert_awaited_once()
+            stream_key = redis_mock.xgroup_create.await_args.args[0]
+            assert stream_key == "knt:tools:echo:queue"
+        finally:
+            await manager.stop()
+
+    async def test_prefixed_xgroup_create_uses_namespaced_stream_key(
+        self, redis_mock, event_log_mock
+    ):
+        """Non-empty ``key_prefix`` namespaces the
+        consumer-group creation stream key -- the canonical
+        multi-service-on-one-Redis use case from ADR-076 §1.1.
+        """
+        manager = WorkerManager(redis_mock, event_log_mock, key_prefix="acme-billing:")
+        manager.register(_EchoTool, acl=None)
+
+        await manager.start()
+        try:
+            stream_key = redis_mock.xgroup_create.await_args.args[0]
+            assert stream_key == "acme-billing:knt:tools:echo:queue"
+        finally:
+            await manager.stop()
+
+    async def test_prefixed_consume_loop_reads_namespaced_stream(
+        self, redis_mock, event_log_mock
+    ):
+        """The consume loop's ``xreadgroup`` must read from the
+        same namespaced stream key the router published to.
+        Without this, a prefixed ``xgroup_create`` would be
+        silently orphaned -- the manager would create a
+        consumer group on the prefixed key and then read
+        from the unprefixed key (the pre-fix bug).
+        """
+        manager = WorkerManager(
+            redis_mock, event_log_mock, key_prefix="acme:", reaper_interval=0.01
+        )
+        manager.register(_EchoTool, acl=None)
+
+        redis_mock.xreadgroup = AsyncMock(side_effect=asyncio.CancelledError())
+        await manager.start()
+        try:
+            await asyncio.sleep(0.05)
+        finally:
+            await manager.stop()
+        assert redis_mock.xreadgroup.await_count >= 1
+        streams_arg = redis_mock.xreadgroup.await_args.kwargs["streams"]
+        assert streams_arg == {"acme:knt:tools:echo:queue": ">"}
+
+    async def test_prefixed_reaper_loop_scans_namespaced_stream(
+        self, redis_mock, event_log_mock
+    ):
+        """The reaper loop's ``xautoclaim`` targets the
+        prefixed stream key -- otherwise stuck messages on
+        a prefixed queue would never be reclaimed.
+        """
+        manager = WorkerManager(
+            redis_mock, event_log_mock, key_prefix="acme:", reaper_interval=0.01
+        )
+        manager.register(_EchoTool, acl=None)
+
+        redis_mock.xreadgroup = AsyncMock(side_effect=asyncio.CancelledError())
+        redis_mock.xautoclaim = AsyncMock(return_value=("0-0", [], "0-0"))
+        await manager.start()
+        try:
+            # Bounded wait: the first ``xautoclaim`` is enough
+            # to confirm the stream key was passed through.
+            deadline = asyncio.get_event_loop().time() + 2.0
+            while redis_mock.xautoclaim.await_count < 1 and (
+                asyncio.get_event_loop().time() < deadline
+            ):
+                await asyncio.sleep(0.01)
+            assert redis_mock.xautoclaim.await_count >= 1
+            assert redis_mock.xautoclaim.await_args.kwargs["name"] == (
+                "acme:knt:tools:echo:queue"
+            )
+        finally:
+            await manager.stop()
+
+    async def test_invalid_prefix_rejected_at_construction(
+        self, redis_mock, event_log_mock
+    ):
+        """``validate_prefix`` runs once at construction;
+        a malformed prefix raises ``ValueError`` immediately
+        instead of poisoning the first ``xgroup_create``
+        call with a bad stream key.
+        """
+        with pytest.raises(ValueError, match="redis_key_prefix"):
+            WorkerManager(redis_mock, event_log_mock, key_prefix="acme:*")

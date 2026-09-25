@@ -4761,13 +4761,18 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py:function:namespaced": {
-      "complexity": 2,
-      "lineno": 84,
+      "complexity": 3,
+      "lineno": 107,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py:function:validate_prefix": {
-      "complexity": 5,
+      "complexity": 6,
       "lineno": 48,
+      "rank": "B"
+    },
+    "src/kntgraph/infra/redis/_tools/_keys.py:function:tool_queue_key": {
+      "complexity": 1,
+      "lineno": 46,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_adapter.py:class:WorldCheckpointStorage": {
@@ -7117,127 +7122,127 @@
     },
     "src/kntgraph/runner/reactive.py:class:ReactiveDispatcher": {
       "complexity": 4,
-      "lineno": 173,
+      "lineno": 174,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:function:_anchor_event": {
       "complexity": 1,
-      "lineno": 124,
+      "lineno": 125,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:function:_last_domain_correlation": {
       "complexity": 3,
-      "lineno": 149,
+      "lineno": 150,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:__init__": {
       "complexity": 13,
-      "lineno": 188,
+      "lineno": 189,
       "rank": "C"
     },
     "src/kntgraph/runner/reactive.py:method:_dispatch_for_agent": {
       "complexity": 10,
-      "lineno": 555,
+      "lineno": 563,
       "rank": "B"
     },
     "src/kntgraph/runner/reactive.py:method:_has_subscribable_agents": {
       "complexity": 1,
-      "lineno": 847,
+      "lineno": 855,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_has_unconsumed_work": {
       "complexity": 3,
-      "lineno": 472,
+      "lineno": 480,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_load_views": {
       "complexity": 6,
-      "lineno": 881,
+      "lineno": 889,
       "rank": "B"
     },
     "src/kntgraph/runner/reactive.py:method:_loop": {
       "complexity": 5,
-      "lineno": 721,
+      "lineno": 729,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_maybe_emit_heartbeat": {
       "complexity": 3,
-      "lineno": 852,
+      "lineno": 860,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_should_run_systems_on_idle_tick": {
       "complexity": 2,
-      "lineno": 500,
+      "lineno": 508,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_subscribable_agents": {
       "complexity": 3,
-      "lineno": 837,
+      "lineno": 845,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:_wake_once": {
       "complexity": 9,
-      "lineno": 756,
+      "lineno": 764,
       "rank": "B"
     },
     "src/kntgraph/runner/reactive.py:method:add_projection": {
       "complexity": 1,
-      "lineno": 452,
+      "lineno": 460,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:add_system": {
       "complexity": 1,
-      "lineno": 449,
+      "lineno": 457,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:dead_lettered_tasks": {
       "complexity": 1,
-      "lineno": 1019,
+      "lineno": 1027,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:detect_and_recover": {
       "complexity": 1,
-      "lineno": 1052,
+      "lineno": 1060,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:dispatch_once": {
       "complexity": 4,
-      "lineno": 514,
+      "lineno": 522,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:in_flight_tasks": {
       "complexity": 1,
-      "lineno": 911,
+      "lineno": 919,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:stale_tasks": {
       "complexity": 1,
-      "lineno": 935,
+      "lineno": 943,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:start": {
       "complexity": 2,
-      "lineno": 699,
+      "lineno": 707,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:stop": {
       "complexity": 3,
-      "lineno": 710,
+      "lineno": 718,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:stuck_in_queue": {
       "complexity": 2,
-      "lineno": 961,
+      "lineno": 969,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:systems": {
       "complexity": 1,
-      "lineno": 446,
+      "lineno": 454,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py:method:track_agent": {
       "complexity": 1,
-      "lineno": 464,
+      "lineno": 472,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive_extensions.py:class:MemoryHydrationProjection": {
@@ -8097,77 +8102,82 @@
     },
     "src/kntgraph/tools/manager.py:class:WorkerManager": {
       "complexity": 5,
-      "lineno": 117,
+      "lineno": 119,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:__contains__": {
       "complexity": 1,
-      "lineno": 303,
+      "lineno": 329,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:__init__": {
       "complexity": 1,
-      "lineno": 124,
+      "lineno": 126,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:__len__": {
       "complexity": 1,
-      "lineno": 306,
+      "lineno": 332,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:_consume_loop": {
       "complexity": 8,
-      "lineno": 380,
+      "lineno": 406,
       "rank": "B"
     },
     "src/kntgraph/tools/manager.py:method:_maybe_emit_heartbeat": {
       "complexity": 3,
-      "lineno": 452,
+      "lineno": 478,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:_process_message": {
       "complexity": 19,
-      "lineno": 474,
+      "lineno": 500,
       "rank": "C"
     },
     "src/kntgraph/tools/manager.py:method:_reaper_loop": {
       "complexity": 5,
-      "lineno": 693,
+      "lineno": 719,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/manager.py:method:_stream_key": {
+      "complexity": 1,
+      "lineno": 274,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:acl_for": {
       "complexity": 3,
-      "lineno": 228,
+      "lineno": 242,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:get": {
       "complexity": 1,
-      "lineno": 246,
+      "lineno": 260,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:list_descriptors": {
       "complexity": 3,
-      "lineno": 268,
+      "lineno": 294,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:names": {
       "complexity": 1,
-      "lineno": 260,
+      "lineno": 286,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:register": {
       "complexity": 5,
-      "lineno": 172,
+      "lineno": 186,
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py:method:start": {
       "complexity": 6,
-      "lineno": 309,
+      "lineno": 335,
       "rank": "B"
     },
     "src/kntgraph/tools/manager.py:method:stop": {
       "complexity": 3,
-      "lineno": 367,
+      "lineno": 393,
       "rank": "A"
     },
     "src/kntgraph/tools/protocol.py:class:Callable": {
@@ -8196,18 +8206,23 @@
       "rank": "A"
     },
     "src/kntgraph/tools/router.py:class:ToolRouter": {
-      "complexity": 6,
-      "lineno": 25,
-      "rank": "B"
+      "complexity": 5,
+      "lineno": 27,
+      "rank": "A"
     },
     "src/kntgraph/tools/router.py:method:__init__": {
       "complexity": 1,
-      "lineno": 34,
+      "lineno": 42,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/router.py:method:_stream_key": {
+      "complexity": 1,
+      "lineno": 51,
       "rank": "A"
     },
     "src/kntgraph/tools/router.py:method:route_batch": {
       "complexity": 9,
-      "lineno": 37,
+      "lineno": 55,
       "rank": "B"
     },
     "src/kntgraph/tools/schema.py:class:FieldSpec": {
@@ -8945,7 +8960,15 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py": {
-      "mi": 49.3834096303257,
+      "mi": 52.062950949893064,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_tools/__init__.py": {
+      "mi": 100.0,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_tools/_keys.py": {
+      "mi": 100.0,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/__init__.py": {
@@ -9221,7 +9244,7 @@
       "rank": "A"
     },
     "src/kntgraph/runner/reactive.py": {
-      "mi": 33.5648754912847,
+      "mi": 33.46090854772386,
       "rank": "A"
     },
     "src/kntgraph/runner/reactive_extensions.py": {
@@ -9377,7 +9400,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/manager.py": {
-      "mi": 48.305114929061766,
+      "mi": 47.877134808396676,
       "rank": "A"
     },
     "src/kntgraph/tools/protocol.py": {
@@ -9385,7 +9408,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/router.py": {
-      "mi": 81.03129403066325,
+      "mi": 79.21687617277993,
       "rank": "A"
     },
     "src/kntgraph/tools/schema.py": {

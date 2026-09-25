@@ -208,3 +208,101 @@ class TestSettingsIntegration:
 
         with pytest.raises(ValueError, match="redis_key_prefix"):
             _TestSettings(redis_key_prefix="acme*")
+
+
+# ---------------------------------------------------------------------------
+# Prefix collision with the framework's ``knt:`` namespace
+# ---------------------------------------------------------------------------
+#
+# Pinned regression for the bug surfaced in the §2.35 review:
+# an operator who sets ``KNT_REDIS_KEY_PREFIX=acme-billing:knt:``
+# (intending to be explicit about the framework's namespace)
+# silently produces keys with ``knt:`` duplicated --
+# ``acme-billing:knt:knt:agents:*:events`` -- because
+# :func:`namespaced` concatenates without detecting the
+# collision. The user-visible contract is that ``knt:`` must
+# NEVER appear twice in a composed Redis key.
+#
+# These tests FAIL today (the bug is open). They will PASS
+# when either of two valid fixes lands:
+#
+#   - :func:`validate_prefix` rejects a prefix that ends
+#     with ``knt:`` (or otherwise collides with the
+#     framework's reserved namespace).
+#   - :func:`namespaced` strips a trailing ``knt:`` from
+#     the prefix before composing.
+#
+# The exact fix is left to the implementation; the test
+# pins the contract.
+
+
+class TestPrefixDoesNotDuplicateKnt:
+    """The ``knt:`` literal is reserved by the framework
+    (ADR-076 §1.3 example). An operator's prefix must NOT
+    collide with it -- the composed key must contain the
+    framework's ``knt:`` substring exactly once.
+    """
+
+    def test_prefix_ending_with_knt_does_not_duplicate(self) -> None:
+        """The operator's ``acme-billing:knt:`` prefix must
+        compose with the EventLog suffix to produce
+        ``acme-billing:knt:agents:a-1:events`` -- a SINGLE
+        ``knt:`` substring, preceded by the operator's
+        namespace.
+
+        Today this fails: ``namespaced`` produces
+        ``acme-billing:knt:knt:agents:a-1:events`` (the
+        ``knt:`` literal appears twice), because the
+        function does not detect the collision.
+        """
+        composed = namespaced("acme-billing:knt:", "knt:agents:a-1:events")
+        # The collision: the literal substring ``knt:knt:``
+        # appearing in the composed key.
+        assert "knt:knt:" not in composed, (
+            f"knt: duplicated in composed key {composed!r}; "
+            f"either validate_prefix must reject a prefix that "
+            f"ends with knt:, or namespaced must strip the "
+            f"trailing knt: before composing."
+        )
+        # The canonical shape: exactly one ``knt:`` substring,
+        # preceded by the operator's namespace.
+        assert composed == "acme-billing:knt:agents:a-1:events"
+
+    def test_prefix_with_knt_substring_in_middle_does_not_duplicate(self) -> None:
+        """A prefix with ``knt:`` in the middle but NOT at
+        the end -- e.g. ``acme-billing:knt:staging`` -- is a
+        valid namespace shape and must compose cleanly.
+
+        This test pins that the fix to the trailing-``knt:``
+        case is narrowly scoped: it must NOT reject prefixes
+        that legitimately contain ``knt:`` as part of the
+        operator's chosen namespace.
+        """
+        # Operator's namespace legitimately contains ``knt:``
+        # (``acme-billing:knt:staging``); the framework's
+        # ``knt:`` literal still appears only once in the
+        # composed key (the suffix template's leading
+        # ``knt:``).
+        composed = namespaced("acme-billing:knt:staging", "knt:agents:a-1:events")
+        # Total ``knt:`` count = 2: one from the operator's
+        # namespace (``acme-billing:knt:staging``), one from
+        # the framework's suffix. NOT 3 (the trailing-collision
+        # case adds one extra).
+        assert composed.count("knt:") == 2, (
+            f"unexpected knt: count in {composed!r}; "
+            f"the operator's namespace contains one knt:, the "
+            f"framework's suffix contributes one -- total 2."
+        )
+
+    def test_validate_prefix_rejects_trailing_knt_collision(self) -> None:
+        """The validator must reject ``acme-billing:knt:``
+        because the operator's prefix collides with the
+        framework's reserved ``knt:`` namespace.
+
+        Today this fails: ``validate_prefix`` only checks the
+        character allow-list and accepts the collision
+        silently. The fix pins a semantic check on top of
+        the character check.
+        """
+        with pytest.raises(ValueError, match="knt:"):
+            validate_prefix("acme-billing:knt:")

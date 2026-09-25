@@ -12,6 +12,7 @@ import uvicorn
 
 from kntgraph.api import create_app
 from kntgraph.api.auth import RedisAPIKeyVerifier
+from kntgraph.infra.config import fresh_settings
 from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._pool import create_redis_pool
@@ -52,17 +53,27 @@ def build_monolith():
     global worker_manager
     # global sales_dispatcher
 
-    redis = create_redis_pool().client
-    log = EventLog(RedisEventLogAdapter(client=redis))
+    # Resolve the Redis key namespace prefix (ADR-076) so
+    # the tool dispatcher writes to the operator-configured
+    # slice of the Redis keyspace. Empty string (the default)
+    # preserves the pre-076 wire format byte-for-byte.
+    key_prefix = fresh_settings().redis_key_prefix
 
-    tool_router = ToolRouter(redis)
-    worker_manager = WorkerManager(redis=redis, event_log=log)
+    redis = create_redis_pool().client
+    log = EventLog(RedisEventLogAdapter(client=redis, key_prefix=key_prefix))
+
+    tool_router = ToolRouter(redis, key_prefix=key_prefix)
+    worker_manager = WorkerManager(
+        redis=redis, event_log=log, key_prefix=key_prefix
+    )
 
     # Wire context dispatchers here. The ``log``, ``redis`` and
     # ``tool_router`` are passed to the ``ReactiveDispatcher``
     # constructor so the dispatcher can route tool invocations
     # through the worker pool without re-reading the Redis pool.
-    # sales_dispatcher = build_sales_dispatcher(log, redis, tool_router)
+    # sales_dispatcher = build_sales_dispatcher(
+    #     log, redis, tool_router, key_prefix=key_prefix
+    # )
 
     # Configure the API Gateway (Intent Router).
     # Tools register exclusively via ``worker_manager``

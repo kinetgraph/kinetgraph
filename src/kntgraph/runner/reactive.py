@@ -80,6 +80,7 @@ import structlog
 from ..core.event import Event
 from ..core.system import WorldSystem
 from ..core.world.components import ToolCallTTL
+from ..infra.redis._prefix import namespaced, validate_prefix
 from ..infra.world_checkpoint import IncrementalWorldStore
 from ..stream.event_log import EventLog
 from ._checkpoint_io import (
@@ -203,6 +204,7 @@ class ReactiveDispatcher:
         wake_on_event: bool = True,
         dlq: Optional["DeadLetterQueue"] = None,
         tool_stream_prefix: str = "knt:tools",
+        key_prefix: str = "",
         metrics_sink: Optional["MetricsSink"] = None,
     ) -> None:
         """
@@ -421,10 +423,16 @@ class ReactiveDispatcher:
         # ``dead_lettered_tasks`` query and the saga → DLQ
         # wire inside the TTL sweeper. ``None`` disables both.
         self._dlq: Optional[DeadLetterQueue] = dlq
-        # ADR-075 Tier 4: stream-key prefix used by the
-        # ``stuck_in_queue`` query. Defaults match the
-        # ToolRouter convention (``knt:tools:<name>:queue``).
-        self._tool_stream_prefix: str = tool_stream_prefix
+        # ADR-075 Tier 4 + ADR-076 / DEBT §2.35: stream-key
+        # prefix used by the ``stuck_in_queue`` query. The
+        # ``key_prefix`` namespace is composed with
+        # ``tool_stream_prefix`` via ``namespaced`` so two
+        # services sharing one Redis can run independent
+        # dispatcher instances. Empty ``key_prefix`` (default)
+        # leaves ``tool_stream_prefix`` unchanged -- byte-for-byte
+        # identical to the pre-076 wire format.
+        validate_prefix(key_prefix)
+        self._tool_stream_prefix: str = namespaced(key_prefix, tool_stream_prefix)
         # ADR-075 Tier 4 observability surface: the metrics
         # backend the dispatcher pushes to. ``None`` selects
         # the no-op ``NullMetricsSink`` so the dispatcher's
