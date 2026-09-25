@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: 2026 kinetgraph
 #
 # SPDX-License-Identifier: Apache-2.0
-
 """
 High-level factories for Redis adapters.
 
@@ -18,11 +17,21 @@ Settings-driven. The framework's recommended entry points:
 When ``client=`` is passed, factories do not touch
 ``Settings`` at all. Useful for tests and for callers that
 manage the connection lifecycle externally.
+
+Namespace prefix (ADR-076)
+--------------------------
+
+Each factory accepts an explicit ``key_prefix=`` override.
+When omitted, the prefix is read from
+``Settings.redis_key_prefix``. When ``client=`` is passed,
+the prefix MUST be passed too (the factory cannot infer
+it from a raw client). This keeps the seam honest: the
+caller owns the prefix decision, not the adapter.
 """
 
 from __future__ import annotations
 
-from kntgraph.infra.config import Settings
+from kntgraph.infra.config import Settings, fresh_settings
 
 from ._client import RedisLike
 from ._dlq import MAXLEN_DEFAULT as DLQ_MAXLEN_DEFAULT
@@ -48,6 +57,28 @@ def _resolve_client(
     return client
 
 
+def _resolve_key_prefix(
+    settings: Settings | None,
+    key_prefix: str | None,
+) -> str:
+    """Pick the namespace prefix for the adapter.
+
+    Precedence (highest first):
+
+      1. ``key_prefix`` argument (the caller explicitly
+         picked a namespace; overrides everything).
+      2. ``settings.redis_key_prefix`` (the operator set
+         ``KNT_REDIS_KEY_PREFIX``).
+      3. Empty string (default; pre-ADR-076 wire format,
+         byte-for-byte).
+    """
+    if key_prefix is not None:
+        return key_prefix
+    if settings is not None:
+        return settings.redis_key_prefix
+    return ""
+
+
 def _resolve_stream_maxlen(
     settings: Settings | None,
     *,
@@ -63,8 +94,6 @@ def _resolve_stream_maxlen(
     ``Settings`` instance.
     """
     if settings is None:
-        from kntgraph.infra.config import fresh_settings
-
         settings = fresh_settings()
     value = getattr(settings, "stream_maxlen", None)
     if value is None or value <= 0:
@@ -85,8 +114,6 @@ def _resolve_global_maxlen(
     :func:`_resolve_stream_maxlen`.
     """
     if settings is None:
-        from kntgraph.infra.config import fresh_settings
-
         settings = fresh_settings()
     value = getattr(settings, "global_stream_maxlen", None)
     if value is None or value <= 0:
@@ -98,6 +125,7 @@ def create_event_log_storage(
     settings: Settings | None = None,
     *,
     client: RedisLike | None = None,
+    key_prefix: str | None = None,
 ) -> EventLogStorage:
     """Build the EventLog storage adapter.
 
@@ -105,10 +133,14 @@ def create_event_log_storage(
     cap). Falls back to ``MAXLEN_DEFAULT`` (100k) when the
     setting is missing or non-positive, so test contexts
     without a ``Settings`` instance keep working.
+
+    ``key_prefix`` -- see ADR-076. Falls back to
+    ``settings.redis_key_prefix`` when omitted.
     """
     return RedisEventLogAdapter(
         client=_resolve_client(settings, client),
         maxlen=_resolve_stream_maxlen(settings, default=MAXLEN_DEFAULT),
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 
@@ -117,6 +149,7 @@ def create_session_storage(
     *,
     client: RedisLike | None = None,
     ttl_seconds: int | None = None,
+    key_prefix: str | None = None,
 ) -> ShortMemoryStorage:
     """Build the Session tier storage (JSON cache).
 
@@ -125,13 +158,12 @@ def create_session_storage(
     """
     if ttl_seconds is None:
         if settings is None:
-            from kntgraph.infra.config import fresh_settings
-
             settings = fresh_settings()
         ttl_seconds = settings.session_ttl_seconds
     return RedisSessionStorage(
         client=_resolve_client(settings, client),
         ttl_seconds=ttl_seconds,
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 
@@ -140,6 +172,7 @@ def create_profile_storage(
     *,
     client: RedisLike | None = None,
     ttl_seconds: int | None = None,
+    key_prefix: str | None = None,
 ) -> ShortMemoryStorage:
     """Build the Profile tier storage (Hash cache).
 
@@ -148,13 +181,12 @@ def create_profile_storage(
     """
     if ttl_seconds is None:
         if settings is None:
-            from kntgraph.infra.config import fresh_settings
-
             settings = fresh_settings()
         ttl_seconds = settings.profile_ttl_seconds
     return RedisProfileStorage(
         client=_resolve_client(settings, client),
         ttl_seconds=ttl_seconds,
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 
@@ -163,6 +195,7 @@ def create_continuity_storage(
     *,
     client: RedisLike | None = None,
     ttl_seconds: int | None = None,
+    key_prefix: str | None = None,
 ) -> ShortMemoryStorage:
     """Build the Continuity tier storage (Hash cache, sliding TTL).
 
@@ -171,13 +204,12 @@ def create_continuity_storage(
     """
     if ttl_seconds is None:
         if settings is None:
-            from kntgraph.infra.config import fresh_settings
-
             settings = fresh_settings()
         ttl_seconds = settings.continuity_ttl_seconds
     return RedisContinuityStorage(
         client=_resolve_client(settings, client),
         ttl_seconds=ttl_seconds,
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 
@@ -185,6 +217,7 @@ def create_dlq_storage(
     settings: Settings | None = None,
     *,
     client: RedisLike | None = None,
+    key_prefix: str | None = None,
 ) -> RedisDLQStorage:
     """Build the DLQ storage adapter.
 
@@ -196,6 +229,7 @@ def create_dlq_storage(
     return RedisDLQStorage(
         client=_resolve_client(settings, client),
         maxlen=_resolve_global_maxlen(settings, default=DLQ_MAXLEN_DEFAULT),
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 
@@ -204,6 +238,7 @@ def create_solution_storage(
     *,
     client: RedisLike | None = None,
     ttl_seconds: int | None = None,
+    key_prefix: str | None = None,
 ) -> RedisSolutionStore:
     """Build the Solution tier storage (Hash cache, ADR-010 / ADR-049).
 
@@ -213,13 +248,12 @@ def create_solution_storage(
     """
     if ttl_seconds is None:
         if settings is None:
-            from kntgraph.infra.config import fresh_settings
-
             settings = fresh_settings()
         ttl_seconds = settings.solution_ttl_seconds
     return RedisSolutionStore(
         client=_resolve_client(settings, client),
         ttl_seconds=ttl_seconds,
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
     )
 
 

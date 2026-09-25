@@ -40,10 +40,18 @@ logger = structlog.get_logger()
 
 @dataclass(frozen=True)
 class RedisProfileStorage:
-    """Hash-encoded cache via ``DEL + HSET + EXPIRE`` pipeline."""
+    """Hash-encoded cache via ``DEL + HSET + EXPIRE`` pipeline.
+
+    ADR-076 -- ``key_prefix`` is recorded for
+    introspection; keys are caller-supplied (built by
+    :meth:`ProfileManager.cache_key`) so the prefix is
+    applied at the manager boundary, not here. Empty
+    string preserves the pre-076 wire format.
+    """
 
     client: RedisLike
     ttl_seconds: Optional[int] = None
+    key_prefix: str = ""
 
     async def get_record(
         self, key: str

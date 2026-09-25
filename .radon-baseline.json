@@ -3462,27 +3462,27 @@
     },
     "src/kntgraph/events/dlq/values.py:class:DLQReason": {
       "complexity": 1,
-      "lineno": 51,
+      "lineno": 74,
       "rank": "A"
     },
     "src/kntgraph/events/dlq/values.py:class:DeadLetterEvent": {
       "complexity": 3,
-      "lineno": 84,
+      "lineno": 107,
       "rank": "A"
     },
     "src/kntgraph/events/dlq/values.py:method:dlq_id": {
       "complexity": 1,
-      "lineno": 100,
+      "lineno": 123,
       "rank": "A"
     },
     "src/kntgraph/events/dlq/values.py:method:from_dict": {
       "complexity": 3,
-      "lineno": 137,
+      "lineno": 160,
       "rank": "A"
     },
     "src/kntgraph/events/dlq/values.py:method:to_dict": {
       "complexity": 3,
-      "lineno": 106,
+      "lineno": 129,
       "rank": "A"
     },
     "src/kntgraph/infra/checkpoint.py:class:CheckpointStore": {
@@ -3621,8 +3621,13 @@
       "rank": "A"
     },
     "src/kntgraph/infra/config/_redis.py:class:RedisSettingsMixin": {
+      "complexity": 2,
+      "lineno": 44,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/config/_redis.py:method:_check_key_prefix": {
       "complexity": 1,
-      "lineno": 24,
+      "lineno": 60,
       "rank": "A"
     },
     "src/kntgraph/infra/config/_resilience.py:class:ResilienceSettingsMixin": {
@@ -4202,77 +4207,87 @@
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:class:RedisDLQStorage": {
       "complexity": 4,
-      "lineno": 75,
+      "lineno": 89,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:function:_decode_int_dict": {
       "complexity": 5,
-      "lineno": 358,
+      "lineno": 396,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:function:idem_key_for": {
       "complexity": 1,
-      "lineno": 69,
+      "lineno": 83,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_dlq/_redis.py:method:_all_keys": {
+      "complexity": 2,
+      "lineno": 105,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_dlq/_redis.py:method:_k": {
+      "complexity": 1,
+      "lineno": 101,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:_scan_from": {
       "complexity": 3,
-      "lineno": 336,
+      "lineno": 374,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:append": {
       "complexity": 8,
-      "lineno": 81,
+      "lineno": 115,
       "rank": "B"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:bump_reason_counter": {
       "complexity": 2,
-      "lineno": 253,
+      "lineno": 289,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:drop_entry": {
       "complexity": 4,
-      "lineno": 309,
+      "lineno": 345,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:find_by_event_id": {
       "complexity": 5,
-      "lineno": 229,
+      "lineno": 265,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:get_stats": {
       "complexity": 3,
-      "lineno": 269,
+      "lineno": 305,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:list_all": {
       "complexity": 3,
-      "lineno": 198,
+      "lineno": 234,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:list_by_reason": {
       "complexity": 5,
-      "lineno": 186,
+      "lineno": 222,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:list_for_agent": {
       "complexity": 3,
-      "lineno": 168,
+      "lineno": 204,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:purge": {
       "complexity": 3,
-      "lineno": 294,
+      "lineno": 330,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:read": {
       "complexity": 3,
-      "lineno": 148,
+      "lineno": 184,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py:method:read_index": {
       "complexity": 2,
-      "lineno": 211,
+      "lineno": 247,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_errors.py:class:IdempotencyConflict": {
@@ -4332,7 +4347,7 @@
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:function:_flatten_xread_response": {
       "complexity": 7,
-      "lineno": 327,
+      "lineno": 341,
       "rank": "B"
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:function:_parse_event": {
@@ -4342,7 +4357,7 @@
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:method:_response_error": {
       "complexity": 1,
-      "lineno": 320,
+      "lineno": 334,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:method:append": {
@@ -4352,7 +4367,7 @@
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:method:delete": {
       "complexity": 1,
-      "lineno": 270,
+      "lineno": 284,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py:method:latest_stream_id": {
@@ -4422,62 +4437,72 @@
     },
     "src/kntgraph/infra/redis/_event_log/_keys.py:function:event_id_key": {
       "complexity": 1,
-      "lineno": 45,
+      "lineno": 72,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_keys.py:function:parse_agent_id_from_stream_key": {
       "complexity": 3,
-      "lineno": 50,
+      "lineno": 87,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_event_log/_keys.py:function:scan_pattern": {
+      "complexity": 1,
+      "lineno": 77,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_keys.py:function:stream_key_for_agent": {
       "complexity": 1,
-      "lineno": 40,
+      "lineno": 67,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_client": {
       "complexity": 2,
-      "lineno": 41,
+      "lineno": 50,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_global_maxlen": {
       "complexity": 4,
-      "lineno": 75,
+      "lineno": 104,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_factory.py:function:_resolve_key_prefix": {
+      "complexity": 3,
+      "lineno": 60,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_stream_maxlen": {
       "complexity": 4,
-      "lineno": 51,
+      "lineno": 82,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_continuity_storage": {
       "complexity": 3,
-      "lineno": 161,
+      "lineno": 193,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_dlq_storage": {
       "complexity": 1,
-      "lineno": 184,
+      "lineno": 216,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_event_log_storage": {
       "complexity": 1,
-      "lineno": 97,
+      "lineno": 124,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_profile_storage": {
       "complexity": 3,
-      "lineno": 138,
+      "lineno": 170,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_session_storage": {
       "complexity": 3,
-      "lineno": 115,
+      "lineno": 147,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_solution_storage": {
       "complexity": 3,
-      "lineno": 202,
+      "lineno": 236,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_adapter.py:class:ShortMemoryStorage": {
@@ -4527,37 +4552,37 @@
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:delete_fold_cursor": {
       "complexity": 2,
-      "lineno": 188,
+      "lineno": 196,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:delete_record": {
       "complexity": 2,
-      "lineno": 109,
+      "lineno": 117,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:get_record": {
       "complexity": 3,
-      "lineno": 49,
+      "lineno": 57,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:iter_keys": {
       "complexity": 4,
-      "lineno": 121,
+      "lineno": 129,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:put_record": {
       "complexity": 7,
-      "lineno": 70,
+      "lineno": 78,
       "rank": "B"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:read_fold_cursor": {
       "complexity": 4,
-      "lineno": 129,
+      "lineno": 137,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py:method:write_fold_cursor": {
       "complexity": 4,
-      "lineno": 153,
+      "lineno": 161,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:class:RedisProfileStorage": {
@@ -4567,162 +4592,182 @@
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:delete_fold_cursor": {
       "complexity": 2,
-      "lineno": 184,
+      "lineno": 192,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:delete_record": {
       "complexity": 2,
-      "lineno": 113,
+      "lineno": 121,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:get_record": {
       "complexity": 3,
-      "lineno": 48,
+      "lineno": 56,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:iter_keys": {
       "complexity": 4,
-      "lineno": 125,
+      "lineno": 133,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:put_record": {
       "complexity": 7,
-      "lineno": 69,
+      "lineno": 77,
       "rank": "B"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:read_fold_cursor": {
       "complexity": 4,
-      "lineno": 133,
+      "lineno": 141,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py:method:write_fold_cursor": {
       "complexity": 2,
-      "lineno": 157,
+      "lineno": 165,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:class:RedisSessionStorage": {
       "complexity": 4,
-      "lineno": 53,
+      "lineno": 54,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_memory/_session.py:method:_k": {
+      "complexity": 1,
+      "lineno": 71,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:delete_fold_cursor": {
       "complexity": 2,
-      "lineno": 192,
+      "lineno": 212,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:delete_record": {
       "complexity": 2,
-      "lineno": 121,
+      "lineno": 141,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:get_record": {
       "complexity": 5,
-      "lineno": 59,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:iter_keys": {
       "complexity": 4,
-      "lineno": 133,
+      "lineno": 153,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:put_record": {
       "complexity": 5,
-      "lineno": 94,
+      "lineno": 114,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:read_fold_cursor": {
       "complexity": 4,
-      "lineno": 141,
+      "lineno": 161,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py:method:write_fold_cursor": {
       "complexity": 3,
-      "lineno": 166,
+      "lineno": 186,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:class:RedisSolutionStore": {
       "complexity": 4,
-      "lineno": 127,
+      "lineno": 128,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:class:SolutionStoreDecodeError": {
       "complexity": 1,
-      "lineno": 118,
+      "lineno": 119,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:class:SolutionStoreError": {
       "complexity": 2,
-      "lineno": 96,
+      "lineno": 97,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:class:SolutionStoreSerializationError": {
       "complexity": 1,
-      "lineno": 122,
+      "lineno": 123,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:__init__": {
       "complexity": 1,
-      "lineno": 106,
+      "lineno": 107,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:_decode_payload": {
       "complexity": 5,
-      "lineno": 153,
+      "lineno": 161,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:_key": {
       "complexity": 1,
-      "lineno": 148,
+      "lineno": 149,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:delete": {
       "complexity": 2,
-      "lineno": 315,
+      "lineno": 323,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:find_match": {
       "complexity": 5,
-      "lineno": 204,
+      "lineno": 212,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:iter_keys": {
       "complexity": 4,
-      "lineno": 341,
+      "lineno": 349,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:put": {
       "complexity": 5,
-      "lineno": 257,
+      "lineno": 265,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py:method:read_all": {
       "complexity": 4,
-      "lineno": 366,
+      "lineno": 374,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py:class:RedisPool": {
-      "complexity": 3,
-      "lineno": 41,
+      "complexity": 2,
+      "lineno": 57,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py:function:create_redis_pool": {
       "complexity": 1,
-      "lineno": 82,
+      "lineno": 117,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py:method:aclose": {
       "complexity": 2,
-      "lineno": 74,
+      "lineno": 109,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py:method:client": {
       "complexity": 1,
-      "lineno": 70,
+      "lineno": 93,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py:method:from_settings": {
       "complexity": 2,
-      "lineno": 47,
+      "lineno": 66,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_pool.py:method:key_prefix": {
+      "complexity": 1,
+      "lineno": 98,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_prefix.py:function:namespaced": {
+      "complexity": 2,
+      "lineno": 84,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_prefix.py:function:validate_prefix": {
+      "complexity": 5,
+      "lineno": 48,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_adapter.py:class:WorldCheckpointStorage": {
@@ -8696,7 +8741,7 @@
       "rank": "A"
     },
     "src/kntgraph/events/dlq/values.py": {
-      "mi": 84.27056031475807,
+      "mi": 84.91861381941318,
       "rank": "A"
     },
     "src/kntgraph/infra/__init__.py": {
@@ -8844,7 +8889,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py": {
-      "mi": 51.72093243922493,
+      "mi": 53.0438560016221,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_errors.py": {
@@ -8856,7 +8901,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_adapter.py": {
-      "mi": 57.24029504765512,
+      "mi": 57.4156372812547,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_idempotency.py": {
@@ -8864,11 +8909,11 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_keys.py": {
-      "mi": 87.66298367834949,
+      "mi": 70.64407721066591,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py": {
-      "mi": 69.50092473207006,
+      "mi": 69.04799577369843,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/__init__.py": {
@@ -8880,23 +8925,27 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_continuity.py": {
-      "mi": 69.12181528218446,
+      "mi": 69.5917614442634,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_profile.py": {
-      "mi": 71.13573435564776,
+      "mi": 71.48021257501075,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_session.py": {
-      "mi": 68.10620516964406,
+      "mi": 68.67666738364568,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_solution.py": {
-      "mi": 66.08818888315118,
+      "mi": 65.97829646691518,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py": {
-      "mi": 88.07836317788164,
+      "mi": 85.96922874599765,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_prefix.py": {
+      "mi": 49.3834096303257,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/__init__.py": {

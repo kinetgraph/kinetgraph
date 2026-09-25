@@ -84,6 +84,7 @@ import structlog
 from kntgraph.agents.memory.solution_lookup import CachedSolution
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._client import RedisLike
+from kntgraph.infra.redis._prefix import namespaced
 from kntgraph.infra.redis._codec import decode_dict, decode_value
 
 
@@ -143,11 +144,18 @@ class RedisSolutionStore:
 
     client: RedisLike
     ttl_seconds: Optional[int] = None
+    key_prefix: str = ""
 
-    @staticmethod
-    def _key(tool_name: str) -> str:
-        """Build the Redis key for a tool's Solution Hash."""
-        return f"{SOLUTION_KEY_PREFIX}{tool_name}"
+    def _key(self, tool_name: str) -> str:
+        """Build the Redis key for a tool's Solution Hash under ``self.key_prefix``.
+
+        ADR-076: the key is composed via
+        :func:`infra.redis._prefix.namespaced` so two
+        services sharing a Redis see disjoint Solution
+        Hashes. Empty ``key_prefix`` preserves the pre-076
+        wire format (just ``knt:solution:<tool>``).
+        """
+        return namespaced(self.key_prefix, f"{SOLUTION_KEY_PREFIX}{tool_name}")
 
     @staticmethod
     def _decode_payload(

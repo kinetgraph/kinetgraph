@@ -37,6 +37,7 @@ from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
 from .._codec import decode_value
+from .._prefix import namespaced
 from ._adapter import CacheRecord
 from .._errors import (
     MemoryDecodeError,
@@ -51,10 +52,29 @@ logger = structlog.get_logger()
 
 @dataclass(frozen=True)
 class RedisSessionStorage:
-    """JSON-encoded cache via ``SET key value EX ttl``."""
+    """JSON-encoded cache via ``SET key value EX ttl``.
+
+    ADR-076 -- ``key_prefix`` is the namespace prefix the
+    storage was built with; the field is recorded here for
+    introspection / observability but the keys are
+    caller-supplied (the manager builds them), so the
+    prefix is applied at the caller boundary. Empty
+    string preserves the pre-076 wire format
+    byte-for-byte (the same as ``key_prefix=""`` callers
+    passing the unprefixed key they always did).
+    """
 
     client: RedisLike
     ttl_seconds: Optional[int] = None
+    key_prefix: str = ""
+
+    def _k(self, key: str) -> str:
+        """Compose a namespaced key. Kept for symmetry with
+        :class:`RedisDLQStorage` even though the Session
+        adapter currently receives fully-built keys from
+        the manager.
+        """
+        return namespaced(self.key_prefix, key)
 
     async def get_record(
         self, key: str
