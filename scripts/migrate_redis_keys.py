@@ -284,6 +284,36 @@ async def _migrate_with_client(
         )
         return report
 
+    # Normalize ``to_prefix`` to end with ``knt:`` so the
+    # RENAME target matches where the framework writes
+    # (ADR-076 §1.3). The framework's suffix templates
+    # (``infra.redis._event_log._keys``,
+    # ``infra.redis._dlq``, ``infra.redis._memory``,
+    # ``infra.redis._tools._keys``) all start with
+    # ``knt:`` -- so the operator's ``redis_key_prefix``
+    # (the CLI default for ``--to-prefix``) is the
+    # OUTER namespace; the framework always adds ``knt:``
+    # as the INNER namespace. Without this normalization
+    # the script's RENAME strips ``knt:`` from the source
+    # and produces keys like ``acme-billing:agents:*``
+    # while the framework writes to
+    # ``acme-billing:knt:agents:*`` -- the migrated data
+    # lands at the wrong key and the app sees empty streams.
+    if not to_prefix.endswith("knt:"):
+        normalized = to_prefix.rstrip(":") + ":knt:"
+        logger.info(
+            "migrate_redis_keys.to_prefix_normalized",
+            original=to_prefix,
+            normalized=normalized,
+            reason=(
+                "framework's suffix templates start with 'knt:'; "
+                "the script appends it so the migration target "
+                "matches where the framework writes"
+            ),
+        )
+        to_prefix = normalized
+        report.to_prefix = to_prefix
+
     async for frm in _iter_keys(client, from_prefix):
         to = f"{to_prefix}{frm[len(from_prefix) :]}"
         report.scanned += 1

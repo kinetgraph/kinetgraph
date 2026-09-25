@@ -4761,14 +4761,14 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py:function:namespaced": {
-      "complexity": 2,
-      "lineno": 84,
+      "complexity": 3,
+      "lineno": 107,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py:function:validate_prefix": {
-      "complexity": 5,
+      "complexity": 6,
       "lineno": 48,
-      "rank": "A"
+      "rank": "B"
     },
     "src/kntgraph/infra/redis/_tools/_keys.py:function:tool_queue_key": {
       "complexity": 1,
@@ -8960,7 +8960,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py": {
-      "mi": 49.3834096303257,
+      "mi": 52.062950949893064,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_tools/__init__.py": {

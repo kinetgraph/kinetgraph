@@ -503,3 +503,131 @@ class TestRename:
             assert await fake_redis.exists("knt:a")
 
         asyncio.run(_run())
+
+
+# ---------------------------------------------------------------------------
+# Migration target must match where the framework writes (regression pin)
+# ---------------------------------------------------------------------------
+#
+# Pinned regression for the bug surfaced in the §2.35 review.
+# The migration script's CLI default ``--to-prefix`` reads
+# ``settings.redis_key_prefix`` raw -- e.g. ``"acme-billing:"``
+# when the operator set ``KNT_REDIS_KEY_PREFIX=acme-billing:``.
+# The script's RENAME then strips ``knt:`` from the source
+# (``knt:agents:a-1:events`` → ``agents:a-1:events``) and
+# prepends the raw prefix, producing ``acme-billing:agents:a-1:events``
+# -- the WRONG key. The framework writes to
+# ``acme-billing:knt:agents:a-1:events`` (the suffix template
+# starts with ``knt:``), so after migration the data is
+# invisible to the application.
+#
+# The user-visible contract: when the operator sets
+# ``KNT_REDIS_KEY_PREFIX=acme-billing:`` and runs the script
+# with default flags, the migrated data MUST land at
+# ``acme-billing:knt:*`` (where the framework writes), NOT
+# at ``acme-billing:*`` (where the script currently puts it).
+#
+# These tests FAIL today (the bug is open). They will PASS
+# when the fix lands -- either:
+#
+#   - the CLI default for ``--to-prefix`` is transformed
+#     to ``settings.redis_key_prefix + "knt:"`` so the
+#     RENAME produces the right target; OR
+#   - ``_migrate_with_client`` appends ``knt:`` to
+#     ``to_prefix`` when it does not already end with it.
+
+
+class TestMigrationTargetMatchesFramework:
+    """The migration script's RENAME target must match
+    where the framework writes.
+
+    Concretely: operator's ``KNT_REDIS_KEY_PREFIX=acme-billing:``
+    → framework writes to ``acme-billing:knt:*`` →
+    migration must produce ``acme-billing:knt:*`` (same
+    place), not ``acme-billing:*`` (current broken
+    behaviour).
+
+    The shared :data:`SEED_KEYS` fixture pre-populates the
+    pre-076 wire format; the tests below run the migration
+    and assert on the resulting key shape.
+    """
+
+    def test_settings_redis_key_prefix_as_to_prefix_produces_framework_keys(
+        self, fake_redis: fakeredis.aioredis.FakeRedis
+    ) -> None:
+        """The script's CLI default reads
+        ``settings.redis_key_prefix`` verbatim as
+        ``--to-prefix``. When the operator's env var is
+        ``"acme-billing:"``, the migrated keys must land at
+        ``acme-billing:knt:agents:*`` -- NOT
+        ``acme-billing:agents:*`` (the current broken
+        behaviour, where the script's RENAME strips ``knt:``
+        from the source and the framework's leading
+        ``knt:`` in the suffix is lost).
+        """
+
+        async def _run() -> set[str]:
+            report = await migrate_redis_keys._migrate_with_client(
+                fake_redis,
+                from_prefix="knt:",
+                to_prefix="acme-billing:",  # what the CLI default passes today
+                dry_run=False,
+            )
+            assert report.errors == 0, (
+                f"unexpected errors during migration: {report.errors}"
+            )
+            # Collect the migrated keys where the framework writes.
+            return {
+                key.decode()
+                async for key in fake_redis.scan_iter(match="acme-billing:*")
+            }
+
+        migrated = asyncio.run(_run())
+        # The framework's suffix templates all start with
+        # ``knt:`` (ADR-076 §1.3), so the composed key is
+        # ``<prefix>knt:<rest>``. The ``other_namespace:keep``
+        # key is NOT migrated (its prefix doesn't match).
+        assert migrated == {
+            "acme-billing:knt:agents:agent-1:events",
+            "acme-billing:knt:eventids:00000000-0000-0000-0000-000000000001",
+            "acme-billing:knt:dlq:events",
+            "acme-billing:knt:dlq:by_event_id",
+            "acme-billing:knt:tools:weather:queue",
+        }, (
+            f"Migration target mismatch: {migrated!r}; "
+            f"the script's default --to_prefix must end up at "
+            f"<prefix>knt:* so the migrated data lands where "
+            f"the framework writes. Today the script produces "
+            f"<prefix>* (the ``knt:`` is stripped during RENAME)."
+        )
+
+    def test_explicit_to_prefix_already_includes_knt(
+        self, fake_redis: fakeredis.aioredis.FakeRedis
+    ) -> None:
+        """The docstring example
+        (``--to-prefix "acme-billing:knt:"``) already works
+        -- pinned here so a future fix does NOT regress
+        the explicit-prefix path.
+        """
+
+        async def _run() -> set[str]:
+            report = await migrate_redis_keys._migrate_with_client(
+                fake_redis,
+                from_prefix="knt:",
+                to_prefix="acme-billing:knt:",
+                dry_run=False,
+            )
+            assert report.errors == 0
+            return {
+                key.decode()
+                async for key in fake_redis.scan_iter(match="acme-billing:*")
+            }
+
+        migrated = asyncio.run(_run())
+        assert migrated == {
+            "acme-billing:knt:agents:agent-1:events",
+            "acme-billing:knt:eventids:00000000-0000-0000-0000-000000000001",
+            "acme-billing:knt:dlq:events",
+            "acme-billing:knt:dlq:by_event_id",
+            "acme-billing:knt:tools:weather:queue",
+        }

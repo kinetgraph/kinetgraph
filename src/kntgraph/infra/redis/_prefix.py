@@ -57,6 +57,17 @@ def validate_prefix(prefix: str) -> None:
       - A bare ``":"`` is rejected (looks like an
         oversight; operators who want trailing colons
         write ``acme-billing:``).
+      - The prefix must NOT end with ``"knt:"`` --
+        ``knt:`` is the framework's reserved namespace
+        literal (the EventLog / DLQ / memory tier /
+        tool queue suffix templates all start with
+        ``knt:``; see ADR-076 §1.3). An operator who
+        includes ``knt:`` in their prefix would produce
+        keys with ``knt:`` duplicated (e.g. ``"acme-billing:knt:"``
+        composes with ``"knt:agents:a-1:events"`` to
+        ``"acme-billing:knt:knt:agents:a-1:events"``).
+        Drop the trailing ``"knt:"`` and the framework
+        composes the full prefix for you.
       - Any character outside the allow-list raises
         (covers ``*``, ``{``, whitespace, unicode).
 
@@ -79,6 +90,18 @@ def validate_prefix(prefix: str) -> None:
             "redis_key_prefix must not be just ':' "
             "(looks like an oversight; drop it or set a real namespace)."
         )
+    if prefix.endswith("knt:"):
+        raise ValueError(
+            f"redis_key_prefix {prefix!r} ends with 'knt:' which collides "
+            f"with the framework's reserved namespace. The framework "
+            f"automatically prepends 'knt:' to every key it writes "
+            f"(EventLog, DLQ, memory tiers, tool queues); including "
+            f"it in the prefix would produce keys like "
+            f"{prefix!r}knt:agents:*:events (with 'knt:' duplicated). "
+            f"Drop the trailing 'knt:' from the env var "
+            f"(KNT_REDIS_KEY_PREFIX) and the framework will compose "
+            f"the full prefix for you."
+        )
 
 
 def namespaced(prefix: str, key: str) -> str:
@@ -100,9 +123,30 @@ def namespaced(prefix: str, key: str) -> str:
         The composed Redis key. For ``prefix=""`` and
         ``key="knt:agents:a-1:events"`` the result is
         exactly ``"knt:agents:a-1:events"``.
+
+    Defense-in-depth
+    ----------------
+
+    If the caller passes a ``prefix`` that ends with
+    ``"knt:"`` -- the framework's reserved namespace
+    literal -- the trailing ``"knt:"`` is stripped before
+    composition so the literal is not duplicated in the
+    composed key. The validator (``validate_prefix``)
+    already rejects such a prefix at construction time;
+    this strip is a backstop for code paths that bypass
+    the validator (test code, third-party adapters, or
+    the migration script's normalisation layer).
     """
     if not prefix:
         return key
+    # Strip a trailing ``"knt:"`` to defend against the
+    # operator accidentally including the framework's
+    # namespace literal. The cleanest operator input is
+    # ``"<namespace>:"`` (e.g. ``"acme-billing:"``);
+    # ``"<namespace>:knt:"`` produces the SAME composed
+    # key after this strip.
+    if prefix.endswith("knt:"):
+        prefix = prefix[: -len("knt:")]
     return f"{prefix}{key}"
 
 
