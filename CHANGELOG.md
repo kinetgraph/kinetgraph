@@ -57,6 +57,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Zero behaviour change for single-service
     deploys (`key_prefix=""` default is
     byte-for-byte identical to pre-v0.16.0).
+- **ADR-076 world-checkpoint prefix plumbing (closes
+  the DEBT §2.35 follow-up that v0.16.1 left open in
+  the world-checkpoint layer):** `RedisWorldCheckpointStorage`
+  now accepts the `key_prefix=` field and composes
+  every `knt:world:<agent_id>` checkpoint and
+  `knt:world-cursor:<agent_id>` cursor key with the
+  operator-set `KNT_REDIS_KEY_PREFIX`. Two services
+  sharing one Redis with different prefixes no longer
+  cross-talk at the world-checkpoint layer.
+
+  - `RedisWorldCheckpointStorage.__init__` gains a
+    keyword-only `key_prefix=""` parameter;
+    `validate_prefix` runs at construction (the same
+    fail-fast pattern every other adapter uses).
+  - Module-level `storage_key(prefix, agent_id)` and
+    `cursor_key(prefix, agent_id)` helpers now accept
+    the prefix as the first positional arg and
+    compose via `namespaced`. Both retain the
+    backward-compatible single-arg form:
+    `storage_key(agent_id)` returns the unprefixed
+    legacy key (was: `f"knt:world:{agent_id}"`).
+  - Storage instance gains `storage_key(agent_id)`
+    and `cursor_key(agent_id)` methods that thread
+    `self.key_prefix` through to the helpers, so every
+    `load` / `load_cursor` / `save` / `discard` call
+    hits the namespaced Redis key (was: three direct
+    `storage_key(...)` / `cursor_key(...)` literals).
+  - `ReactiveDispatcher.__init__` (the default-`redis`
+    path that constructs `IncrementalWorldStore`
+    from `RedisWorldCheckpointStorage`) now passes
+    `key_prefix=key_prefix` to the storage so the
+    dispatcher honours `KNT_REDIS_KEY_PREFIX` for
+    checkpoints out-of-the-box.
+  - 10 new unit tests in
+    `tests/unit/infra/redis/test_world_checkpoint_prefix.py`:
+    3 helper tests for the module-level
+    `storage_key` / `cursor_key` composition (empty
+    prefix, trailing colon, single-arg backward
+    compat), 6 tests for the storage instance
+    (construction validation, instance methods, and
+    the namespaced `load` / `load_cursor` / `save` /
+    `discard` paths), and 1 test asserting the
+    dispatcher's default world-store wiring threads
+    the prefix through.
+  - Existing tests in
+    `tests/unit/runner/test_reactive_wake_up.py`
+    updated to thread `key_prefix="test_wakeup:"`
+    through the dispatcher and storage, asserting
+    the namespaced keys are used end-to-end (the
+    cursor-key-split and wake-up-loop suites).
+  - Zero behaviour change for single-service
+    deploys (`key_prefix=""` default is
+    byte-for-byte identical to pre-v0.16.0).
 
 ## [0.16.1] — 2026-09-25
 - **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
