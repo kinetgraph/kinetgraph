@@ -367,7 +367,7 @@ class ReactiveDispatcher:
             from typing import Any, cast
 
             world_store = IncrementalWorldStore(
-                RedisWorldCheckpointStorage(cast(Any, redis))
+                RedisWorldCheckpointStorage(cast(Any, redis), key_prefix=key_prefix)
             )
         self._world_store = world_store
         # In-memory cache of agents tracked by the dispatcher.
