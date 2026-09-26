@@ -4826,53 +4826,63 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:class:RedisWorldCheckpointStorage": {
-      "complexity": 4,
-      "lineno": 49,
+      "complexity": 3,
+      "lineno": 54,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:function:cursor_key": {
-      "complexity": 1,
-      "lineno": 44,
+      "complexity": 2,
+      "lineno": 47,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:function:storage_key": {
-      "complexity": 1,
-      "lineno": 39,
+      "complexity": 2,
+      "lineno": 40,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:__init__": {
       "complexity": 1,
-      "lineno": 62,
+      "lineno": 67,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:cursor_key": {
+      "complexity": 1,
+      "lineno": 82,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:discard": {
       "complexity": 2,
-      "lineno": 144,
+      "lineno": 160,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:load": {
       "complexity": 4,
-      "lineno": 71,
+      "lineno": 85,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:load_cursor": {
       "complexity": 4,
-      "lineno": 88,
+      "lineno": 102,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:pending_count": {
       "complexity": 3,
-      "lineno": 204,
+      "lineno": 222,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:queue_length": {
       "complexity": 5,
-      "lineno": 180,
+      "lineno": 198,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:save": {
       "complexity": 3,
-      "lineno": 111,
+      "lineno": 125,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_world_checkpoint/_redis.py:method:storage_key": {
+      "complexity": 1,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/infra/world_checkpoint.py:class:IncrementalWorldStore": {
@@ -8995,7 +9005,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py": {
-      "mi": 72.10809217889361,
+      "mi": 68.92981183181992,
       "rank": "A"
     },
     "src/kntgraph/infra/world_checkpoint.py": {

@@ -21,6 +21,7 @@ from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
 from .._errors import MemoryError
+from .._prefix import namespaced, validate_prefix
 
 
 logger = structlog.get_logger()
@@ -36,14 +37,18 @@ WORLD_CHECKPOINT_KEY_TEMPLATE = "knt:world:{agent_id}"
 WORLD_CURSOR_KEY_TEMPLATE = "knt:world-cursor:{agent_id}"
 
 
-def storage_key(agent_id: str) -> str:
-    """Build the Redis key for an agent's checkpoint."""
-    return WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id)
+def storage_key(prefix: str, agent_id: Optional[str] = None) -> str:
+    if agent_id is None:
+        agent_id = prefix
+        prefix = ""
+    return namespaced(prefix, WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id))
 
 
-def cursor_key(agent_id: str) -> str:
-    """Build the Redis key for an agent's stream cursor."""
-    return WORLD_CURSOR_KEY_TEMPLATE.format(agent_id=agent_id)
+def cursor_key(prefix: str, agent_id: Optional[str] = None) -> str:
+    if agent_id is None:
+        agent_id = prefix
+        prefix = ""
+    return namespaced(prefix, WORLD_CURSOR_KEY_TEMPLATE.format(agent_id=agent_id))
 
 
 class RedisWorldCheckpointStorage:
@@ -63,15 +68,24 @@ class RedisWorldCheckpointStorage:
         self,
         client: RedisLike,
         *,
+        key_prefix: str = "",
         tool_group_name: str = DEFAULT_TOOL_GROUP,
     ) -> None:
+        validate_prefix(key_prefix)
         self.client = client
+        self.key_prefix = key_prefix
         self._tool_group_name = tool_group_name
+
+    def storage_key(self, agent_id: str) -> str:
+        return storage_key(self.key_prefix, agent_id)
+
+    def cursor_key(self, agent_id: str) -> str:
+        return cursor_key(self.key_prefix, agent_id)
 
     async def load(self, agent_id: str) -> Result[Optional[bytes], MemoryError]:
         """Load the pickled checkpoint payload (or None on miss)."""
         try:
-            raw = await self.client.get(storage_key(agent_id))
+            raw = await self.client.get(self.storage_key(agent_id))
         except Exception as e:
             logger.warning(
                 "world_checkpoint_storage.load.redis_error",
@@ -94,7 +108,7 @@ class RedisWorldCheckpointStorage:
         work past the cursor.
         """
         try:
-            raw = await self.client.get(cursor_key(agent_id))
+            raw = await self.client.get(self.cursor_key(agent_id))
         except Exception as e:
             logger.warning(
                 "world_checkpoint_storage.load_cursor.redis_error",
@@ -127,11 +141,13 @@ class RedisWorldCheckpointStorage:
             if cursor is not None:
                 cursor_payload: bytes = cursor.encode("utf-8")
                 pipe = self.client.pipeline(transaction=True)
-                pipe.set(storage_key(agent_id), payload, ex=ttl_seconds)
-                pipe.set(cursor_key(agent_id), cursor_payload, ex=ttl_seconds)
+                pipe.set(self.storage_key(agent_id), payload, ex=ttl_seconds)
+                pipe.set(self.cursor_key(agent_id), cursor_payload, ex=ttl_seconds)
                 await pipe.execute()
             else:
-                await self.client.set(storage_key(agent_id), payload, ex=ttl_seconds)
+                await self.client.set(
+                    self.storage_key(agent_id), payload, ex=ttl_seconds
+                )
         except Exception as e:
             logger.warning(
                 "world_checkpoint_storage.save.redis_error",
@@ -146,7 +162,9 @@ class RedisWorldCheckpointStorage:
         cursor key goes with it (UNLINK is a no-op for a
         missing key)."""
         try:
-            await self.client.unlink(storage_key(agent_id), cursor_key(agent_id))
+            await self.client.unlink(
+                self.storage_key(agent_id), self.cursor_key(agent_id)
+            )
         except Exception as e:
             logger.warning(
                 "world_checkpoint_storage.discard.redis_error",

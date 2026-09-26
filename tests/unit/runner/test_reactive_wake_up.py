@@ -43,8 +43,6 @@ from kntgraph.core.world import World
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._world_checkpoint import (
     RedisWorldCheckpointStorage,
-    cursor_key,
-    storage_key,
 )
 from kntgraph.infra.world_checkpoint import (
     IncrementalWorldStore,
@@ -86,7 +84,7 @@ class TestCursorKeySplit:
 
     async def test_save_writes_companion_cursor_key(self):
         client = _make_client()
-        storage = RedisWorldCheckpointStorage(client=client)
+        storage = RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-{uuid4().hex[:8]}"
 
@@ -98,9 +96,9 @@ class TestCursorKeySplit:
             await store.save(agent_id, ckpt)
 
             # Both keys landed; the cursor is the raw stream id.
-            raw_cursor = await client.get(cursor_key(agent_id))
+            raw_cursor = await client.get(storage.cursor_key(agent_id))
             assert raw_cursor == b"42-0"
-            assert await client.get(storage_key(agent_id)) is not None
+            assert await client.get(storage.storage_key(agent_id)) is not None
             # The cheap probe reads the same value.
             assert await store.load_cursor(agent_id) == "42-0"
         finally:
@@ -109,7 +107,7 @@ class TestCursorKeySplit:
 
     async def test_load_cursor_returns_none_for_missing_key(self):
         client = _make_client()
-        storage = RedisWorldCheckpointStorage(client=client)
+        storage = RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-none-{uuid4().hex[:8]}"
 
@@ -128,7 +126,7 @@ class TestCursorKeySplit:
         import zlib
 
         client = _make_client()
-        storage = RedisWorldCheckpointStorage(client=client)
+        storage = RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
         store = IncrementalWorldStore(storage)
         agent_id = f"p5b-legacy-{uuid4().hex[:8]}"
 
@@ -137,12 +135,12 @@ class TestCursorKeySplit:
             world = World.fold([event], tick=2)
             # Write the checkpoint WITHOUT the companion
             # cursor (the pre-P5b shape).
-            raw = await client.get(storage_key(agent_id))
+            raw = await client.get(storage.storage_key(agent_id))
             assert raw is None  # sanity: nothing saved yet
             legacy_payload = zlib.compress(
                 pickle.dumps((world.tick, world.storage, dict(world.views), "7-0"))  # nosec B301
             )
-            await client.set(storage_key(agent_id), legacy_payload)
+            await client.set(storage.storage_key(agent_id), legacy_payload)
 
             loaded = await store.load(agent_id)
             assert loaded.last_stream_id == "7-0"
@@ -159,13 +157,19 @@ class TestCursorKeySplit:
         key)."""
 
         client = _make_client()
-        log = EventLog(storage=RedisEventLogAdapter(client=client))
-        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
         agent_id = f"p5b-seed-{uuid4().hex[:8]}"
 
         try:
             await log.append(_seed_event(agent_id))
-            dispatcher = ReactiveDispatcher(log=log, world_store=store)
+            dispatcher = ReactiveDispatcher(
+                log=log, world_store=store, key_prefix="test_wakeup:"
+            )
             dispatcher.track_agent(agent_id)
             assert dispatcher._subscribe_cursors == {}
 
@@ -270,8 +274,12 @@ class TestWakeUpLoop:
 
     def _real_dispatcher(self, agent_id: str):
         client = _make_client()
-        log = EventLog(storage=RedisEventLogAdapter(client=client))
-        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
         seen: list[Event] = []
 
         def system(world: World) -> list[Event]:
@@ -290,8 +298,12 @@ class TestWakeUpLoop:
 
         agent_id = f"wake-{uuid4().hex[:8]}"
         client = _make_client()
-        log = EventLog(storage=RedisEventLogAdapter(client=client))
-        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
 
         def recording_system(world: World) -> list[Event]:
             return []
@@ -304,6 +316,7 @@ class TestWakeUpLoop:
             poll_interval=0.05,
             rediscovery_interval_seconds=0.2,
             fallback_poll_interval=1.0,
+            key_prefix="test_wakeup:",
         )
         # Drive the wake path directly (not via ``start()``)
         # so the test is deterministic.
@@ -383,14 +396,19 @@ class TestWakeUpSpinLoopFix:
     ):
         """When _has_subscribable_agents() is False, _wake_once() sleeps _interval before returning."""
         client = _make_client()
-        log = EventLog(storage=RedisEventLogAdapter(client=client))
-        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
         dispatcher = ReactiveDispatcher(
             log=log,
             world_store=store,
             redis=client,
             poll_interval=0.05,
             fallback_poll_interval=1.0,
+            key_prefix="test_wakeup:",
         )
         dispatcher.track_agent("agent-without-cursor")
         assert not dispatcher._has_subscribable_agents()
@@ -408,14 +426,19 @@ class TestWakeUpSpinLoopFix:
         """Verifies that in push-first mode with no subscribable agents, _loop() does not spin,
         calling dispatch_once() at most 1 time in a 50ms window with poll_interval=0.1s."""
         client = _make_client()
-        log = EventLog(storage=RedisEventLogAdapter(client=client))
-        store = IncrementalWorldStore(RedisWorldCheckpointStorage(client=client))
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
         dispatcher = ReactiveDispatcher(
             log=log,
             world_store=store,
             redis=client,
             poll_interval=0.1,
             fallback_poll_interval=1.0,
+            key_prefix="test_wakeup:",
         )
         dispatcher.track_agent("agent-without-cursor")
         assert dispatcher._wake_on_event is True
