@@ -469,6 +469,25 @@ class WorkerManager:
                     exc_info=True,
                 )
                 self._last_error = repr(e)
+                if isinstance(e, RuntimeError):
+                    close_fn = getattr(self._redis, "aclose", None) or getattr(
+                        self._redis, "close", None
+                    )
+                    if close_fn:
+                        try:
+                            res = close_fn()
+                            if asyncio.iscoroutine(res):
+                                await res
+                        except Exception:
+                            pass
+                    pool = getattr(self._redis, "connection_pool", None)
+                    if pool and hasattr(pool, "disconnect"):
+                        try:
+                            dis_res = pool.disconnect()
+                            if asyncio.iscoroutine(dis_res):
+                                await dis_res
+                        except Exception:
+                            pass
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
 

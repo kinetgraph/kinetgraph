@@ -791,7 +791,7 @@ class ReactiveDispatcher:
             await asyncio.sleep(self._interval)
             return
 
-        block_ms = int(self._fallback_interval * 1000)
+        block_ms = max(100, int(self._fallback_interval * 1000) - 500)
         try:
             new_cursors, _wake_events = await self._log.subscribe(
                 self._subscribable_agents(),

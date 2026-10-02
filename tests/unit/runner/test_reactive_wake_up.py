@@ -463,3 +463,43 @@ class TestWakeUpSpinLoopFix:
             assert dispatch_count <= 2
         finally:
             await client.aclose()
+
+    async def test_wake_once_uses_block_ms_safety_margin_below_socket_timeout(
+        self,
+    ):
+        """Validates that _wake_once() passes a block_ms parameter strictly less than
+        fallback_interval * 1000 (e.g. 4500ms for a 5s fallback interval) to prevent socket
+        timeout collision and eliminate false subscribe_failed warnings."""
+        from unittest.mock import AsyncMock
+
+        client = _make_client()
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        log.subscribe = AsyncMock(return_value=({}, []))
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.05,
+            fallback_poll_interval=5.0,
+            key_prefix="test_wakeup:",
+        )
+        dispatcher.track_agent("agent-1")
+        dispatcher._subscribe_cursors["agent-1"] = "0-0"
+        dispatcher._bootstrapped = True
+        dispatcher.dispatch_once = AsyncMock(return_value=0)
+
+        try:
+            await dispatcher._wake_once()
+            assert log.subscribe.called
+            _, kwargs = log.subscribe.call_args
+            block_ms = kwargs.get("block_ms")
+            # For 5s fallback interval, block_ms must be strictly less than 5000ms (e.g. 4500ms)
+            assert block_ms < 5000
+            assert block_ms == 4500
+        finally:
+            await client.aclose()

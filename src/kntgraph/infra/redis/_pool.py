@@ -74,6 +74,7 @@ class RedisPool:
             max_connections=settings.redis_max_connections,
             decode_responses=False,
             socket_connect_timeout=5,
+            socket_timeout=settings.redis_socket_timeout,
             socket_keepalive=True,
             retry_on_timeout=True,
         )

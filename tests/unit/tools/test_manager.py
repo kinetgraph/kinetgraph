@@ -567,6 +567,30 @@ class TestConsumeLoop:
         finally:
             await manager.stop()
 
+    async def test_consume_loop_closes_dead_socket_on_runtime_error(
+        self, manager, redis_mock
+    ):
+        """Validates that when WorkerManager._consume_loop encounters a
+        RuntimeError (e.g. closed transport / dead socket), it invokes
+        aclose/close on the Redis client to release dead resources and
+        records the error state."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                RuntimeError("Transport is closed"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_called_once()
+        assert "RuntimeError" in manager._last_error
+
 
 class TestReaperLoop:
     async def test_reaper_loop_swallows_generic_exception(
