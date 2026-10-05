@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core.result import Err, Ok, Result
 
@@ -110,16 +111,21 @@ class RedisAPIKeyStorage:
         Returns ``Ok(None)`` on miss; ``Err(MemoryError)`` on
         Redis failure. The raw bytes are returned untouched
         — the verifier owns the wire format decode.
+
+        Per ADR-077: the catch is narrow
+        (``redis_exceptions.RedisError, ConnectionError,
+        TimeoutError, OSError``); ``asyncio.CancelledError``
+        propagates so operator-driven shutdown works.
         """
         try:
             raw = await self.client.get(self.storage_key(digest))
-        except Exception as e:
+        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
             logger.warning(
                 "api_key_storage.lookup.redis_error",
                 digest=digest,
-                error=str(e),
+                error=str(exc),
             )
-            return Err(MemoryError(f"redis error: {e}"))
+            return Err(MemoryError(f"redis error: {exc}"))
         if raw is None:
             return Ok(None)
         # ``decode_responses=False`` keeps raw bytes; if
@@ -131,29 +137,37 @@ class RedisAPIKeyStorage:
         return Err(MemoryError(f"unexpected redis return type: {type(raw).__name__}"))
 
     async def store(self, digest: str, payload: bytes) -> Result[None, MemoryError]:
-        """Persist a key binding (raw bytes)."""
+        """Persist a key binding (raw bytes).
+
+        Per ADR-077: narrow ``except (redis_exceptions.RedisError,
+        ConnectionError, TimeoutError, OSError)``; cancellation propagates.
+        """
         try:
             await self.client.set(self.storage_key(digest), payload)
-        except Exception as e:
+        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
             logger.warning(
                 "api_key_storage.store.redis_error",
                 digest=digest,
-                error=str(e),
+                error=str(exc),
             )
-            return Err(MemoryError(f"redis error: {e}"))
+            return Err(MemoryError(f"redis error: {exc}"))
         return Ok(None)
 
     async def delete(self, digest: str) -> Result[None, MemoryError]:
-        """Remove a key binding. Idempotent."""
+        """Remove a key binding. Idempotent.
+
+        Per ADR-077: narrow ``except (redis_exceptions.RedisError,
+        ConnectionError, TimeoutError, OSError)``; cancellation propagates.
+        """
         try:
             await self.client.delete(self.storage_key(digest))
-        except Exception as e:
+        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
             logger.warning(
                 "api_key_storage.delete.redis_error",
                 digest=digest,
-                error=str(e),
+                error=str(exc),
             )
-            return Err(MemoryError(f"redis error: {e}"))
+            return Err(MemoryError(f"redis error: {exc}"))
         return Ok(None)
 
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis import exceptions as redis_exceptions
 
 pytestmark = pytest.mark.asyncio
 
@@ -93,7 +94,7 @@ class TestRedisAPIKeyStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.get = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.get = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisAPIKeyStorage(client=redis)
         result = await storage.lookup("digest-abc")
         assert result.is_err()
@@ -114,7 +115,7 @@ class TestRedisAPIKeyStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.set = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.set = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisAPIKeyStorage(client=redis)
         result = await storage.store("digest-abc", b"x")
         assert result.is_err()
@@ -134,7 +135,7 @@ class TestRedisAPIKeyStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.delete = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisAPIKeyStorage(client=redis)
         result = await storage.delete("digest-abc")
         assert result.is_err()
