@@ -61,9 +61,7 @@ def _coerce_string(value: ValidatorInput) -> str | None:
     return v if v else None
 
 
-def _coerce_number(
-    value: ValidatorInput, json_type: str
-) -> int | float | None:
+def _coerce_number(value: ValidatorInput, json_type: str) -> int | float | None:
     """Coerce to ``int`` (when ``json_type='integer'``) or
     ``float``. ``bool`` is rejected (booleans are
     technically ints in Python but we never want a
@@ -78,9 +76,7 @@ def _coerce_number(
     return None
 
 
-def _coerce_numeric(
-    value: float, json_type: str
-) -> int | float | None:
+def _coerce_numeric(value: float, json_type: str) -> int | float | None:
     """Coerce an already-numeric value. ``integer`` and a
     non-integral float returns ``None``.
     """

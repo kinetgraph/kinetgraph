@@ -64,11 +64,7 @@ from typing import Protocol, runtime_checkable
 # are the common shapes — anything else is coerced to
 # ``str(v)`` (see ``coerce_to_json`` below).
 ExtractedScalar = str | int | float | bool | None
-ExtractedValue = (
-    ExtractedScalar
-    | dict[str, "ExtractedValue"]
-    | list["ExtractedValue"]
-)
+ExtractedValue = ExtractedScalar | dict[str, "ExtractedValue"] | list["ExtractedValue"]
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +184,7 @@ class EntityExtractorWithMentions(Protocol):
     entities in different shapes.
     """
 
-    async def extract_with_mentions(
-        self, text: str
-    ) -> list[tuple[Entity, int | None]]:
+    async def extract_with_mentions(self, text: str) -> list[tuple[Entity, int | None]]:
         """Extract entities with their character offset in `text`."""
         ...
 

@@ -51,7 +51,6 @@ from kntgraph.memory.profile import ProfileManager
 from kntgraph.memory.session import SessionEventType, SessionManager
 from kntgraph.stream.event_log import EventLog
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

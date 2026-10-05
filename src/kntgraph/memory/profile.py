@@ -345,17 +345,13 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
                     out.append(state)
                 if len(out) >= limit:
                     break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(
                 "profile.list_for_tenant.storage_error",
                 tenant_id=tenant_id,
                 error=str(e),
             )
-            return Err(
-                PersistenceError(
-                    f"iter_keys for prefix {prefix!r} failed: {e}"
-                )
-            )
+            return Err(PersistenceError(f"iter_keys for prefix {prefix!r} failed: {e}"))
         return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)

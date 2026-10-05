@@ -164,9 +164,7 @@ class MigrationReport:
         ]
         if self.samples and dry_run:
             lines.append("")
-            lines.append(
-                f"  sample of (from, to) pairs (first {len(self.samples)}):"
-            )
+            lines.append(f"  sample of (from, to) pairs (first {len(self.samples)}):")
             for frm, to in self.samples[:10]:
                 lines.append(f"    {frm!r}  ->  {to!r}")
             if len(self.samples) > 10:

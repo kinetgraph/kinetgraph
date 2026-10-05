@@ -185,9 +185,7 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
         # concrete adapter that implements both shapes.
         return await cast("EntityExtractor", self._adapter).extract(text)
 
-    async def extract_with_mentions(
-        self, text: str
-    ) -> list[tuple[Entity, int | None]]:
+    async def extract_with_mentions(self, text: str) -> list[tuple[Entity, int | None]]:
         # Narrow to the rich Protocol; the runtime is
         # always the ``EntityExtractorWithMentions`` path
         # because ``self._adapter`` is only typed as the

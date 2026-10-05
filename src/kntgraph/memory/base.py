@@ -132,7 +132,6 @@ import structlog
 
 from ..core.event import Event
 from ..core.result import Err, Ok, PersistenceError, Result
-from ..infra.redis._errors import MemoryError as MemoryAdapterError
 from ..stream.event_log import EventLog
 
 if TYPE_CHECKING:
@@ -266,11 +265,7 @@ class BaseShortTermMemory[StateT](ABC):
         cache_result = await self._read_cache(key, *key_parts)
         if cache_result.is_err():
             err = cache_result.err_value()
-            return Err(
-                PersistenceError(
-                    f"Cache read for {key!r} failed: {err}"
-                )
-            )
+            return Err(PersistenceError(f"Cache read for {key!r} failed: {err}"))
         cached = cache_result.ok_value()
         if cached is not None:
             return Ok(cached)
@@ -281,16 +276,11 @@ class BaseShortTermMemory[StateT](ABC):
         if write_result.is_err():
             err = write_result.err_value()
             return Err(
-                PersistenceError(
-                    f"Cache refresh after fold failed for {key!r}: "
-                    f"{err}"
-                )
+                PersistenceError(f"Cache refresh after fold failed for {key!r}: {err}")
             )
         return Ok(folded)
 
-    async def refresh_cache(
-        self, *key_parts: str
-    ) -> Result[None, PersistenceError]:
+    async def refresh_cache(self, *key_parts: str) -> Result[None, PersistenceError]:
         """
         Rebuild the cache for one identity by folding the
         EventLog. Idempotent: if no events exist, this is
@@ -319,8 +309,7 @@ class BaseShortTermMemory[StateT](ABC):
             err = write_result.err_value()
             return Err(
                 PersistenceError(
-                    f"Cache write during refresh for {key!r} failed: "
-                    f"{err}"
+                    f"Cache write during refresh for {key!r} failed: {err}"
                 )
             )
         cursor = await self._log.latest_stream_id(self.agent_id_for(*key_parts))
@@ -330,8 +319,7 @@ class BaseShortTermMemory[StateT](ABC):
                 err = cursor_result.err_value()
                 return Err(
                     PersistenceError(
-                        f"Fold-cursor write during refresh for "
-                        f"{key!r} failed: {err}"
+                        f"Fold-cursor write during refresh for {key!r} failed: {err}"
                     )
                 )
         return Ok(None)
@@ -394,8 +382,7 @@ class BaseShortTermMemory[StateT](ABC):
             err = write_result.err_value()
             return Err(
                 PersistenceError(
-                    f"Cache write during incremental refresh for "
-                    f"{key!r} failed: {err}"
+                    f"Cache write during incremental refresh for {key!r} failed: {err}"
                 )
             )
         cursor_result = await self._write_fold_cursor(key, new_cursor)
@@ -409,9 +396,7 @@ class BaseShortTermMemory[StateT](ABC):
             )
         return Ok(None)
 
-    async def invalidate_cache(
-        self, *key_parts: str
-    ) -> Result[None, PersistenceError]:
+    async def invalidate_cache(self, *key_parts: str) -> Result[None, PersistenceError]:
         """
         Drop both the cache payload AND the fold cursor
         for one identity.
@@ -440,20 +425,14 @@ class BaseShortTermMemory[StateT](ABC):
         delete_result = await self._storage.delete_record(key)
         if delete_result.is_err():
             err = delete_result.err_value()
-            return Err(
-                PersistenceError(
-                    f"Cache delete for {key!r} failed: {err}"
-                )
-            )
+            return Err(PersistenceError(f"Cache delete for {key!r} failed: {err}"))
         cursor_delete = await self._storage.delete_fold_cursor(
             self._fold_cursor_key(key)
         )
         if cursor_delete.is_err():
             err = cursor_delete.err_value()
             return Err(
-                PersistenceError(
-                    f"Fold-cursor delete for {key!r} failed: {err}"
-                )
+                PersistenceError(f"Fold-cursor delete for {key!r} failed: {err}")
             )
         return Ok(None)
 
@@ -485,7 +464,7 @@ class BaseShortTermMemory[StateT](ABC):
         """
         try:
             return await self._storage.read_fold_cursor(self._fold_cursor_key(key))
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(
                 "short_term.fold_cursor.read_failed",
                 key=key,
@@ -514,16 +493,14 @@ class BaseShortTermMemory[StateT](ABC):
         try:
             await self._storage.write_fold_cursor(cursor_key, cursor, ttl_seconds=ttl)
             return Ok(None)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(
                 "short_term.fold_cursor.write_failed",
                 key=key,
                 error=str(e),
             )
             return Err(
-                PersistenceError(
-                    f"write_fold_cursor for {cursor_key!r} failed: {e}"
-                )
+                PersistenceError(f"write_fold_cursor for {cursor_key!r} failed: {e}")
             )
 
     async def _read_state_for_incremental(
@@ -669,11 +646,7 @@ class BaseShortTermMemory[StateT](ABC):
                 key=key,
                 error=str(err),
             )
-            return Err(
-                PersistenceError(
-                    f"put_record for {key!r} failed: {err}"
-                )
-            )
+            return Err(PersistenceError(f"put_record for {key!r} failed: {err}"))
         return Ok(None)
 
 

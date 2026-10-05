@@ -33,7 +33,6 @@ from kntgraph.memory.profile import ProfileManager, ProfileState
 from kntgraph.memory.session import SessionManager, SessionState
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

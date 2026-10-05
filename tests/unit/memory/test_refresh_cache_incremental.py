@@ -80,6 +80,7 @@ from kntgraph.memory.base import (
     FOLD_CURSOR_SUFFIX,
     BaseShortTermMemory,
 )
+from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.memory.profile import (
     ProfileEventType,
     ProfileManager,
@@ -88,9 +89,7 @@ from kntgraph.memory.session import (
     SessionEventType,
     SessionManager,
 )
-from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.stream.event_log import EventLog
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

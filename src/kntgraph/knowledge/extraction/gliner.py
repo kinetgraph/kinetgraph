@@ -211,9 +211,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
             # `None` and other shapes are silently dropped.
         return dedup_entities(entities)
 
-    async def extract_with_mentions(
-        self, text: str
-    ) -> list[tuple[Entity, int | None]]:
+    async def extract_with_mentions(self, text: str) -> list[tuple[Entity, int | None]]:
         """
         Extract entities with character offsets.
 
@@ -268,9 +266,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
 
     # ---------------------------------------------------------- helpers
 
-    def _convert_span(
-        self, span: GLiNERSpan
-    ) -> tuple[Entity, int | None] | None:
+    def _convert_span(self, span: GLiNERSpan) -> tuple[Entity, int | None] | None:
         """
         Convert a raw model span to `(Entity, offset)`.
 

@@ -41,7 +41,6 @@ from kntgraph.memory.continuity.manager import (
 )
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

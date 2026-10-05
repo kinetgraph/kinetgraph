@@ -60,8 +60,6 @@ def _parse_event(mid: bytes | str, mdata: dict) -> Event:
     return parse_event(cast(bytes, mid), mdata)
 
 
-
-
 logger = structlog.get_logger()
 
 

@@ -90,9 +90,7 @@ class TestCORS:
         # Access-Control-Allow-Origin response header).
         r = client.get("/healthz", headers={"Origin": "https://x.com"})
         assert r.status_code == 200
-        assert "access-control-allow-origin" not in {
-            k.lower() for k in r.headers
-        }
+        assert "access-control-allow-origin" not in {k.lower() for k in r.headers}
 
     def test_single_origin_allowed(self):
         client = _build_app(cors_origins="https://app.example.com")

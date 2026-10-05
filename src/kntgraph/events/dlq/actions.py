@@ -170,8 +170,7 @@ class DeadLetterActions:
         if entry_result.is_err():
             return Err(
                 PersistenceError(
-                    f"Storage error in read({stream_id}): "
-                    f"{entry_result.err_value()}"
+                    f"Storage error in read({stream_id}): {entry_result.err_value()}"
                 )
             )
         payload = entry_result.ok_value()
@@ -214,9 +213,7 @@ class DeadLetterActions:
                 error=str(lookup.err_value()),
             )
             return Err(
-                PersistenceError(
-                    f"Storage error in read_index: {lookup.err_value()}"
-                )
+                PersistenceError(f"Storage error in read_index: {lookup.err_value()}")
             )
         stream_id = lookup.ok_value() or ""
 
@@ -244,8 +241,7 @@ class DeadLetterActions:
             )
             return Err(
                 PersistenceError(
-                    f"Storage error in bump_reason_counter: "
-                    f"{bump.err_value()}"
+                    f"Storage error in bump_reason_counter: {bump.err_value()}"
                 )
             )
         return Ok(None)

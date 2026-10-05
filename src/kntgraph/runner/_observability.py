@@ -107,9 +107,7 @@ class RecoveryReport:
     stuck_in_queue_count: int = 0
     dead_lettered_count: int = 0
     dry_run: bool = False
-    inspected_at: datetime = field(
-        default_factory=lambda: datetime.now(tz=UTC)
-    )
+    inspected_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
 
 # ---------------------------------------------------------------------------

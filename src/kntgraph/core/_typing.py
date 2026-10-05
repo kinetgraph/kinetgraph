@@ -61,11 +61,7 @@ from typing import Protocol, TypeVar
 # ---------------------------------------------------------------------------
 
 JsonScalar = str | int | float | bool | None
-JsonValue = (
-    JsonScalar
-    | dict[str, "JsonValue"]
-    | list["JsonValue"]
-)
+JsonValue = JsonScalar | dict[str, "JsonValue"] | list["JsonValue"]
 
 
 # ---------------------------------------------------------------------------

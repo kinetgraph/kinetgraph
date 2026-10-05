@@ -39,30 +39,24 @@ class UnwrapError(Exception):
     """Raised when unwrap() is called on an Err."""
 
 
-
 class RailwayError(Exception):
     """Base for errors in the railway flow."""
-
 
 
 class ValidationError(RailwayError):
     """Validation error."""
 
 
-
 class PersistenceError(RailwayError):
     """Persistence error."""
-
 
 
 class BusinessError(RailwayError):
     """Business rule error."""
 
 
-
 class ToolError(RailwayError):
     """Error executing an external Tool."""
-
 
 
 __all__ = [

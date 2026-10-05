@@ -86,7 +86,6 @@ class CircuitBreakerError(Exception):
     """
 
 
-
 class CircuitBreaker:
     """
     Circuit Breaker for resilience.

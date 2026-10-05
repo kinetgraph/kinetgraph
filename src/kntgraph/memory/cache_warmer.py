@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Literal
 
 import structlog
 
-from ..core.result import Err, Ok, PersistenceError, Result
+from ..core.result import Ok, Result
 from ..infra.redis._errors import MemoryError
 from .profile import ProfileManager
 from .session import SessionManager

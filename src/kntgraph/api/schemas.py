@@ -40,9 +40,7 @@ def _check_json_value(value: Any) -> None:
     if isinstance(value, MappingABC):
         for k, v in value.items():
             if not isinstance(k, str):
-                raise TypeError(
-                    f"JSON object keys must be str, got {type(k).__name__}"
-                )
+                raise TypeError(f"JSON object keys must be str, got {type(k).__name__}")
             _check_json_value(v)
         return
     if isinstance(value, list):

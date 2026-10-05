@@ -482,13 +482,17 @@ class _Parser:
         # 2. Path (with optional comparison)
         if lex in ("steps", "agent", "now"):
             return self._parse_path_or_comparison(lex)
-        if lex == "event" and self._peek_at(0) is not None and (
-            self._peek_at(0).kind == "DOT"
-            and self._peek_at(1) is not None
-            and self._peek_at(1).kind == "IDENT"
-            and self._peek_at(1).lexeme == "data"
-            and self._peek_at(2) is not None
-            and self._peek_at(2).kind == "DOT"
+        if (
+            lex == "event"
+            and self._peek_at(0) is not None
+            and (
+                self._peek_at(0).kind == "DOT"
+                and self._peek_at(1) is not None
+                and self._peek_at(1).kind == "IDENT"
+                and self._peek_at(1).lexeme == "data"
+                and self._peek_at(2) is not None
+                and self._peek_at(2).kind == "DOT"
+            )
         ):
             return self._parse_path_or_comparison(lex)
         # 3. Bare identifier: if followed by OP (start of
@@ -698,13 +702,17 @@ class _Parser:
             if tok.lexeme in ("steps", "agent", "now"):
                 self._consume()
                 return self._parse_path(tok.lexeme)
-            if tok.lexeme == "event" and self._peek_at(1) is not None and (
-                self._peek_at(1).kind == "DOT"
-                and self._peek_at(2) is not None
-                and self._peek_at(2).kind == "IDENT"
-                and self._peek_at(2).lexeme == "data"
-                and self._peek_at(3) is not None
-                and self._peek_at(3).kind == "DOT"
+            if (
+                tok.lexeme == "event"
+                and self._peek_at(1) is not None
+                and (
+                    self._peek_at(1).kind == "DOT"
+                    and self._peek_at(2) is not None
+                    and self._peek_at(2).kind == "IDENT"
+                    and self._peek_at(2).lexeme == "data"
+                    and self._peek_at(3) is not None
+                    and self._peek_at(3).kind == "DOT"
+                )
             ):
                 self._consume()
                 return self._parse_path(tok.lexeme)

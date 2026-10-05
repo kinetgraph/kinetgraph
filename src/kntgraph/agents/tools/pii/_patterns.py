@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import re
 
-
 # Framework-level recursive type for the payload
 # accepted by the PII redaction tool. The redactor
 # walks the payload recursively (dict / list /
@@ -23,11 +22,7 @@ import re
 # ``_tool``) avoids an import cycle with ``_level1``
 # and ``_level2``.
 PiiScalar = str | int | float | bool | None
-PiiPayload = (
-    PiiScalar
-    | dict[str, "PiiPayload"]
-    | list["PiiPayload"]
-)
+PiiPayload = PiiScalar | dict[str, "PiiPayload"] | list["PiiPayload"]
 
 
 # Default label set for level 2/3. Same strings are used

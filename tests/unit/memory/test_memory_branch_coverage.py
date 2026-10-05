@@ -42,12 +42,12 @@ from kntgraph.memory.cache_warmer import (
     CacheRefreshRequest,
     CacheWarmer,
 )
+from kntgraph.memory.continuity.fold import _fold_continuity_events
 from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.memory.continuity.state import (
     CONTINUITY_KEY_PREFIX,
     ContinuityEventType,
 )
-from kntgraph.memory.continuity.fold import _fold_continuity_events
 from kntgraph.memory.profile import (
     ProfileManager,
     _build_profile_state,
@@ -66,7 +66,6 @@ from kntgraph.memory.session import (
     _scalar_str,
 )
 from kntgraph.stream.event_log import EventLog
-
 
 # ---------------------------------------------------------------------------
 # Shared fixtures

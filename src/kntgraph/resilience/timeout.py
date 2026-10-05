@@ -189,7 +189,6 @@ class TimeoutError(Exception):
     """
 
 
-
 async def with_timeout[R](
     fn: Callable[[], Coroutine[Any, Any, R] | R],
     timeout_seconds: float,

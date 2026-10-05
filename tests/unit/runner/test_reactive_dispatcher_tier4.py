@@ -450,9 +450,7 @@ class TestDeadLetteredTasks:
     async def test_delegates_to_dlq_list_all(self) -> None:
         """No filter ⇒ ``DeadLetterQueue.list_all``."""
         dlq = AsyncMock()
-        dlq.list_all = AsyncMock(
-            return_value=Ok(["entry-1", "entry-2"])
-        )
+        dlq.list_all = AsyncMock(return_value=Ok(["entry-1", "entry-2"]))
         dispatcher = _dispatcher(World.empty(), dlq=dlq)
         result = await dispatcher.dead_lettered_tasks()
         assert result == ["entry-1", "entry-2"]

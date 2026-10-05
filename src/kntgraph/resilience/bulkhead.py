@@ -39,7 +39,6 @@ class BulkheadFullError(Exception):
     """
 
 
-
 # Reject new acquisitions after this many seconds. Keeps the
 # rejected-call latency bounded under saturation.
 DEFAULT_ACQUIRE_TIMEOUT_SECONDS = 0.1

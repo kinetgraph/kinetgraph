@@ -336,9 +336,10 @@ def _build_overlay_view(
     merged_requests = {**existing_requests, **new_requests}
     merged_completions = {**existing_completions, **new_completions}
     for request_id in list(merged_requests.keys()):
-        if request_id in merged_completions and (post_systems or (
-            request_id in existing_requests and request_id in existing_completions
-        )):
+        if request_id in merged_completions and (
+            post_systems
+            or (request_id in existing_requests and request_id in existing_completions)
+        ):
             merged_requests.pop(request_id, None)
             merged_completions.pop(request_id, None)
     return _overlay(

@@ -104,9 +104,11 @@ class ToolACL:
         if principal.level < self.required_level:
             return (
                 False,
-                (f"role_insufficient: "
-                f"required {self.required_level.value}, "
-                f"got {principal.level.value}"),
+                (
+                    f"role_insufficient: "
+                    f"required {self.required_level.value}, "
+                    f"got {principal.level.value}"
+                ),
             )
         # 2. Tenant check (only when pinned).
         if self.tenant_pinned:
@@ -115,9 +117,11 @@ class ToolACL:
             if principal.tenant_id != self.tenant_id:
                 return (
                     False,
-                    (f"tenant_violation: "
-                    f"tool pinned to {self.tenant_id!r}, "
-                    f"principal tenant {principal.tenant_id!r}"),
+                    (
+                        f"tenant_violation: "
+                        f"tool pinned to {self.tenant_id!r}, "
+                        f"principal tenant {principal.tenant_id!r}"
+                    ),
                 )
         return (True, "")
 

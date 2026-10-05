@@ -442,11 +442,13 @@ def step_audit() -> Step:
         (
             "bash",
             "-c",
-            ("set -e; "
-            "uv export --format requirements-txt --no-hashes "
-            "--no-emit-workspace > /tmp/kntgraph-reqs.txt; "
-            "uv run pip-audit --strict -r /tmp/kntgraph-reqs.txt "
-            "--vulnerability-service osv"),
+            (
+                "set -e; "
+                "uv export --format requirements-txt --no-hashes "
+                "--no-emit-workspace > /tmp/kntgraph-reqs.txt; "
+                "uv run pip-audit --strict -r /tmp/kntgraph-reqs.txt "
+                "--vulnerability-service osv"
+            ),
         ),
     )
 
@@ -700,9 +702,7 @@ ALL_STEPS: dict[str, Step] = {
 # ``--only`` accepts any name in ``ALL_STEPS``; the
 # distinction is purely about the **default** run.
 DEFAULT_STEPS: tuple[str, ...] = tuple(
-    name
-    for name in ALL_STEPS
-    if name not in ("integration", "mutation", "stress")
+    name for name in ALL_STEPS if name not in ("integration", "mutation", "stress")
 )
 
 

@@ -389,9 +389,7 @@ class Projector:
         # ``continuity``. Veja ADR-014.
         self._continuity = continuity_manager
 
-    async def project_session(
-        self, session_id: str
-    ) -> Result[bool, PersistenceError]:
+    async def project_session(self, session_id: str) -> Result[bool, PersistenceError]:
         events = await self._log.read(SessionManager.agent_id_for(session_id))
         state = _fold_session_events(session_id, events)
         if state is None:
@@ -437,9 +435,7 @@ class Projector:
         state = _fold_continuity_events(tenant_id, user_id, events)
         if state is None:
             return Ok(False)
-        write_result = await self._continuity.write_cache(
-            tenant_id, user_id, state
-        )
+        write_result = await self._continuity.write_cache(tenant_id, user_id, state)
         if write_result.is_err():
             err = write_result.err_value() or PersistenceError("Unknown write error")
             return Err(err)

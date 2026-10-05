@@ -678,7 +678,9 @@ def _fold_memory_components(
     agent_id: str,
     agent_events: list[Event],
     base_view: AgentView,
-) -> tuple[SessionComponent | None, ProfileComponent | None, ContinuityComponent | None]:
+) -> tuple[
+    SessionComponent | None, ProfileComponent | None, ContinuityComponent | None
+]:
     """Run the three memory folds for a single
     agent, threading the base components through so
     the batch can re-use state that the events do

@@ -85,10 +85,13 @@ def test_example_01_main_uses_litellm_tool_worker() -> None:
         },
     }
     fake_transport = _async_return(fake_completion)
-    with patch(
-        "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
-        return_value=fake_transport,
-    ), patch.dict(os.environ, {"KNT_LLM_DEFAULT_MODEL": "ollama/qwen3.5:4b"}):
+    with (
+        patch(
+            "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
+            return_value=fake_transport,
+        ),
+        patch.dict(os.environ, {"KNT_LLM_DEFAULT_MODEL": "ollama/qwen3.5:4b"}),
+    ):
         module = _load_module("01_llm_basic")
         asyncio.run(module.main())
 

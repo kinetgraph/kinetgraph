@@ -92,9 +92,7 @@ def event_from_dict(d: dict) -> Event:
     # ``producer_principal_id`` is optional (ADR-066
     # §4.1). Decoded as ``None`` when missing or empty.
     raw_principal_id = d.get("producer_principal_id")
-    producer_principal_id: str | None = (
-        raw_principal_id if raw_principal_id else None
-    )
+    producer_principal_id: str | None = raw_principal_id if raw_principal_id else None
     # Local imports to avoid the cycle
     # `event` ↔ `correlation` at module load time.
     from .correlation import CorrelationContext

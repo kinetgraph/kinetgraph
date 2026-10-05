@@ -20,7 +20,6 @@ elsewhere; the consolidation module adds:
 
 from __future__ import annotations
 
-
 import fakeredis.aioredis
 import pytest
 import pytest_asyncio
@@ -52,7 +51,6 @@ from kntgraph.memory.session import (
     SessionManager,
 )
 from kntgraph.stream.event_log import EventLog
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

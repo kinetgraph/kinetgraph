@@ -384,7 +384,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
                     out.append(state)
                 if len(out) >= limit:
                     break
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             logger.warning(
                 "session.list_active.storage_error",
                 tenant_id=tenant_id,
@@ -634,14 +634,14 @@ def _build_session_state(
     tenant_id = _coerce_str(raw, "tenant_id")
     messages_raw = raw.get("messages") or []
     if not isinstance(messages_raw, list):
-        raise ValueError("messages is not a list")
+        raise ValueError("messages is not a list")  # noqa: TRY004
     messages: list[dict[str, JsonValue]] = []
     for entry in messages_raw:
         if isinstance(entry, dict):
             messages.append({str(k): v for k, v in entry.items()})
     context_raw = raw.get("context") or {}
     if not isinstance(context_raw, dict):
-        raise ValueError("context is not a dict")
+        raise ValueError("context is not a dict")  # noqa: TRY004
     context: dict[str, JsonValue] = {str(k): v for k, v in context_raw.items()}
     started_at = _coerce_float(raw.get("started_at"), default=0.0)
     ended_at_raw = raw.get("ended_at")

@@ -145,7 +145,7 @@ class DeadLetterQueue:
                     dl_event.event.agent_id,
                     stream_id,
                 )
-            except Exception as e:  # pragma: no cover
+            except Exception as e:  # noqa: BLE001  # pragma: no cover
                 logger.warning(
                     "dlq.append.agent_index_failed",
                     event_id=event_id,
@@ -205,8 +205,7 @@ class DeadLetterQueue:
             )
             return Err(
                 PersistenceError(
-                    f"Storage error in read({stream_id}): "
-                    f"{entry_result.err_value()}"
+                    f"Storage error in read({stream_id}): {entry_result.err_value()}"
                 )
             )
         payload = entry_result.ok_value()
@@ -270,10 +269,7 @@ class DeadLetterQueue:
             )
         messages_payload = result.ok_value() or []
         return Ok(
-            [
-                self._build_event(cast("dict[str, str]", m))
-                for m in messages_payload
-            ]
+            [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
         )
 
     async def list_all(
@@ -293,16 +289,11 @@ class DeadLetterQueue:
                 error=str(messages.err_value()),
             )
             return Err(
-                PersistenceError(
-                    f"Storage error in list_all: {messages.err_value()}"
-                )
+                PersistenceError(f"Storage error in list_all: {messages.err_value()}")
             )
         messages_payload = messages.ok_value() or []
         return Ok(
-            [
-                self._build_event(cast("dict[str, str]", m))
-                for m in messages_payload
-            ]
+            [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
         )
 
     # ------------------------------------------------------------------ stats
@@ -324,9 +315,7 @@ class DeadLetterQueue:
                 error=str(result.err_value()),
             )
             return Err(
-                PersistenceError(
-                    f"Storage error in get_stats: {result.err_value()}"
-                )
+                PersistenceError(f"Storage error in get_stats: {result.err_value()}")
             )
         return Ok(
             result.ok_value()  # type: ignore[arg-type]

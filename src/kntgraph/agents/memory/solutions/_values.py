@@ -31,7 +31,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-
 # Framework-level type for JSON-serialisable values
 # crossing the event / fingerprint boundary. The
 # framework treats these as opaque; it only ever
@@ -39,11 +38,7 @@ from dataclasses import dataclass, field
 # safety net. Concrete event payloads are documented
 # in ADR-013 §2.
 JsonScalar = str | int | float | bool | None
-JsonValue = (
-    JsonScalar
-    | dict[str, "JsonValue"]
-    | list["JsonValue"]
-)
+JsonValue = JsonScalar | dict[str, "JsonValue"] | list["JsonValue"]
 
 
 @dataclass(frozen=True, slots=True)

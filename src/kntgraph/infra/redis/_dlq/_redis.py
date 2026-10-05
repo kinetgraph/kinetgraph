@@ -261,9 +261,7 @@ class RedisDLQStorage:
             return Err(MemoryError(f"redis error: {e}"))
         return Ok(decode_value(raw))
 
-    async def find_by_event_id(
-        self, event_id: str
-    ) -> Result[str | None, MemoryError]:
+    async def find_by_event_id(self, event_id: str) -> Result[str | None, MemoryError]:
         """Find the first stream id for ``event_id`` across all reasons.
 
         Scans ``<event_id>:*`` keys of the per-event_id index.

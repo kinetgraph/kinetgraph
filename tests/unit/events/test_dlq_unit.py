@@ -519,9 +519,7 @@ class TestActionsErrorBranches:
         assert result.is_err()
         assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_find_entry_via_storage_propagates_err_on_lookup_error(
-        self, storage
-    ):
+    async def test_find_entry_via_storage_propagates_err_on_lookup_error(self, storage):
         async def failing_find(self, *_args, **_kwargs):
             return Err(MemoryError("find down"))
 
