@@ -29,7 +29,6 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 
 import structlog
-from redis import exceptions as redis_exceptions
 
 from kntgraph.core.result import Err, Ok, Result
 
@@ -43,6 +42,7 @@ from .._errors import (
     MemorySerializationError,
 )
 from .._prefix import namespaced
+from .._translation import translate_redis_call
 from ._adapter import CacheRecord
 
 logger = structlog.get_logger()
@@ -85,15 +85,15 @@ class RedisSessionStorage:
         ``Err(MemoryError(...))`` with the raw exception
         string.
         """
-        try:
-            raw = await self.client.get(key)
-        except Exception as e:
-            logger.warning(
-                "session_storage.get_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.get(key),
+            op_name="session_storage.get_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
             return Err(MemoryMiss(key))
         decoded = decode_value(raw)
@@ -125,27 +125,25 @@ class RedisSessionStorage:
         except (TypeError, ValueError) as e:
             return Err(MemorySerializationError(f"cannot serialize: {e}", key=key))
         effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
-        try:
-            await self.client.set(key, payload, ex=effective_ttl)
-        except Exception as e:
-            logger.warning(
-                "session_storage.put_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.set(key, payload, ex=effective_ttl),
+            op_name="session_storage.put_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def delete_record(self, key: str) -> Result[None, MemoryError]:
-        try:
-            await self.client.delete(key)
-        except Exception as e:
-            logger.warning(
-                "session_storage.delete_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.delete(key),
+            op_name="session_storage.delete_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def iter_keys(self, prefix: str) -> AsyncIterator[str]:
@@ -171,15 +169,15 @@ class RedisSessionStorage:
         Returns ``Ok(None)`` on miss; ``Err(MemoryError)``
         on Redis-side failure (per ADR-077).
         """
-        try:
-            raw = await self.client.get(key)
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning(
-                "session_storage.read_fold_cursor.redis_error",
-                key=key,
-                error=str(exc),
-            )
-            return Err(MemoryError(f"redis error: {exc}", key=key))
+        result = await translate_redis_call(
+            self.client.get(key),
+            op_name="session_storage.read_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
             return Ok(None)
         if isinstance(raw, bytes):
@@ -201,15 +199,14 @@ class RedisSessionStorage:
         ``self.ttl_seconds``, then no TTL).
         """
         effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
-        try:
-            await self.client.set(key, cursor, ex=effective_ttl)
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning(
-                "session_storage.write_fold_cursor.redis_error",
-                key=key,
-                error=str(exc),
-            )
-            return Err(MemoryError(f"redis error: {exc}", key=key))
+        result = await translate_redis_call(
+            self.client.set(key, cursor, ex=effective_ttl),
+            op_name="session_storage.write_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def delete_fold_cursor(self, key: str) -> Result[None, MemoryError]:
@@ -219,15 +216,14 @@ class RedisSessionStorage:
         caller can use this on a hot path without first
         checking for existence.
         """
-        try:
-            await self.client.delete(key)
-        except Exception as e:
-            logger.warning(
-                "session_storage.delete_fold_cursor.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.delete(key),
+            op_name="session_storage.delete_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
 

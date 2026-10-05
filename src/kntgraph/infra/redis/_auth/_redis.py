@@ -35,13 +35,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import structlog
-from redis import exceptions as redis_exceptions
 
 from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
 from .._errors import MemoryError
 from .._prefix import namespaced, validate_prefix
+from .._translation import translate_redis_call
 
 logger = structlog.get_logger()
 
@@ -112,62 +112,60 @@ class RedisAPIKeyStorage:
         Redis failure. The raw bytes are returned untouched
         — the verifier owns the wire format decode.
 
-        Per ADR-077: the catch is narrow
-        (``redis_exceptions.RedisError, ConnectionError,
-        TimeoutError, OSError``); ``asyncio.CancelledError``
-        propagates so operator-driven shutdown works.
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`;
+        ``asyncio.CancelledError`` propagates so
+        operator-driven shutdown works.
         """
-        try:
-            raw = await self.client.get(self.storage_key(digest))
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning(
-                "api_key_storage.lookup.redis_error",
-                digest=digest,
-                error=str(exc),
-            )
-            return Err(MemoryError(f"redis error: {exc}"))
-        if raw is None:
+        raw = await translate_redis_call(
+            self.client.get(self.storage_key(digest)),
+            op_name="api_key_storage.lookup",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        if raw.is_err():
+            return Err(raw.err_value_or_raise())
+        payload: bytes | str | None = raw.ok_value()
+        if payload is None:
             return Ok(None)
         # ``decode_responses=False`` keeps raw bytes; if
         # the caller flipped it, accept str too.
-        if isinstance(raw, (bytes, bytearray)):
-            return Ok(bytes(raw))
-        if isinstance(raw, str):
-            return Ok(raw.encode("utf-8"))
-        return Err(MemoryError(f"unexpected redis return type: {type(raw).__name__}"))
+        if isinstance(payload, (bytes, bytearray)):
+            return Ok(bytes(payload))
+        if isinstance(payload, str):
+            return Ok(payload.encode("utf-8"))
+        return Err(MemoryError(f"unexpected redis return type: {type(payload).__name__}"))
 
     async def store(self, digest: str, payload: bytes) -> Result[None, MemoryError]:
         """Persist a key binding (raw bytes).
 
-        Per ADR-077: narrow ``except (redis_exceptions.RedisError,
-        ConnectionError, TimeoutError, OSError)``; cancellation propagates.
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            await self.client.set(self.storage_key(digest), payload)
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning(
-                "api_key_storage.store.redis_error",
-                digest=digest,
-                error=str(exc),
-            )
-            return Err(MemoryError(f"redis error: {exc}"))
-        return Ok(None)
+        result = await translate_redis_call(
+            self.client.set(self.storage_key(digest), payload),
+            op_name="api_key_storage.store",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        return result.map(lambda _: None)
 
     async def delete(self, digest: str) -> Result[None, MemoryError]:
         """Remove a key binding. Idempotent.
 
-        Per ADR-077: narrow ``except (redis_exceptions.RedisError,
-        ConnectionError, TimeoutError, OSError)``; cancellation propagates.
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            await self.client.delete(self.storage_key(digest))
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
-            logger.warning(
-                "api_key_storage.delete.redis_error",
-                digest=digest,
-                error=str(exc),
-            )
-            return Err(MemoryError(f"redis error: {exc}"))
+        result = await translate_redis_call(
+            self.client.delete(self.storage_key(digest)),
+            op_name="api_key_storage.delete",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        return result.map(lambda _: None)
         return Ok(None)
 
 
