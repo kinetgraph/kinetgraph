@@ -102,8 +102,8 @@ is the mitigation (out of scope for ADR-045).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
@@ -162,9 +162,9 @@ class ToolCallTTLSweeperSystem:
     def __init__(
         self,
         *,
-        now: Optional[datetime] = None,
+        now: datetime | None = None,
         error_message: str = _TTL_EXPIRED_ERROR,
-        dlq: Optional["DeadLetterQueue"] = None,
+        dlq: DeadLetterQueue | None = None,
     ) -> None:
         """
         ``now``: optional wall-clock injection. Defaults
@@ -193,7 +193,7 @@ class ToolCallTTLSweeperSystem:
 
     def __call__(
         self,
-        world: "World | Mapping[str, AgentView]",
+        world: World | Mapping[str, AgentView],
     ) -> list[Event]:
         """Walk ``tool_requests``; emit ``tool.<name>.failed``
         for stale entries; optionally route to the DLQ.
@@ -215,7 +215,7 @@ class ToolCallTTLSweeperSystem:
         only re-emits when the compensation chain stalls).
         """
         events: list[Event] = []
-        now = self._now or datetime.now(tz=timezone.utc)
+        now = self._now or datetime.now(tz=UTC)
         # Accept either a ``World`` (production
         # path: the dispatcher passes the post-fold
         # World) or a ``Mapping[str, AgentView]`` (test
@@ -298,7 +298,7 @@ class ToolCallTTLSweeperSystem:
 
     def _route_to_dlq(
         self,
-        failed_event: "Event",
+        failed_event: Event,
         agent_id: str,
         request_id: str,
     ) -> None:
@@ -311,8 +311,8 @@ class ToolCallTTLSweeperSystem:
         that have richer info can override the reason.
         """
         from kntgraph.events.dlq.values import (
-            DLQReason,
             DeadLetterEvent,
+            DLQReason,
         )
 
         dl_event = DeadLetterEvent(
@@ -320,7 +320,7 @@ class ToolCallTTLSweeperSystem:
             reason=DLQReason.TOOL_STALE_UNACKNOWLEDGED,
             error_message=self._error_message,
             original_timestamp=failed_event.timestamp,
-            dlq_timestamp=datetime.now(tz=timezone.utc),
+            dlq_timestamp=datetime.now(tz=UTC),
             metadata={"request_event_id": request_id, "agent_id": agent_id},
         )
         # The sweeper is synchronous; the dispatcher's

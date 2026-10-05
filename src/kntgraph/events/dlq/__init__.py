@@ -49,8 +49,8 @@ from .values import (
     DLQ_EVENT_INDEX,
     DLQ_REASON_INDEX,
     DLQ_STREAM_KEY,
-    DLQReason,
     DeadLetterEvent,
+    DLQReason,
 )
 
 __all__ = [

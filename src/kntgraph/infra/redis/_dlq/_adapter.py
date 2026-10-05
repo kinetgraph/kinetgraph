@@ -17,7 +17,8 @@ Result contract (AGENTS.md §6): all operations return
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
@@ -44,7 +45,7 @@ class DLQStorage(Protocol):
 
     async def read(
         self, stream_id: str
-    ) -> Result[Optional[Mapping[str, str]], MemoryError]:
+    ) -> Result[Mapping[str, str] | None, MemoryError]:
         """Read a single DLQ entry by stream id.
 
         Returns ``Ok(dict)`` on hit, ``Ok(None)`` on miss,
@@ -72,7 +73,7 @@ class DLQStorage(Protocol):
 
     async def read_index(
         self, event_id: str, reason: str
-    ) -> Result[Optional[str], MemoryError]:
+    ) -> Result[str | None, MemoryError]:
         """Look up the stream id for ``(event_id, reason)``.
 
         Returns ``Ok(stream_id)`` on hit, ``Ok(None)`` on
@@ -82,7 +83,7 @@ class DLQStorage(Protocol):
 
     async def find_by_event_id(
         self, event_id: str
-    ) -> Result[Optional[str], MemoryError]:
+    ) -> Result[str | None, MemoryError]:
         """Find the first stream id for an ``event_id`` across all reasons.
 
         Scans the ``<event_id>:*`` keys of the per-event_id

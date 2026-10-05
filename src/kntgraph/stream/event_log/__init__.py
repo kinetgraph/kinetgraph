@@ -47,10 +47,6 @@ across the `event_log` subpackage:
     `parse_event` (canonical wire format).
 """
 
-from .codec import event_to_redis, parse_event
-from .store import EventLog, _build_default_backoff
-
-
 # Backwards-compat: AGENT_STREAM_KEY / EVENT_ID_INDEX moved to
 # the Redis adapter (ADR-019). Re-export from the new location
 # so external callers (tests, fixtures) keep working.
@@ -60,7 +56,6 @@ from ...infra.redis import (
     claim_event_id_slot,
 )
 
-
 # Re-export claim_event_id_slot so test suites that
 # patch kntgraph.stream.event_log.claim_event_id_slot
 # keep working. The store module imports the symbol
@@ -69,6 +64,8 @@ from ...infra.redis import (
 from ...infra.redis._event_log._idempotency import (
     claim_event_id_slot as _claim_event_id_slot,
 )
+from .codec import event_to_redis, parse_event
+from .store import EventLog, _build_default_backoff
 
 claim_event_id_slot = _claim_event_id_slot  # noqa: F811
 

@@ -14,7 +14,7 @@ and Python sessions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, FrozenSet, Type
+from typing import Any
 
 from .component import ComponentMeta
 
@@ -28,9 +28,9 @@ class ArchetypeId:
     the same way but in different modules produce different ids.
     """
 
-    components: FrozenSet[Type[Any]]
+    components: frozenset[type[Any]]
 
-    _cache: FrozenSet[tuple[str, str]] = field(init=False, repr=False, compare=False)
+    _cache: frozenset[tuple[str, str]] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         keys = frozenset(
@@ -48,20 +48,20 @@ class ArchetypeId:
     def __repr__(self) -> str:
         return f"ArchetypeId({self})"
 
-    def contains(self, *types: Type[Any]) -> bool:
+    def contains(self, *types: type[Any]) -> bool:
         return all(t in self.components for t in types)
 
-    def intersects(self, other: "ArchetypeId") -> bool:
+    def intersects(self, other: ArchetypeId) -> bool:
         return bool(self.components & other.components)
 
-    def metas(self) -> FrozenSet[ComponentMeta]:
+    def metas(self) -> frozenset[ComponentMeta]:
         return frozenset(ComponentMeta.of(c) for c in self.components)
 
     @classmethod
-    def of(cls, *types: Type[Any]) -> "ArchetypeId":
+    def of(cls, *types: type[Any]) -> ArchetypeId:
         return cls(frozenset(types))
 
 
-def archetype_of(*types: Type[Any]) -> ArchetypeId:
+def archetype_of(*types: type[Any]) -> ArchetypeId:
     """Convenience: build an ArchetypeId from component types."""
     return ArchetypeId.of(*types)

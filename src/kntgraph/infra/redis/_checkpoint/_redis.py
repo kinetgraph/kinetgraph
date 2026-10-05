@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional
 
 import structlog
 
@@ -34,7 +33,6 @@ from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
 from .._errors import MemoryDecodeError, MemoryError
-
 
 logger = structlog.get_logger()
 
@@ -51,7 +49,7 @@ class RedisCheckpointStorage:
 
     async def load(
         self, agent_id: str
-    ) -> Result[Optional[Mapping[str, str]], MemoryError | MemoryDecodeError]:
+    ) -> Result[Mapping[str, str] | None, MemoryError | MemoryDecodeError]:
         """Load a checkpoint by agent_id.
 
         Returns ``Ok(None)`` on miss; ``Ok(dict)`` on hit;

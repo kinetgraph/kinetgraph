@@ -59,11 +59,11 @@ class RedisPool:
     and the namespace prefix (ADR-076).
     """
 
-    _client: "redis_async.Redis"
+    _client: redis_async.Redis
     _key_prefix: str = ""
 
     @classmethod
-    def from_settings(cls, settings: Settings | None = None) -> "RedisPool":
+    def from_settings(cls, settings: Settings | None = None) -> RedisPool:
         """Build a pool from ``Settings`` (or ``fresh_settings()`` if None)."""
         settings = settings or fresh_settings()
         import redis.asyncio as redis_async

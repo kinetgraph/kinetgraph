@@ -58,14 +58,12 @@ operations return ``Result[T, MemoryError]``:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
-from typing import Optional, Protocol, Union, runtime_checkable
-
-from ....core._typing import JsonValue
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
+from ....core._typing import JsonValue
 from .._errors import MemoryError
-
 
 # ``CacheRecord`` is the wire shape accepted by ``put_record``.
 # Two flavours:
@@ -76,7 +74,7 @@ from .._errors import MemoryError
 #     string before ``SET``. The string IS the wire payload.
 # Modelling as ``Union`` keeps the two flavours in one
 # Protocol while preventing ``Any`` (AGENTS.md §1).
-CacheRecord = Union[str, Mapping[str, JsonValue]]
+CacheRecord = str | Mapping[str, JsonValue]
 
 
 @runtime_checkable
@@ -131,7 +129,7 @@ class ShortMemoryStorage(Protocol):
         key: str,
         record: CacheRecord,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a record. ``Ok(None)`` on success.
 
@@ -174,7 +172,7 @@ class ShortMemoryStorage(Protocol):
         key: str,
         cursor: str,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist the fold cursor at
         ``<key>:fold_cursor``.

@@ -12,8 +12,6 @@ of the box.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import Field
 
 from kntgraph.infra.config._base import BaseSettings
@@ -24,4 +22,4 @@ class FalkordbSettingsMixin(BaseSettings):
 
     falkordb_host: str = Field(default="localhost")
     falkordb_port: int = Field(default=16379)
-    falkordb_password: Optional[str] = Field(default=None)
+    falkordb_password: str | None = Field(default=None)

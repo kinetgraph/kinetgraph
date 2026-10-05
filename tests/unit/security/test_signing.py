@@ -40,20 +40,20 @@ from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 
 from kntgraph.security import (
+    SUPPORTED_ALGORITHMS,
     BatchSignature,
     Ed25519PrivateKeyWrapper,
     Ed25519PublicKeyWrapper,
     InMemoryKeyRegistry,
     Signature,
     SignatureError,
-    SUPPORTED_ALGORITHMS,
     UnknownAlgorithmError,
     canonical_event_bytes,
     generate_keypair,
@@ -61,7 +61,6 @@ from kntgraph.security import (
     sign_event,
     verify_event,
 )
-
 
 # ---------------------------------------------------------------------------
 # Minimal event stand-in
@@ -132,7 +131,7 @@ def _make_event(
         agent_id=agent_id,
         event_type=event_type,
         event_class="domain",
-        timestamp=timestamp or datetime(2026, 6, 22, 10, 0, tzinfo=timezone.utc),
+        timestamp=timestamp or datetime(2026, 6, 22, 10, 0, tzinfo=UTC),
         data=data or {"cliente_id": "cli-001", "valor_total": 100.0},
         correlation=_StubCorrelation(
             correlation_id=uuid4(),
@@ -264,7 +263,7 @@ class TestCanonicalBytes:
         assert len(b1) > 0
 
     def test_canonical_bytes_strip_signature(self, keypair) -> None:
-        priv, _ = keypair
+        _priv, _ = keypair
         # We cannot call sign_event on _StubEvent because it
         # does not match the real Event dataclass shape. We
         # simulate by attaching a Signature manually.

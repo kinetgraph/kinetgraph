@@ -328,8 +328,8 @@ class TestProjector:
         )
         proj = Projector(event_log, session_manager, profile_manager)
 
-        assert await proj.project_session("sess-1") is True
-        cached = await session_manager.read("sess-1")
+        assert (await proj.project_session("sess-1")).ok_value() is True
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         assert cached.session_id == "sess-1"
 
@@ -338,7 +338,7 @@ class TestProjector:
     ):
         proj = Projector(event_log, session_manager, profile_manager)
 
-        assert await proj.project_session("nonexistent") is False
+        assert (await proj.project_session("nonexistent")).ok_value() is False
 
     async def test_project_profile_writes_cache(
         self, event_log, session_manager, profile_manager
@@ -353,8 +353,8 @@ class TestProjector:
         )
         proj = Projector(event_log, session_manager, profile_manager)
 
-        assert await proj.project_profile("tenant-a", "user-1") is True
-        cached = await profile_manager.read("tenant-a", "user-1")
+        assert (await proj.project_profile("tenant-a", "user-1")).ok_value() is True
+        cached = (await profile_manager.read("tenant-a", "user-1")).ok_value()
         assert cached is not None
 
     async def test_project_profile_returns_false_for_missing(
@@ -362,7 +362,7 @@ class TestProjector:
     ):
         proj = Projector(event_log, session_manager, profile_manager)
 
-        assert await proj.project_profile("t", "u") is False
+        assert (await proj.project_profile("t", "u")).ok_value() is False
 
     async def test_project_continuity_returns_false_when_unconfigured(
         self, event_log, session_manager, profile_manager
@@ -371,7 +371,7 @@ class TestProjector:
             event_log, session_manager, profile_manager, continuity_manager=None
         )
 
-        assert await proj.project_continuity("t", "u") is False
+        assert (await proj.project_continuity("t", "u")).ok_value() is False
 
     async def test_project_continuity_writes_cache(
         self, event_log, session_manager, profile_manager, continuity_manager
@@ -388,8 +388,8 @@ class TestProjector:
             event_log, session_manager, profile_manager, continuity_manager
         )
 
-        assert await proj.project_continuity("tenant-a", "user-1") is True
-        cached = await continuity_manager.read("tenant-a", "user-1")
+        assert (await proj.project_continuity("tenant-a", "user-1")).ok_value() is True
+        cached = (await continuity_manager.read("tenant-a", "user-1")).ok_value()
         assert cached is not None
 
     async def test_project_all_counts_each_kind(
@@ -417,7 +417,7 @@ class TestProjector:
             await event_log.append(e)
         proj = Projector(event_log, session_manager, profile_manager)
 
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value()
 
         assert counts == {"sessions": 1, "profiles": 1, "continuity": 0}
 
@@ -426,6 +426,6 @@ class TestProjector:
     ):
         proj = Projector(event_log, session_manager, profile_manager)
 
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value()
 
         assert counts == {"sessions": 0, "profiles": 0, "continuity": 0}

@@ -77,16 +77,15 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
 from kntgraph.agents.memory.solution_lookup import CachedSolution
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._client import RedisLike
-from kntgraph.infra.redis._prefix import namespaced
 from kntgraph.infra.redis._codec import decode_dict, decode_value
-
+from kntgraph.infra.redis._prefix import namespaced
 
 logger = structlog.get_logger()
 
@@ -143,7 +142,7 @@ class RedisSolutionStore:
     """
 
     client: RedisLike
-    ttl_seconds: Optional[int] = None
+    ttl_seconds: int | None = None
     key_prefix: str = ""
 
     def _key(self, tool_name: str) -> str:
@@ -215,7 +214,7 @@ class RedisSolutionStore:
         tool_name: str,
         params_fingerprint: str,
         min_confidence: int,
-    ) -> Optional[CachedSolution]:
+    ) -> CachedSolution | None:
         """Read-side API (the ``SolutionStoreLike`` contract).
 
         On hit: returns the cached Solution when
@@ -407,8 +406,8 @@ class RedisSolutionStore:
 
 
 __all__ = [
-    "RedisSolutionStore",
     "SOLUTION_KEY_PREFIX",
+    "RedisSolutionStore",
     "SolutionStoreDecodeError",
     "SolutionStoreError",
     "SolutionStoreSerializationError",

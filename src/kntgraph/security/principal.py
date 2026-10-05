@@ -48,10 +48,9 @@ from __future__ import annotations
 import contextvars
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Protocol, TypeVar, runtime_checkable
+from typing import Protocol, TypeVar, runtime_checkable
 
 from kntgraph.core._typing import JsonValue
-
 
 # Generic comparable type for ``PrincipalLevel.__lt__`` /
 # ``PrincipalLevel.__le__``. The Python data model
@@ -90,7 +89,7 @@ class PrincipalLevel(str, Enum):
     admin = "admin"  # cross-tenant operators; tenant=None
 
     @classmethod
-    def _coerce(cls, value: "PrincipalLevel | str") -> "PrincipalLevel":
+    def _coerce(cls, value: PrincipalLevel | str) -> PrincipalLevel:
         """Convert a ``PrincipalLevel`` value or a raw
         string (``"service"``, ``"agent"``,
         ``"admin"``) to a ``PrincipalLevel``.
@@ -159,7 +158,7 @@ class Principal:
 
     agent_id: str
     level: PrincipalLevel
-    tenant_id: Optional[str]
+    tenant_id: str | None
     key_id: str
 
     def __post_init__(self) -> None:
@@ -225,7 +224,7 @@ class Principal:
         }
 
     @classmethod
-    def from_json(cls, payload: dict[str, JsonValue]) -> "Principal":
+    def from_json(cls, payload: dict[str, JsonValue]) -> Principal:
         """Parse the wire format. Raises ``ValueError`` on
         invalid input (including legacy string-only payloads
         — see ``scripts/migrate_principals.py``).
@@ -236,7 +235,7 @@ class Principal:
         stored in :attr:`level`.
         """
         if not isinstance(payload, dict):
-            raise ValueError(
+            raise TypeError(
                 f"Principal JSON must be a dict, got {type(payload).__name__}"
             )
         try:
@@ -257,7 +256,7 @@ class Principal:
         *,
         level: PrincipalLevel,
         key_id: str,
-    ) -> "Principal":
+    ) -> Principal:
         """
         Build a `Principal` from an `agent_id` using the
         single-tenant derivation convention:
@@ -309,7 +308,7 @@ def _scalar(value: JsonValue) -> str:
     return ""
 
 
-def _optional_scalar(value: JsonValue) -> Optional[str]:
+def _optional_scalar(value: JsonValue) -> str | None:
     """Like :func:`_scalar` but propagates ``None`` as
     ``None`` (the ``tenant_id`` field is optional).
     """
@@ -337,8 +336,8 @@ class Resource:
     """The object of an action. ``kind`` discriminates."""
 
     kind: str  # "event" | "tool" | "agent" | "tenant" | "admin"
-    tenant_id: Optional[str] = None
-    name: Optional[str] = None
+    tenant_id: str | None = None
+    name: str | None = None
 
 
 @runtime_checkable
@@ -447,7 +446,7 @@ class DefaultPolicy:
 #: indicates "no principal bound", which means the
 #: caller's intent cannot be authorised and any
 #: guarded operation must raise.
-principal_ctx: contextvars.ContextVar[Optional[Principal]] = contextvars.ContextVar(
+principal_ctx: contextvars.ContextVar[Principal | None] = contextvars.ContextVar(
     "fmh_principal", default=None
 )
 

@@ -126,12 +126,13 @@ delivers that.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, TypeVar
 
 import structlog
 
 from ..core.event import Event
-from ..core.result import Result
+from ..core.result import Err, Ok, PersistenceError, Result
+from ..infra.redis._errors import MemoryError as MemoryAdapterError
 from ..stream.event_log import EventLog
 
 if TYPE_CHECKING:
@@ -148,7 +149,7 @@ StateT = TypeVar("StateT")
 # ``SET key value``) or a Hash mapping (for ``HSET``).
 # The concrete choice is per-tier (SessionManager uses
 # JSON; ProfileManager and ContinuityManager use Hash).
-CachePayload = Union[str, dict[str, str]]
+CachePayload = str | dict[str, str]
 
 # Suffix that distinguishes the fold-cursor key from
 # the cache key. The base uses it to derive
@@ -157,7 +158,7 @@ CachePayload = Union[str, dict[str, str]]
 FOLD_CURSOR_SUFFIX = ":fold_cursor"
 
 
-class BaseShortTermMemory(ABC, Generic[StateT]):
+class BaseShortTermMemory[StateT](ABC):
     """
     Abstract base for the RAB "short-memory" shape, FMH-flavoured.
 
@@ -201,9 +202,9 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
     def __init__(
         self,
         event_log: EventLog,
-        storage: "ShortMemoryStorage",
+        storage: ShortMemoryStorage,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         self._log = event_log
         self._storage = storage
@@ -239,7 +240,7 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
 
     # ------------------------------------------------------------------ public
 
-    async def read(self, *key_parts: str) -> Optional[StateT]:
+    async def read(self, *key_parts: str) -> Result[StateT | None, PersistenceError]:
         """
         Read the current state for the given identity.
         Tries the cache first; on miss, folds the EventLog
@@ -253,57 +254,91 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         it is ``(tenant_id, user_id)``. The base resolves
         the Redis key via ``cache_key(*key_parts)``.
 
-        Cache errors (decoded via the ``ShortMemoryStorage``
-        Protocol's ``Result`` contract) are logged and
-        treated as a miss: a transient Redis blip MUST NOT
-        fail the read-through. The fold-fallback still
-        succeeds against the EventLog.
+        Returns ``Ok(state)`` on cache hit, ``Ok(None)`` on
+        a clean miss (no state in cache and no events in
+        the EventLog), or ``Err(PersistenceError)`` when
+        either the cache adapter or the EventLog fold
+        reports a failure. Errors propagate — callers MUST
+        inspect the error; AGENTS.md §6: "wrap-in-result,
+        no fail-soft".
         """
         key = self.cache_key(*key_parts)
         cache_result = await self._read_cache(key, *key_parts)
         if cache_result.is_err():
-            logger.warning(
-                "short_term.cache.read_failed",
-                key=key,
-                error=str(cache_result.err_value()),
+            err = cache_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Cache read for {key!r} failed: {err}"
+                )
             )
-        else:
-            cached = cache_result.ok_value()
-            if cached is not None:
-                return cached
+        cached = cache_result.ok_value()
+        if cached is not None:
+            return Ok(cached)
         folded = await self._fold_from_log(*key_parts)
-        if folded is not None:
-            await self._write_cache_for_key(key, folded)
-        return folded
+        if folded is None:
+            return Ok(None)
+        write_result = await self._write_cache_for_key(key, folded)
+        if write_result.is_err():
+            err = write_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Cache refresh after fold failed for {key!r}: "
+                    f"{err}"
+                )
+            )
+        return Ok(folded)
 
-    async def refresh_cache(self, *key_parts: str) -> None:
+    async def refresh_cache(
+        self, *key_parts: str
+    ) -> Result[None, PersistenceError]:
         """
         Rebuild the cache for one identity by folding the
-        EventLog. Idempotent: if no events exist, this is a
-        no-op.
+        EventLog. Idempotent: if no events exist, this is
+        a no-op (returns ``Ok(None)``).
 
-        Public API: the ``CacheWarmer`` adapter calls this in
-        response to a ``CacheRefreshRequest``. The method is
-        named without the leading underscore precisely
+        Public API: the ``CacheWarmer`` adapter calls this
+        in response to a ``CacheRefreshRequest``. The method
+        is named without the leading underscore precisely
         because it is part of the cross-module contract.
 
         Side effect (P4 optimisation): after writing the
         cache payload, also stamps the fold cursor onto
         the parallel ``<key>:fold_cursor`` key so the next
-        incremental call can take the warm path. The
-        cursor write is best-effort (a failure is logged
-        and ignored — the cache itself is still
-        consistent).
+        incremental call can take the warm path.
+
+        Errors propagate from the underlying fold and
+        cache-write helpers; callers MUST inspect the
+        ``Result`` (AGENTS.md §6).
         """
         folded = await self._fold_from_log(*key_parts)
-        if folded is not None:
-            key = self.cache_key(*key_parts)
-            await self._write_cache_for_key(key, folded)
-            cursor = await self._log.latest_stream_id(self.agent_id_for(*key_parts))
-            if cursor is not None:
-                await self._write_fold_cursor(key, cursor)
+        if folded is None:
+            return Ok(None)
+        key = self.cache_key(*key_parts)
+        write_result = await self._write_cache_for_key(key, folded)
+        if write_result.is_err():
+            err = write_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Cache write during refresh for {key!r} failed: "
+                    f"{err}"
+                )
+            )
+        cursor = await self._log.latest_stream_id(self.agent_id_for(*key_parts))
+        if cursor is not None:
+            cursor_result = await self._write_fold_cursor(key, cursor)
+            if cursor_result.is_err():
+                err = cursor_result.err_value()
+                return Err(
+                    PersistenceError(
+                        f"Fold-cursor write during refresh for "
+                        f"{key!r} failed: {err}"
+                    )
+                )
+        return Ok(None)
 
-    async def refresh_cache_incremental(self, *key_parts: str) -> None:
+    async def refresh_cache_incremental(
+        self, *key_parts: str
+    ) -> Result[None, PersistenceError]:
         """
         Rebuild the cache by folding ONLY the EventLog
         delta since the last published fold cursor
@@ -328,35 +363,55 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         The hot path runs from the ``CacheWarmer`` pump
         loop. The cold path (``refresh_cache``) seeds
         the cursor on the first call.
+
+        Errors propagate from the underlying helpers;
+        callers MUST inspect the ``Result``
+        (AGENTS.md §6).
         """
         key = self.cache_key(*key_parts)
         cursor = await self._read_fold_cursor(key)
         if cursor is None:
-            await self.refresh_cache(*key_parts)
-            return
+            return await self.refresh_cache(*key_parts)
 
         agent_id = self.agent_id_for(*key_parts)
         delta, new_cursor = await self._log.read_after_cursor(agent_id, cursor)
         if not delta:
-            return
+            return Ok(None)
 
         existing = await self._read_state_for_incremental(key, *key_parts)
         if existing is None:
             # Cache disappeared between cursor read and
             # here — treat as cold and rebuild from
             # scratch (the cursor will be re-seeded).
-            await self.refresh_cache(*key_parts)
-            return
+            return await self.refresh_cache(*key_parts)
 
         merged = await self._fold_incremental(key_parts, existing, delta)
         if merged is None:
-            await self.refresh_cache(*key_parts)
-            return
+            return await self.refresh_cache(*key_parts)
 
-        await self._write_cache_for_key(key, merged)
-        await self._write_fold_cursor(key, new_cursor)
+        write_result = await self._write_cache_for_key(key, merged)
+        if write_result.is_err():
+            err = write_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Cache write during incremental refresh for "
+                    f"{key!r} failed: {err}"
+                )
+            )
+        cursor_result = await self._write_fold_cursor(key, new_cursor)
+        if cursor_result.is_err():
+            err = cursor_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Fold-cursor write during incremental refresh "
+                    f"for {key!r} failed: {err}"
+                )
+            )
+        return Ok(None)
 
-    async def invalidate_cache(self, *key_parts: str) -> None:
+    async def invalidate_cache(
+        self, *key_parts: str
+    ) -> Result[None, PersistenceError]:
         """
         Drop both the cache payload AND the fold cursor
         for one identity.
@@ -376,13 +431,31 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
             between the cache and the cursor (e.g. a
             stale cursor surviving a TTL'd-out cache).
 
-        Idempotent: missing keys are no-ops. The next
-        ``refresh_cache_incremental`` call sees the cold
-        state and seeds a fresh cursor + payload.
+        Idempotent: missing keys are no-ops.
+
+        Errors propagate from the underlying storage
+        deletes (AGENTS.md §6).
         """
         key = self.cache_key(*key_parts)
-        await self._storage.delete_record(key)
-        await self._storage.delete_fold_cursor(self._fold_cursor_key(key))
+        delete_result = await self._storage.delete_record(key)
+        if delete_result.is_err():
+            err = delete_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Cache delete for {key!r} failed: {err}"
+                )
+            )
+        cursor_delete = await self._storage.delete_fold_cursor(
+            self._fold_cursor_key(key)
+        )
+        if cursor_delete.is_err():
+            err = cursor_delete.err_value()
+            return Err(
+                PersistenceError(
+                    f"Fold-cursor delete for {key!r} failed: {err}"
+                )
+            )
+        return Ok(None)
 
     # ------------------------------------------------------------------ protected
 
@@ -420,13 +493,11 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
             )
             return None
 
-    async def _write_fold_cursor(self, key: str, cursor: str) -> None:
+    async def _write_fold_cursor(
+        self, key: str, cursor: str
+    ) -> Result[None, PersistenceError]:
         """
         Persist the fold cursor on the parallel key.
-        Best effort: a transport failure is logged at
-        WARNING and swallowed. The cache payload itself
-        is still consistent (the cursor is metadata,
-        not the memory state).
 
         TTL matches the cache payload: the two keys
         MUST expire together, else the cursor could
@@ -435,16 +506,24 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         back to cold on cache miss, so the
         inconsistency self-corrects, but matching TTLs
         is the honest contract.
+
+        Errors propagate to the caller (AGENTS.md §6).
         """
         cursor_key = self._fold_cursor_key(key)
         ttl = self._ttl if self._ttl and self._ttl > 0 else None
         try:
             await self._storage.write_fold_cursor(cursor_key, cursor, ttl_seconds=ttl)
+            return Ok(None)
         except Exception as e:
             logger.warning(
                 "short_term.fold_cursor.write_failed",
                 key=key,
                 error=str(e),
+            )
+            return Err(
+                PersistenceError(
+                    f"write_fold_cursor for {cursor_key!r} failed: {e}"
+                )
             )
 
     async def _read_state_for_incremental(
@@ -508,7 +587,7 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
     @abstractmethod
     async def _read_cache(
         self, key: str, *key_parts: str
-    ) -> "Result[Optional[StateT], MemoryDecodeError]":
+    ) -> Result[StateT | None, MemoryDecodeError]:
         """
         Decode the cache entry at ``key`` into a StateT.
         Return ``Ok(None)`` if the entry is missing or
@@ -530,7 +609,7 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         raise NotImplementedError
 
     @abstractmethod
-    async def _fold_from_log(self, *key_parts: str) -> Optional[StateT]:
+    async def _fold_from_log(self, *key_parts: str) -> StateT | None:
         """
         Pure fold: events → StateT.
 
@@ -561,7 +640,9 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         """
         raise NotImplementedError
 
-    async def _write_cache_for_key(self, key: str, state: StateT) -> None:
+    async def _write_cache_for_key(
+        self, key: str, state: StateT
+    ) -> Result[None, PersistenceError]:
         """
         Internal write-through helper. The base class calls
         this whenever it needs to push a StateT to the cache
@@ -572,25 +653,33 @@ class BaseShortTermMemory(ABC, Generic[StateT]):
         that resolves the identity components into a key
         first. This helper takes the already-resolved key.
 
-        Errors from the storage (``MemoryError``) are
-        swallowed with a WARNING log — the cache is a hint,
-        not the source of truth. The EventLog is the
-        authoritative state.
+        Errors from the storage propagate to the caller
+        (AGENTS.md §6). The cache is the working set, but
+        write failures must surface so the public-facing
+        ``write_cache`` / ``refresh_cache`` APIs can
+        compose the failure back to their caller.
         """
         payload = self._serialize_for_cache(state)
         ttl = self._ttl if self._ttl and self._ttl > 0 else None
         result = await self._storage.put_record(key, payload, ttl_seconds=ttl)
         if result.is_err():
+            err = result.err_value()
             logger.warning(
                 "short_term.cache.write_failed",
                 key=key,
-                error=str(result.err_value()),
+                error=str(err),
             )
+            return Err(
+                PersistenceError(
+                    f"put_record for {key!r} failed: {err}"
+                )
+            )
+        return Ok(None)
 
 
 __all__ = [
+    "FOLD_CURSOR_SUFFIX",
     "BaseShortTermMemory",
     "CachePayload",
-    "FOLD_CURSOR_SUFFIX",
     "StateT",
 ]

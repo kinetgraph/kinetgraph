@@ -18,7 +18,8 @@ the pump continues with the next one.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Optional, Protocol
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Protocol
 
 from kntgraph.agents.memory.solutions._bus import SolutionPromotionBus
 from kntgraph.agents.memory.solutions._promoter_helpers import redact_candidate
@@ -132,8 +133,8 @@ class SolutionPromoter:
         self,
         *,
         tenant_id: str = "default",
-        projector: "SolutionProjector | None" = None,
-        redactor: Optional["Redactor"] = None,
+        projector: SolutionProjector | None = None,
+        redactor: Redactor | None = None,
         allow_fail_closed: bool = True,
     ) -> None:
         """
@@ -267,7 +268,7 @@ class SolutionPromoter:
                 else:
                     upserts += 1
                     by_tool[c.action.tool_name] = by_tool.get(c.action.tool_name, 0) + 1
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 if self._allow_fail_closed:
                     failed += 1
                     log.warning(

@@ -113,9 +113,8 @@ if outgoing:
             if event.event_type.endswith(".compensation_started"):
                 sink.incr_compensation_started()
     from ._dlq_writer import append_dlq_events
-    await append_dlq_events(
-        outgoing, getattr(dispatcher, "_dlq", None)
-    )
+
+    await append_dlq_events(outgoing, getattr(dispatcher, "_dlq", None))
 ```
 
 Order matters: if the writer were called **before** the EventLog

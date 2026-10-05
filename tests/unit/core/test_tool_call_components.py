@@ -23,7 +23,7 @@ a future refactor removes them, this test fails.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 from uuid import uuid4
 
@@ -41,7 +41,7 @@ class TestToolCallRequest:
         flight is immutable (the event created it; the
         component is a cache of the event)."""
         request_event_id = str(uuid4())
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         params = MappingProxyType({"tool": "llm.complete", "n": 1})
         req = ToolCallRequest(
             request_event_id=request_event_id,
@@ -58,7 +58,7 @@ class TestToolCallRequest:
         """The request event_id, agent_id, and tool_name
         are the canonical fields the SolutionExtractor
         joins on. They MUST be present (no defaults)."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         params = MappingProxyType({"tool": "x"})
         req = ToolCallRequest(
             request_event_id="req-1",
@@ -87,7 +87,7 @@ class TestToolCallRequest:
         """`params` is a MappingProxyType (read-only).
         The component cannot be mutated post-construction
         to change the request parameters."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         params = MappingProxyType({"x": 1})
         req = ToolCallRequest(
             request_event_id="r1",
@@ -113,7 +113,7 @@ class TestToolCallCompletion:
     def test_completion_completed_has_result(self) -> None:
         """A `status="completed"` completion carries
         `result` and `completed_at`."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         result = MappingProxyType({"text": "ok"})
         comp = ToolCallCompletion(
             request_event_id="req-1",
@@ -131,7 +131,7 @@ class TestToolCallCompletion:
     def test_completion_failed_has_error(self) -> None:
         """A `status="failed"` completion carries
         `error` and `completed_at`. `result` is None."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="failed",
@@ -149,7 +149,7 @@ class TestToolCallCompletion:
         """`ToolCallCompletion` is frozen: the
         completion is a cache of a `tool.completed`/
         `tool.failed` event. It cannot be mutated."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="completed",
@@ -160,7 +160,7 @@ class TestToolCallCompletion:
 
     def test_completion_result_is_immutable(self) -> None:
         """`result` is a MappingProxyType when present."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         result = MappingProxyType({"text": "ok"})
         comp = ToolCallCompletion(
             request_event_id="req-1",
@@ -180,7 +180,7 @@ class TestToolCallPairing:
         ``request_event_id`` are a single logical
         tool call. The SolutionExtractor joins on this.
         """
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         params = MappingProxyType({"tool": "x"})
         req = ToolCallRequest(
             request_event_id="req-42",

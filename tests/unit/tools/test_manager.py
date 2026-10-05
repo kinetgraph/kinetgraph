@@ -50,7 +50,6 @@ from kntgraph.core.event import (
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools import WorkerManager, tool_worker
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -303,7 +302,7 @@ class TestProcessMessageOk:
         manager.register(_EchoTool, acl=None)
 
         request = _make_request_event()
-        message_id, data = _stream_message(request)
+        _message_id, data = _stream_message(request)
 
         await manager._process_message("echo", "knt:tools:echo:queue", "1-0", data)
 

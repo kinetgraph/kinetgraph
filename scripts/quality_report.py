@@ -158,7 +158,7 @@ def gate_format() -> dict:
 def _count_format_needs(out: str) -> int:
     for line in out.splitlines():
         line = line.strip()
-        if line.startswith("Would reformat:") or line.startswith("file"):
+        if line.startswith(("Would reformat:", "file")):
             try:
                 return int(line.split()[0])
             except (ValueError, IndexError):
@@ -179,7 +179,7 @@ def gate_complexity() -> dict:
     if code == 0 and out.strip():
         try:
             data = json.loads(out)
-            for _path, items in data.items():
+            for items in data.values():
                 for it in items:
                     blocks += 1
                     avg += it.get("complexity", 0)
@@ -242,7 +242,7 @@ def gate_pyright() -> dict:
     list is the cross-check that lets us mark the
     gate ``ok`` when the call itself succeeded.
     """
-    code, out, dt = _run(["pyright", "src/kntgraph", "--outputjson"], timeout=240)
+    _code, out, dt = _run(["pyright", "src/kntgraph", "--outputjson"], timeout=240)
     errors = 0
     warnings = 0
     try:
@@ -458,7 +458,7 @@ def gate_bandit() -> dict:
     so the snapshot reflects the severity counts
     downstream tooling (CI) cares about.
     """
-    code, out, dt = _run(["bandit", "-r", "src/kntgraph", "-q", "-f", "txt"])
+    _code, out, dt = _run(["bandit", "-r", "src/kntgraph", "-q", "-f", "txt"])
     high = medium = low = 0
     in_severity = False
     for line in out.splitlines():

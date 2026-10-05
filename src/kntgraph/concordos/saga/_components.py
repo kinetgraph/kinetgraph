@@ -83,7 +83,7 @@ class SagaProgressComponent(DomainComponent):
     # step_name -> "pending" | "skipped" | "in_flight"
     #              "completed" | "failed" | "timed_out"
     #              "compensated" | "compensation_failed"
-    step_results: MappingProxyType[str, "JsonValue"]
+    step_results: MappingProxyType[str, JsonValue]
     # step_name -> result dict from ToolCallCompletion.result
     compensate_stack: tuple[str, ...]  # LIFO; steps pending compensation
     started_at: datetime

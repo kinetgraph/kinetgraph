@@ -14,7 +14,7 @@ They verify purity (no I/O, no mutation), composability
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
 
 import pytest
@@ -36,7 +36,7 @@ from kntgraph.concordos import (
 from kntgraph.core.components.memory import ContinuityComponent, ProfileComponent
 from kntgraph.core.world import DomainComponent, World
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)

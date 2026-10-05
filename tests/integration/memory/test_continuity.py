@@ -17,15 +17,17 @@ Covers:
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.infra.redis._memory import RedisContinuityStorage
-from kntgraph.infra.redis._memory import RedisProfileStorage
-from kntgraph.infra.redis._memory import RedisSessionStorage
 
 from uuid import uuid4
 
 import pytest
 
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import (
+    RedisContinuityStorage,
+    RedisProfileStorage,
+    RedisSessionStorage,
+)
 from kntgraph.memory.cache_warmer import (
     CacheRefreshBus,
     CacheRefreshRequest,
@@ -56,7 +58,7 @@ class TestContinuityManager:
         result = await cm.create("t-1", "u-1")
         assert result.is_ok()
 
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.tenant_id == "t-1"
         assert state.user_id == "u-1"
@@ -102,7 +104,7 @@ class TestContinuityManager:
         )
         assert r.is_ok()
 
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert "invoice.issue" in state.last_tools
 
@@ -145,7 +147,7 @@ class TestContinuityManager:
         r = await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
         assert r.is_ok()
 
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert "cfop" in state.last_categories
 
@@ -156,7 +158,7 @@ class TestContinuityManager:
         await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "7102")
 
-        last = await cm.recency_suggest("t-1", "u-1", "cfop")
+        last = (await cm.recency_suggest("t-1", "u-1", "cfop")).ok_value()
         assert last is not None
         assert last.startswith("7102|")
 
@@ -164,7 +166,7 @@ class TestContinuityManager:
         log = EventLog(RedisEventLogAdapter(clean_redis))
         cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
         await cm.create("t-1", "u-1")
-        last = await cm.recency_suggest("t-1", "u-1", "cfop")
+        last = (await cm.recency_suggest("t-1", "u-1", "cfop")).ok_value()
         assert last is None
 
     async def test_clear_resets_state(self, clean_redis):
@@ -180,13 +182,13 @@ class TestContinuityManager:
         r = await cm.clear("t-1", "u-1", reason="lgpd_erasure")
         assert r.is_ok()
 
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.is_cleared()
         assert state.last_categories == {}
         assert state.last_tools == {}
 
-        last = await cm.recency_suggest("t-1", "u-1", "cfop")
+        last = (await cm.recency_suggest("t-1", "u-1", "cfop")).ok_value()
         assert last is None
 
     async def test_post_clear_recording_starts_fresh(self, clean_redis):
@@ -197,7 +199,7 @@ class TestContinuityManager:
         await cm.clear("t-1", "u-1")
         await cm.record_category_chosen("t-1", "u-1", "cfop", "6102")
 
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.is_cleared() is False
         assert state.last_categories["cfop"].startswith("6102|")
@@ -219,7 +221,7 @@ class TestContinuityManager:
         await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
 
         # Read rebuilds
-        state = await cm.read("t-1", "u-1")
+        state = (await cm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert "invoice.issue" in state.last_tools
 
@@ -229,7 +231,7 @@ class TestContinuityManager:
     async def test_read_unknown_returns_none(self, clean_redis):
         log = EventLog(RedisEventLogAdapter(clean_redis))
         cm = ContinuityManager(log, RedisContinuityStorage(clean_redis))
-        state = await cm.read("t-x", "u-x")
+        state = (await cm.read("t-x", "u-x")).ok_value()
         assert state is None
 
     async def test_idempotent_create(self, clean_redis):
@@ -277,7 +279,7 @@ class TestCacheWarmerContinuityDispatch:
         # advanced past the EventLog) and short-circuits
         # without repopulating the cache. The high-level
         # API ``invalidate_cache`` does both atomically.
-        await cm.invalidate_cache("t-1", "u-1")
+        (await cm.invalidate_cache("t-1", "u-1")).is_ok()
 
         bus = CacheRefreshBus()
         bus.publish(CacheRefreshRequest(kind="continuity", id1="t-1", id2="u-1"))
@@ -289,8 +291,8 @@ class TestCacheWarmerContinuityDispatch:
             profile_manager=None,  # type: ignore[arg-type]
             continuity_manager=cm,
         )
-        applied = await warmer.pump_once()
-        assert applied == 1
+        applied = (await warmer.pump_once()).ok_value()
+        assert applied.ok == 1
         assert await clean_redis.exists(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
 
     async def test_warmer_logs_when_continuity_unconfigured(self, clean_redis):
@@ -309,10 +311,13 @@ class TestCacheWarmerContinuityDispatch:
         pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         warmer = CacheWarmer(bus, sm, pm)
 
-        applied = await warmer.pump_once()
-        # 1 request drained; not applied but the batch
-        # survives.
-        assert applied == 1
+        applied = (await warmer.pump_once()).ok_value()
+        # 1 request drained; not applied (continuity
+        # unconfigured) but the batch survives — the
+        # warmer does NOT count it as ok or failed.
+        assert applied is not None
+        assert applied.ok == 0
+        assert applied.failed == 0
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +350,7 @@ class TestProjectorContinuity:
         await clean_redis.delete("knt:profile:t-1:u-1")
         await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t-1:u-1")
 
-        result = await proj.project_all()
+        result = (await proj.project_all()).ok_value()
         assert result == {
             "sessions": 1,
             "profiles": 1,
@@ -358,7 +363,7 @@ class TestProjectorContinuity:
         pm = ProfileManager(log, RedisProfileStorage(clean_redis))
         # No continuity_manager passed.
         proj = Projector(log, sm, pm)
-        assert await proj.project_continuity("t", "u") is False
+        assert (await proj.project_continuity("t", "u")).ok_value() is False
 
 
 # ---------------------------------------------------------------------------
@@ -421,8 +426,8 @@ class TestPublicCacheContract:
             created_at=1.0,
             updated_at=2.0,
         )
-        await cm.write_cache("t", "u", state)
-        cached = await cm.read("t", "u")
+        (await cm.write_cache("t", "u", state)).is_ok()
+        cached = (await cm.read("t", "u")).ok_value()
         assert cached is not None
         assert cached.last_categories == {"cfop": "6102|1.0"}
 
@@ -432,8 +437,8 @@ class TestPublicCacheContract:
         await cm.create("t", "u")
         await cm.record_category_chosen("t", "u", "cfop", "6102")
         await clean_redis.delete(f"{CONTINUITY_KEY_PREFIX}t:u")
-        await cm.refresh_cache("t", "u")
-        state = await cm.read("t", "u")
+        (await cm.refresh_cache("t", "u")).is_ok()
+        state = (await cm.read("t", "u")).ok_value()
         assert state is not None
         assert "cfop" in state.last_categories
 

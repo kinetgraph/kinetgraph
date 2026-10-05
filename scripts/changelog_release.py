@@ -37,9 +37,8 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-
 
 # Section delimiter. Matches ``## [anything]`` --
 # the canonical format for ``CHANGELOG.md``
@@ -184,7 +183,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.date is None:
-        args.date = datetime.now(timezone.utc).date().isoformat()
+        args.date = datetime.now(UTC).date().isoformat()
 
     original = args.changelog.read_text(encoding="utf-8")
     new_text = _build_rewrite(

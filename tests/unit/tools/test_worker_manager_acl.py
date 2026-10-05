@@ -42,7 +42,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 pytest.importorskip("fastapi")
 
 
@@ -109,7 +108,7 @@ class TestWorkerManagerACL:
         suite (separate file)."""
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
-        manager, redis_mock, event_log_mock = self._make_manager()
+        manager, _redis_mock, event_log_mock = self._make_manager()
         manager.register(LiteLLMToolWorker, acl=None)
 
         request = self._make_request(producer_principal_id="tenant-a.agent-1")
@@ -146,7 +145,7 @@ class TestWorkerManagerACL:
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
         from kntgraph.tools.acl import default_acl
 
-        manager, redis_mock, event_log_mock = self._make_manager()
+        manager, _redis_mock, event_log_mock = self._make_manager()
         manager.register(LiteLLMToolWorker, acl=default_acl())
 
         request = self._make_request(producer_principal_id="tenant-a.agent-1")
@@ -235,7 +234,7 @@ class TestWorkerManagerACL:
         from kntgraph.security import PrincipalLevel
         from kntgraph.tools.acl import ToolACL
 
-        manager, redis_mock, event_log_mock = self._make_manager()
+        manager, _redis_mock, event_log_mock = self._make_manager()
 
         # Custom ACL that requires ``PrincipalLevel.admin``
         # (above ``agent``). The baseline

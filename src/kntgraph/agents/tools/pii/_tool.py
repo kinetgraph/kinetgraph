@@ -13,16 +13,15 @@ and emits a ``RedactionResult``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from kntgraph.core.result import Err, Ok, Result, ToolError
-from kntgraph.infra.config import fresh_settings
-from kntgraph.agents.tools.protocol import ToolArgValue
 from kntgraph.agents.tools.pii._level1 import redact_value
 from kntgraph.agents.tools.pii._level2 import ner_redact
 from kntgraph.agents.tools.pii._patterns import DEFAULT_PII_LABELS, PiiPayload
 from kntgraph.agents.tools.pii._result import RedactionResult
-from kntgraph.agents.tools.protocol import Tool
+from kntgraph.agents.tools.protocol import Tool, ToolArgValue
+from kntgraph.core.result import Err, Ok, Result, ToolError
+from kntgraph.infra.config import fresh_settings
 
 if TYPE_CHECKING:
     from kntgraph.knowledge.extraction.base import EntityExtractor
@@ -44,8 +43,8 @@ class PiiRedactionTool(Tool):
     def __init__(
         self,
         *,
-        level: Optional[int] = None,
-        entity_extractor: "Optional[EntityExtractor]" = None,
+        level: int | None = None,
+        entity_extractor: EntityExtractor | None = None,
         labels: tuple[str, ...] = DEFAULT_PII_LABELS,
     ) -> None:
         """
@@ -115,7 +114,7 @@ class PiiRedactionTool(Tool):
         *,
         idempotency_key: str,
         payload: PiiPayload,
-        **kwargs: "ToolArgValue",
+        **kwargs: ToolArgValue,
     ) -> Result[RedactionResult, ToolError]:
         """
         Tool Protocol entry point. Delegates to `redact`.

@@ -312,6 +312,7 @@ class StepContext:
     called the Specification, not to the
     Specification itself.
     """
+
     step_results: MappingProxyType[str, "JsonValue"]
     step_states: MappingProxyType[str, str]
     domain: "DomainComponent | None"
@@ -390,10 +391,7 @@ class AndSpec(Specification):
     right: Specification
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        return (
-            self.left.is_satisfied_by(ctx)
-            and self.right.is_satisfied_by(ctx)
-        )
+        return self.left.is_satisfied_by(ctx) and self.right.is_satisfied_by(ctx)
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,10 +400,7 @@ class OrSpec(Specification):
     right: Specification
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        return (
-            self.left.is_satisfied_by(ctx)
-            or self.right.is_satisfied_by(ctx)
-        )
+        return self.left.is_satisfied_by(ctx) or self.right.is_satisfied_by(ctx)
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +430,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class StepCompleted(Specification):
     """True when the named step completed successfully."""
+
     step_name: str
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -444,6 +440,7 @@ class StepCompleted(Specification):
 @dataclass(frozen=True, slots=True)
 class StepFailed(Specification):
     """True when the named step failed (any reason)."""
+
     step_name: str
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -453,6 +450,7 @@ class StepFailed(Specification):
 @dataclass(frozen=True, slots=True)
 class StepTimedOut(Specification):
     """True when the named step timed out (ADR-045)."""
+
     step_name: str
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -471,6 +469,7 @@ class StepResultEquals(Specification):
     against an arbitrary Python object would silently
     always be False and mask bugs.
     """
+
     step_name: str
     field: str
     value: "JsonValue"
@@ -485,6 +484,7 @@ class StepResultEquals(Specification):
 @dataclass(frozen=True, slots=True)
 class DomainStateIs(Specification):
     """True when the DomainComponent has a specific state value."""
+
     field: str
     value: str
 
@@ -497,6 +497,7 @@ class DomainStateIs(Specification):
 @dataclass(frozen=True, slots=True)
 class ProfileTierIs(Specification):
     """True when ProfileComponent.tier matches."""
+
     tier: str
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -522,6 +523,7 @@ class ContinuityToolUsed(Specification):
     or a dedicated QuotaComponent) and is out of scope
     for this ADR.
     """
+
     tool_name: str
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -590,6 +592,7 @@ class NfeRequired(Specification):
 @dataclass(frozen=True, slots=True)
 class TaxRegimeIs(Specification):
     """True when the domain component declares the given tax regime."""
+
     regime: str  # "simples" | "lucro_real" | "lucro_presumido"
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
@@ -649,6 +652,7 @@ class FSMTransition:
                  not satisfied, ``fsm.transition_rejected``
                  is emitted with reason="guard_failed".
     """
+
     to: str
     guard: Specification | None = None
 
@@ -666,6 +670,7 @@ class FSMConfig:
                           (optional; dict[to_state, event_type]).
     ``terminal``       -- states from which no transition is allowed.
     """
+
     component_type: type["DomainComponent"]
     state_field: str
     transitions: Mapping[str, Mapping[str, FSMTransition]]
@@ -710,6 +715,7 @@ class FSMAuditComponent:
     The cursor is updated every time the FSM emits
     a ``fsm.transitioned`` for the agent.
     """
+
     from_state: str
     to_state: str
     trigger_event_type: str
@@ -792,9 +798,7 @@ class FSMSystem:
                 out.append(event)
         return out
 
-    def _events_for_agent(
-        self, view: "AgentView", world: "World"
-    ) -> list["Event"]:
+    def _events_for_agent(self, view: "AgentView", world: "World") -> list["Event"]:
         component = view.get_component(self._cfg.component_type)
         if component is None:
             return []
@@ -866,16 +870,14 @@ class FSMSystem:
         )
 
         if current_state in self._cfg.terminal:
-            return [self._rejected(
-                trigger, current_state, reason="terminal_state"
-            )]
+            return [self._rejected(trigger, current_state, reason="terminal_state")]
 
         allowed = self._cfg.transitions.get(current_state, {})
         transition = allowed.get(trigger.event_type)
         if transition is None:
-            return [self._rejected(
-                trigger, current_state, reason="transition_not_declared"
-            )]
+            return [
+                self._rejected(trigger, current_state, reason="transition_not_declared")
+            ]
 
         if transition.guard is not None:
             ctx = StepContext(
@@ -889,17 +891,13 @@ class FSMSystem:
                 now=self._now(),
             )
             if not transition.guard.is_satisfied_by(ctx):
-                return [self._rejected(
-                    trigger, current_state, reason="guard_failed"
-                )]
+                return [self._rejected(trigger, current_state, reason="guard_failed")]
 
         out = [self._transitioned(trigger, current_state, transition.to)]
 
         entry_type = self._cfg.on_entry.get(transition.to)
         if entry_type is not None:
-            out.append(self._entry_event(
-                trigger, transition.to, entry_type
-            ))
+            out.append(self._entry_event(trigger, transition.to, entry_type))
 
         return out
 
@@ -1004,6 +1002,7 @@ class ViewTrigger:
 
     NOT a framework type and holds no event history.
     """
+
     agent_id: str
     event_type: str
     event_id: UUID | None
@@ -1118,9 +1117,7 @@ class BusinessFSMConcordo:
             f"fsm:{self.config.component_type.__name__}",
         )
         object.__setattr__(self, "systems", (FSMSystem(self.config),))
-        object.__setattr__(
-            self, "projections", (FSMProjection(self.config),)
-        )
+        object.__setattr__(self, "projections", (FSMProjection(self.config),))
 ```
 
 ### 3.6 Example — invoice lifecycle
@@ -1128,50 +1125,48 @@ class BusinessFSMConcordo:
 ```python
 # fmh_office/concordos/invoice_fsm.py
 
-from kntgraph.concordos.fsm import (
-    BusinessFSMConcordo, FSMConfig, FSMTransition
-)
+from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
 from fmh_office.components import InvoiceDomainComponent
 from fmh_office.concordos.specs import NfeRequired
 from kntgraph.concordos.specs import ContinuityToolUsed
 
-invoice_fsm = BusinessFSMConcordo(FSMConfig(
-    component_type=InvoiceDomainComponent,
-    state_field="status",
-    transitions={
-        "draft": {
-            "invoice.submitted": FSMTransition(to="validating"),
-        },
-        "validating": {
-            "invoice.approved": FSMTransition(
-                to="issued",
-                guard=NfeRequired().and_(
-                    ContinuityToolUsed("nfe_emitter").not_()
+invoice_fsm = BusinessFSMConcordo(
+    FSMConfig(
+        component_type=InvoiceDomainComponent,
+        state_field="status",
+        transitions={
+            "draft": {
+                "invoice.submitted": FSMTransition(to="validating"),
+            },
+            "validating": {
+                "invoice.approved": FSMTransition(
+                    to="issued",
+                    guard=NfeRequired().and_(ContinuityToolUsed("nfe_emitter").not_()),
                 ),
-            ),
-            "invoice.approved_bypass": FSMTransition(
-                to="issued",
-                guard=NfeRequired().not_(),
-            ),
-            "invoice.rejected": FSMTransition(to="draft"),
+                "invoice.approved_bypass": FSMTransition(
+                    to="issued",
+                    guard=NfeRequired().not_(),
+                ),
+                "invoice.rejected": FSMTransition(to="draft"),
+            },
+            "issued": {
+                "payment.received": FSMTransition(to="paid"),
+                "invoice.cancelled": FSMTransition(to="cancelled"),
+                "invoice.overdue": FSMTransition(to="overdue"),
+            },
+            "overdue": {
+                "payment.received": FSMTransition(to="paid"),
+                "invoice.cancelled": FSMTransition(to="cancelled"),
+            },
         },
-        "issued": {
-            "payment.received":  FSMTransition(to="paid"),
-            "invoice.cancelled": FSMTransition(to="cancelled"),
-            "invoice.overdue":   FSMTransition(to="overdue"),
+        on_entry={
+            "issued": "invoice.issuance_confirmed",
+            "paid": "invoice.payment_confirmed",
+            "cancelled": "invoice.cancellation_confirmed",
         },
-        "overdue": {
-            "payment.received":  FSMTransition(to="paid"),
-            "invoice.cancelled": FSMTransition(to="cancelled"),
-        },
-    },
-    on_entry={
-        "issued":    "invoice.issuance_confirmed",
-        "paid":      "invoice.payment_confirmed",
-        "cancelled": "invoice.cancellation_confirmed",
-    },
-    terminal=frozenset({"paid", "cancelled"}),
-))
+        terminal=frozenset({"paid", "cancelled"}),
+    )
+)
 ```
 
 The `guard=NfeRequired().and_(ContinuityToolUsed("nfe_emitter").not_())`
@@ -1386,6 +1381,7 @@ class SagaStepConfig:
                             TTL registration on dispatch).
                             Ignored for human steps.
     """
+
     name: str
     tool_name: str | None
     compensate_tool: str | None = None
@@ -1426,9 +1422,10 @@ class SagaConfig:
     ``saga_timeout_ms`` -- wall-clock timeout for the entire saga;
                            enforced by SagaTimeoutSystem (CyclicSystem).
     """
+
     name: str
     steps: tuple[SagaStepConfig, ...]
-    fail_when: "Specification | None" = None   # None = fail on first failure
+    fail_when: "Specification | None" = None  # None = fail on first failure
     saga_timeout_ms: int = 300_000
 ```
 
@@ -1490,20 +1487,21 @@ class SagaProgressComponent(DomainComponent):
       Compensated: {SagaProgressComponent}  (direction="compensated")
       Failed:      {SagaProgressComponent}  (direction="compensation_failed")
     """
+
     saga_id: str
     saga_name: str
     current_step: str
     direction: str
     # "forward" | "compensating" | "done" | "compensated" |
     # "compensation_failed"
-    step_order: tuple[str, ...]            # declared order (immutable)
+    step_order: tuple[str, ...]  # declared order (immutable)
     step_states: MappingProxyType[str, str]
     # step_name -> "pending" | "skipped" | "in_flight"
     #              "completed" | "failed" | "timed_out"
     #              "compensated" | "compensation_failed"
     step_results: MappingProxyType[str, "JsonValue"]
     # step_name -> result dict from ToolCallCompletion.result
-    compensate_stack: tuple[str, ...]      # LIFO; steps pending compensation
+    compensate_stack: tuple[str, ...]  # LIFO; steps pending compensation
     started_at: datetime
 ```
 
@@ -1579,9 +1577,7 @@ class SagaSystem:
             out.extend(self._events_for_agent(view, world))
         return out
 
-    def _events_for_agent(
-        self, view: "AgentView", world: "World"
-    ) -> list["Event"]:
+    def _events_for_agent(self, view: "AgentView", world: "World") -> list["Event"]:
         saga = view.get_component(SagaProgressComponent)
         if saga is None:
             return []
@@ -1632,17 +1628,13 @@ class SagaSystem:
             return []
 
         # Compensation failure (§4.5.1): escalate to DLQ.
-        if trigger.event_type == (
-            f"saga.{self._cfg.name}.compensation_failed"
-        ):
+        if trigger.event_type == (f"saga.{self._cfg.name}.compensation_failed"):
             return [self._dlq_event(saga, trigger)]
 
         # Tool completion / failure / timeout
         if not (
             trigger.event_type.startswith("tool.")
-            and trigger.event_type.endswith(
-                (".completed", ".failed", ".timed_out")
-            )
+            and trigger.event_type.endswith((".completed", ".failed", ".timed_out"))
         ):
             return []
 
@@ -1687,8 +1679,8 @@ class SagaSystem:
         events; the next tick will re-run and pick it
         up. This is idempotent.
         """
-        completions: "Mapping[str, ToolCallCompletion]" = (
-            view.components.get("tool_completions", {})
+        completions: "Mapping[str, ToolCallCompletion]" = view.components.get(
+            "tool_completions", {}
         )
         step_cfg = self._step_map.get(saga.current_step)
         if step_cfg is None:
@@ -1766,8 +1758,14 @@ class SagaSystem:
                     step_states=MappingProxyType(new_states),
                 )
                 return self._handle_failure(
-                    world, view, saga, step_config, trigger, ctx,
-                    new_states, new_results,
+                    world,
+                    view,
+                    saga,
+                    step_config,
+                    trigger,
+                    ctx,
+                    new_states,
+                    new_results,
                 )
             return self._advance(
                 saga, step_config, trigger, ctx, new_states, new_results
@@ -1775,8 +1773,14 @@ class SagaSystem:
 
         # Failure or timeout
         return self._handle_failure(
-            world, view, saga, step_config, trigger, ctx,
-            new_states, new_results,
+            world,
+            view,
+            saga,
+            step_config,
+            trigger,
+            ctx,
+            new_states,
+            new_results,
         )
 
     def _completion_for_step(
@@ -1792,8 +1796,8 @@ class SagaSystem:
         tick re-runs and picks it up)."""
         if step_config.tool_name is None:
             return None
-        completions: "Mapping[str, ToolCallCompletion]" = (
-            view.components.get("tool_completions", {})
+        completions: "Mapping[str, ToolCallCompletion]" = view.components.get(
+            "tool_completions", {}
         )
         for completion in completions.values():
             if completion.tool_name == step_config.tool_name:
@@ -1905,18 +1909,20 @@ class SagaSystem:
                 and not step_cfg.compensate_when.is_satisfied_by(ctx)
             ):
                 continue
-            out.append(Event.create(
-                agent_id=trigger.agent_id,
-                event_type=f"tool.{step_cfg.compensate_tool}.requested",
-                event_class="domain",
-                data={
-                    "saga_id": saga.saga_id,
-                    "compensating_step": step_name,
-                    **dict(saga.step_results.get(step_name, {})),
-                },
-                causation_id=trigger.event_id,
-                correlation=trigger.correlation,
-            ))
+            out.append(
+                Event.create(
+                    agent_id=trigger.agent_id,
+                    event_type=f"tool.{step_cfg.compensate_tool}.requested",
+                    event_class="domain",
+                    data={
+                        "saga_id": saga.saga_id,
+                        "compensating_step": step_name,
+                        **dict(saga.step_results.get(step_name, {})),
+                    },
+                    causation_id=trigger.event_id,
+                    correlation=trigger.correlation,
+                )
+            )
         return out
 
     # ------------------------------------------------------------------
@@ -1944,8 +1950,7 @@ class SagaSystem:
             return Event.create(
                 agent_id=trigger.agent_id,
                 event_type=(
-                    f"saga.{self._cfg.name}."
-                    f"{step_config.name}.awaiting_approval"
+                    f"saga.{self._cfg.name}.{step_config.name}.awaiting_approval"
                 ),
                 event_class="domain",
                 data={"step_name": step_config.name},
@@ -1964,13 +1969,8 @@ class SagaSystem:
         if isinstance(previous, Mapping):
             for field in step_config.enrich_from:
                 for prev_result in previous.values():
-                    if (
-                        isinstance(prev_result, Mapping)
-                        and field in prev_result
-                    ):
-                        params.setdefault(
-                            field, prev_result[field]
-                        )
+                    if isinstance(prev_result, Mapping) and field in prev_result:
+                        params.setdefault(field, prev_result[field])
         return Event.create(
             agent_id=trigger.agent_id,
             event_type=f"tool.{step_config.tool_name}.requested",
@@ -2076,9 +2076,7 @@ def build_dispatcher(log, redis):
     # the wake-up / fallback-poll semantics.
     dispatcher = ReactiveDispatcher(log=log, redis=redis)
     dispatcher.subscribe(["*"], ingest_compensation_failures)
-    ConcordoCatalog(invoice_fsm, nfe_emission_saga).install_all(
-        dispatcher
-    )
+    ConcordoCatalog(invoice_fsm, nfe_emission_saga).install_all(dispatcher)
     return dispatcher
 ```
 
@@ -2213,14 +2211,16 @@ class SagaTimeoutSystem:
             # ``CorrelationContext`` is available
             # whenever a system runs (ADR-037).
             correlation = correlation_middleware.current()
-            out.append(Event.create(
-                event_id=eid,
-                agent_id=view.agent_id,
-                event_type=event_type,
-                event_class="domain",
-                data=data,
-                correlation=correlation,
-            ))
+            out.append(
+                Event.create(
+                    event_id=eid,
+                    agent_id=view.agent_id,
+                    event_type=event_type,
+                    event_class="domain",
+                    data=data,
+                    correlation=correlation,
+                )
+            )
         return out
 ```
 
@@ -2299,9 +2299,7 @@ class WorkflowSagaConcordo:
                 SagaTimeoutSystem({self.config.name: self.config}),
             ),
         )
-        object.__setattr__(
-            self, "projections", (SagaProjection(self.config),)
-        )
+        object.__setattr__(self, "projections", (SagaProjection(self.config),))
 ```
 
 There is **no** ``dispatcher.clock`` attribute. The
@@ -2321,65 +2319,63 @@ keeps the dispatcher's constructor unchanged.
 ```python
 # fmh_office/concordos/nfe_emission_saga.py
 
-from kntgraph.concordos.saga import (
-    WorkflowSagaConcordo, SagaConfig, SagaStepConfig
-)
+from kntgraph.concordos.saga import WorkflowSagaConcordo, SagaConfig, SagaStepConfig
 from kntgraph.concordos.specs import StepFailed, StepTimedOut
 from fmh_office.concordos.specs import NfeRequired, TaxRegimeIs
 
-nfe_emission_saga = WorkflowSagaConcordo(SagaConfig(
-    name="nfe_emission",
-    saga_timeout_ms=300_000,  # 5 minutes total
-
-    # Fail the saga when ANY emission path failed. The
-    # earlier draft composed ``StepFailed("emit_nfe").and_(
-    # StepFailed("emit_nfce"))`` — but the two steps are
-    # mutually exclusive at runtime (one is skipped via
-    # ``skip_when=NfeRequired().not_()`` exactly when the
-    # other runs), so the AND was logically unreachable.
-    # A failing saga must be triggered by EITHER branch.
-    fail_when=StepFailed("emit_nfe").or_(StepFailed("emit_nfce")),
-
-    steps=(
-        SagaStepConfig(
-            name="validate_fiscal",
-            tool_name="sefaz_validator",
-            # No compensation: validation produces no external effect
-            timeout_ms=10_000,
+nfe_emission_saga = WorkflowSagaConcordo(
+    SagaConfig(
+        name="nfe_emission",
+        saga_timeout_ms=300_000,  # 5 minutes total
+        # Fail the saga when ANY emission path failed. The
+        # earlier draft composed ``StepFailed("emit_nfe").and_(
+        # StepFailed("emit_nfce"))`` — but the two steps are
+        # mutually exclusive at runtime (one is skipped via
+        # ``skip_when=NfeRequired().not_()`` exactly when the
+        # other runs), so the AND was logically unreachable.
+        # A failing saga must be triggered by EITHER branch.
+        fail_when=StepFailed("emit_nfe").or_(StepFailed("emit_nfce")),
+        steps=(
+            SagaStepConfig(
+                name="validate_fiscal",
+                tool_name="sefaz_validator",
+                # No compensation: validation produces no external effect
+                timeout_ms=10_000,
+            ),
+            SagaStepConfig(
+                name="emit_nfe",
+                tool_name="nfe_emitter",
+                compensate_tool="nfe_canceller",
+                # Skip if fiscal validation says NF-e is not required
+                skip_when=NfeRequired().not_(),
+                # Do NOT compensate if step timed out:
+                # the NF-e was never created, nothing to cancel
+                compensate_when=StepTimedOut("emit_nfe").not_(),
+                # Enrich params from previous step result
+                enrich_from=("cfop", "tax_amount", "series"),
+                timeout_ms=30_000,
+            ),
+            SagaStepConfig(
+                name="emit_nfce",
+                tool_name="nfce_emitter",
+                compensate_tool="nfce_canceller",
+                # Only execute for Simples Nacional regime
+                skip_when=TaxRegimeIs("simples").not_(),
+                compensate_when=StepTimedOut("emit_nfce").not_(),
+                enrich_from=("cfop", "tax_amount"),
+                timeout_ms=30_000,
+            ),
+            SagaStepConfig(
+                name="register_receivable",
+                tool_name="erp_receivable_tool",
+                compensate_tool="erp_reversal_tool",
+                # Optional: failure here does not fail the saga
+                # (override fail_when at saga level to exclude this step)
+                timeout_ms=15_000,
+            ),
         ),
-        SagaStepConfig(
-            name="emit_nfe",
-            tool_name="nfe_emitter",
-            compensate_tool="nfe_canceller",
-            # Skip if fiscal validation says NF-e is not required
-            skip_when=NfeRequired().not_(),
-            # Do NOT compensate if step timed out:
-            # the NF-e was never created, nothing to cancel
-            compensate_when=StepTimedOut("emit_nfe").not_(),
-            # Enrich params from previous step result
-            enrich_from=("cfop", "tax_amount", "series"),
-            timeout_ms=30_000,
-        ),
-        SagaStepConfig(
-            name="emit_nfce",
-            tool_name="nfce_emitter",
-            compensate_tool="nfce_canceller",
-            # Only execute for Simples Nacional regime
-            skip_when=TaxRegimeIs("simples").not_(),
-            compensate_when=StepTimedOut("emit_nfce").not_(),
-            enrich_from=("cfop", "tax_amount"),
-            timeout_ms=30_000,
-        ),
-        SagaStepConfig(
-            name="register_receivable",
-            tool_name="erp_receivable_tool",
-            compensate_tool="erp_reversal_tool",
-            # Optional: failure here does not fail the saga
-            # (override fail_when at saga level to exclude this step)
-            timeout_ms=15_000,
-        ),
-    ),
-))
+    )
+)
 ```
 
 ### 4.9 Unit tests
@@ -2419,9 +2415,7 @@ def test_saga_dispatches_first_step_on_start() -> None:
         # The trigger's data is read from the component
         # keyed by the trigger's event_type (the default
         # fold installs the event payload under that key).
-        .with_trigger(
-            "saga.nfe_emission.started", data={"saga_id": "saga-001"}
-        )
+        .with_trigger("saga.nfe_emission.started", data={"saga_id": "saga-001"})
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
@@ -2429,9 +2423,7 @@ def test_saga_dispatches_first_step_on_start() -> None:
         SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
-    assert any(
-        e.event_type == "tool.sefaz_validator.requested" for e in out
-    )
+    assert any(e.event_type == "tool.sefaz_validator.requested" for e in out)
 
 
 def test_saga_skips_nfe_when_not_required() -> None:
@@ -2455,9 +2447,11 @@ def test_saga_skips_nfe_when_not_required() -> None:
                 step_states=MappingProxyType(
                     {"validate_fiscal": "completed", "emit_nfe": "in_flight"}
                 ),
-                step_results=MappingProxyType({
-                    "validate_fiscal": {"nfe_required": False},
-                }),
+                step_results=MappingProxyType(
+                    {
+                        "validate_fiscal": {"nfe_required": False},
+                    }
+                ),
                 compensate_stack=(),
                 started_at=FIXED_NOW,
             )
@@ -2479,9 +2473,7 @@ def test_saga_skips_nfe_when_not_required() -> None:
         SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
-    assert not any(
-        e.event_type == "tool.nfe_emitter.requested" for e in out
-    )
+    assert not any(e.event_type == "tool.nfe_emitter.requested" for e in out)
 
 
 def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
@@ -2503,10 +2495,12 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
                 step_states=MappingProxyType(
                     {"validate_fiscal": "completed", "emit_nfe": "timed_out"}
                 ),
-                step_results=MappingProxyType({
-                    "validate_fiscal": {"nfe_required": True},
-                    "emit_nfe": {},
-                }),
+                step_results=MappingProxyType(
+                    {
+                        "validate_fiscal": {"nfe_required": True},
+                        "emit_nfe": {},
+                    }
+                ),
                 compensate_stack=("validate_fiscal", "emit_nfe"),
                 started_at=FIXED_NOW,
             )
@@ -2528,9 +2522,7 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
         SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
-    assert not any(
-        e.event_type == "tool.nfe_canceller.requested" for e in out
-    )
+    assert not any(e.event_type == "tool.nfe_canceller.requested" for e in out)
 
 
 def test_saga_timeout_system_emits_timed_out() -> None:
@@ -2564,9 +2556,7 @@ def test_saga_timeout_system_emits_timed_out() -> None:
         now=lambda: FIXED_NOW,
     )
     out = run_system(system, world)
-    assert any(
-        e.event_type == "saga.nfe_emission.timed_out" for e in out
-    )
+    assert any(e.event_type == "saga.nfe_emission.timed_out" for e in out)
 
 
 def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
@@ -2588,9 +2578,7 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
                 current_step="emit_nfe",
                 direction="compensating",
                 step_order=("validate_fiscal", "emit_nfe"),
-                step_states=MappingProxyType(
-                    {"emit_nfe": "compensation_failed"}
-                ),
+                step_states=MappingProxyType({"emit_nfe": "compensation_failed"}),
                 step_results=MappingProxyType({}),
                 compensate_stack=("emit_nfe",),
                 started_at=FIXED_NOW,
@@ -2613,9 +2601,7 @@ def test_saga_dlq_event_emitted_on_compensation_failure() -> None:
         SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW),
         world,
     )
-    assert any(
-        e.event_type == "saga.nfe_emission.dlq" for e in out
-    )
+    assert any(e.event_type == "saga.nfe_emission.dlq" for e in out)
 ```
 
 ### 4.10 FSM + Saga composition
@@ -2698,8 +2684,8 @@ from fmh_office.concordos.nfe_emission_saga import nfe_emission_saga
 def build_dispatcher(log, redis) -> ReactiveDispatcher:
     dispatcher = ReactiveDispatcher(log=log, redis=redis)
     ConcordoCatalog(
-        invoice_fsm,             # C-01
-        nfe_emission_saga,       # C-02
+        invoice_fsm,  # C-01
+        nfe_emission_saga,  # C-02
     ).install_all(dispatcher)
     return dispatcher
 ```
@@ -4301,6 +4287,7 @@ _EVENT_NAME = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
 
 class EventSchema(BaseModel):
     """One event in the bundle's vocabulary."""
+
     name: str = Field(pattern=_EVENT_NAME.pattern)
     schema_: dict = Field(alias="schema")  # JSON Schema lite
 
@@ -4327,6 +4314,7 @@ class SpecificationSchema(BaseModel):
     evaluation), so a typo is caught at runtime
     with the full ``StepContext`` available.
     """
+
     id: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     expression: str = Field(min_length=1)
 
@@ -4378,6 +4366,7 @@ class BundleSchema(BaseModel):
     ``business_fsm`` keys (which would be
     syntactically ambiguous).
     """
+
     bundle_id: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
     events: list[EventSchema] = Field(default_factory=list)
@@ -4528,6 +4517,7 @@ from kntgraph.concordos.base import Specification, StepContext
 @dataclass(frozen=True, slots=True)
 class NfeRequired(Specification):
     """``True`` when fiscal validation indicates NF-e is required."""
+
     default: bool = True
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:

@@ -37,6 +37,7 @@ These tests assert:
 from __future__ import annotations
 
 import re
+from datetime import UTC
 
 import pytest
 
@@ -50,7 +51,6 @@ from kntgraph.security import (
     generate_stub_keypair,
 )
 from kntgraph.security.keys._crypto import _StubPrivateKey, _StubPublicKey
-
 
 # ---------------------------------------------------------------------------
 # generate_keypair
@@ -221,7 +221,7 @@ class TestRevocation:
         return reg, priv_a, priv_b
 
     def test_revoke_records_audit_entry(self) -> None:
-        reg, priv_a, _ = self._setup_two_epochs()
+        reg, _priv_a, _ = self._setup_two_epochs()
         rec = reg.revoke(
             "session-42",
             key_epoch=KeyEpoch(0),
@@ -243,7 +243,7 @@ class TestRevocation:
         assert reg.is_revoked("session-42", KeyEpoch(1)) is False
 
     def test_revoke_current_clears_current_epoch(self) -> None:
-        reg, priv_a, priv_b = self._setup_two_epochs()
+        reg, priv_a, _priv_b = self._setup_two_epochs()
         # Current is epoch 1 (the most recent register).
         assert reg.current_epoch("session-42") == KeyEpoch(1)
         reg.revoke("session-42", key_epoch=KeyEpoch(1), reason="test")
@@ -399,13 +399,13 @@ class _MockKeyRegistry:
         return KeyEpoch(0)
 
     def revoke(self, agent_id, key_epoch, reason):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         return RevocationRecord(
             agent_id=agent_id,
             key_epoch=key_epoch,
             reason=reason,
-            revoked_at=datetime.now(timezone.utc).isoformat(),
+            revoked_at=datetime.now(UTC).isoformat(),
             revoked_by="mock",
         )
 

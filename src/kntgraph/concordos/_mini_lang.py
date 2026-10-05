@@ -77,20 +77,21 @@ from __future__ import annotations
 
 import enum
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .base import Specification, StepContext
 
 
 __all__ = [
+    "BUILTIN_SPECS",
     "ConcordoSyntaxError",
     "Expr",
-    "parse_expression",
     "evaluate",
     "is_pure_name",
-    "BUILTIN_SPECS",
+    "parse_expression",
 ]
 
 
@@ -179,9 +180,9 @@ class Not(Expr):
 class Compare(Expr):
     """A single comparison: ``path op value``."""
 
-    path: "Path"
+    path: Path
     op: str  # "==" | "!=" | "<=" | ">=" | "<" | ">"
-    value: "Expr"
+    value: Expr
 
 
 @dataclass(frozen=True)
@@ -481,16 +482,15 @@ class _Parser:
         # 2. Path (with optional comparison)
         if lex in ("steps", "agent", "now"):
             return self._parse_path_or_comparison(lex)
-        if lex == "event" and self._peek_at(0) is not None:
-            if (
-                self._peek_at(0).kind == "DOT"
-                and self._peek_at(1) is not None
-                and self._peek_at(1).kind == "IDENT"
-                and self._peek_at(1).lexeme == "data"
-                and self._peek_at(2) is not None
-                and self._peek_at(2).kind == "DOT"
-            ):
-                return self._parse_path_or_comparison(lex)
+        if lex == "event" and self._peek_at(0) is not None and (
+            self._peek_at(0).kind == "DOT"
+            and self._peek_at(1) is not None
+            and self._peek_at(1).kind == "IDENT"
+            and self._peek_at(1).lexeme == "data"
+            and self._peek_at(2) is not None
+            and self._peek_at(2).kind == "DOT"
+        ):
+            return self._parse_path_or_comparison(lex)
         # 3. Bare identifier: if followed by OP (start of
         # comparison) or DOT (path continuation), parse as
         # path. The IDENT was already consumed at the top
@@ -698,17 +698,16 @@ class _Parser:
             if tok.lexeme in ("steps", "agent", "now"):
                 self._consume()
                 return self._parse_path(tok.lexeme)
-            if tok.lexeme == "event" and self._peek_at(1) is not None:
-                if (
-                    self._peek_at(1).kind == "DOT"
-                    and self._peek_at(2) is not None
-                    and self._peek_at(2).kind == "IDENT"
-                    and self._peek_at(2).lexeme == "data"
-                    and self._peek_at(3) is not None
-                    and self._peek_at(3).kind == "DOT"
-                ):
-                    self._consume()
-                    return self._parse_path(tok.lexeme)
+            if tok.lexeme == "event" and self._peek_at(1) is not None and (
+                self._peek_at(1).kind == "DOT"
+                and self._peek_at(2) is not None
+                and self._peek_at(2).kind == "IDENT"
+                and self._peek_at(2).lexeme == "data"
+                and self._peek_at(3) is not None
+                and self._peek_at(3).kind == "DOT"
+            ):
+                self._consume()
+                return self._parse_path(tok.lexeme)
             # 3. Bare-identifier path (Path with empty scope)
             if self._peek_at(1) is not None and self._peek_at(1).kind == "DOT":
                 self._consume()  # IDENT
@@ -880,7 +879,7 @@ def is_pure_name(expression: str) -> str | None:
 # The factories here return *new spec instances* per
 # evaluation so that spec arguments (e.g. ``name``) are
 # bound correctly. Specs are cheap; the cost is negligible.
-BUILTIN_SPECS: dict[str, Callable[..., "Specification"]] = {}
+BUILTIN_SPECS: dict[str, Callable[..., Specification]] = {}
 
 
 def _register_builtins() -> None:
@@ -916,7 +915,7 @@ def _register_builtins() -> None:
     )
 
 
-def _call_builtin(name: str, args: tuple[Any, ...], ctx: "StepContext") -> bool:
+def _call_builtin(name: str, args: tuple[Any, ...], ctx: StepContext) -> bool:
     """Instantiate a built-in spec with the parsed args
     and evaluate against the context."""
     _register_builtins()
@@ -933,7 +932,7 @@ def _call_builtin(name: str, args: tuple[Any, ...], ctx: "StepContext") -> bool:
     return spec.is_satisfied_by(ctx)
 
 
-def _resolve_path(path: Path, ctx: "StepContext") -> Any:
+def _resolve_path(path: Path, ctx: StepContext) -> Any:
     """Resolve a path expression against the step context.
 
     Returns ``None`` for missing keys (graceful failure,
@@ -1064,7 +1063,7 @@ def _compare_strings(lhs: Any, op: str, rhs: Any) -> bool:
     return False
 
 
-def evaluate(expr: Expr, ctx: "StepContext") -> bool:
+def evaluate(expr: Expr, ctx: StepContext) -> bool:
     """Evaluate the parsed AST against a ``StepContext``.
 
     Pure: no I/O, no mutation, no event emission. The
@@ -1076,7 +1075,7 @@ def evaluate(expr: Expr, ctx: "StepContext") -> bool:
         # NameLookup should not appear (the loader
         # converts it to the resolved spec). If it does,
         # we treat it as "no match" — fail safe.
-        raise ValueError(
+        raise RuntimeError(
             "NameLookup AST should be resolved by the "
             "loader before evaluation; got "
             f"{expr.name!r} unresolved"
@@ -1119,7 +1118,7 @@ def evaluate(expr: Expr, ctx: "StepContext") -> bool:
     raise ValueError(f"unknown AST node: {type(expr).__name__}")  # pragma: no cover
 
 
-def _literal_value(lit: Literal, ctx: "StepContext") -> Any:
+def _literal_value(lit: Literal, ctx: StepContext) -> Any:
     """Resolve a Literal node against the StepContext.
 
     Used by ``Call`` to coerce string/number literals into

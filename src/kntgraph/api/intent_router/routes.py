@@ -50,7 +50,6 @@ import asyncio
 import json
 import warnings
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Optional
 from uuid import UUID
 
 import structlog
@@ -75,6 +74,8 @@ from ..schemas import (
     IntentResponse,
     RejectionResponse,
     StatusResponse,
+)
+from ..schemas import (
     ToolDescriptor as ToolDescriptorSchema,
 )
 from .helpers import (
@@ -204,7 +205,7 @@ def register_post_intent(
         agent_id: str,
         body: IntentRequest,
         principal: Principal = Depends(auth),  # type: ignore[valid-type]
-        idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ) -> IntentResponse:
         """
         Accept an intent. The router:
@@ -449,9 +450,9 @@ def register_sse_events(
         agent_id: str,
         principal: Principal = Depends(auth),  # type: ignore[valid-type]
         from_: str = "0",
-        causation_id: "str | None" = None,
-        event_class: "str | None" = None,
-    ) -> "StreamingResponse":  # type: ignore[valid-type]
+        causation_id: str | None = None,
+        event_class: str | None = None,
+    ) -> StreamingResponse:  # type: ignore[valid-type]
         """
         Subscribe to the agent's EventLog.
 
@@ -474,8 +475,8 @@ def register_sse_events(
         # SSE filters are validated once at the entry
         # point; the inner generator is a pure
         # poll-and-yield loop and trusts the inputs.
-        causation_filter: Optional[str] = causation_id
-        class_filter: Optional[str] = event_class
+        causation_filter: str | None = causation_id
+        class_filter: str | None = event_class
 
         async def _stream() -> AsyncIterator[bytes]:
             cursor = from_
@@ -539,7 +540,7 @@ def register_sse_events(
                             f"event: {ev.event_type}\n"
                             f"id: {ev.event_id}\n"
                             f"data: {json.dumps(payload, default=str)}\n\n"
-                        ).encode("utf-8")
+                        ).encode()
                         yield frame
                         cursor = str(ev.event_id)
                         last_heartbeat = asyncio.get_event_loop().time()

@@ -22,14 +22,12 @@ from __future__ import annotations
 
 from types import MappingProxyType
 
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
-
 from kntgraph.agents.memory.solution_review_publisher import (
     ReviewPublisherStats,
     SolutionReviewPublisherSystem,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 
 
 def _candidate_event(

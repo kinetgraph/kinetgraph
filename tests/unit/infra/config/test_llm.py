@@ -20,7 +20,6 @@ LLM adapter reads via ``Settings()`` at construction.
 
 from __future__ import annotations
 
-
 from kntgraph.infra.config import Settings
 
 

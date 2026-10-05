@@ -33,7 +33,6 @@ network call; we only verify the wiring.
 
 from __future__ import annotations
 
-
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,7 +50,6 @@ from kntgraph.knowledge.extraction import (
 from kntgraph.knowledge.extraction.base import (
     ArgumentExtractor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared mocks

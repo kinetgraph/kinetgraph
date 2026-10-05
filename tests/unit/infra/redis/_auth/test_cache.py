@@ -19,7 +19,6 @@ boundary) — not Redis. The cache is pure composition.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import pytest
 
@@ -27,7 +26,6 @@ from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._auth import APIKeyStorage
 from kntgraph.infra.redis._auth._cache import APIKeyCacheAdapter
 from kntgraph.infra.redis._errors import MemoryError
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -46,7 +44,7 @@ class _MockAPIKeyStorage:
     lookup_calls: list[str] = field(default_factory=list)
     raise_on_lookup: Exception | None = None
 
-    async def lookup(self, digest: str) -> Result[Optional[bytes], MemoryError]:
+    async def lookup(self, digest: str) -> Result[bytes | None, MemoryError]:
         self.lookup_calls.append(digest)
         if self.raise_on_lookup is not None:
             return Err(MemoryError(f"redis: {self.raise_on_lookup}"))

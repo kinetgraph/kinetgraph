@@ -79,22 +79,26 @@ When a pod starts, it performs a deterministic handshake with Redis to join the 
 POD_ID = os.getenv("POD_NAME") or uuid4()
 await redis.set(
     f"knt:pod:{POD_ID}",
-    json.dumps({
-        "host": socket.gethostname(),
-        "port": os.getenv("POD_PORT", 8000),
-        "started_at": time.time(),
-    }),
+    json.dumps(
+        {
+            "host": socket.gethostname(),
+            "port": os.getenv("POD_PORT", 8000),
+            "started_at": time.time(),
+        }
+    ),
     ex=30,  # TTL: 30 seconds
 )
 
 # Phase 2: Add to cluster registry (sorted by boot time)
 await redis.zadd("knt:cluster:registry", {POD_ID: time.time()})
 
+
 # Phase 3: Watchdog refreshes TTL every 10 seconds
 async def watchdog():
     while running:
         await redis.expire(f"knt:pod:{POD_ID}", 30)
         await asyncio.sleep(10)
+
 
 # Phase 4: Discover cluster membership
 active_pods = await redis.zrange("knt:cluster:registry", 0, -1)
@@ -115,10 +119,11 @@ Each pod owns a subset of **1024 virtual nodes** (vnodes) distributed uniformly 
 VNODES_PER_POD = 256
 HASH_VNODES = 1024
 
+
 def compute_vnodes(pod_id: str, total_pods: int) -> list[int]:
     """
     Compute the vnode assignments for a pod.
-    
+
     Each pod gets VNODES_PER_POD vnodes, hashed uniformly
     across the ring. This ensures that:
     - Load is distributed evenly (vnodes are uniform)
@@ -127,14 +132,15 @@ def compute_vnodes(pod_id: str, total_pods: int) -> list[int]:
     """
     if total_pods == 0:
         return []
-    
+
     # Use pod_id + index to generate vnode hashes
     vnode_hashes = []
     for v in range(VNODES_PER_POD):
         h = int(hashlib.md5(f"{pod_id}:{v}".encode()).hexdigest()[:4], 16)
         vnode_hashes.append(h % HASH_VNODES)
-    
+
     return sorted(set(vnode_hashes))
+
 
 def owns(agent_id: str, my_vnodes: set[int]) -> bool:
     """Check if this pod owns the given agent_id."""
@@ -181,11 +187,8 @@ async def notify_agent(agent_id: str):
 class ReactiveDispatcher:
     async def dispatch_once(self):
         # Each pod reads only the streams it owns
-        my_streams = {
-            f"knt:wakeup:{v}": ">" 
-            for v in self._scope.vnodes
-        }
-        
+        my_streams = {f"knt:wakeup:{v}": ">" for v in self._scope.vnodes}
+
         messages = await redis.xreadgroup(
             group=f"knt:dispatchers_group:{POD_ID}",
             consumer=POD_ID,
@@ -193,11 +196,11 @@ class ReactiveDispatcher:
             count=batch_size,
             block=poll_interval,
         )
-        
+
         for stream, entries in messages:
             for msg_id, data in entries:
                 agent_id = data["agent_id"]
-                
+
                 # Double-check ownership (in case of rebalance)
                 if not self._scope.owns(agent_id):
                     # Re-route to correct stream
@@ -205,7 +208,7 @@ class ReactiveDispatcher:
                     await redis.xadd(correct_stream, data)
                     await redis.xack(stream, group, msg_id)
                     continue
-                
+
                 # Process agent
                 await self._dispatch_agent(agent_id)
                 await redis.xack(stream, group, msg_id)
@@ -272,20 +275,22 @@ async def watch_cluster():
     while running:
         current = set(await redis.zrange("knt:cluster:registry", 0, -1))
         if current != prev_members:
-            logger.info("cluster.membership_changed",
-                       added=current - prev_members,
-                       removed=prev_members - current)
-            
+            logger.info(
+                "cluster.membership_changed",
+                added=current - prev_members,
+                removed=prev_members - current,
+            )
+
             # Recompute vnode assignments
             new_vnodes = compute_vnodes(POD_ID, len(current))
-            
+
             # Wait for old leases to expire (5 minutes)
             await drain_old_lease(old_vnodes)
-            
+
             # Atomically update scope
             self._scope = PartitionScope(pod_id=POD_ID, vnodes=new_vnodes)
             prev_members = current
-        
+
         await asyncio.sleep(5)
 ```
 

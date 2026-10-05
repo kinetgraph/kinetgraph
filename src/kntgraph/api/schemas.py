@@ -19,7 +19,7 @@ the log clean of attempts that could never succeed.
 from __future__ import annotations
 
 from collections.abc import Mapping as MappingABC
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -40,7 +40,7 @@ def _check_json_value(value: Any) -> None:
     if isinstance(value, MappingABC):
         for k, v in value.items():
             if not isinstance(k, str):
-                raise ValueError(
+                raise TypeError(
                     f"JSON object keys must be str, got {type(k).__name__}"
                 )
             _check_json_value(v)
@@ -68,7 +68,7 @@ class IntentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["tool.invoke", "role.invoke"]
-    tool: Optional[str] = Field(
+    tool: str | None = Field(
         default=None,
         description=(
             "Tool name. Required when `type='tool.invoke'`. "
@@ -76,7 +76,7 @@ class IntentRequest(BaseModel):
             "(e.g. 'invoice.issue')."
         ),
     )
-    role: Optional[str] = Field(
+    role: str | None = Field(
         default=None,
         description=(
             "Role name. Required when `type='role.invoke'`. "
@@ -152,8 +152,8 @@ class StatusResponse(BaseModel):
 
     status: Literal["pending", "completed", "failed", "rejected"]
     event_id: str
-    result: Optional[Any] = None
-    error: Optional[str] = None
+    result: Any | None = None
+    error: str | None = None
 
 
 class RejectionResponse(BaseModel):
@@ -163,7 +163,7 @@ class RejectionResponse(BaseModel):
     """
 
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 class ToolDescriptor(BaseModel):

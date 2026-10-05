@@ -21,9 +21,8 @@ from kntgraph.concordos import (
     load_bundle_json,
     load_bundle_yaml,
 )
-from kntgraph.concordos.saga import SagaConfig
 from kntgraph.concordos.fsm import FSMConfig
-
+from kntgraph.concordos.saga import SagaConfig
 
 # ---------------------------------------------------------------------------
 # Fixtures: a small DomainComponent class reachable via dotted path
@@ -40,8 +39,9 @@ def _install_test_module():
         # Build a small module that exposes:
         #   - InvoiceComponent (DomainComponent subclass)
         #   - OrderComponent (DomainComponent subclass)
-        from kntgraph.core.world import DomainComponent
         from dataclasses import dataclass
+
+        from kntgraph.core.world import DomainComponent
 
         @dataclass(frozen=True, slots=True)
         class InvoiceComponent(DomainComponent):
@@ -148,7 +148,7 @@ class TestHappyPath:
         path = tmp_path / "bundle.yaml"
         # PyYAML might not be in env; fall back to JSON.
         try:
-            import yaml  # noqa: F401
+            import yaml
         except ImportError:
             path.write_text(json.dumps(d))
             loaded = load_bundle_yaml(path)

@@ -32,7 +32,6 @@ from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

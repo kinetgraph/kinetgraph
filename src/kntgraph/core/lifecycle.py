@@ -28,8 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Optional
-
+from typing import Literal
 
 # Operational phases — defined by the framework, immutable across
 # applications.
@@ -67,7 +66,7 @@ class DomainPhase:
 
     phase: str
     updated_at: datetime
-    reason: Optional[str] = None
+    reason: str | None = None
 
     def __str__(self) -> str:
         return self.phase

@@ -39,7 +39,7 @@ so the assertion is deterministic.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -56,8 +56,7 @@ from kntgraph.runner.tool_call_ttl_sweeper import (
     ToolCallTTLSweeperSystem,
 )
 
-
-_BASE_TS = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+_BASE_TS = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
 
 
 def _ctx() -> CorrelationContext:

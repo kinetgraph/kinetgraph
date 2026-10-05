@@ -22,8 +22,9 @@ decorator:
 
 from __future__ import annotations
 
-import pytest
 from dataclasses import dataclass
+
+import pytest
 
 from kntgraph.core.world.component import (
     DomainComponent,

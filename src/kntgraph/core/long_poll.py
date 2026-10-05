@@ -49,10 +49,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
-from typing import Optional
 
 from .event import Event
-
 
 # Default poll interval when the caller doesn't
 # specify one. 100ms is fast enough for interactive
@@ -66,7 +64,7 @@ async def await_terminal_event(
     predicate: Callable[[Event], bool],
     timeout_s: float,
     poll_interval_s: float = DEFAULT_POLL_INTERVAL_S,
-) -> Optional[Event]:
+) -> Event | None:
     """
     Poll `read()` until a terminal event matches
     `predicate`, or `timeout_s` elapses.

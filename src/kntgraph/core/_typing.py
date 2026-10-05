@@ -53,19 +53,19 @@ What lives here
 
 from __future__ import annotations
 
-from typing import Callable, Protocol, TypeVar, Union
-
+from collections.abc import Callable
+from typing import Protocol, TypeVar
 
 # ---------------------------------------------------------------------------
 # JSON-serialisable values (recursive).
 # ---------------------------------------------------------------------------
 
-JsonScalar = Union[str, int, float, bool, None]
-JsonValue = Union[
-    JsonScalar,
-    dict[str, "JsonValue"],
-    list["JsonValue"],
-]
+JsonScalar = str | int | float | bool | None
+JsonValue = (
+    JsonScalar
+    | dict[str, "JsonValue"]
+    | list["JsonValue"]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -111,15 +111,15 @@ OpaqueHandleT = TypeVar("OpaqueHandleT")
 # keeps the type honest without resorting to ``Any`` or ``object``.
 # ---------------------------------------------------------------------------
 
-ValidatorInput = Union[
-    str,
-    int,
-    float,
-    bool,
-    None,
-    dict[str, "ValidatorInput"],
-    list["ValidatorInput"],
-]
+ValidatorInput = (
+    str
+    | int
+    | float
+    | bool
+    | None
+    | dict[str, "ValidatorInput"]
+    | list["ValidatorInput"]
+)
 
 
 # ---------------------------------------------------------------------------
@@ -145,9 +145,9 @@ class RouterApp(Protocol):
     registration time.
     """
 
-    def get(self, path: str, **kwargs: "object") -> Callable[..., "object"]: ...
+    def get(self, path: str, **kwargs: object) -> Callable[..., object]: ...
 
-    def post(self, path: str, **kwargs: "object") -> Callable[..., "object"]: ...
+    def post(self, path: str, **kwargs: object) -> Callable[..., object]: ...
 
     def add_middleware(
         self, middleware_class: type, **kwargs: ValidatorInput
@@ -157,7 +157,7 @@ class RouterApp(Protocol):
 class Dependable(Protocol):
     """Subset of ``fastapi.Depends`` we need at the boundary."""
 
-    def __call__(self, dependency: "object") -> object: ...
+    def __call__(self, dependency: object) -> object: ...
 
 
 class HeaderParam(Protocol):
@@ -174,10 +174,10 @@ class HeaderParam(Protocol):
 
     def __call__(
         self,
-        default: "object" = ...,
+        default: object = ...,
         *,
         alias: str | None = None,
-    ) -> "str | None": ...
+    ) -> str | None: ...
 
 
 class RouteDecorator(Protocol):
@@ -191,7 +191,7 @@ class RouteDecorator(Protocol):
     by the rest of the framework's "opaque" boundary).
     """
 
-    def __call__(self, path: str, **kwargs: "object") -> "object": ...
+    def __call__(self, path: str, **kwargs: object) -> object: ...
 
 
 class HTTPExceptionLike(Exception):
@@ -211,8 +211,8 @@ class HTTPExceptionLike(Exception):
 __all__ = [
     "ComponentT",
     "Dependable",
-    "HeaderParam",
     "HTTPExceptionLike",
+    "HeaderParam",
     "JsonScalar",
     "JsonValue",
     "KeyHandleT",

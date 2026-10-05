@@ -325,7 +325,7 @@ def _build_component(
 def reconcile_saga_progress(
     config: SagaConfig,
     events: Sequence[Event],
-    base_views: "Mapping[str, AgentView]",
+    base_views: Mapping[str, AgentView],
 ) -> dict[str, AgentView]:
     """Pure fold: saga events → AgentView with the
     ``SagaProgressComponent`` installed on the relevant agents.
@@ -363,7 +363,7 @@ class SagaProjection:
     def __init__(self, config: SagaConfig) -> None:
         self._config = config
 
-    def __call__(self, world: "World", events: list[Event]) -> "World":
+    def __call__(self, world: World, events: list[Event]) -> World:
         new_views = reconcile_saga_progress(self._config, events, world.views)
         if not new_views:
             return world

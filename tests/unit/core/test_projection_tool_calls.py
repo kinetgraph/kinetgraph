@@ -28,9 +28,10 @@ removes the projection, this test fails.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -44,9 +45,10 @@ from kntgraph.core.world.components import (
 )
 from kntgraph.core.world.projection_tool_calls import (
     overlay_tool_calls as _overlay_tool_calls,
+)
+from kntgraph.core.world.projection_tool_calls import (
     project_tool_calls as _project_tool_calls,
 )
-
 
 # The projection defaults to a 5-minute TTL (ADR-045, ADR-075).
 # ADR-075: default_ttl_seconds > 0 is mandatory; the opt-out
@@ -67,7 +69,7 @@ def overlay_tool_calls(events, base_views, **kwargs):
 
 
 def _ts(offset_s: int = 0) -> datetime:
-    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     from datetime import timedelta
 
     return base + timedelta(seconds=offset_s)
@@ -77,9 +79,9 @@ def _event(
     *,
     event_type: str,
     agent_id: str = "agent-1",
-    data: Optional[Mapping[str, Any]] = None,
-    causation_id: Optional[UUID] = None,
-    timestamp: Optional[datetime] = None,
+    data: Mapping[str, Any] | None = None,
+    causation_id: UUID | None = None,
+    timestamp: datetime | None = None,
 ) -> Event:
     """Helper: build a domain Event with a unique
     event_id and a fresh correlation context.

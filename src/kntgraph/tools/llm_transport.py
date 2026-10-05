@@ -51,10 +51,9 @@ Public surface
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core._typing import JsonValue
-
 
 __all__ = [
     "LLMChunk",
@@ -92,8 +91,8 @@ class LLMResponse:
     model: str
     usage: LLMUsage
     latency_ms: float
-    cost_usd: Optional[float] = None
-    finish_reason: Optional[str] = None
+    cost_usd: float | None = None
+    finish_reason: str | None = None
     raw: dict = field(default_factory=dict)
 
 
@@ -103,7 +102,7 @@ class LLMChunk:
 
     delta: str
     model: str
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,10 +128,10 @@ class LLMRequest:
     messages: list[dict]
     temperature: float
     max_tokens: int
-    response_format: Optional[dict] = None
+    response_format: dict | None = None
     drop_unsupported_params: bool = True
-    idempotency_key: Optional[str] = None
-    extra: "dict[str, JsonValue]" = field(default_factory=dict)
+    idempotency_key: str | None = None
+    extra: dict[str, JsonValue] = field(default_factory=dict)
 
 
 @runtime_checkable

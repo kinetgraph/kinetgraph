@@ -18,7 +18,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 

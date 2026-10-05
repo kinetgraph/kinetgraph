@@ -42,9 +42,9 @@ After enabling L1:
 # src/kntgraph/security/signing.py
 @dataclass(frozen=True, slots=True)
 class Signature:
-    alg: str          # "ed25519-v1"
-    pk: str           # base64 of 32-byte Ed25519 public key
-    sig: str          # base64 of 64-byte Ed25519 signature
+    alg: str  # "ed25519-v1"
+    pk: str  # base64 of 32-byte Ed25519 public key
+    sig: str  # base64 of 64-byte Ed25519 signature
     key_epoch: int = 0  # monotonic per agent_id (L2 concept)
 ```
 
@@ -142,6 +142,7 @@ import os
 from cryptography.hazmat.primitives import serialization
 from kntgraph.security.keys import InMemoryKeyRegistry, Ed25519PrivateKeyWrapper
 
+
 def load_key_from_env(agent_id: str, env_var_name: str, registry: InMemoryKeyRegistry):
     pem_data = os.environ.get(env_var_name)
     if not pem_data:
@@ -150,12 +151,13 @@ def load_key_from_env(agent_id: str, env_var_name: str, registry: InMemoryKeyReg
     # Parse the PEM into an Ed25519PrivateKey
     raw_key = serialization.load_pem_private_key(
         pem_data.encode("utf-8"),
-        password=None  # or provide a password if encrypted
+        password=None,  # or provide a password if encrypted
     )
-    
+
     # Wrap it for the registry
     priv_wrapper = Ed25519PrivateKeyWrapper(_key=raw_key, algorithm="ed25519-v1")
     registry.register(agent_id, priv=priv_wrapper)
+
 
 # Example usage:
 # registry = InMemoryKeyRegistry()
@@ -172,6 +174,7 @@ def load_key_from_env(agent_id: str, env_var_name: str, registry: InMemoryKeyReg
 import redis.asyncio as aioredis
 from kntgraph.stream.event_log import EventLog
 from kntgraph.security.keys import InMemoryKeyRegistry
+
 
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
@@ -199,10 +202,13 @@ async def consumer_loop():
         if event.signature is None:
             log.warning("unsigned event", event_id=event.event_id)
             continue
-        if not verify_event(event, registry.public_key(
-            event.agent_id,
-            key_epoch=event.signature.key_epoch,
-        )):
+        if not verify_event(
+            event,
+            registry.public_key(
+                event.agent_id,
+                key_epoch=event.signature.key_epoch,
+            ),
+        ):
             log.error(
                 "signature mismatch",
                 event_id=event.event_id,
@@ -219,7 +225,7 @@ async def consumer_loop():
 log = EventLog(
     redis,
     key_registry=registry,
-    require_signatures=True,    # reject event.signature is None
+    require_signatures=True,  # reject event.signature is None
     signature_warn_only=False,  # raise vs warn (default: raise)
 )
 ```
@@ -261,6 +267,7 @@ from kntgraph.security.keys import (
 )
 from kntgraph.security.signing import sign_event, verify_event
 
+
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
 
@@ -287,16 +294,20 @@ async def main():
     consumer_log = EventLog(redis, key_registry=consumer_registry)
 
     async for read_event in consumer_log.read("session-42"):
-        ok = verify_event(read_event, consumer_registry.public_key(
-            "session-42",
-            key_epoch=read_event.signature.key_epoch,
-        ))
+        ok = verify_event(
+            read_event,
+            consumer_registry.public_key(
+                "session-42",
+                key_epoch=read_event.signature.key_epoch,
+            ),
+        )
         assert ok, "signature must verify"
 
         print(f"{read_event.event_type} {read_event.event_id}")
         # pedido.received 7c2a...
 
     await redis.aclose()
+
 
 asyncio.run(main())
 ```
@@ -386,14 +397,18 @@ the volume of events a compromised agent can re-inject.
 def test_my_event_round_trips_through_event_log():
     """After sign → append → read, signature still verifies."""
 
+
 def test_unsigned_event_rejected_when_required():
     """EventLog(require_signatures=True) rejects signature=None."""
+
 
 def test_wrong_key_fails_verification():
     """Signing with key A, verifying with pubkey B returns False."""
 
+
 def test_unknown_alg_fails_verification():
     """Signature with alg='unknown-v9' fails verify_event gracefully."""
+
 
 def test_canonical_bytes_stable_across_dict_order():
     """Two events with same data but different dict order yield same bytes."""

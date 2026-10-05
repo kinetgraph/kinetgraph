@@ -61,12 +61,12 @@ as fases operacionais.
 
 ```python
 OperationalPhase = Literal[
-    "spawned",       # acabou de ser criado
-    "idle",          # existe, sem trabalho
-    "running",       # um sistema está processando eventos
-    "blocked",       # aguardando dependência externa
+    "spawned",  # acabou de ser criado
+    "idle",  # existe, sem trabalho
+    "running",  # um sistema está processando eventos
+    "blocked",  # aguardando dependência externa
     "checkpointed",  # pausa controlada (long-running)
-    "terminated",    # descontinuado (terminal)
+    "terminated",  # descontinuado (terminal)
 ]
 
 TERMINAL_OPERATIONAL: frozenset = frozenset({"terminated"})
@@ -88,7 +88,7 @@ mapeamento → `OperationalPhase`.
 ```python
 @dataclass(frozen=True, slots=True)
 class DomainPhase:
-    phase: str          # ex: "received", "validated", "transmitted"
+    phase: str  # ex: "received", "validated", "transmitted"
     updated_at: datetime
     reason: str | None  # ex: "missing CNPJ"
 ```
@@ -242,7 +242,8 @@ world = World.fold([spawned, received, validated, idle], tick=4)
 assert world.agents["nf-001"].operational_phase == "idle"
 assert world.agents["nf-001"].domain_phase == "document.validated"
 assert world.agents["nf-001"].components["document.validated"] == {
-    "cnpj": "...", "valor": 1500.0
+    "cnpj": "...",
+    "valor": 1500.0,
 }
 ```
 

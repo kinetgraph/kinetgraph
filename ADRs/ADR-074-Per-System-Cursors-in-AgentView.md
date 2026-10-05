@@ -207,9 +207,7 @@ class FSMSystem:
 
             # Delta-scan: re-derive triggers between
             # cursor_id+1 and last_id from the EventLog.
-            triggers = self._resolve_triggers(
-                view, cursor_id, last_id, world.event_log
-            )
+            triggers = self._resolve_triggers(view, cursor_id, last_id, world.event_log)
             for trigger in triggers:
                 out.extend(self._emit_transition(view, trigger))
         return out

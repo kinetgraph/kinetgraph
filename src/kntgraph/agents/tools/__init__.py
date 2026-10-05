@@ -76,14 +76,8 @@ new code should import from ``kntgraph.tools``
 Removal target: v0.16.
 """
 
-from kntgraph.tools import (
-    SchemaValidationError,
-    ToolACL,
-    ToolDescriptor,
-    default_acl,
-    validate_args,
-)
 from kntgraph.agents.tools.capability import Capability
+from kntgraph.agents.tools.llm import LiteLLMToolWorker
 from kntgraph.agents.tools.pii import (
     DEFAULT_PII_LABELS,
     PiiRedactionTool,
@@ -97,16 +91,22 @@ from kntgraph.agents.tools.protocol import (
     ToolCall,
     ToolEventType,
 )
+from kntgraph.tools import (
+    SchemaValidationError,
+    ToolACL,
+    ToolDescriptor,
+    default_acl,
+    validate_args,
+)
 from kntgraph.tools.llm_transport import (
     LLMChunk,
     LLMResponse,
     LLMTransport,
     LLMUsage,
 )
-from kntgraph.agents.tools.llm import LiteLLMToolWorker
-
 
 __all__ = [
+    "DEFAULT_PII_LABELS",
     # Protocol / Registry / Events
     "Callable",
     "Capability",
@@ -118,7 +118,6 @@ __all__ = [
     "LiteLLMToolWorker",
     "PiiRedactionTool",
     "RedactionResult",
-    "DEFAULT_PII_LABELS",
     "SchemaValidationError",
     "Tool",
     "ToolACL",

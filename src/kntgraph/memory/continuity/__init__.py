@@ -105,11 +105,11 @@ from .state import (
 __all__ = [
     "CONTINUITY_KEY_PREFIX",
     "DEFAULT_TTL_SECONDS",
+    "MAX_FIELD_VALUE_LEN",
+    "PII_HASH_PREFIX",
     "ContinuityEventType",
     "ContinuityManager",
     "ContinuityState",
-    "MAX_FIELD_VALUE_LEN",
-    "PII_HASH_PREFIX",
     "_fold_continuity_events",
     "_reset_after_clear",
     "check_pii_hash",

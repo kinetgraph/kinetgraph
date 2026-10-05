@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from kntgraph.concordos.schemas import (
     BundleSchema,
@@ -117,8 +118,8 @@ class LoadedBundle:
     bundle_id: str
     events: tuple[EventSchema, ...]
     specifications: dict[str, str]  # id -> mini-language expression
-    fsm: "FSMConfig | None"
-    sagas: tuple["SagaConfig", ...] = field(default_factory=tuple)
+    fsm: FSMConfig | None
+    sagas: tuple[SagaConfig, ...] = field(default_factory=tuple)
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +263,7 @@ def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig":
+def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> FSMConfig:
     """Build a runtime ``FSMConfig`` from a schema.
 
     The runtime ``FSMConfig`` lives in ``concordos.fsm._config``
@@ -291,7 +292,7 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig
     )
 
 
-def _build_saga_config(saga: SagaConfigSchema, bundle_id: str | None) -> "SagaConfig":
+def _build_saga_config(saga: SagaConfigSchema, bundle_id: str | None) -> SagaConfig:
     """Build a runtime ``SagaConfig`` from a schema."""
     from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 

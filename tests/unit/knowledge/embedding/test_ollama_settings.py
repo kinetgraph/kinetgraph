@@ -40,7 +40,6 @@ verify the attribute values after construction.
 
 from __future__ import annotations
 
-
 from kntgraph.infra.config import fresh_settings
 
 

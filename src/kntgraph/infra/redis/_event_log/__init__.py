@@ -24,16 +24,15 @@ from ._keys import (
     stream_key_for_agent,
 )
 
-
 __all__ = [
-    # Adapter
-    "EventLogStorage",
-    "RedisEventLogAdapter",
     # Keys
     "AGENT_STREAM_KEY",
     "EVENT_ID_INDEX",
     "MAXLEN_DEFAULT",
     "SCAN_PATTERN",
+    # Adapter
+    "EventLogStorage",
+    "RedisEventLogAdapter",
     "event_id_key",
     "parse_agent_id_from_stream_key",
     "stream_key_for_agent",

@@ -107,9 +107,7 @@ In production, both run in parallel:
 
 ```python
 # Tick loop (Consolidator)
-runner = Runner(
-    log, cyclic_systems=[consolidator.as_cyclic_system()]
-)
+runner = Runner(log, cyclic_systems=[consolidator.as_cyclic_system()])
 
 # Background coroutine (Solutions)
 promoter = SolutionPromoter(
@@ -120,6 +118,7 @@ promoter = SolutionPromoter(
 bus = SolutionPromotionBus()
 extractor = SolutionExtractor()
 
+
 async def solutions_loop():
     while True:
         events = await log.read(extractor.target_agent_id)
@@ -128,7 +127,8 @@ async def solutions_loop():
         await promoter.pump_once(bus)
         await asyncio.sleep(10.0)
 
-await runner.start()             # ticks every N seconds
+
+await runner.start()  # ticks every N seconds
 asyncio.create_task(solutions_loop())  # pump every 10s
 
 # Shutdown
@@ -310,10 +310,14 @@ from kntgraph.agents.knowledge.solution_projector import (
     SolutionProjector,
 )
 from kntgraph.memory.consolidation import (
-    CacheRefreshBus, CacheWarmer, Consolidator,
-    SessionManager, ProfileManager,
+    CacheRefreshBus,
+    CacheWarmer,
+    Consolidator,
+    SessionManager,
+    ProfileManager,
 )
 from kntgraph.tools.registry import ToolRegistry
+
 
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
@@ -332,7 +336,8 @@ async def main():
     # --- FalkorDB tier (knowledge) ---
     pii = PiiRedactionTool(level=1)
     projector = SolutionProjector(
-        client=fdb, embedding=embedding,
+        client=fdb,
+        embedding=embedding,
         tenant_id="12.345.678/0001-90",
     )
     promoter = SolutionPromoter(
@@ -360,6 +365,7 @@ async def main():
         await asyncio.sleep(3600)
     finally:
         await redis.aclose()
+
 
 asyncio.run(main())
 ```

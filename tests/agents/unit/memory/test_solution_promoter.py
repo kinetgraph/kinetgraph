@@ -29,23 +29,21 @@ The system is the I/O counterpart of the pure
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
-
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
 
 from kntgraph.agents.memory.solution_promoter import (
     PromoteStats,
     SolutionPromoterSystem,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 
 
 def _ts(offset_s: int = 0) -> datetime:
     from datetime import timedelta
 
-    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     return base + timedelta(seconds=offset_s)
 
 

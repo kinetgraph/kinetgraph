@@ -36,7 +36,6 @@ import pytest_asyncio
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.tools.router import ToolRouter
 
-
 pytestmark = pytest.mark.asyncio
 
 

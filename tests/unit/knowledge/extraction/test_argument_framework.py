@@ -30,13 +30,10 @@ form (eager or lazy).
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
 
-from kntgraph.knowledge.extraction.argument._finder import (
-    FieldFinder,
-    RegexFieldFinder,
+from kntgraph.knowledge.extraction import (
+    SLMArgumentExtractor,
 )
 from kntgraph.knowledge.extraction.argument._coerce import (
     coerce,
@@ -44,14 +41,14 @@ from kntgraph.knowledge.extraction.argument._coerce import (
 from kntgraph.knowledge.extraction.argument._extractor import (
     SchemaArgumentExtractor,
 )
-from kntgraph.knowledge.extraction import (
-    SLMArgumentExtractor,
+from kntgraph.knowledge.extraction.argument._finder import (
+    FieldFinder,
+    RegexFieldFinder,
 )
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.schema import (
     FieldSpec,
 )
-
 
 # ---------------------------------------------------------------------------
 # FieldFinder Protocol + RegexFieldFinder
@@ -63,7 +60,7 @@ class _StubFinder:
     that ``SchemaArgumentExtractor`` aggregates field
     finds correctly."""
 
-    def __init__(self, mapping: dict[str, Optional[tuple]]) -> None:
+    def __init__(self, mapping: dict[str, tuple | None]) -> None:
         self._mapping = mapping
         self.calls: list[FieldSpec] = []
 
@@ -71,7 +68,7 @@ class _StubFinder:
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple]:
+    ) -> tuple | None:
         self.calls.append(field)
         return self._mapping.get(field.name)
 
@@ -324,12 +321,12 @@ class TestGlinerArgumentAdapterEagerImports:
         """The module is importable; the lazy-import
         shim from Iter 27 is gone (replaced by eager
         imports of the framework's own components)."""
-        import kntgraph.knowledge.extraction.gliner_argument as mod
-
         # Inspect the module's source: there should be
         # no ``from kntgraph.agents`` import inside any
         # function (lazy) or at module level.
         import inspect
+
+        import kntgraph.knowledge.extraction.gliner_argument as mod
 
         source = inspect.getsource(mod)
         assert "from kntgraph.agents" not in source, (
@@ -375,6 +372,7 @@ class TestSLMArgumentExtractorAfterIter28:
         model load (which requires the optional
         dep)."""
         from unittest.mock import patch
+
         from kntgraph.knowledge.extraction import (
             GlinerArgumentAdapter,
         )

@@ -65,7 +65,7 @@ if typing.TYPE_CHECKING:
     from .event import Event
     from .world import World
 
-SystemReturn = typing.Union[list["Event"], typing.Awaitable[list["Event"]]]
+SystemReturn = list["Event"] | typing.Awaitable[list["Event"]]
 
 
 @typing.runtime_checkable
@@ -123,7 +123,7 @@ class WorldSystem(typing.Protocol):
     async tick loop). A sync function is also acceptable.
     """
 
-    def __call__(self, world: "World") -> SystemReturn: ...
+    def __call__(self, world: World) -> SystemReturn: ...
 
 
 # Backwards-compat aliases. New code should use ``WorldSystem``.

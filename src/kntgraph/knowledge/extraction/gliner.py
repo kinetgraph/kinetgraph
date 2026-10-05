@@ -98,7 +98,7 @@ wiring is a deployment concern.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from kntgraph.knowledge.extraction.base import (
     Entity,
@@ -118,11 +118,11 @@ if TYPE_CHECKING:
 # runtime via :func:`_field`.
 @runtime_checkable
 class GLiNERSpan(Protocol):
-    label: "str | None"
-    text: "str | None"
-    score: "float | None"
-    start: "int | None"
-    end: "int | None"
+    label: str | None
+    text: str | None
+    score: float | None
+    start: int | None
+    end: int | None
 
 
 # Default label set for general-purpose extraction. The
@@ -213,7 +213,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
 
     async def extract_with_mentions(
         self, text: str
-    ) -> list[tuple[Entity, Optional[int]]]:
+    ) -> list[tuple[Entity, int | None]]:
         """
         Extract entities with character offsets.
 
@@ -229,7 +229,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
         if not text:
             return []
         results = await self._run_model(text)
-        out: list[tuple[Entity, Optional[int]]] = []
+        out: list[tuple[Entity, int | None]] = []
         for r in results:
             if isinstance(r, tuple) and len(r) == 2:
                 e, o = r
@@ -239,7 +239,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
 
     # ------------------------------------------------------------------ hook
 
-    async def _run_model(self, text: str) -> list[tuple[Entity, Optional[int]]]:
+    async def _run_model(self, text: str) -> list[tuple[Entity, int | None]]:
         """
         Hook for subclasses. Returns `[(Entity, offset)]`.
 
@@ -269,8 +269,8 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
     # ---------------------------------------------------------- helpers
 
     def _convert_span(
-        self, span: "GLiNERSpan"
-    ) -> Optional[tuple[Entity, Optional[int]]]:
+        self, span: GLiNERSpan
+    ) -> tuple[Entity, int | None] | None:
         """
         Convert a raw model span to `(Entity, offset)`.
 
@@ -286,7 +286,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
         score = _field(span, "score")
         if not label or not span_text:
             return None
-        offset: Optional[int]
+        offset: int | None
         if start is None:
             offset = None
         else:
@@ -320,7 +320,7 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
         )
 
 
-def _field(span: "GLiNERSpan | dict[str, object]", name: str) -> "object | None":
+def _field(span: GLiNERSpan | dict[str, object], name: str) -> object | None:
     """
     Read `name` from `span` whether it is a dict or has
     an attribute. Returns `None` if the field is absent.
@@ -333,6 +333,6 @@ def _field(span: "GLiNERSpan | dict[str, object]", name: str) -> "object | None"
 
 
 __all__ = [
-    "GlinerEntityAdapter",
     "DEFAULT_LABELS",
+    "GlinerEntityAdapter",
 ]

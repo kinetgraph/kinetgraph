@@ -60,11 +60,12 @@ sites use `match` to narrow without `cast`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
 from ..core.event import Event
+from ..core.result import Err, Ok, PersistenceError, Result
 from ..core.world import World
 from ..stream.event_log import EventLog
 from .cache_warmer import (
@@ -135,15 +136,15 @@ class MemoryAgent:
     id2: str = ""
 
     @classmethod
-    def session(cls, session_id: str) -> "MemoryAgent":
+    def session(cls, session_id: str) -> MemoryAgent:
         return cls(kind="session", id1=session_id)
 
     @classmethod
-    def profile(cls, tenant_id: str, user_id: str) -> "MemoryAgent":
+    def profile(cls, tenant_id: str, user_id: str) -> MemoryAgent:
         return cls(kind="profile", id1=tenant_id, id2=user_id)
 
     @classmethod
-    def continuity(cls, tenant_id: str, user_id: str) -> "MemoryAgent":
+    def continuity(cls, tenant_id: str, user_id: str) -> MemoryAgent:
         return cls(kind="continuity", id1=tenant_id, id2=user_id)
 
     @property
@@ -204,7 +205,7 @@ def _build_manager_registry() -> tuple[tuple[str, type], ...]:
 _MANAGER_REGISTRY: tuple[tuple[str, type], ...] = _build_manager_registry()
 
 
-def parse_agent_id(agent_id: str) -> Optional[MemoryAgent]:
+def parse_agent_id(agent_id: str) -> MemoryAgent | None:
     """
     Parse an EventLog agent_id into a ``MemoryAgent``.
 
@@ -281,8 +282,8 @@ class Consolidator:
         self,
         log: EventLog,
         bus: CacheRefreshBus,
-        session_manager: Optional[SessionManager] = None,
-        profile_manager: Optional[ProfileManager] = None,
+        session_manager: SessionManager | None = None,
+        profile_manager: ProfileManager | None = None,
     ) -> None:
         # `log`, `session_manager`, `profile_manager` are
         # kept on the constructor for backward compatibility
@@ -378,7 +379,7 @@ class Projector:
         log: EventLog,
         session_manager: SessionManager,
         profile_manager: ProfileManager,
-        continuity_manager: Optional["ContinuityManager"] = None,
+        continuity_manager: ContinuityManager | None = None,
     ) -> None:
         self._log = log
         self._sessions = session_manager
@@ -388,30 +389,43 @@ class Projector:
         # ``continuity``. Veja ADR-014.
         self._continuity = continuity_manager
 
-    async def project_session(self, session_id: str) -> bool:
+    async def project_session(
+        self, session_id: str
+    ) -> Result[bool, PersistenceError]:
         events = await self._log.read(SessionManager.agent_id_for(session_id))
         state = _fold_session_events(session_id, events)
         if state is None:
-            return False
-        await self._sessions.write_cache(session_id, state)
-        return True
+            return Ok(False)
+        write_result = await self._sessions.write_cache(session_id, state)
+        if write_result.is_err():
+            err = write_result.err_value() or PersistenceError("Unknown write error")
+            return Err(err)
+        return Ok(True)
 
-    async def project_profile(self, tenant_id: str, user_id: str) -> bool:
+    async def project_profile(
+        self, tenant_id: str, user_id: str
+    ) -> Result[bool, PersistenceError]:
         events = await self._log.read(ProfileManager.agent_id_for(tenant_id, user_id))
         state = _fold_profile_events(tenant_id, user_id, events)
         if state is None:
-            return False
-        await self._profiles.write_cache(tenant_id, user_id, state)
-        return True
+            return Ok(False)
+        write_result = await self._profiles.write_cache(tenant_id, user_id, state)
+        if write_result.is_err():
+            err = write_result.err_value() or PersistenceError("Unknown write error")
+            return Err(err)
+        return Ok(True)
 
-    async def project_continuity(self, tenant_id: str, user_id: str) -> bool:
+    async def project_continuity(
+        self, tenant_id: str, user_id: str
+    ) -> Result[bool, PersistenceError]:
         """
         Project continuity state to Redis (ADR-014). Returns
-        False if the manager is unconfigured or if no
-        ``continuity.created`` event exists yet.
+        ``Ok(False)`` if the manager is unconfigured or if no
+        ``continuity.created`` event exists yet. Errors from
+        the underlying cache write propagate (AGENTS.md §6).
         """
         if self._continuity is None:
-            return False
+            return Ok(False)
         from .continuity import (
             ContinuityManager,
             _fold_continuity_events,
@@ -422,15 +436,27 @@ class Projector:
         )
         state = _fold_continuity_events(tenant_id, user_id, events)
         if state is None:
-            return False
-        await self._continuity.write_cache(tenant_id, user_id, state)
-        return True
+            return Ok(False)
+        write_result = await self._continuity.write_cache(
+            tenant_id, user_id, state
+        )
+        if write_result.is_err():
+            err = write_result.err_value() or PersistenceError("Unknown write error")
+            return Err(err)
+        return Ok(True)
 
-    async def project_all(self) -> dict[str, int]:
+    async def project_all(
+        self,
+    ) -> Result[dict[str, int], PersistenceError]:
         """
         Project everything currently in the EventLog to the
         cache. Returns counts of (sessions, profiles,
         continuities) written.
+
+        Errors from individual ``project_*`` calls abort the
+        loop and surface as ``Err(PersistenceError)``
+        (AGENTS.md §6). The count is partial: ``Ok`` carries
+        the per-kind tally at the point of the first failure.
         """
         counts = {"sessions": 0, "profiles": 0, "continuity": 0}
         for aid in await self._log.list_agents():
@@ -438,12 +464,24 @@ class Projector:
             if mem is None:
                 continue
             if mem.kind == "session":
-                if await self.project_session(mem.id1):
-                    counts["sessions"] += 1
+                result = await self.project_session(mem.id1)
             elif mem.kind == "profile":
-                if await self.project_profile(mem.id1, mem.id2):
-                    counts["profiles"] += 1
+                result = await self.project_profile(mem.id1, mem.id2)
             elif mem.kind == "continuity":
-                if await self.project_continuity(mem.id1, mem.id2):
-                    counts["continuity"] += 1
-        return counts
+                result = await self.project_continuity(mem.id1, mem.id2)
+            else:  # pragma: no cover - guarded by MemoryKind
+                continue
+            if result.is_err():
+                err = result.err_value() or PersistenceError("Unknown project error")
+                return Err(err)
+            if result.ok_value():
+                # Map the kind to the count bucket. The dict uses
+                # pluralised keys to keep the public surface
+                # stable across the refactor.
+                bucket = {
+                    "session": "sessions",
+                    "profile": "profiles",
+                    "continuity": "continuity",
+                }.get(mem.kind, mem.kind)
+                counts[bucket] += 1
+        return Ok(counts)

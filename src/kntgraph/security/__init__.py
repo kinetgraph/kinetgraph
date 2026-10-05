@@ -184,6 +184,8 @@ class KeyRegistry(Protocol):
 
 
 __all__ = [
+    "SUPPORTED_ALGORITHMS",
+    "SUPPORTED_BATCH_ALGORITHMS",
     "Action",
     "AlwaysAllowPolicy",
     "BatchEntry",
@@ -204,8 +206,6 @@ __all__ = [
     "PublicKey",
     "Resource",
     "RevocationRecord",
-    "SUPPORTED_ALGORITHMS",
-    "SUPPORTED_BATCH_ALGORITHMS",
     "Signature",
     "SignatureError",
     "UnknownAlgorithmError",

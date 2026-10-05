@@ -185,7 +185,7 @@ class TestFindByToolStatus:
         g = _MockGraphAdapter()
         adapter = GraphSolutionAdapter(g)
         await adapter.find_solutions_by_tool(tool_name="x", k=5)
-        cypher, params = g.calls[0]
+        cypher, _params = g.calls[0]
         assert "SOLVED_BY" in cypher
         assert "FAILED_WITH" not in cypher
 

@@ -20,21 +20,18 @@ docstring for the full contract.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
-
-from ....core._typing import JsonValue
 
 import structlog
 
 from kntgraph.core.result import Err, Ok, Result
 
+from ....core._typing import JsonValue
 from .._client import RedisLike
 from .._codec import decode_dict, decode_value
-from ._adapter import CacheRecord
 from .._errors import MemoryError, MemoryMiss, MemorySerializationError
-
+from ._adapter import CacheRecord
 
 logger = structlog.get_logger()
 
@@ -51,7 +48,7 @@ class RedisContinuityStorage:
     """
 
     client: RedisLike
-    ttl_seconds: Optional[int] = None
+    ttl_seconds: int | None = None
     key_prefix: str = ""
 
     async def get_record(
@@ -80,7 +77,7 @@ class RedisContinuityStorage:
         key: str,
         record: CacheRecord,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a Hash mapping. Sliding TTL: every write resets EXPIRE.
 
@@ -163,7 +160,7 @@ class RedisContinuityStorage:
         key: str,
         cursor: str,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """
         Persist the fold cursor at the parallel

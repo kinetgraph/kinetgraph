@@ -21,13 +21,11 @@ import uuid
 
 import pytest
 
-
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.long_poll import (
     DEFAULT_POLL_INTERVAL_S,
     await_terminal_event,
 )
-
 
 pytestmark = pytest.mark.asyncio
 

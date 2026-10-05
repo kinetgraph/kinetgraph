@@ -41,19 +41,18 @@ external callers.
 
 from __future__ import annotations
 
-from typing import Optional, cast
+from typing import cast
 
 import structlog
 
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...infra.redis._dlq import (
     DLQ_AGENT_INDEX,
-    DLQStorage,
     PLACEHOLDER,
+    DLQStorage,
     idem_key_for,
 )
-from .values import DLQReason, DeadLetterEvent
-
+from .values import DeadLetterEvent, DLQReason
 
 logger = structlog.get_logger()
 
@@ -166,11 +165,20 @@ class DeadLetterQueue:
 
     # ------------------------------------------------------------------ read
 
-    async def get_event(self, event_id: str) -> Optional[DeadLetterEvent]:
+    async def get_event(
+        self, event_id: str
+    ) -> Result[DeadLetterEvent | None, PersistenceError]:
         """
         Read the first DLQ entry for a given event_id. The
         index keys are ``<event_id>:<reason>`` — we look up
         the first match via the storage.
+
+        Returns ``Ok(None)`` when the index has no entry for
+        the event_id (a clean miss, not a storage error).
+        Returns ``Err(PersistenceError)`` when the storage
+        layer reports a Redis-side failure (callers MUST
+        inspect the error; AGENTS.md §6: "wrap-in-result,
+        no fail-soft").
         """
         lookup = await self._storage.find_by_event_id(event_id)
         if lookup.is_err():
@@ -179,23 +187,44 @@ class DeadLetterQueue:
                 event_id=event_id,
                 error=str(lookup.err_value()),
             )
-            return None
+            return Err(
+                PersistenceError(
+                    f"Storage error in find_by_event_id: {lookup.err_value()}"
+                )
+            )
         stream_id = lookup.ok_value()
         if stream_id is None:
-            return None
+            return Ok(None)
         entry_result = await self._storage.read(stream_id)
-        if entry_result.is_err() or entry_result.ok_value() is None:
-            return None
-        return self._build_event(cast("dict[str, str]", entry_result.ok_value()))
+        if entry_result.is_err():
+            logger.warning(
+                "dlq.get_event.read_failed",
+                event_id=event_id,
+                stream_id=stream_id,
+                error=str(entry_result.err_value()),
+            )
+            return Err(
+                PersistenceError(
+                    f"Storage error in read({stream_id}): "
+                    f"{entry_result.err_value()}"
+                )
+            )
+        payload = entry_result.ok_value()
+        if payload is None:
+            return Ok(None)
+        return Ok(self._build_event(cast("dict[str, str]", payload)))
 
     async def list_for_agent(
         self, agent_id: str, count: int = 100
-    ) -> list[DeadLetterEvent]:
+    ) -> Result[list[DeadLetterEvent], PersistenceError]:
         """
         List DLQ entries for one agent. The agent index
         points to the FIRST failure; we forward-scan from
         there and filter by agent_id (the global DLQ stream
         may contain events for other agents in between).
+
+        Returns ``Err(PersistenceError)`` on storage failure
+        (callers MUST inspect the error; AGENTS.md §6).
         """
         result = await self._storage.list_for_agent(agent_id, count)
         if result.is_err():
@@ -204,19 +233,28 @@ class DeadLetterQueue:
                 agent_id=agent_id,
                 error=str(result.err_value()),
             )
-            return []
+            return Err(
+                PersistenceError(
+                    f"Storage error in list_for_agent: {result.err_value()}"
+                )
+            )
         messages_payload = result.ok_value() or []
-        return [
-            self._build_event(cast("dict[str, str]", m))
-            for m in messages_payload
-            if m.get("agent_id") == agent_id
-        ]
+        return Ok(
+            [
+                self._build_event(cast("dict[str, str]", m))
+                for m in messages_payload
+                if m.get("agent_id") == agent_id
+            ]
+        )
 
     async def list_by_reason(
         self, reason: DLQReason, count: int = 100
-    ) -> list[DeadLetterEvent]:
+    ) -> Result[list[DeadLetterEvent], PersistenceError]:
         """
         List DLQ entries with a given reason.
+
+        Returns ``Err(PersistenceError)`` on storage failure
+        (callers MUST inspect the error; AGENTS.md §6).
         """
         result = await self._storage.list_by_reason(reason.value, count)
         if result.is_err():
@@ -225,29 +263,59 @@ class DeadLetterQueue:
                 reason=reason.value,
                 error=str(result.err_value()),
             )
-            return []
+            return Err(
+                PersistenceError(
+                    f"Storage error in list_by_reason: {result.err_value()}"
+                )
+            )
         messages_payload = result.ok_value() or []
-        return [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
+        return Ok(
+            [
+                self._build_event(cast("dict[str, str]", m))
+                for m in messages_payload
+            ]
+        )
 
-    async def list_all(self, count: int = 100) -> list[DeadLetterEvent]:
+    async def list_all(
+        self, count: int = 100
+    ) -> Result[list[DeadLetterEvent], PersistenceError]:
+        """
+        List the most recent DLQ entries regardless of
+        agent or reason.
+
+        Returns ``Err(PersistenceError)`` on storage failure
+        (callers MUST inspect the error; AGENTS.md §6).
+        """
         messages = await self._storage.list_all(count)
         if messages.is_err():
             logger.warning(
                 "dlq.list_all.storage_error",
                 error=str(messages.err_value()),
             )
-            return []
+            return Err(
+                PersistenceError(
+                    f"Storage error in list_all: {messages.err_value()}"
+                )
+            )
         messages_payload = messages.ok_value() or []
-        return [self._build_event(cast("dict[str, str]", m)) for m in messages_payload]
+        return Ok(
+            [
+                self._build_event(cast("dict[str, str]", m))
+                for m in messages_payload
+            ]
+        )
 
     # ------------------------------------------------------------------ stats
 
-    async def get_stats(self) -> dict:
+    async def get_stats(self) -> Result[dict, PersistenceError]:
         """
-        Returns aggregate stats: total events, by_reason,
-        by_agent. On storage error returns an empty dict
-        (caller can detect via the ``"error"`` key set by
-        the storage layer).
+        Aggregate stats: total events, by_reason, by_agent.
+
+        Returns ``Err(PersistenceError)`` on storage failure
+        (callers MUST inspect the error; AGENTS.md §6). The
+        ``Ok({...})`` channel always carries the shape
+        ``{"total_events": int, "unique_agents": int,
+        "by_reason": dict[str, int]}``.
         """
         result = await self._storage.get_stats()
         if result.is_err():
@@ -255,16 +323,19 @@ class DeadLetterQueue:
                 "dlq.get_stats.storage_error",
                 error=str(result.err_value()),
             )
-            return {
+            return Err(
+                PersistenceError(
+                    f"Storage error in get_stats: {result.err_value()}"
+                )
+            )
+        return Ok(
+            result.ok_value()  # type: ignore[arg-type]
+            or {
                 "total_events": 0,
                 "unique_agents": 0,
                 "by_reason": {},
             }
-        return result.ok_value() or {  # type: ignore[return-value]
-            "total_events": 0,
-            "unique_agents": 0,
-            "by_reason": {},
-        }
+        )
 
     async def purge(self) -> Result[int, PersistenceError]:
         """

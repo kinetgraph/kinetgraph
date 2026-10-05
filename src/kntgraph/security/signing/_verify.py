@@ -9,7 +9,7 @@ Verify a single-event signature.
 from __future__ import annotations
 
 import base64
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 from kntgraph.security.keys._types import KeyEpoch
 from kntgraph.security.signing._canonical import canonical_event_bytes
@@ -24,16 +24,16 @@ if TYPE_CHECKING:
     from kntgraph.security import Ed25519PublicKeyWrapper, KeyRegistry
 
 
-def _epoch(value: int) -> "KeyEpoch":
+def _epoch(value: int) -> KeyEpoch:
     """Coerce an int into a ``KeyEpoch`` (NewType)."""
     return KeyEpoch(value)
 
 
 def verify_event(
-    event: "Event",
-    public_key: "Ed25519PublicKeyWrapper",
+    event: Event,
+    public_key: Ed25519PublicKeyWrapper,
     *,
-    key_registry: "Optional[KeyRegistry]" = None,
+    key_registry: KeyRegistry | None = None,
 ) -> bool:
     """Verify an event's signature against a public key.
 
@@ -81,10 +81,10 @@ def verify_event(
 
 
 def _is_revoked(
-    event: "Event",
+    event: Event,
     *,
-    sig: "Signature",
-    key_registry: "KeyRegistry",
+    sig: Signature,
+    key_registry: KeyRegistry,
 ) -> bool:
     """True iff ``(agent_id, key_epoch)`` is revoked. Any
     exception from the registry is treated as "revoked"
@@ -97,9 +97,9 @@ def _is_revoked(
 
 
 def _crypto_verify(
-    event: "Event",
-    sig: "Signature",
-    public_key: "Ed25519PublicKeyWrapper",
+    event: Event,
+    sig: Signature,
+    public_key: Ed25519PublicKeyWrapper,
 ) -> bool:
     """Verify the Ed25519 signature on the canonical
     bytes of ``event``. **Never raises** — any

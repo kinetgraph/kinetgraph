@@ -9,8 +9,7 @@ Router for the Tool Worker Pattern (ADR-036).
 from __future__ import annotations
 
 import logging
-from typing import Iterable
-
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -39,7 +38,7 @@ class ToolRouter:
     byte-for-byte.
     """
 
-    def __init__(self, redis: "RedisLike", *, key_prefix: str = ""):
+    def __init__(self, redis: RedisLike, *, key_prefix: str = ""):
         # Validated once at construction (same pattern as
         # ``RedisPool.__init__`` in
         # ``infra/redis/_pool.py``); the per-call path

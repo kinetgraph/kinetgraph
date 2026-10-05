@@ -40,7 +40,6 @@ The tests below pin the contract that:
 
 from __future__ import annotations
 
-
 from kntgraph.memory.consolidation import (
     MemoryAgent,
     parse_agent_id,
@@ -48,7 +47,6 @@ from kntgraph.memory.consolidation import (
 from kntgraph.memory.continuity import ContinuityManager
 from kntgraph.memory.profile import ProfileManager
 from kntgraph.memory.session import SessionManager
-
 
 # ---------------------------------------------------------------------------
 # Class-level prefix constants

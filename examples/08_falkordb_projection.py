@@ -42,15 +42,15 @@ from kntgraph.core.event import (
     OperationalEventType,
     correlation_middleware,
 )
-from kntgraph.testing import FakeEmbeddingProvider
-from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector
 from kntgraph.infra.graph import (
     GraphPool,
     graph_name_for_tenant,
 )
-from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector
+from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.stream.event_log import EventLog
+from kntgraph.testing import FakeEmbeddingProvider
 
 CNPJ = "12.345.678-0001-90"
 

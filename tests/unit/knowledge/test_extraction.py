@@ -38,18 +38,17 @@ from kntgraph.knowledge.extraction import (
     Entity,
     EntityExtractor,
     EntityExtractorWithMentions,
-    HeuristicEntityExtractor,
     GlinerEntityAdapter,
+    HeuristicEntityExtractor,
     canonicalize,
     dedup_entities,
     parse_payload,
 )
 from kntgraph.knowledge.extraction.base import (
+    ENTITY_TYPE_DATE,
     ENTITY_TYPE_ID,
     ENTITY_TYPE_MONEY,
-    ENTITY_TYPE_DATE,
 )
-
 
 # ---------------------------------------------------------------------------
 # canonicalize

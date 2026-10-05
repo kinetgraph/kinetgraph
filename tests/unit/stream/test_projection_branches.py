@@ -2,15 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import fakeredis.aioredis
 import pytest
-from uuid import uuid4
-from datetime import datetime, timezone
 
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
-from kntgraph.stream.projection import read_all_events, fold_world, fold_world_for_agent
+from kntgraph.stream.projection import fold_world, fold_world_for_agent, read_all_events
 
 pytestmark = pytest.mark.asyncio
 
@@ -28,7 +29,7 @@ def _dummy_event(agent_id: str) -> Event:
         agent_id=agent_id,
         event_class="domain",
         data={},
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         correlation=CorrelationContext(causation_id=uuid4(), correlation_id=uuid4()),
     )
 

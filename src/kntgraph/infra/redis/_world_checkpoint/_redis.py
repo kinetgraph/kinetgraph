@@ -13,8 +13,6 @@ Wire format: ``SET knt:world:{agent_id} <pickled payload> EX <ttl>``.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import structlog
 
 from kntgraph.core.result import Err, Ok, Result
@@ -22,7 +20,6 @@ from kntgraph.core.result import Err, Ok, Result
 from .._client import RedisLike
 from .._errors import MemoryError
 from .._prefix import namespaced, validate_prefix
-
 
 logger = structlog.get_logger()
 
@@ -37,14 +34,14 @@ WORLD_CHECKPOINT_KEY_TEMPLATE = "knt:world:{agent_id}"
 WORLD_CURSOR_KEY_TEMPLATE = "knt:world-cursor:{agent_id}"
 
 
-def storage_key(prefix: str, agent_id: Optional[str] = None) -> str:
+def storage_key(prefix: str, agent_id: str | None = None) -> str:
     if agent_id is None:
         agent_id = prefix
         prefix = ""
     return namespaced(prefix, WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id))
 
 
-def cursor_key(prefix: str, agent_id: Optional[str] = None) -> str:
+def cursor_key(prefix: str, agent_id: str | None = None) -> str:
     if agent_id is None:
         agent_id = prefix
         prefix = ""
@@ -82,7 +79,7 @@ class RedisWorldCheckpointStorage:
     def cursor_key(self, agent_id: str) -> str:
         return cursor_key(self.key_prefix, agent_id)
 
-    async def load(self, agent_id: str) -> Result[Optional[bytes], MemoryError]:
+    async def load(self, agent_id: str) -> Result[bytes | None, MemoryError]:
         """Load the pickled checkpoint payload (or None on miss)."""
         try:
             raw = await self.client.get(self.storage_key(agent_id))
@@ -99,7 +96,7 @@ class RedisWorldCheckpointStorage:
             return Ok(bytes(raw))
         return Err(MemoryError(f"unexpected redis return type: {type(raw).__name__}"))
 
-    async def load_cursor(self, agent_id: str) -> Result[Optional[str], MemoryError]:
+    async def load_cursor(self, agent_id: str) -> Result[str | None, MemoryError]:
         """Load the agent's stream cursor (or None on miss).
 
         The cheap probe of the P5b split: callers read this
@@ -127,8 +124,8 @@ class RedisWorldCheckpointStorage:
         agent_id: str,
         payload: bytes,
         *,
-        ttl_seconds: Optional[int] = None,
-        cursor: Optional[str] = None,
+        ttl_seconds: int | None = None,
+        cursor: str | None = None,
     ) -> Result[None, MemoryError]:
         """Persist the checkpoint with sliding TTL.
 
@@ -259,9 +256,9 @@ class RedisWorldCheckpointStorage:
 
 
 __all__ = [
-    "RedisWorldCheckpointStorage",
     "WORLD_CHECKPOINT_KEY_TEMPLATE",
     "WORLD_CURSOR_KEY_TEMPLATE",
+    "RedisWorldCheckpointStorage",
     "cursor_key",
     "storage_key",
 ]

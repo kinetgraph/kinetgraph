@@ -25,8 +25,7 @@ tests for the production Ollama path.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Callable
+from collections.abc import Callable, Sequence
 
 
 class FakeEmbeddingProvider:
@@ -63,7 +62,7 @@ class FakeEmbeddingProvider:
     async def close(self) -> None:
         return None
 
-    def __class_getitem__(cls, dim: int) -> type["FakeEmbeddingProvider"]:
+    def __class_getitem__(cls, dim: int) -> type[FakeEmbeddingProvider]:
         """
         Allow subscripting ``FakeEmbeddingProvider[768]`` for
         type-level annotation. Returns the class unchanged

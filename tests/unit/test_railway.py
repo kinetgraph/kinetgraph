@@ -7,18 +7,18 @@ Testes unitários para Railway Pattern e Result.
 """
 
 import uuid
+from typing import cast
 
 import pytest
-from typing import cast
 
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.core.result import (
-    Result,
-    Ok,
-    Err,
-    ValidationError,
     BusinessError,
+    Err,
+    Ok,
     PersistenceError,
+    Result,
+    ValidationError,
 )
 
 

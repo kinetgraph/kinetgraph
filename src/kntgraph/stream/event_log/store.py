@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -122,12 +122,12 @@ class EventLog:
         self,
         storage,
         *,
-        key_registry: Optional["KeyRegistry"] = None,
+        key_registry: KeyRegistry | None = None,
         require_signatures: bool = False,
         signature_warn_only: bool = False,
-        circuit_breaker: Optional[CircuitBreaker] = None,
+        circuit_breaker: CircuitBreaker | None = None,
         append_timeout_seconds: float = 5.0,
-        append_backoff: Optional[BackoffPolicy] = None,
+        append_backoff: BackoffPolicy | None = None,
     ) -> None:
         """
         Args:
@@ -155,11 +155,11 @@ class EventLog:
         # Resilience wiring.
         self._circuit_breaker = circuit_breaker
         self._append_timeout_seconds = append_timeout_seconds
-        self._append_backoff: Optional[BackoffPolicy] = append_backoff
+        self._append_backoff: BackoffPolicy | None = append_backoff
 
     # ------------------------------------------------------------------ preflight
 
-    def _preflight(self, event: Event) -> Optional[PersistenceError]:
+    def _preflight(self, event: Event) -> PersistenceError | None:
         """
         Run the three preflight checks before delegating to
         storage. Returns ``None`` if all checks pass, or a
@@ -306,7 +306,7 @@ class EventLog:
         agent_id: str,
         start: str = "-",
         end: str = "+",
-        count: Optional[int] = None,
+        count: int | None = None,
     ) -> list[Event]:
         """Read events for one agent in [start, end] stream-id range."""
         return await self._storage.read(agent_id, start=start, end=end, count=count)
@@ -345,7 +345,7 @@ class EventLog:
 
     async def iter_all(
         self,
-        agent_ids: Optional[list[str]] = None,
+        agent_ids: list[str] | None = None,
         batch: int = 100,
     ) -> AsyncIterator[Event]:
         """

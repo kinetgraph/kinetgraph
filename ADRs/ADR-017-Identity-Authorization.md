@@ -53,15 +53,16 @@ This ADR is **Zero-Trust Level 2** in the same ladder ADR-016 introduced for eve
 ```python
 @dataclass(frozen=True, slots=True)
 class Principal:
-    agent_id: str           # the producer identity (existing)
-    role: Role              # admin | agent | service
-    tenant_id: str          # tenant scope
-    key_id: str             # the API key identifier (for revocation)
+    agent_id: str  # the producer identity (existing)
+    role: Role  # admin | agent | service
+    tenant_id: str  # tenant scope
+    key_id: str  # the API key identifier (for revocation)
+
 
 class Role(StrEnum):
-    admin = "admin"         # cross-tenant operations
-    agent = "agent"         # the producer default
-    service = "service"     # background workers / consolidators
+    admin = "admin"  # cross-tenant operations
+    agent = "agent"  # the producer default
+    service = "service"  # background workers / consolidators
 ```
 
 **Tier 2 — Authentication (proving identity).** `X-API-Key → Principal`. The `RedisAPIKeyVerifier` today returns `agent_id: str`. Under Zero-Trust, it returns `Principal`. The Redis binding table is extended:
@@ -228,6 +229,7 @@ class ToolDescriptor:
     name: str
     required_role: Role = Role.agent
 
+
 # ToolInvoker:
 if principal.role < tool.required_role:  # via Role ordering
     raise ToolError("role_insufficient")
@@ -243,6 +245,7 @@ class ToolDescriptor:
     name: str
     required_role: Role = Role.agent
     tenant_pinned: bool = False  # when True, only the owning tenant
+
 
 # ToolInvoker:
 if principal.role < tool.required_role:
@@ -263,12 +266,17 @@ class ToolPolicy:
     tool_name: str
     allow: Callable[[Principal], bool]  # evaluated per call
 
+
 # ToolRegistry:
-registry.register(tool, policy=ToolPolicy(
-    tool_name="tools.billing.refund",
-    allow=lambda p: p.role == Role.admin or
-                   p.agent_id in {"agent-finance-X", "agent-finance-Y"},
-))
+registry.register(
+    tool,
+    policy=ToolPolicy(
+        tool_name="tools.billing.refund",
+        allow=lambda p: (
+            p.role == Role.admin or p.agent_id in {"agent-finance-X", "agent-finance-Y"}
+        ),
+    ),
+)
 
 # ToolInvoker:
 if tool.policy is not None and not tool.policy.allow(principal):
@@ -408,8 +416,8 @@ class ToolDescriptor:
     description: str
     input_schema: dict[str, Any]
     required_role: Role
-    tenant_pinned: bool            # only with Scenario B/C/D
-    policy: ToolPolicy | None       # only with Scenario C
+    tenant_pinned: bool  # only with Scenario B/C/D
+    policy: ToolPolicy | None  # only with Scenario C
 ```
 
 and `ToolInvoker` enforces it. Without a decision, §5 is the last unblocked item on the path to L2.

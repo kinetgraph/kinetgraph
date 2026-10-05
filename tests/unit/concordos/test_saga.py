@@ -14,7 +14,7 @@ mocks on ``ReactiveDispatcher``. They run with
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 from uuid import uuid4
 
@@ -45,7 +45,7 @@ def _flow() -> CorrelationContext:
     return CorrelationContext(correlation_id=uuid4())
 
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 def _request(req_eid: str, tool_name: str) -> ToolCallRequest:

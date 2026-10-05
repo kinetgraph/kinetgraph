@@ -74,6 +74,7 @@ async def sla_watchdog(world):
         if agent.component.idle_seconds > 30:
             yield ReminderEvent(...)
 
+
 # System de retry: "se última tool call falhou, agendar retry"
 async def retry_on_failure(world):
     for agent in world.query_agents(ToolCall):
@@ -130,6 +131,7 @@ O `World.with_event(event)` (já existente em `core/world.py`)
 @dataclass(frozen=True, slots=True)
 class WorldCheckpoint:
     """Persisted state of an agent's incremental World."""
+
     world: World
     last_stream_id: str
 
@@ -194,9 +196,7 @@ class ReactiveDispatcher:
         processed = 0
         for agent_id in list(self._agents):
             ckpt = await self._world_store.load(agent_id)
-            new_raw = await self._fetch_new_events(
-                agent_id, ckpt.last_stream_id
-            )
+            new_raw = await self._fetch_new_events(agent_id, ckpt.last_stream_id)
             if not new_raw:
                 continue
 
@@ -281,6 +281,7 @@ Exemplo de migração:
 async def retry_on_failure(world, event):
     if event.event_type == "tool.<name>.failed":
         yield RetryScheduledEvent(...)
+
 
 # Depois
 async def retry_on_failure(world):
@@ -437,6 +438,7 @@ Sistemas que ainda assinam `(world, event)` recebem
 ```python
 # Pseudocódigo de compat no dispatcher
 import inspect
+
 sig = inspect.signature(system)
 if len(sig.parameters) == 2:
     # Legacy: sistema espera (world, event)

@@ -20,7 +20,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -465,7 +464,7 @@ class TestFindByEventId:
 
         async def failing_hscan_iter(*args, **kwargs):
             raise ConnectionError("redis down")
-            yield  # noqa: ERA001
+            yield
 
         redis.hscan_iter = failing_hscan_iter  # type: ignore[assignment]
         storage = RedisDLQStorage(client=redis)
@@ -489,8 +488,8 @@ class TestGetStatsMissingStream:
     error and treats the stream as empty."""
 
     async def test_get_stats_returns_zero_when_stream_missing(self):
-        from kntgraph.infra.redis._errors import MemoryError
         from kntgraph.infra.redis._dlq import RedisDLQStorage
+        from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
         redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))
@@ -515,8 +514,8 @@ class TestPurgeMissingStream:
     purge is still performed)."""
 
     async def test_purge_returns_zero_when_stream_missing(self):
-        from kntgraph.infra.redis._errors import MemoryError
         from kntgraph.infra.redis._dlq import RedisDLQStorage
+        from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
         redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))

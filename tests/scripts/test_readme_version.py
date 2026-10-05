@@ -19,7 +19,6 @@ checkout) and asserts the contract.
 
 from __future__ import annotations
 
-
 import pytest
 
 from scripts.readme_stats import _version_badge

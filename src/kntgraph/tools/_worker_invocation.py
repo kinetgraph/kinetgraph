@@ -37,11 +37,11 @@ fork+openssl+thread-local interaction.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Type
+from typing import Any
 
 
 def _invoke_tool_sync(
-    tool_cls: Type, idempotency_key: str, kwargs: dict[str, Any]
+    tool_cls: type, idempotency_key: str, kwargs: dict[str, Any]
 ) -> dict[str, Any]:
     """
     Synchronous wrapper that runs a tool's ``invoke``

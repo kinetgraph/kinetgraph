@@ -117,7 +117,7 @@ class Signature:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, JsonValue]) -> "Signature":
+    def from_dict(cls, d: dict[str, JsonValue]) -> Signature:
         """Inverse of ``to_dict``. Tolerates missing key_epoch (=0)."""
         return cls(
             alg=_scalar(d.get("alg")),
@@ -156,7 +156,7 @@ class BatchSignature:
     """
 
     alg: str  # "concat-v1" enforced
-    signatures: tuple["BatchEntry", ...]
+    signatures: tuple[BatchEntry, ...]
 
     def __post_init__(self) -> None:
         if not self.signatures:
@@ -181,8 +181,8 @@ class BatchEntry:
     """
 
     signature: Signature
-    event: "Event"  # forward ref via TYPE_CHECKING (avoids cycle)
-    public_key: "Ed25519PublicKeyWrapper"  # compatible with any
+    event: Event  # forward ref via TYPE_CHECKING (avoids cycle)
+    public_key: Ed25519PublicKeyWrapper  # compatible with any
     # object that exposes ``verify(signature, message)``
     # (see ``kntgraph.security.keys``).
 

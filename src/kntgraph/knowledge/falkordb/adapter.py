@@ -59,7 +59,6 @@ from ._params import (
     _tool_call_node_params,
 )
 
-
 if TYPE_CHECKING:
     from ...graph._protocol import GraphAdapter
     from ...infra.graph import GraphPool

@@ -103,7 +103,7 @@ class TestSessionManagerReadThrough:
     ):
         sm = SessionManager(event_log, session_storage, ttl_seconds=60)
         await sm.start("s1", user_id="u1", tenant_id="t1")
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert isinstance(state, SessionState)
         assert state.session_id == "s1"
@@ -115,7 +115,7 @@ class TestSessionManagerReadThrough:
         self, event_log, session_storage
     ):
         sm = SessionManager(event_log, session_storage)
-        assert await sm.read("nonexistent") is None
+        assert (await sm.read("nonexistent")).ok_value() is None
 
     async def test_cache_rebuilt_after_invalidation(
         self, event_log, session_storage, fake_redis
@@ -125,7 +125,7 @@ class TestSessionManagerReadThrough:
         # Manually delete the cache
         await fake_redis.delete("knt:session:s1")
         # Read rebuilds from the EventLog
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert state.user_id == "u1"
         # Cache re-populated
@@ -136,7 +136,7 @@ class TestSessionManagerReadThrough:
         await sm.start("s1", user_id="u", tenant_id="t")
         await sm.append_message("s1", "user", "hello")
         await sm.append_message("s1", "assistant", "hi")
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert len(state.messages) == 2
         assert state.messages[0]["role"] == "user"
@@ -152,7 +152,7 @@ class TestSessionManagerReadThrough:
         sm = SessionManager(event_log, session_storage)
         await sm.start("s1", user_id="u", tenant_id="t")
         await sm.set_context("s1", "scratchpad", {"todo": "x"})
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert state.context.get("scratchpad") == {"todo": "x"}
 
@@ -161,7 +161,7 @@ class TestSessionManagerReadThrough:
         await sm.start("s1", user_id="u", tenant_id="t")
         await sm.append_message("s1", "user", "hi")
         await sm.end("s1")
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert not state.is_active()
         assert state.ended_at is not None
@@ -179,7 +179,7 @@ class TestSessionManagerReadThrough:
         await sm.start("s1", user_id="u1", tenant_id="t-A")
         await sm.start("s2", user_id="u2", tenant_id="t-A")
         await sm.start("s3", user_id="u3", tenant_id="t-B")
-        active = await sm.list_active("t-A")
+        active = (await sm.list_active("t-A")).ok_value()
         assert len(active) == 2
         assert {s.session_id for s in active} == {"s1", "s2"}
 
@@ -193,7 +193,7 @@ class TestSessionManagerRefreshCache:
         # Wipe the cache
         await fake_redis.delete("knt:session:s1")
         # refresh_cache rebuilds it
-        await sm.refresh_cache("s1")
+        (await sm.refresh_cache("s1")).is_ok()
         assert await fake_redis.exists("knt:session:s1")
 
 
@@ -216,7 +216,7 @@ class TestProfileManagerReadThrough:
     async def test_read_after_create(self, event_log, profile_storage):
         pm = ProfileManager(event_log, profile_storage)
         await pm.create("t1", "u1", preferences={"lang": "pt"}, tier="vip")
-        state = await pm.read("t1", "u1")
+        state = (await pm.read("t1", "u1")).ok_value()
         assert state is not None
         assert state.tenant_id == "t1"
         assert state.user_id == "u1"
@@ -227,7 +227,7 @@ class TestProfileManagerReadThrough:
         pm = ProfileManager(event_log, profile_storage)
         await pm.create("t1", "u1", preferences={"lang": "pt"})
         await pm.set_preference("t1", "u1", "currency", "BRL")
-        state = await pm.read("t1", "u1")
+        state = (await pm.read("t1", "u1")).ok_value()
         assert state is not None
         assert state.preferences.get("currency") == "BRL"
         assert state.preferences.get("lang") == "pt"
@@ -236,7 +236,7 @@ class TestProfileManagerReadThrough:
         pm = ProfileManager(event_log, profile_storage)
         await pm.create("t1", "u1", preferences={"lang": "pt"})
         await pm.unset_preference("t1", "u1", "lang")
-        state = await pm.read("t1", "u1")
+        state = (await pm.read("t1", "u1")).ok_value()
         assert state is not None
         assert "lang" not in state.preferences
 
@@ -257,20 +257,20 @@ class TestProfileManagerReadThrough:
         pm = ProfileManager(event_log, profile_storage)
         await pm.create("t1", "u1", tier="standard")
         await pm.change_tier("t1", "u1", "vip")
-        state = await pm.read("t1", "u1")
+        state = (await pm.read("t1", "u1")).ok_value()
         assert state is not None
         assert state.tier == "vip"
 
     async def test_read_nonexistent_returns_none(self, event_log, profile_storage):
         pm = ProfileManager(event_log, profile_storage)
-        assert await pm.read("ghost", "ghost") is None
+        assert (await pm.read("ghost", "ghost")).ok_value() is None
 
     async def test_list_for_tenant(self, event_log, profile_storage):
         pm = ProfileManager(event_log, profile_storage)
         await pm.create("t1", "u1")
         await pm.create("t1", "u2")
         await pm.create("t2", "u9")
-        out = await pm.list_for_tenant("t1")
+        out = (await pm.list_for_tenant("t1")).ok_value()
         assert len(out) == 2
         assert {s.user_id for s in out} == {"u1", "u2"}
 
@@ -285,7 +285,7 @@ class TestContinuityManagerReadThrough:
         cm = ContinuityManager(event_log, continuity_storage)
         r = await cm.create("t1", "u1")
         assert r.is_ok()
-        state = await cm.read("t1", "u1")
+        state = (await cm.read("t1", "u1")).ok_value()
         assert state is not None
         assert state.tenant_id == "t1"
         assert state.user_id == "u1"
@@ -294,7 +294,7 @@ class TestContinuityManagerReadThrough:
         cm = ContinuityManager(event_log, continuity_storage)
         await cm.create("t1", "u1")
         await cm.record_category_chosen("t1", "u1", "cfop", "5.102")
-        slot = await cm.recency_suggest("t1", "u1", "cfop")
+        slot = (await cm.recency_suggest("t1", "u1", "cfop")).ok_value()
         # The continuity fold stores ``<value>|<timestamp>``;
         # recency_suggest returns the full string.
         assert slot is not None
@@ -306,7 +306,7 @@ class TestContinuityManagerReadThrough:
         await cm.record_category_chosen("t1", "u1", "cfop", "5.102")
         await cm.clear("t1", "u1")
         # After clear, the value is hidden (LGPD semantics)
-        assert await cm.recency_suggest("t1", "u1", "cfop") is None
+        assert (await cm.recency_suggest("t1", "u1", "cfop")).ok_value() is None
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ class TestManagerErrorPaths:
         # The storage may succeed decoding to a dict-like value or
         # fail. Either way, the read path must NOT raise.
         try:
-            result = await sm.read("bad")
+            result = (await sm.read("bad")).ok_value()
         except (MemoryDecodeError, ValueError):
             return
         # If the codec survived, it either decoded (None) or the
@@ -340,7 +340,7 @@ class TestManagerErrorPaths:
         # Pre-seed a hash without ``created_at``: the decoder
         # should raise ``MemoryDecodeError`` via the storage path.
         await fake_redis.hset("knt:profile:t1:u1", mapping={"tier": "vip"})
-        result = await pm.read("t1", "u1")
+        result = (await pm.read("t1", "u1")).ok_value()
         # Cache miss (no events in the log + decode error fallback
         # is logged + fold returns None)
         assert result is None
@@ -448,7 +448,7 @@ class TestSessionManagerBranchCoverage:
         # Corrupt the cache so the read returns Err
         await fake_redis.set("knt:session:s1", b"{not json")
         # Should not raise; the corrupt session is skipped
-        active = await sm.list_active("t")
+        active = (await sm.list_active("t")).ok_value()
         # The session is either skipped (empty list) or
         # rebuilt from the EventLog; either way no crash.
         assert isinstance(active, list)
@@ -459,7 +459,7 @@ class TestSessionManagerBranchCoverage:
         await sm.start("s1", user_id="u1", tenant_id="t")
         await sm.start("s2", user_id="u2", tenant_id="t")
         await sm.start("s3", user_id="u3", tenant_id="t")
-        active = await sm.list_active("t", limit=2)
+        active = (await sm.list_active("t", limit=2)).ok_value()
         assert len(active) == 2
 
     async def test_read_cache_returns_none_on_missing_raw(
@@ -511,7 +511,7 @@ class TestSessionManagerBranchCoverage:
         )
         await event_log.append(bad_event)
         # Read the state — the non-string key should be dropped
-        state = await sm.read("s1")
+        state = (await sm.read("s1")).ok_value()
         assert state is not None
         assert 123 not in state.context
         assert "123" not in state.context
@@ -664,7 +664,7 @@ class TestProfileManagerBranchCoverage:
         await fake_redis.hset("knt:profile:t1:u1", mapping={"tier": "vip"})
         # Should not raise; the entry is either skipped or
         # rebuilt from the EventLog.
-        out = await pm.list_for_tenant("t1")
+        out = (await pm.list_for_tenant("t1")).ok_value()
         assert isinstance(out, list)
 
     async def test_list_for_tenant_respects_limit(self, event_log, profile_storage):
@@ -673,7 +673,7 @@ class TestProfileManagerBranchCoverage:
         await pm.create("t1", "u1")
         await pm.create("t1", "u2")
         await pm.create("t1", "u3")
-        out = await pm.list_for_tenant("t1", limit=2)
+        out = (await pm.list_for_tenant("t1", limit=2)).ok_value()
         assert len(out) == 2
 
     async def test_fold_returns_none_when_no_created_event(

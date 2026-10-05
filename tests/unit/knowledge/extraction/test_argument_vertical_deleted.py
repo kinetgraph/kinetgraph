@@ -60,14 +60,14 @@ class TestArgumentExtractorVerticalDeleted:
     def test_framework_path_still_works(self) -> None:
         """The framework's pieces are importable
         from the canonical path."""
-        from kntgraph.knowledge.extraction.argument import (
-            FieldFinder,
-            RegexFieldFinder,
-            SchemaArgumentExtractor,
-            GlinerFieldFinder,
-        )
         from kntgraph.knowledge.extraction import (
             GlinerArgumentAdapter,
+        )
+        from kntgraph.knowledge.extraction.argument import (
+            FieldFinder,
+            GlinerFieldFinder,
+            RegexFieldFinder,
+            SchemaArgumentExtractor,
         )
         from kntgraph.knowledge.extraction.argument._coerce import (
             coerce,

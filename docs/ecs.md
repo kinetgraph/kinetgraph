@@ -46,12 +46,13 @@ Componentes são **dados puros** (sem lógica) que descrevem aspectos de um agen
 from kntgraph.core.component import Component
 from pydantic import ConfigDict
 
+
 class DocumentComponent(Component):
     model_config = ConfigDict(frozen=True)  # Imutável
-    
-    document_type: str      # "nota_fiscal", "darf", "holerite"
+
+    document_type: str  # "nota_fiscal", "darf", "holerite"
     document_id: str
-    status: str            # "received", "validating", "validated"
+    status: str  # "received", "validating", "validated"
     extracted_data: dict
     validation_errors: list[str] = []
 ```
@@ -61,31 +62,34 @@ class DocumentComponent(Component):
 ```python
 # Contexto do cliente
 class ClientContextComponent(Component):
-    client_id: str          # CNPJ/CPF
+    client_id: str  # CNPJ/CPF
     client_name: str
-    client_type: str        # "pessoa_fisica", "pessoa_juridica"
-    segment: str            # "servicos", "comercio"
-    risk_level: str         # "low", "medium", "high"
+    client_type: str  # "pessoa_fisica", "pessoa_juridica"
+    segment: str  # "servicos", "comercio"
+    risk_level: str  # "low", "medium", "high"
+
 
 # Tarefa em execução
 class TaskComponent(Component):
     task_id: str
-    task_type: str          # "coleta_docs", "validacao"
-    status: str             # "pending", "in_progress", "completed"
+    task_type: str  # "coleta_docs", "validacao"
+    status: str  # "pending", "in_progress", "completed"
     due_date: date
-    priority: int           # 1-5 (1 = mais urgente)
+    priority: int  # 1-5 (1 = mais urgente)
+
 
 # Notificação pendente
 class NotificationComponent(Component):
     notification_type: str  # "vencimento", "pendencia"
-    recipient: str          # email, phone
+    recipient: str  # email, phone
     message: str
     scheduled_date: datetime
     sent: bool = False
 
+
 # Workflow em execução
 class WorkflowComponent(Component):
-    workflow_type: str      # "onboarding_cliente"
+    workflow_type: str  # "onboarding_cliente"
     current_step: int
     total_steps: int
     steps_completed: list[int]
@@ -123,14 +127,14 @@ agent = AgentState.create(
         "document": DocumentComponent(
             document_type="nota_fiscal",
             document_id="NF-001",
-            extracted_data={"valor_total": 1500.50}
+            extracted_data={"valor_total": 1500.50},
         ),
         "client": ClientContextComponent(
             client_id="123456789",
             client_name="Empresa XYZ",
-            client_type="pessoa_juridica"
-        )
-    }
+            client_type="pessoa_juridica",
+        ),
+    },
 )
 
 print(f"Agent ID: {agent.agent_id}")
@@ -159,22 +163,23 @@ Sistemas são **funções async** que processam agentes e retornam novo estado.
 from kntgraph.core.world import World
 from immutables import Map
 
+
 async def document_validation_system(world: World) -> World:
     """Valida documentos de agentes."""
     new_agents = {}
-    
+
     for agent_id, agent in world.query_agents(DocumentComponent):
         doc = agent.components["document"]
-        
+
         # Validação
         errors = validate_document(doc)
-        
+
         if errors:
             # Emite evento de rejeição
             event = AgentEvent.create(
                 event_type="document.rejected",
                 agent_id=agent_id,
-                data={"errors": errors}
+                data={"errors": errors},
             )
             agent = agent.emit(event).unwrap()
         else:
@@ -182,12 +187,12 @@ async def document_validation_system(world: World) -> World:
             event = AgentEvent.create(
                 event_type="document.validated",
                 agent_id=agent_id,
-                data={"document_id": doc.document_id}
+                data={"document_id": doc.document_id},
             )
             agent = agent.emit(event).unwrap()
-        
+
         new_agents[agent_id] = agent
-    
+
     return world.with_agents(Map(new_agents))
 ```
 
@@ -214,10 +219,7 @@ from kntgraph.core.world import pipe_async
 
 # Pipeline de processamento
 world = await pipe_async(
-    world,
-    document_validation_system,
-    priority_system,
-    notification_system
+    world, document_validation_system, priority_system, notification_system
 )
 ```
 
@@ -236,10 +238,14 @@ from immutables import Map
 world = World.empty()
 
 # Adiciona agentes
-world = world.with_agents(Map({
-    agent1.agent_id: agent1,
-    agent2.agent_id: agent2,
-}))
+world = world.with_agents(
+    Map(
+        {
+            agent1.agent_id: agent1,
+            agent2.agent_id: agent2,
+        }
+    )
+)
 
 print(f"Agentes: {len(world.agents)}")
 ```
@@ -301,6 +307,7 @@ from datetime import datetime
 from kntgraph.core.world import World, pipe_async
 from kntgraph.core.event import AgentEvent, correlation_middleware
 
+
 async def main():
     with correlation_middleware.context_manager({"source": "example"}) as ctx:
         # 1. Cria agente
@@ -313,28 +320,23 @@ async def main():
                     document_type="nota_fiscal",
                     document_id="NF-001",
                     status="received",
-                    extracted_data={"valor": 1500.50}
+                    extracted_data={"valor": 1500.50},
                 )
-            }
+            },
         )
-        
+
         # 2. Cria world com agente
-        world = World.empty().with_agents(Map({
-            agent.agent_id: agent
-        }))
-        
+        world = World.empty().with_agents(Map({agent.agent_id: agent}))
+
         # 3. Processa com sistemas
-        world = await pipe_async(
-            world,
-            document_validation_system,
-            notification_system
-        )
-        
+        world = await pipe_async(world, document_validation_system, notification_system)
+
         # 4. Verifica eventos gerados
         for agent_id, agent in world.agents.items():
             print(f"Eventos pendentes: {len(agent.pending_events)}")
             for event in agent.pending_events:
                 print(f"  - {event.event_type}")
+
 
 asyncio.run(main())
 ```
@@ -351,10 +353,12 @@ class DocumentComponent(Component):
     document_id: str
     status: str
 
+
 # Sistemas puros (sem side effects)
 async def validation_system(world: World) -> World:
     # Apenas transforma estado
     ...
+
 
 # Query eficiente
 for agent in world.query_agents(DocumentComponent):
@@ -370,10 +374,12 @@ class MegaComponent(Component):
     # 50+ fields
     ...
 
+
 # ❌ Sistema com side effects
 async def bad_system(world: World) -> World:
     await send_email()  # Side effect!
     ...
+
 
 # ❌ Iterar todos agentes manualmente
 for agent_id, agent in world.agents.items():
@@ -411,14 +417,12 @@ agent = ServiceAgentState.create(
     unique_key="NF-001",
     components={
         "document": DocumentComponent(
-            document_type="nota_fiscal",
-            document_id="NF-001"
+            document_type="nota_fiscal", document_id="NF-001"
         ),
         "priority": PriorityComponent(
-            sla_deadline=datetime.now() + timedelta(hours=2),
-            urgency_level=2
-        )
-    }
+            sla_deadline=datetime.now() + timedelta(hours=2), urgency_level=2
+        ),
+    },
 )
 ```
 
@@ -426,6 +430,7 @@ agent = ServiceAgentState.create(
 
 ```python
 from kntgraph.resilience.retry import retry_with_backoff
+
 
 @retry_with_backoff(max_attempts=3)
 async def external_validation(doc_data):
@@ -439,6 +444,7 @@ async def external_validation(doc_data):
 from kntgraph.resilience.circuit_breaker import get_circuit_breaker
 
 cb = get_circuit_breaker("llm_service")
+
 
 async def ai_validation_system(world: World) -> World:
     for agent_id, agent in world.query_agents(DocumentComponent):

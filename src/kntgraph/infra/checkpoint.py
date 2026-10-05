@@ -65,16 +65,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
 import structlog
 
-from ..infra.redis._checkpoint import CheckpointStorage
-
 # Re-export CHECKPOINT_KEY for backward compat. The single
 # source of truth is now ``infra.redis._checkpoint.CHECKPOINT_KEY``.
-from ..infra.redis._checkpoint import CHECKPOINT_KEY  # noqa: E402, F401
+from ..infra.redis._checkpoint import (
+    CHECKPOINT_KEY,  # noqa: F401
+    CheckpointStorage,
+)
 
 logger = structlog.get_logger()
 
@@ -96,7 +96,7 @@ class ReactiveCheckpoint:
     last_event_id: UUID
     last_stream_id: str
     confirmed_at: datetime
-    state_hash: Optional[str] = None
+    state_hash: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -107,7 +107,7 @@ class ReactiveCheckpoint:
         }
 
     @classmethod
-    def from_dict(cls, agent_id: str, data: dict) -> "ReactiveCheckpoint":
+    def from_dict(cls, agent_id: str, data: dict) -> ReactiveCheckpoint:
         return cls(
             agent_id=agent_id,
             last_event_id=UUID(data["last_event_id"]),
@@ -142,7 +142,7 @@ class CheckpointStore:
         """
         self._storage = storage
 
-    async def load(self, agent_id: str) -> Optional[ReactiveCheckpoint]:
+    async def load(self, agent_id: str) -> ReactiveCheckpoint | None:
         """
         Load the checkpoint for a single agent. Returns `None`
         if no checkpoint exists (the agent has never been

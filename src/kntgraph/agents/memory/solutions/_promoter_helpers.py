@@ -24,7 +24,7 @@ path).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 from kntgraph.agents.memory.solutions._values import (
     Action,
@@ -36,15 +36,15 @@ from kntgraph.agents.memory.solutions._values import (
 if TYPE_CHECKING:
     from kntgraph.agents.memory.solutions._promoter import (
         Redactor,
+        SolutionPromoter,
         _RedactionResultLike,
     )
-    from kntgraph.agents.memory.solutions._promoter import SolutionPromoter
 
 
 async def redact_candidate(
-    promoter_self: "SolutionPromoter",
+    promoter_self: SolutionPromoter,
     candidate: SolutionCandidate,
-) -> Optional[SolutionCandidate]:
+) -> SolutionCandidate | None:
     """
     Run PII redaction on the candidate's text and
     params. Returns a NEW candidate with the
@@ -58,14 +58,14 @@ async def redact_candidate(
     (same input → same output) is sufficient;
     no idempotency_key is needed at this layer.
     """
-    redactor_opt: "Redactor | None" = promoter_self._redactor
+    redactor_opt: Redactor | None = promoter_self._redactor
     if redactor_opt is None:
         # No redactor wired in: pass-through. The
         # candidate is returned with the original
         # (unredacted) data. The promoter is in
         # "no-redact" mode.
         return candidate
-    redactor: "Redactor" = redactor_opt
+    redactor: Redactor = redactor_opt
 
     # Two calls (problem text, action params). The
     # payloads are different but the redaction is

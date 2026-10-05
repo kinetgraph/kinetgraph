@@ -86,6 +86,7 @@ llm = LiteLLMTool(default_model="gpt-4o-mini", rate_limiter=...)
 planner = PlannerRole(llm=llm)
 summarizer = SummarizerRole(llm=llm)
 
+
 # 1 system reativo (cola entre evento e Role)
 async def plan_after_validation(world, event):
     if event.event_type != "nf.validated":
@@ -114,12 +115,14 @@ em um sistema reativo — **não** em uma Tool:
 async def request_plan(world, event):
     if event.event_type != "task.received":
         return []
-    return [Event.domain_from(
-        agent_id=event.agent_id,
-        type="tool.llm.complete.requested",
-        data={"purpose": "plan", "task": event.data["task"]},
-        causation_id=event.event_id,
-    )]
+    return [
+        Event.domain_from(
+            agent_id=event.agent_id,
+            type="tool.llm.complete.requested",
+            data={"purpose": "plan", "task": event.data["task"]},
+            causation_id=event.event_id,
+        )
+    ]
 ```
 
 O consumidor desse `*.requested` é o `ToolInvoker` chamando a

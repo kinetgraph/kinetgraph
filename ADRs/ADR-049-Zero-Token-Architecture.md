@@ -309,6 +309,7 @@ class ChatRule:
     response: str
     priority: int = 0  # higher wins on tie
 
+
 class RuleBasedChatSystem(_BaseRoleSystem):
     def register_rule(self, rule: ChatRule) -> None: ...
     def unregister_rule(self, rule: ChatRule) -> None: ...

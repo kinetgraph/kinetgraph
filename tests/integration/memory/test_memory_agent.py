@@ -18,14 +18,14 @@ type-narrowed dispatch.
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.infra.redis._memory import RedisProfileStorage
-from kntgraph.infra.redis._memory import RedisSessionStorage
 
 from dataclasses import FrozenInstanceError
 from uuid import uuid4
 
 import pytest
+
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisProfileStorage, RedisSessionStorage
 
 # Tests in TestMemoryAgent and TestParseAgentId are sync;
 # tests in TestRefreshAll and TestProjectAll are async and
@@ -161,6 +161,8 @@ class TestRefreshAll:
 
     @pytest.mark.asyncio
     async def test_publishes_one_request_per_session(self, clean_redis):
+        from kntgraph.core.event import CorrelationContext, Event
+        from kntgraph.core.world import World
         from kntgraph.memory.cache_warmer import (
             CacheRefreshBus,
             CacheRefreshRequest,
@@ -168,8 +170,6 @@ class TestRefreshAll:
         from kntgraph.memory.consolidation import Consolidator
         from kntgraph.memory.session import SessionManager
         from kntgraph.stream.event_log import EventLog
-        from kntgraph.core.world import World
-        from kntgraph.core.event import CorrelationContext, Event
 
         log = EventLog(RedisEventLogAdapter(clean_redis))
         sm = SessionManager(log, RedisSessionStorage(clean_redis))
@@ -195,15 +195,14 @@ class TestRefreshAll:
 
     @pytest.mark.asyncio
     async def test_publishes_one_request_per_profile(self, clean_redis):
+        from kntgraph.core.event import CorrelationContext, Event, OperationalEventType
+        from kntgraph.core.world import World
         from kntgraph.memory.cache_warmer import (
             CacheRefreshBus,
         )
         from kntgraph.memory.consolidation import Consolidator
         from kntgraph.memory.profile import ProfileManager
         from kntgraph.stream.event_log import EventLog
-        from kntgraph.core.world import World
-        from kntgraph.core.event import CorrelationContext, Event
-        from kntgraph.core.event import OperationalEventType
 
         log = EventLog(RedisEventLogAdapter(clean_redis))
         pm = ProfileManager(log, RedisProfileStorage(clean_redis))
@@ -224,12 +223,11 @@ class TestRefreshAll:
 
     @pytest.mark.asyncio
     async def test_skips_non_memory_agents(self, clean_redis):
+        from kntgraph.core.event import CorrelationContext, Event, OperationalEventType
+        from kntgraph.core.world import World
         from kntgraph.memory.cache_warmer import CacheRefreshBus
         from kntgraph.memory.consolidation import Consolidator
         from kntgraph.stream.event_log import EventLog
-        from kntgraph.core.world import World
-        from kntgraph.core.event import CorrelationContext, Event
-        from kntgraph.core.event import OperationalEventType
 
         log = EventLog(RedisEventLogAdapter(clean_redis))
         bus = CacheRefreshBus()
@@ -272,7 +270,7 @@ class TestProjectAll:
         await clean_redis.delete("knt:session:s-1")
         await clean_redis.delete("knt:profile:t-1:u-1")
 
-        result = await proj.project_all()
+        result = (await proj.project_all()).ok_value()
         # ``continuity`` always appears in the counts (ADR-014),
         # with value 0 when no continuity events exist.
         assert result == {"sessions": 1, "profiles": 1, "continuity": 0}
@@ -304,6 +302,6 @@ class TestProjectAll:
                 correlation=CorrelationContext.new(correlation_id=uuid4()),
             )
         )
-        result = await proj.project_all()
+        result = (await proj.project_all()).ok_value()
         # ``continuity`` always appears in the counts (ADR-014).
         assert result == {"sessions": 0, "profiles": 0, "continuity": 0}

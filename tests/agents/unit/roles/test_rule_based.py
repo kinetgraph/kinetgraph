@@ -45,7 +45,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Reuse the existing test harness so the new tests
 # exercise the same projection shim the project uses
 # in production. Importing private names from a sibling

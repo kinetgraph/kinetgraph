@@ -16,7 +16,6 @@ Public API
 from ._adapter import CheckpointStorage
 from ._redis import CHECKPOINT_KEY, RedisCheckpointStorage
 
-
 __all__ = [
     "CHECKPOINT_KEY",
     "CheckpointStorage",

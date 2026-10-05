@@ -26,11 +26,11 @@ from typing import TYPE_CHECKING
 from kntgraph.core.components.memory import ContinuityComponent
 
 if TYPE_CHECKING:
+    from kntgraph.concordos.base import ViewTrigger
+    from kntgraph.concordos.saga._config import SagaStepConfig
     from kntgraph.core._typing import JsonValue
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.view import AgentView
-    from kntgraph.concordos.base import ViewTrigger
-    from kntgraph.concordos.saga._config import SagaStepConfig
 
 
 __all__ = ["dispatch_step", "enrich_params"]
@@ -38,15 +38,15 @@ __all__ = ["dispatch_step", "enrich_params"]
 
 # Reuse the canonical ``_SagaSystemLike`` Protocol from
 # ``_records.py`` (single source of truth).
-from ._records import _SagaSystemLike  # noqa: F401
+from ._records import _SagaSystemLike
 
 
 def dispatch_step(
     saga: _SagaSystemLike,
-    view: "AgentView",
-    step_config: "SagaStepConfig",
-    trigger: "ViewTrigger",
-) -> "Event":
+    view: AgentView,
+    step_config: SagaStepConfig,
+    trigger: ViewTrigger,
+) -> Event:
     """
     Emit ``tool.<name>.requested`` for the step.
 
@@ -67,7 +67,7 @@ def dispatch_step(
             event_type=(f"saga.{saga._cfg.name}.{step_config.name}.awaiting_approval"),
             data={"step_name": step_config.name},
         )
-    params: dict[str, "JsonValue"] = {
+    params: dict[str, JsonValue] = {
         "saga_id": trigger.data.get("saga_id", ""),
     }
     enrich_params(saga, view, step_config, trigger, params)
@@ -81,10 +81,10 @@ def dispatch_step(
 
 def enrich_params(
     saga: _SagaSystemLike,
-    view: "AgentView",
-    step_config: "SagaStepConfig",
-    trigger: "ViewTrigger",
-    params: dict[str, "JsonValue"],
+    view: AgentView,
+    step_config: SagaStepConfig,
+    trigger: ViewTrigger,
+    params: dict[str, JsonValue],
 ) -> None:
     """Enrich the tool params from previous step results and
     the ``ContinuityComponent`` (ADR-069 §9.2 item 2).
@@ -106,9 +106,9 @@ def enrich_params(
 
 
 def _enrich_from_continuity(
-    step_config: "SagaStepConfig",
+    step_config: SagaStepConfig,
     continuity: ContinuityComponent,
-    params: dict[str, "JsonValue"],
+    params: dict[str, JsonValue],
 ) -> None:
     """Read ``enrich_from`` fields from the
     ``ContinuityComponent`` (last_tools / last_entities /

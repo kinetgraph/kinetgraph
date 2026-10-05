@@ -61,7 +61,6 @@ import re
 
 from ._typing import ValidatorInput
 
-
 # Trust boundary constants.
 MAX_AGENT_ID_LEN: int = 128
 AGENT_ID_RE: re.Pattern[str] = re.compile(rf"^[A-Za-z0-9._:-]{{1,{MAX_AGENT_ID_LEN}}}$")

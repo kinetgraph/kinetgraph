@@ -37,7 +37,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
+
+import structlog
 
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
@@ -46,8 +48,6 @@ from ..infra.redis._errors import MemoryDecodeError, MemoryMiss
 from ..infra.redis._memory import ShortMemoryStorage
 from ..stream.event_log import EventLog
 from .base import BaseShortTermMemory
-
-import structlog
 
 logger = structlog.get_logger()
 
@@ -82,7 +82,7 @@ class SessionState:
     messages: tuple[dict[str, JsonValue], ...]
     context: dict[str, JsonValue]
     started_at: float
-    ended_at: Optional[float] = None
+    ended_at: float | None = None
 
     def is_active(self) -> bool:
         return self.ended_at is None
@@ -105,7 +105,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         event_log: EventLog,
         storage: ShortMemoryStorage,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         # ``None`` → operator-configured default from
         # ``Settings.session_ttl_seconds`` (24h). The
@@ -135,7 +135,9 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     # ------------------------------------------------------------------ public
 
-    async def write_cache(self, session_id: str, state: SessionState) -> None:
+    async def write_cache(
+        self, session_id: str, state: SessionState
+    ) -> Result[None, PersistenceError]:
         """
         Public write-through for a single session.
 
@@ -145,27 +147,33 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
         `start` also calls this for the brand-new initial
         state, which has no EventLog history yet.
+
+        Errors propagate from the underlying storage write
+        (AGENTS.md §6).
         """
         key = self.cache_key(session_id)
-        await self._write_cache_for_key(key, state)
+        return await self._write_cache_for_key(key, state)
 
     async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
         self, session_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Rebuild the cache for one session by folding the
         EventLog. Idempotent: if no events exist, this is a
-        no-op.
+        no-op (returns ``Ok(None)``).
 
         Public API: the ``CacheWarmer`` adapter calls this in
         response to a ``CacheRefreshRequest`` (see
         ``kntgraph.memory.cache_warmer``).
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache(session_id)
+        return await super().refresh_cache(session_id)
 
     async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
         self, session_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Incremental refresh for one session (ADR-068
         §3.4 P4). Reads the fold cursor from the
@@ -187,8 +195,11 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         cheapest path. The P4 gain on Session comes
         primarily from the O(delta) EventLog read, not
         from the merge step.
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache_incremental(session_id)
+        return await super().refresh_cache_incremental(session_id)
 
     # ------------------------------------------------------------------ write (domain)
 
@@ -206,7 +217,12 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         if result.is_err():
             err = result.err_value() or PersistenceError("Unknown persistence error")
             return Err(err)
-        await self.refresh_cache(session_id)
+        refresh_result = await self.refresh_cache(session_id)
+        if refresh_result.is_err():
+            err = refresh_result.err_value() or PersistenceError(
+                "Unknown refresh error"
+            )
+            return Err(err)
         return Ok(event)
 
     async def start(
@@ -214,7 +230,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         session_id: str,
         user_id: str,
         tenant_id: str,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> Result[Event, PersistenceError]:
         """
         Open a new session. Idempotent on (session_id, user_id,
@@ -272,7 +288,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
         session_id: str,
         role: str,
         content: str,
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> Result[Event, PersistenceError]:
         """Append a message to the session."""
         if not content:
@@ -330,37 +346,62 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     async def read(  # type: ignore[reportIncompatibleMethodOverride]
         self, session_id: str
-    ) -> Optional[SessionState]:
+    ) -> Result[SessionState | None, PersistenceError]:
         """
         Read the session state. Tries the cache first; on miss,
         folds the EventLog and refreshes the cache.
+
+        Returns ``Ok(state)`` on hit, ``Ok(None)`` when no
+        session has been started for ``session_id``, or
+        ``Err(PersistenceError)`` when the cache adapter or
+        EventLog fold reports a failure (AGENTS.md §6:
+        "wrap-in-result, no fail-soft").
         """
         return await super().read(session_id)
 
-    async def list_active(self, tenant_id: str, limit: int = 100) -> list[SessionState]:
+    async def list_active(
+        self, tenant_id: str, limit: int = 100
+    ) -> Result[list[SessionState], PersistenceError]:
         """
-        Best-effort: scans all session keys in Redis. If the
-        cache is cold, returns whatever is in Redis. Callers
-        that need a complete picture should fold the EventLog.
+        Scan the Redis cache for active sessions belonging
+        to a tenant.
+
+        Returns ``Err`` when the storage iteration reports a
+        transport failure (AGENTS.md §6). Per-entry decode
+        failures are mapped to ``Ok([])`` — the entry is
+        skipped and the scan continues (the cache is the
+        working set, not the source of truth).
         """
         out: list[SessionState] = []
-        async for key in self._storage.iter_keys(SESSION_KEY_PREFIX):
-            sid = key[len(SESSION_KEY_PREFIX) :]
-            cache_result = await self._read_cache(self.cache_key(sid), sid)
-            if cache_result.is_err():
-                continue
-            state = cache_result.ok_value()
-            if state and state.tenant_id == tenant_id and state.is_active():
-                out.append(state)
-            if len(out) >= limit:
-                break
-        return out
+        try:
+            async for key in self._storage.iter_keys(SESSION_KEY_PREFIX):
+                sid = key[len(SESSION_KEY_PREFIX) :]
+                cache_result = await self._read_cache(self.cache_key(sid), sid)
+                if cache_result.is_err():
+                    continue
+                state = cache_result.ok_value()
+                if state and state.tenant_id == tenant_id and state.is_active():
+                    out.append(state)
+                if len(out) >= limit:
+                    break
+        except Exception as e:
+            logger.warning(
+                "session.list_active.storage_error",
+                tenant_id=tenant_id,
+                error=str(e),
+            )
+            return Err(
+                PersistenceError(
+                    f"iter_keys for prefix {SESSION_KEY_PREFIX!r} failed: {e}"
+                )
+            )
+        return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
         self, key: str, *key_parts: str
-    ) -> Result[Optional[SessionState], MemoryDecodeError]:
+    ) -> Result[SessionState | None, MemoryDecodeError]:
         """Decode the JSON cache entry at ``key``.
 
         Returns ``Ok(None)`` on miss (``MemoryMiss`` from
@@ -415,7 +456,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, session_id: str
-    ) -> Optional[SessionState]:
+    ) -> SessionState | None:
         """
         Folds the EventLog for the session and reconstructs a
         SessionState. Pure: reads events, no side effects.
@@ -428,7 +469,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 def _fold_session_events(
     session_id: str,
     events: Iterable[Event],
-) -> Optional[SessionState]:
+) -> SessionState | None:
     """
     Pure fold: events → SessionState.
 
@@ -593,14 +634,14 @@ def _build_session_state(
     tenant_id = _coerce_str(raw, "tenant_id")
     messages_raw = raw.get("messages") or []
     if not isinstance(messages_raw, list):
-        raise ValueError("messages is not a list")
+        raise TypeError("messages is not a list")
     messages: list[dict[str, JsonValue]] = []
     for entry in messages_raw:
         if isinstance(entry, dict):
             messages.append({str(k): v for k, v in entry.items()})
     context_raw = raw.get("context") or {}
     if not isinstance(context_raw, dict):
-        raise ValueError("context is not a dict")
+        raise TypeError("context is not a dict")
     context: dict[str, JsonValue] = {str(k): v for k, v in context_raw.items()}
     started_at = _coerce_float(raw.get("started_at"), default=0.0)
     ended_at_raw = raw.get("ended_at")

@@ -37,10 +37,11 @@ No I/O, no Redis, no event construction.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Mapping, cast
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from ...core.event import CorrelationContext, Event
@@ -115,7 +116,7 @@ class DeadLetterEvent:
     original_timestamp: datetime
     dlq_timestamp: datetime
     retry_count: int = 0
-    metadata: Mapping[str, "JsonValue"] = field(
+    metadata: Mapping[str, JsonValue] = field(
         default_factory=lambda: cast("Mapping[str, JsonValue]", {})
     )
 
@@ -157,7 +158,7 @@ class DeadLetterEvent:
         }
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, str]) -> "DeadLetterEvent":
+    def from_dict(cls, data: Mapping[str, str]) -> DeadLetterEvent:
         def s(key: str, default: str = "") -> str:
             # ``Mapping.get`` returns ``str | None`` even when
             # a ``default`` is supplied; narrow with the

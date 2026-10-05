@@ -31,7 +31,7 @@ shapes.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Optional, Protocol, Union, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from kntgraph.core._typing import JsonScalar, ValidatorInput
 from kntgraph.knowledge.extraction.argument._finder import FieldFinder
@@ -72,7 +72,7 @@ class _MatchObj(Protocol):
 #   - a bare string (the default, with ``include_confidence=False``);
 #   - a dict with ``text`` / ``confidence`` (1.3.x canonical);
 #   - a dataclass with ``.text`` / ``.score`` (pre-1.3).
-GlinerMatch = Union[str, _MatchDict, _MatchObj]
+GlinerMatch = str | _MatchDict | _MatchObj
 
 
 # The raw GLiNER2 ``.extract_entities(...)`` response is
@@ -81,7 +81,7 @@ GlinerMatch = Union[str, _MatchDict, _MatchObj]
 # directly. The framework reads it through :func:`_read`
 # so the exact shape is tolerated; this alias exists for
 # the call sites that bind the result.
-GlinerRawResult = Union[dict[str, Any], list[GlinerMatch]]
+GlinerRawResult = dict[str, Any] | list[GlinerMatch]
 
 
 # The narrow union consumed by the private ``_read`` helper.
@@ -89,10 +89,10 @@ GlinerRawResult = Union[dict[str, Any], list[GlinerMatch]]
 # (the framework's stream-boundary contract); the GLiNER2
 # paths (which admit attribute-bearing objects) use
 # ``_read`` instead.
-_MatchCandidate = Union[_MatchDict, _MatchObj, dict[str, Any]]
+_MatchCandidate = _MatchDict | _MatchObj | dict[str, Any]
 
 
-def field_o(obj: ValidatorInput, name: str) -> Optional[JsonScalar]:
+def field_o(obj: ValidatorInput, name: str) -> JsonScalar | None:
     """Read `name` from `obj` whether dict or attribute.
 
     Reserved for JSON-shaped ``ValidatorInput`` at the
@@ -132,7 +132,7 @@ def _read(obj: Any, name: str) -> Any:
 def extract_first(
     raw: GlinerRawResult,
     entity_name: str,
-) -> Optional[tuple[str, float]]:
+) -> tuple[str, float] | None:
     """
     Pull the first match for `entity_name` from the raw
     GLiNER2 output.
@@ -167,7 +167,7 @@ def extract_first(
 
 def _extract_from_entities_dict(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[str, float]]:
+) -> tuple[str, float] | None:
     """1.3.x canonical shape: ``{"entities": {label: [...]}}``."""
     entities_dict = _read(raw, "entities")
     if not isinstance(entities_dict, dict):
@@ -177,7 +177,7 @@ def _extract_from_entities_dict(
 
 def _extract_from_top_level_label(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[str, float]]:
+) -> tuple[str, float] | None:
     """Older dict shape: top-level ``{label: [match, ...]}``."""
     if not isinstance(raw, dict) or entity_name not in raw:
         return None
@@ -189,7 +189,7 @@ def _extract_from_top_level_label(
 
 def _extract_from_candidates(
     raw: GlinerRawResult, entity_name: str
-) -> Optional[tuple[str, float]]:
+) -> tuple[str, float] | None:
     """Older list-of-candidates shape.
 
     Walks ``raw`` (or its ``"predictions"`` field) and
@@ -235,16 +235,14 @@ def _collect_from_sequence(seq: Any) -> list[_MatchCandidate]:
     """
     out: list[_MatchCandidate] = []
     for c in seq:
-        if isinstance(c, dict):
-            out.append(c)
-        elif isinstance(c, _MatchObj):
+        if isinstance(c, (dict, _MatchObj)):
             out.append(c)
     return out
 
 
 def _candidate_to_text_score(
     c: _MatchCandidate, entity_name: str
-) -> tuple[Optional[str], float]:
+) -> tuple[str | None, float]:
     """Pull ``(text, score)`` out of one candidate.
 
     Returns ``(None, 0.0)`` when the candidate's label
@@ -263,7 +261,7 @@ def _candidate_to_text_score(
         return (None, 0.0)
 
 
-def match_to_value(match: Optional[GlinerMatch]) -> Optional[tuple[str, float]]:
+def match_to_value(match: GlinerMatch | None) -> tuple[str, float] | None:
     """
     Convert one match from a GLiNER2 entities result into a
     `(text, confidence)` tuple. The framework treats the
@@ -332,7 +330,7 @@ class GlinerFieldFinder(FieldFinder):
         self,
         model_name: str = "gliner2-base",
         *,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         from kntgraph._optional import require_optional
 
@@ -362,7 +360,7 @@ class GlinerFieldFinder(FieldFinder):
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple[str, float]]:
+    ) -> tuple[str, float] | None:
         if not text or not text.strip():
             return None
         entity_name = self._entity_name_for(field)

@@ -53,10 +53,10 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.components.role import RoleComponent, has_tool_access
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.tools.system import ToolAwareSystem
@@ -118,7 +118,7 @@ class SolutionStoreLike(Protocol):
         tool_name: str,
         params_fingerprint: str,
         min_confidence: int,
-    ) -> Optional[CachedSolution]:
+    ) -> CachedSolution | None:
         """
         Return the highest-confidence cached Solution for
         ``(tool_name, params_fingerprint)`` whose
@@ -184,7 +184,7 @@ class InMemorySolutionStore:
         tool_name: str,
         params_fingerprint: str,
         min_confidence: int,
-    ) -> Optional[CachedSolution]:
+    ) -> CachedSolution | None:
         solution = self._solutions.get((tool_name, params_fingerprint))
         if solution is None:
             return None
@@ -258,8 +258,8 @@ class SolutionLookupSystem(ToolAwareSystem):
         *,
         solution_store: SolutionStoreLike,
         min_confidence: int = 3,
-        allowlist: Optional[frozenset[str]] = None,
-        tenant_id: Optional[str] = None,
+        allowlist: frozenset[str] | None = None,
+        tenant_id: str | None = None,
     ) -> None:
         if min_confidence < 1:
             raise ValueError(f"min_confidence must be >= 1, got {min_confidence}")
@@ -322,7 +322,7 @@ class SolutionLookupSystem(ToolAwareSystem):
 
     def _discover_requests(
         self,
-        view: "AgentView",
+        view: AgentView,
         agent_id: str,
     ) -> None:
         """Queue a lookup for every unseen ``ToolCallRequest`` in
@@ -337,7 +337,7 @@ class SolutionLookupSystem(ToolAwareSystem):
 
     def _queue_if_unseen(
         self,
-        view: "AgentView",
+        view: AgentView,
         req_id: str,
         req: object,
         agent_id: str,
@@ -353,7 +353,7 @@ class SolutionLookupSystem(ToolAwareSystem):
 
     def _queue_lookup(
         self,
-        view: "AgentView",
+        view: AgentView,
         req: ToolCallRequest,
         agent_id: str,
     ) -> None:
@@ -444,14 +444,14 @@ class SolutionLookupSystem(ToolAwareSystem):
             # (per the Protocol's return type); the
             # BaseException branch above guarantees we
             # only see the union's non-exception members.
-            cached: Optional[CachedSolution] = result
+            cached: CachedSolution | None = result
             self._pending_results.extend(self._emit_completion(req, agent_id, cached))
 
     def _emit_completion(
         self,
         req: ToolCallRequest,
         agent_id: str,
-        cached: Optional[CachedSolution],
+        cached: CachedSolution | None,
     ) -> list[Event]:
         """Emit the synthetic completion if ``cached``
         is a match; update stats; return the events."""
@@ -526,7 +526,7 @@ class SolutionLookupSystem(ToolAwareSystem):
 
     def _gate2_allows(
         self,
-        view: "AgentView",
+        view: AgentView,
         req: ToolCallRequest,
         agent_id: str,
     ) -> bool:

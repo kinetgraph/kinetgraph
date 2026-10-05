@@ -152,8 +152,7 @@ class LiteLLMToolWorker:
         think: bool = False,
         response_format: dict | None = None,
         stream: bool = False,
-    ) -> Result[dict[str, Any], Exception]:
-        ...
+    ) -> Result[dict[str, Any], Exception]: ...
 ```
 
 ### 2.2 Deprecation strategy

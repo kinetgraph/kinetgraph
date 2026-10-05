@@ -276,7 +276,7 @@ event_id = uuid5(
     namespace=AGENT_NS,
     name=f"{agent_id}|{type}|{target}|{args_hash}|{idempotency_key}",
 )
-correlation_id = event_id   # SAME value
+correlation_id = event_id  # SAME value
 ```
 
 ADR-037 §2 requires `correlation_id` to be

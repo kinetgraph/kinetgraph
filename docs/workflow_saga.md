@@ -105,8 +105,8 @@ from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 
 config = SagaConfig(
     name="nfe_emission",
-    saga_timeout_ms=300_000,          # 5 minutes total
-    fail_when=None,                    # None = fail on first step failure
+    saga_timeout_ms=300_000,  # 5 minutes total
+    fail_when=None,  # None = fail on first step failure
     steps=(
         SagaStepConfig(
             name="validate_fiscal",

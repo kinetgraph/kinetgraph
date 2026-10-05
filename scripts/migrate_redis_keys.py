@@ -102,7 +102,6 @@ import structlog
 
 from kntgraph.infra.config import settings
 
-
 # Default source / target prefixes. ``from_prefix`` is the
 # bare ``"knt:"`` (the pre-076 wire format); ``to_prefix``
 # is the ``KNT_REDIS_KEY_PREFIX`` value (defaults to ``""``,
@@ -166,7 +165,7 @@ class MigrationReport:
         if self.samples and dry_run:
             lines.append("")
             lines.append(
-                "  sample of (from, to) pairs (first {}):".format(len(self.samples))
+                f"  sample of (from, to) pairs (first {len(self.samples)}):"
             )
             for frm, to in self.samples[:10]:
                 lines.append(f"    {frm!r}  ->  {to!r}")

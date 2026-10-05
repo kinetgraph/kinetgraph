@@ -53,7 +53,7 @@ No Redis, no dispatcher, no external model.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
 from uuid import uuid4
 
@@ -70,7 +70,7 @@ from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 def _request(req_eid: str, tool_name: str) -> ToolCallRequest:

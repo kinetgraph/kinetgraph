@@ -40,7 +40,6 @@ from kntgraph.security import (
 )
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

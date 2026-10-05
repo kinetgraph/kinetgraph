@@ -72,7 +72,7 @@ class SolutionExtractorSystem:
         self,
         *,
         bump_min_agents: int = 1,
-        tool_allowlist: "frozenset[str] | None" = None,
+        tool_allowlist: frozenset[str] | None = None,
     ) -> None:
         if bump_min_agents < 1:
             raise ValueError(f"bump_min_agents must be >= 1, got {bump_min_agents}")

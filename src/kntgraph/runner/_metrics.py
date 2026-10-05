@@ -148,23 +148,23 @@ class NullMetricsSink:
 
     def record_in_flight(self, count: int) -> None:
         """No-op. See :meth:`MetricsSink.record_in_flight`."""
-        return None
+        return
 
     def record_stale(self, count: int) -> None:
         """No-op. See :meth:`MetricsSink.record_stale`."""
-        return None
+        return
 
     def record_stuck_in_queue(self, count: int) -> None:
         """No-op. See :meth:`MetricsSink.record_stuck_in_queue`."""
-        return None
+        return
 
     def record_dead_lettered(self, count: int) -> None:
         """No-op. See :meth:`MetricsSink.record_dead_lettered`."""
-        return None
+        return
 
     def incr_compensation_started(self) -> None:
         """No-op. See :meth:`MetricsSink.incr_compensation_started`."""
-        return None
+        return
 
 
 __all__ = [

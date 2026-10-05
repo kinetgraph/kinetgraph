@@ -61,12 +61,13 @@ if TYPE_CHECKING:
     from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.view import AgentView
+
     from ._records import _SagaSystemLike
 
 __all__ = ["SagaSystem"]
 
 
-def _saga_self(self: "SagaSystem") -> "_SagaSystemLike":
+def _saga_self(self: SagaSystem) -> _SagaSystemLike:
     """Cast ``self`` to ``_SagaSystemLike`` for helper calls.
 
     Runtime conformance is guaranteed by ``SagaSystem.__slots__``
@@ -108,29 +109,29 @@ class SagaSystem:
     # The annotations use ``Mapping`` (not ``dict``) to
     # match the Protocol exactly -- structural matching
     # is invariant on the declared type.
-    _cfg: "SagaConfig"
-    _step_map: "Mapping[str, SagaStepConfig]"
-    _now: "Clock"
+    _cfg: SagaConfig
+    _step_map: Mapping[str, SagaStepConfig]
+    _now: Clock
 
-    __slots__ = ("_cfg", "_step_map", "_now")
+    __slots__ = ("_cfg", "_now", "_step_map")
 
     def __init__(
         self,
-        config: "SagaConfig",
+        config: SagaConfig,
         *,
-        now: "Clock | None" = None,
+        now: Clock | None = None,
     ) -> None:
         self._cfg = config
         self._step_map = {s.name: s for s in config.steps}
         self._now = injectable_clock(now)
 
-    def __call__(self, world: "World") -> list["Event"]:
+    def __call__(self, world: World) -> list[Event]:
         out: list[Event] = []
         for _agent_id, view in world.query_agents(SagaProgressComponent):
             out.extend(self._events_for_agent(view, world))
         return out
 
-    def _events_for_agent(self, view: "AgentView", world: "World") -> list["Event"]:
+    def _events_for_agent(self, view: AgentView, world: World) -> list[Event]:
         saga = view.get_component(SagaProgressComponent)
         if saga is None:
             return []
@@ -180,7 +181,7 @@ class SagaSystem:
 
         return self._handle_completion(view, world, saga, step_config, trigger)
 
-    def _build_trigger(self, view: "AgentView") -> "ViewTrigger | None":
+    def _build_trigger(self, view: AgentView) -> ViewTrigger | None:
         """Derive the trigger from the view's existing fields
         (ADR-069 §11.16). ``None`` when the agent has no domain
         event yet."""
@@ -199,11 +200,11 @@ class SagaSystem:
 
     def _on_saga_timeout(
         self,
-        world: "World",
-        view: "AgentView",
+        world: World,
+        view: AgentView,
         saga: SagaProgressComponent,
-        trigger: "ViewTrigger",
-    ) -> list["Event"]:
+        trigger: ViewTrigger,
+    ) -> list[Event]:
         """Handle a saga-level timeout: begin compensation when
         the saga is still moving forward, otherwise ignore."""
         if saga.direction == "forward":
@@ -217,8 +218,8 @@ class SagaSystem:
     def _on_compensation_failure(
         self,
         saga: SagaProgressComponent,
-        trigger: "ViewTrigger",
-    ) -> list["Event"]:
+        trigger: ViewTrigger,
+    ) -> list[Event]:
         """Emit ``compensation_failed`` then ``dlq`` so the
         operator can intervene (§4.5.1)."""
         from ._records import dlq_event, emit
@@ -236,7 +237,7 @@ class SagaSystem:
             dlq_event(_saga_self(self), saga, trigger),
         ]
 
-    def _is_tool_trigger(self, trigger: "ViewTrigger") -> bool:
+    def _is_tool_trigger(self, trigger: ViewTrigger) -> bool:
         """True when the trigger is a tool completion / failure /
         timeout event."""
         return trigger.event_type.startswith("tool.") and trigger.event_type.endswith(
@@ -248,9 +249,9 @@ class SagaSystem:
     # ------------------------------------------------------------------
     def _match_step(
         self,
-        view: "AgentView",
+        view: AgentView,
         saga: SagaProgressComponent,
-    ) -> "SagaStepConfig | None":
+    ) -> SagaStepConfig | None:
         """
         Find the saga step that the incoming tool-completion
         trigger belongs to.
@@ -272,7 +273,7 @@ class SagaSystem:
 
     def _is_compensation_failure(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         saga: SagaProgressComponent,
     ) -> bool:
         """True when the trigger is a ``tool.<name>.failed``
@@ -285,9 +286,9 @@ class SagaSystem:
 
     def _completion_for_step(
         self,
-        view: "AgentView",
-        step_config: "SagaStepConfig",
-    ) -> "ToolCallCompletion | None":
+        view: AgentView,
+        step_config: SagaStepConfig,
+    ) -> ToolCallCompletion | None:
         """Return the ``ToolCallCompletion`` for the step's tool.
 
         The join uses the ``tool_requests`` slot (ADR-034): the
@@ -300,10 +301,10 @@ class SagaSystem:
         """
         if step_config.tool_name is None:
             return None
-        requests: "Mapping[str, ToolCallRequest]" = view.components.get(
+        requests: Mapping[str, ToolCallRequest] = view.components.get(
             "tool_requests", {}
         )
-        completions: "Mapping[str, ToolCallCompletion]" = view.components.get(
+        completions: Mapping[str, ToolCallCompletion] = view.components.get(
             "tool_completions", {}
         )
         for request in requests.values():
@@ -317,10 +318,10 @@ class SagaSystem:
     # ------------------------------------------------------------------
     def _start(
         self,
-        view: "AgentView",
-        trigger: "ViewTrigger",
+        view: AgentView,
+        trigger: ViewTrigger,
         saga: SagaProgressComponent,
-    ) -> list["Event"]:
+    ) -> list[Event]:
         """Dispatch the first non-skipped step."""
         from ._dispatch import dispatch_step
         from ._records import first_non_skipped_step, record_start, saga_completed
@@ -336,12 +337,12 @@ class SagaSystem:
 
     def _handle_completion(
         self,
-        view: "AgentView",
-        world: "World",
+        view: AgentView,
+        world: World,
         saga: SagaProgressComponent,
-        step_config: "SagaStepConfig",
-        trigger: "ViewTrigger",
-    ) -> list["Event"]:
+        step_config: SagaStepConfig,
+        trigger: ViewTrigger,
+    ) -> list[Event]:
         status = trigger.event_type.rsplit(".", 1)[-1]
         # ToolCallCompletion already in AgentView (ADR-034).
         # The completion for this step's dispatch is found by
@@ -407,14 +408,14 @@ class SagaSystem:
 
     def _advance(
         self,
-        view: "AgentView",
+        view: AgentView,
         saga: SagaProgressComponent,
-        current_step: "SagaStepConfig",
-        trigger: "ViewTrigger",
+        current_step: SagaStepConfig,
+        trigger: ViewTrigger,
         ctx: StepContext,
         new_states: dict,
         new_results: dict,
-    ) -> list["Event"]:
+    ) -> list[Event]:
         """Move to the next non-skipped step or complete the saga."""
         from ._dispatch import dispatch_step
         from ._records import (
@@ -447,15 +448,15 @@ class SagaSystem:
 
     def _handle_failure(
         self,
-        world: "World",
-        view: "AgentView",
+        world: World,
+        view: AgentView,
         saga: SagaProgressComponent,
-        step_config: "SagaStepConfig",
-        trigger: "ViewTrigger",
+        step_config: SagaStepConfig,
+        trigger: ViewTrigger,
         ctx: StepContext,
         new_states: dict,
         new_results: dict,
-    ) -> list["Event"]:
+    ) -> list[Event]:
         """Evaluate fail_when; begin compensation or continue."""
         from ._compensation import begin_compensation
         from ._dispatch import dispatch_step

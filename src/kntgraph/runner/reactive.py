@@ -72,8 +72,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable, Mapping
-
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -95,15 +95,23 @@ from ._checkpoint_io import (
 from ._folding import (
     fold_with_filter as _fold_with_filter_fn,
 )
+from ._metrics import MetricsSink, NullMetricsSink
 from ._observability import (
     InFlightTask,
     RecoveryReport,
+)
+from ._observability import (
     dead_lettered_tasks as _dead_lettered_tasks,
+)
+from ._observability import (
     in_flight_tasks as _in_flight_tasks,
+)
+from ._observability import (
     stale_tasks as _stale_tasks,
+)
+from ._observability import (
     stuck_in_queue as _stuck_in_queue,
 )
-from ._metrics import MetricsSink, NullMetricsSink
 from ._systems_runner import (
     run_systems_and_persist as _run_systems_and_persist_fn,
 )
@@ -122,7 +130,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-def _anchor_event(correlation: "CorrelationContext") -> Event:
+def _anchor_event(correlation: CorrelationContext) -> Event:
     """Build a synthetic anchor ``Event`` from a stored
     correlation so the dispatcher's idle-tick path can
     pass it to ``correlation_middleware.continue_from``.
@@ -134,7 +142,7 @@ def _anchor_event(correlation: "CorrelationContext") -> Event:
     (this keeps the audit chain's per-event ids unique
     if a downstream system ever logs them).
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
     from uuid import uuid4
 
     return Event.create(
@@ -143,11 +151,11 @@ def _anchor_event(correlation: "CorrelationContext") -> Event:
         event_class="lifecycle",
         correlation=correlation,
         event_id=uuid4(),
-        timestamp=datetime.now(tz=timezone.utc),
+        timestamp=datetime.now(tz=UTC),
     )
 
 
-def _last_domain_correlation(events: list[Event]) -> "CorrelationContext | None":
+def _last_domain_correlation(events: list[Event]) -> CorrelationContext | None:
     """Return the correlation of the LAST ``domain`` event
     in ``events`` (or ``None`` when no domain event is
     present).
@@ -190,22 +198,22 @@ class ReactiveDispatcher:
         self,
         log: EventLog,
         *,
-        systems: Optional[list[WorldSystem]] = None,
-        poll_interval: Optional[float] = None,
-        filter_fn: Optional[Callable[[Event], bool]] = None,
-        world_store: Optional[IncrementalWorldStore] = None,
-        redis: Optional["Redis"] = None,
-        tool_router: Optional["ToolRouter"] = None,
-        tool_ttls: Optional[ToolCallTTL] = None,
-        rediscovery_interval_seconds: Optional[float] = None,
+        systems: list[WorldSystem] | None = None,
+        poll_interval: float | None = None,
+        filter_fn: Callable[[Event], bool] | None = None,
+        world_store: IncrementalWorldStore | None = None,
+        redis: Redis | None = None,
+        tool_router: ToolRouter | None = None,
+        tool_ttls: ToolCallTTL | None = None,
+        rediscovery_interval_seconds: float | None = None,
         heartbeat_interval_seconds: float = 30.0,
-        projections: Optional[list["WorldProjection"]] = None,
-        fallback_poll_interval: Optional[float] = None,
+        projections: list[WorldProjection] | None = None,
+        fallback_poll_interval: float | None = None,
         wake_on_event: bool = True,
-        dlq: Optional["DeadLetterQueue"] = None,
+        dlq: DeadLetterQueue | None = None,
         tool_stream_prefix: str = "knt:tools",
         key_prefix: str = "",
-        metrics_sink: Optional["MetricsSink"] = None,
+        metrics_sink: MetricsSink | None = None,
     ) -> None:
         """
         Args:
@@ -334,7 +342,7 @@ class ReactiveDispatcher:
         # An empty / ``None`` list keeps the legacy
         # behaviour (built-in memory hydration + tool
         # overlay only; no opt-in needed).
-        self._projections: list["WorldProjection"] = list(projections or [])
+        self._projections: list[WorldProjection] = list(projections or [])
         # ADR-045: the dispatcher's tool TTL config. The
         # overlay SETS ``expires_at`` on each new request
         # (using this config); the
@@ -360,11 +368,11 @@ class ReactiveDispatcher:
                     "world_store or redis (the default "
                     "IncrementalWorldStore wraps a Redis client)."
                 )
+            from typing import Any, cast
+
             from kntgraph.infra.redis._world_checkpoint import (
                 RedisWorldCheckpointStorage,
             )
-
-            from typing import Any, cast
 
             world_store = IncrementalWorldStore(
                 RedisWorldCheckpointStorage(cast(Any, redis), key_prefix=key_prefix)
@@ -387,7 +395,7 @@ class ReactiveDispatcher:
         self._next_rediscovery_at: float = 0.0
         self._bootstrapped: bool = False
         self._running = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         # Push-first wake-up state (ADR-068 §3.2): per-agent
         # durable cursors the ``subscribe_many`` fan-in read
         # starts from, plus the fallback-poll deadline that
@@ -413,7 +421,7 @@ class ReactiveDispatcher:
         # Last exception text observed by ``_loop``; the heartbeat
         # surfaces it so a "loop keeps raising the same error"
         # failure mode is distinguishable from "loop is healthy".
-        self._last_loop_error: Optional[str] = None
+        self._last_loop_error: str | None = None
         # How often the loop emits a heartbeat log line. The default
         # is 30 seconds — short enough that an operator looking at
         # tail -f sees liveness, long enough that the log volume is
@@ -422,7 +430,7 @@ class ReactiveDispatcher:
         # ADR-075 Tier 4: optional DLQ reference for the
         # ``dead_lettered_tasks`` query and the saga → DLQ
         # wire inside the TTL sweeper. ``None`` disables both.
-        self._dlq: Optional[DeadLetterQueue] = dlq
+        self._dlq: DeadLetterQueue | None = dlq
         # ADR-075 Tier 4 + ADR-076 / DEBT §2.35: stream-key
         # prefix used by the ``stuck_in_queue`` query. The
         # ``key_prefix`` namespace is composed with
@@ -457,7 +465,7 @@ class ReactiveDispatcher:
     def add_system(self, system: WorldSystem) -> None:
         self._systems.append(system)
 
-    def add_projection(self, projection: "WorldProjection") -> None:
+    def add_projection(self, projection: WorldProjection) -> None:
         """Register a post-fold projection (ADR-069 §9.2 item 6).
 
         Projections run after the base fold and the built-in
@@ -731,7 +739,7 @@ class ReactiveDispatcher:
         # heartbeat line tells the operator the loop is in a
         # "consistently failing" state across many ticks (not just
         # the most recent one). Reset on the first successful tick.
-        self._last_loop_error: Optional[str] = None
+        self._last_loop_error: str | None = None
         while self._running:
             try:
                 if self._wake_on_event:
@@ -798,7 +806,7 @@ class ReactiveDispatcher:
                 cursors=self._subscribe_cursors,
                 block_ms=block_ms,
             )
-        except (asyncio.CancelledError,):
+        except asyncio.CancelledError:
             raise
         except Exception as e:
             # A failed wake-up is an I/O crash signal: log, then

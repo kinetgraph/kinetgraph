@@ -62,13 +62,12 @@ import warnings
 
 from fastapi.testclient import TestClient
 
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.worker import tool_worker
 from kntgraph.api import create_app
 from kntgraph.api.auth import AuthError
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, Result
-
+from kntgraph.tools.manager import WorkerManager
+from kntgraph.tools.worker import tool_worker
 
 # ---------------------------------------------------------------------------
 # In-process EventLog with cursor support. Mirrors the

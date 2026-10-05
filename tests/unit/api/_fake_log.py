@@ -21,7 +21,6 @@ Not a real implementation. Use only in tests.
 
 from __future__ import annotations
 
-
 from kntgraph.core.event import Event
 from kntgraph.core.result import Ok
 
@@ -32,11 +31,11 @@ class FakeEventLog:
     def __init__(self) -> None:
         self.events: list[Event] = []
 
-    async def append(self, event: Event) -> "Ok[None]":  # type: ignore[override]
+    async def append(self, event: Event) -> Ok[None]:  # type: ignore[override]
         self.events.append(event)
         return Ok(None)
 
-    async def append_batch(self, events: list[Event]) -> "Ok[None]":  # type: ignore[override]
+    async def append_batch(self, events: list[Event]) -> Ok[None]:  # type: ignore[override]
         self.events.extend(events)
         return Ok(None)
 

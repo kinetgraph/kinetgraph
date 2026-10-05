@@ -153,7 +153,7 @@ class Settings(
     )
 
     @model_validator(mode="after")
-    def _validate_prod_invariants(self) -> "Settings":
+    def _validate_prod_invariants(self) -> Settings:
         """
         Cross-field validation that only fires under
         ``env=prod``.
@@ -228,12 +228,12 @@ settings = fresh_settings()
 __all__ = [
     # Base class
     "BaseSettings",
+    # Schema + accessors
+    "Settings",
     # Helpers
     "default_dotenv_candidates",
     "env_or_default",
-    "load_dotenv_files",
-    # Schema + accessors
-    "Settings",
     "fresh_settings",
+    "load_dotenv_files",
     "settings",
 ]

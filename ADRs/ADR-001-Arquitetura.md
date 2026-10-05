@@ -179,13 +179,13 @@ chamavam `world.emit(entity_id, event)` e.g.
 ```python
 @dataclass(frozen=True, slots=True)
 class Event:
-    event_id: UUID                    # uuid5(causation, type, payload)
+    event_id: UUID  # uuid5(causation, type, payload)
     agent_id: str
-    event_type: str                   # "agent.spawned" | "document.validated"
+    event_type: str  # "agent.spawned" | "document.validated"
     event_class: Literal["lifecycle", "domain"]
     timestamp: datetime
     data: Mapping[str, Any]
-    correlation: CorrelationContext   # correlation_id, causation_id, span_id
+    correlation: CorrelationContext  # correlation_id, causation_id, span_id
     causation_id: UUID | None
     version: int = 1
 ```
@@ -202,12 +202,12 @@ class Event:
 
 ```python
 OperationalPhase = Literal[
-    "spawned",      # acabou de ser criado
-    "idle",         # existe, sem trabalho
-    "running",      # um sistema está processando
-    "blocked",      # aguardando dependência externa
-    "checkpointed", # pausa controlada
-    "terminated",   # descontinuado (terminal)
+    "spawned",  # acabou de ser criado
+    "idle",  # existe, sem trabalho
+    "running",  # um sistema está processando
+    "blocked",  # aguardando dependência externa
+    "checkpointed",  # pausa controlada
+    "terminated",  # descontinuado (terminal)
 ]
 ```
 
@@ -219,7 +219,7 @@ OperationalPhase = Literal[
 ```python
 @dataclass(frozen=True, slots=True)
 class DomainPhase:
-    phase: str          # ex: "validated", "lancada", "transmitida"
+    phase: str  # ex: "validated", "lancada", "transmitida"
     updated_at: datetime
     reason: str | None
 ```

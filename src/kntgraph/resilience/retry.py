@@ -49,16 +49,16 @@ not.
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, ParamSpec, TypeVar, cast
+from collections.abc import Awaitable, Callable
+from typing import ParamSpec, TypeVar, cast
 
+import structlog
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
 )
-
-import structlog
 
 logger = structlog.get_logger()
 
@@ -95,7 +95,7 @@ def _sanitise_retry_on(
         ):
             continue
         if not isinstance(t, type) or not issubclass(t, Exception):
-            raise ValueError(
+            raise TypeError(
                 f"retry_on entries must be Exception subclasses "
                 f"(got {t!r}); BaseException subclasses other "
                 f"than CancelledError are not retried"
@@ -189,7 +189,7 @@ def retry_with_backoff(
     return decorator
 
 
-async def retry_async(
+async def retry_async[**P, T](
     fn: Callable[P, Awaitable[T]],
     *args: P.args,
     max_attempts: int = 3,

@@ -40,10 +40,8 @@ Migration from the legacy ``Role`` enum (v0.15):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 from kntgraph.security import Principal, PrincipalLevel
-
 
 __all__ = ["ToolACL", "default_acl"]
 
@@ -74,7 +72,7 @@ class ToolACL:
 
     required_level: PrincipalLevel = PrincipalLevel.agent
     tenant_pinned: bool = False
-    tenant_id: Optional[str] = None
+    tenant_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.tenant_pinned:
@@ -106,9 +104,9 @@ class ToolACL:
         if principal.level < self.required_level:
             return (
                 False,
-                f"role_insufficient: "
+                (f"role_insufficient: "
                 f"required {self.required_level.value}, "
-                f"got {principal.level.value}",
+                f"got {principal.level.value}"),
             )
         # 2. Tenant check (only when pinned).
         if self.tenant_pinned:
@@ -117,9 +115,9 @@ class ToolACL:
             if principal.tenant_id != self.tenant_id:
                 return (
                     False,
-                    f"tenant_violation: "
+                    (f"tenant_violation: "
                     f"tool pinned to {self.tenant_id!r}, "
-                    f"principal tenant {principal.tenant_id!r}",
+                    f"principal tenant {principal.tenant_id!r}"),
                 )
         return (True, "")
 

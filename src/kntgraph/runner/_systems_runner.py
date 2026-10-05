@@ -25,8 +25,9 @@ dispatcher passes ``self`` so the functions can read its
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import replace
-from typing import TYPE_CHECKING, Awaitable
+from typing import TYPE_CHECKING
 
 from kntgraph.core.event import Event
 from kntgraph.core.system import WorldSystem
@@ -38,13 +39,13 @@ if TYPE_CHECKING:
     from kntgraph.runner.reactive import ReactiveDispatcher
 
 
-__all__ = ["run_systems_and_persist", "append_system_outgoing"]
+__all__ = ["append_system_outgoing", "run_systems_and_persist"]
 
 
 def _call_system(
     system: WorldSystem,
-    world: "World",
-) -> "list[Event] | Awaitable[list[Event]]":
+    world: World,
+) -> list[Event] | Awaitable[list[Event]]:
     """
     Invoke ``system(world)`` per the ``WorldSystem``
     Protocol. The contract is strictly ``World -> list[Event]``
@@ -120,9 +121,9 @@ def _advance_cursors_in_world(
 
 
 async def run_systems_and_persist(
-    dispatcher: "ReactiveDispatcher",
+    dispatcher: ReactiveDispatcher,
     agent_id: str,
-    world: "World",
+    world: World,
     last_stream_id: str,
     new_event_count: int,
     new_events: list[Event],
@@ -211,8 +212,8 @@ async def run_systems_and_persist(
 
 
 async def append_system_outgoing(
-    dispatcher: "ReactiveDispatcher",
-    world: "World",
+    dispatcher: ReactiveDispatcher,
+    world: World,
     agent_id: str,
     *,
     return_events: bool = False,

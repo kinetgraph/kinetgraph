@@ -32,6 +32,8 @@ import pytest
 import pytest_asyncio
 
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.result import Result
+from kntgraph.infra.redis._errors import MemoryError
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import (
     RedisContinuityStorage,
@@ -42,6 +44,7 @@ from kntgraph.memory.cache_warmer import (
     CacheRefreshBus,
     CacheRefreshRequest,
     CacheWarmer,
+    PumpOutcome,
 )
 from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.memory.profile import ProfileManager
@@ -162,7 +165,7 @@ class TestCacheWarmerPumpOnce:
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, session_manager, profile_manager)
 
-        assert await warmer.pump_once() == 0
+        assert (await warmer.pump_once()).ok_value().ok == 0
 
     async def test_pump_applies_session_request(
         self, event_log, session_manager, profile_manager
@@ -179,8 +182,8 @@ class TestCacheWarmerPumpOnce:
         warmer = CacheWarmer(bus, session_manager, profile_manager)
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-1"))
 
-        assert await warmer.pump_once() == 1
-        cached = await session_manager.read("sess-1")
+        assert (await warmer.pump_once()).ok_value().ok == 1
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         assert cached.session_id == "sess-1"
 
@@ -199,8 +202,8 @@ class TestCacheWarmerPumpOnce:
         warmer = CacheWarmer(bus, session_manager, profile_manager)
         bus.publish(CacheRefreshRequest(kind="profile", id1="t", id2="u"))
 
-        assert await warmer.pump_once() == 1
-        cached = await profile_manager.read("t", "u")
+        assert (await warmer.pump_once()).ok_value().ok == 1
+        cached = (await profile_manager.read("t", "u")).ok_value()
         assert cached is not None
 
     async def test_pump_applies_continuity_request(
@@ -218,8 +221,8 @@ class TestCacheWarmerPumpOnce:
         warmer = CacheWarmer(bus, session_manager, profile_manager, continuity_manager)
         bus.publish(CacheRefreshRequest(kind="continuity", id1="t", id2="u"))
 
-        assert await warmer.pump_once() == 1
-        cached = await continuity_manager.read("t", "u")
+        assert (await warmer.pump_once()).ok_value().ok == 1
+        cached = (await continuity_manager.read("t", "u")).ok_value()
         assert cached is not None
 
     async def test_pump_skips_continuity_when_unconfigured(
@@ -231,7 +234,12 @@ class TestCacheWarmerPumpOnce:
         )
         bus.publish(CacheRefreshRequest(kind="continuity", id1="t", id2="u"))
 
-        assert await warmer.pump_once() == 1
+        # Unconfigured continuity ⇒ request is skipped
+        # (not counted as ok or failed; the operator
+        # opted out of the tier).
+        outcome = (await warmer.pump_once()).ok_value()
+        assert outcome.ok == 0
+        assert outcome.failed == 0
 
     async def test_pump_continues_after_request_failure(
         self, event_log, session_manager, profile_manager
@@ -253,7 +261,13 @@ class TestCacheWarmerPumpOnce:
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-1"))
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-2"))
 
-        assert await warmer.pump_once() == 2
+        # A buggy implementation that raises (instead of
+        # returning Err) is mapped to ``failed``; the
+        # loop continues with the next request.
+        outcome = (await warmer.pump_once()).ok_value()
+        assert outcome.ok == 0
+        assert outcome.failed == 2
+        assert len(outcome.errors) == 2
         assert warmer._sessions.refresh_cache_incremental.await_count == 2
 
     async def test_pump_drains_bus_after_processing(
@@ -271,7 +285,7 @@ class TestCacheWarmerPumpOnce:
         warmer = CacheWarmer(bus, session_manager, profile_manager)
         bus.publish(CacheRefreshRequest(kind="session", id1="sess-1"))
 
-        await warmer.pump_once()
+        assert (await warmer.pump_once()).is_ok()
 
         assert len(bus) == 0
 
@@ -305,7 +319,7 @@ class TestCacheWarmerRunForever:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        cached = await session_manager.read("sess-1")
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
 
     async def test_run_forever_drains_on_cancel(
@@ -326,12 +340,12 @@ class TestCacheWarmerRunForever:
         original_pump = warmer.pump_once
         pump_count = 0
 
-        async def counting_pump() -> int:
+        async def counting_pump() -> Result[PumpOutcome, MemoryError]:
             nonlocal pump_count
             pump_count += 1
             return await original_pump()
 
-        warmer.pump_once = counting_pump  # type: ignore[method-assign]
+        warmer.pump_once = counting_pump
 
         task = asyncio.create_task(warmer.run_forever(interval=0.05))
         await asyncio.sleep(0.12)
@@ -340,5 +354,5 @@ class TestCacheWarmerRunForever:
             await task
 
         assert pump_count >= 2
-        cached = await session_manager.read("sess-1")
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None

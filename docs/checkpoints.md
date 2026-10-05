@@ -54,8 +54,8 @@ o `XADD` retornar OK e o `HSET` do checkpoint concluir.
 @dataclass(frozen=True, slots=True)
 class ReactiveCheckpoint:
     agent_id: str
-    last_event_id: UUID         # lógico, imutável
-    last_stream_id: str         # físico, âncora p/ XRANGE
+    last_event_id: UUID  # lógico, imutável
+    last_stream_id: str  # físico, âncora p/ XRANGE
     confirmed_at: datetime
     state_hash: Optional[str] = None  # opcional
 ```
@@ -95,18 +95,21 @@ knt:reactive:checkpoints
 
 ```python
 from kntgraph.infra.checkpoint import (
-    CheckpointStore, ReactiveCheckpoint,
+    CheckpointStore,
+    ReactiveCheckpoint,
 )
 
 store = CheckpointStore(redis)
 
 # Save (chamado pelo dispatcher após commit)
-await store.save(ReactiveCheckpoint(
-    agent_id="a-1",
-    last_event_id=event.event_id,
-    last_stream_id="1700000000000-0",
-    confirmed_at=datetime.now(timezone.utc),
-))
+await store.save(
+    ReactiveCheckpoint(
+        agent_id="a-1",
+        last_event_id=event.event_id,
+        last_stream_id="1700000000000-0",
+        confirmed_at=datetime.now(timezone.utc),
+    )
+)
 
 # Load (chamado pelo dispatcher no bootstrap)
 cp = await store.load("a-1")
@@ -118,8 +121,8 @@ if cp is None:
 all_cps = await store.load_all()  # dict[agent_id, ReactiveCheckpoint]
 
 # Recovery
-await store.clear("a-1")           # remove um
-await store.clear_all()            # wipe geral (testes / emergência)
+await store.clear("a-1")  # remove um
+await store.clear_all()  # wipe geral (testes / emergência)
 ```
 
 ---
@@ -140,7 +143,7 @@ dispatcher = ReactiveDispatcher(
     log,
     reactive_systems=[validate_doc, emit_completion],
     poll_interval=0.5,
-    checkpoint_store=store,   # ← habilita checkpoints duráveis
+    checkpoint_store=store,  # ← habilita checkpoints duráveis
 )
 
 await dispatcher.start()
@@ -181,6 +184,7 @@ re-dispatches.
 ```python
 from kntgraph.core.result import Ok, Err, ToolError
 
+
 class BankTransferTool:
     name = "bank.transfer"
     description = "PIX transfer (must dedupe by idempotency_key)"
@@ -192,9 +196,7 @@ class BankTransferTool:
         # use Redis com TTL ou um KV store externo.
         self._seen: dict[str, dict] = {}
 
-    async def invoke(
-        self, *, idempotency_key: str, amount: int, to: str
-    ):
+    async def invoke(self, *, idempotency_key: str, amount: int, to: str):
         if idempotency_key in self._seen:
             # Já processado — retornar resultado cacheado.
             return Ok({"status": "duplicate", "transfer": self._seen[idempotency_key]})
@@ -292,17 +294,19 @@ state_hash = hashlib.sha256(
     json.dumps(world.to_map(), sort_keys=True, default=str).encode()
 ).hexdigest()
 
-await store.save(ReactiveCheckpoint(
-    agent_id=agent_id,
-    last_event_id=event.event_id,
-    last_stream_id=stream_id,
-    confirmed_at=utcnow(),
-    state_hash=state_hash,
-))
+await store.save(
+    ReactiveCheckpoint(
+        agent_id=agent_id,
+        last_event_id=event.event_id,
+        last_stream_id=stream_id,
+        confirmed_at=utcnow(),
+        state_hash=state_hash,
+    )
+)
 
 # Em diagnóstico:
 expected_hash = cp.state_hash
-current_hash = ... # recalcular
+current_hash = ...  # recalcular
 if expected_hash != current_hash:
     alert("projection_drift", agent_id=agent_id)
 ```

@@ -27,22 +27,20 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from typing import Optional
 
 from kntgraph.core.result import ToolError
+from kntgraph.knowledge.extraction import GlinerArgumentAdapter
 from kntgraph.knowledge.extraction.argument import (
     FieldFinder,
     RegexFieldFinder,
     SchemaArgumentExtractor,
 )
-from kntgraph.knowledge.extraction import GlinerArgumentAdapter
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.schema import (
     FieldSpec,
     compute_schema_version,
     walk_schema,
 )
-
 
 # Async tests are marked individually; sync tests
 # (TestWalkSchema, TestSchemaVersion,
@@ -223,7 +221,7 @@ class _FakeFinder(FieldFinder):
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple]:
+    ) -> tuple | None:
         self.calls.append(field)
         if field.name in self.raise_for:
             raise RuntimeError(f"fake finder boom for {field.name}")

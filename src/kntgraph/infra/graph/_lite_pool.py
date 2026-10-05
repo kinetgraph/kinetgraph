@@ -59,19 +59,18 @@ import asyncio
 import os
 import tempfile
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Optional, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import structlog
 
+from kntgraph.infra.graph._pool import (
+    graph_name_for_tenant,
+)
 from kntgraph.knowledge.graph._protocol import (
     GraphAdapter,
     GraphError,
     GraphQueryResult,
 )
-from kntgraph.infra.graph._pool import (
-    graph_name_for_tenant,
-)
-
 
 if TYPE_CHECKING:
     from redislite.falkordb_client import FalkorDB
@@ -96,14 +95,14 @@ class _FalkorDBGraphLike(Protocol):
     def query(
         self,
         cypher: str,
-        params: Optional[dict[str, object]],
+        params: dict[str, object] | None,
     ) -> _FalkorDBQueryResult: ...
 
 
 logger = structlog.get_logger()
 
 
-__all__ = ["LiteGraphPool", "LiteGraphAdapter"]
+__all__ = ["LiteGraphAdapter", "LiteGraphPool"]
 
 
 class LiteGraphAdapter(GraphAdapter):
@@ -135,7 +134,7 @@ class LiteGraphAdapter(GraphAdapter):
         self,
         cypher: str,
         *,
-        params: Optional[dict[str, object]] = None,
+        params: dict[str, object] | None = None,
     ) -> GraphQueryResult:
         """
         Execute a Cypher query against the wrapped
@@ -162,7 +161,7 @@ class LiteGraphAdapter(GraphAdapter):
         return self._to_graph_query_result(native)
 
     def _run_query(
-        self, cypher: str, params: Optional[dict[str, object]]
+        self, cypher: str, params: dict[str, object] | None
     ) -> _FalkorDBQueryResult:
         """Sync helper run in a worker thread.
 
@@ -220,7 +219,7 @@ class LiteGraphPool:
       created if missing.
     """
 
-    def __init__(self, db_path: Optional[str] = None) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         self._db_path = db_path or os.path.join(
             tempfile.gettempdir(), "fmh-falkordblite.db"
         )
@@ -232,7 +231,7 @@ class LiteGraphPool:
         # bound via TYPE_CHECKING. At runtime the
         # annotation is a string so we don't need to
         # import ``redislite`` (dev-only dependency).
-        self._db: Optional["FalkorDB"] = None
+        self._db: FalkorDB | None = None
 
     def connect(self) -> None:
         """Start the embedded Redis+FalkorDB process.

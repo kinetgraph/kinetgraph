@@ -120,20 +120,20 @@ from kntgraph.agents.memory.solutions._values import (
 from kntgraph.tools.descriptors import ToolDescriptor
 
 __all__ = [
-    # Value objects
-    "ToolDescriptor",
-    "Problem",
     "Action",
     "Outcome",
-    "SolutionCandidate",
+    "Problem",
     "PromoteStats",
-    # Pure helpers
-    "fingerprint_problem",
-    "fingerprint_params",
-    "result_signature",
-    "params_from_requested",
+    "SolutionCandidate",
     # Components
     "SolutionExtractor",
-    "SolutionPromotionBus",
     "SolutionPromoter",
+    "SolutionPromotionBus",
+    # Value objects
+    "ToolDescriptor",
+    "fingerprint_params",
+    # Pure helpers
+    "fingerprint_problem",
+    "params_from_requested",
+    "result_signature",
 ]  # PromoteStats re-exported below

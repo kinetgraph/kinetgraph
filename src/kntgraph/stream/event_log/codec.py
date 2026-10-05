@@ -31,9 +31,9 @@ signature defensively (treats as absent so downstream
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from ...core.event import Event
@@ -124,7 +124,7 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
             "metadata": json.loads(s(b"metadata", "{}")),
         }
     sig_raw = s(b"signature", "")
-    sig_obj: Optional[dict[str, Any]] = None
+    sig_obj: dict[str, Any] | None = None
     if sig_raw:
         try:
             sig_obj = json.loads(sig_raw)
@@ -134,7 +134,7 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
             # and returns False (defensive default).
             sig_obj = None
     event_id_str = s(b"event_id") or str(uuid4())
-    timestamp_str = s(b"timestamp") or datetime.now(timezone.utc).isoformat()
+    timestamp_str = s(b"timestamp") or datetime.now(UTC).isoformat()
     return Event.from_dict(
         {
             "event_id": event_id_str,

@@ -29,7 +29,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 SCRIPT_PATH = SCRIPTS_DIR / "check_version.py"
 
@@ -107,8 +106,9 @@ class TestCheckVersion:
         """When the installed version and the
         latest tag agree, the script exits 0.
         """
-        import kntgraph
         from packaging.version import Version
+
+        import kntgraph
 
         if kntgraph.__version__ == "0.0.0+unknown":
             pytest.skip("no _version.py generated; cannot exercise the in-sync path")
@@ -135,8 +135,9 @@ class TestCheckVersion:
         the latest tag, the script exits non-zero
         with a remediation message.
         """
-        import kntgraph
         from packaging.version import Version
+
+        import kntgraph
 
         if kntgraph.__version__ == "0.0.0+unknown":
             pytest.skip("no _version.py generated; cannot exercise the drift path")

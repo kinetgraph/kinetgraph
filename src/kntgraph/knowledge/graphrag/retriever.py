@@ -56,14 +56,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
 from ..embedding.provider import EmbeddingProvider
 from ..graph._sub._document import GraphDocumentAdapter
 from ..graph._sub._solution import GraphSolutionAdapter
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kntgraph.infra.graph import GraphPool
@@ -109,9 +108,9 @@ class SolutionResult:
     action_params_example: dict
     tool_name: str
     outcome_status: str
-    latency_ms: Optional[float]
+    latency_ms: float | None
     confidence: int
-    last_validated_at: Optional[str]
+    last_validated_at: str | None
     score: float
 
 
@@ -190,8 +189,8 @@ class GraphRAGRetriever:
         self,
         query_embedding: list[float],
         *,
-        tags: Optional[dict[str, str]] = None,
-        tool_name: Optional[str] = None,
+        tags: dict[str, str] | None = None,
+        tool_name: str | None = None,
         k: int = 5,
         status: str = "completed",
     ) -> list[SolutionResult]:
@@ -270,7 +269,7 @@ class GraphRAGRetriever:
         self,
         tool_name: str,
         *,
-        tags: Optional[dict[str, str]] = None,
+        tags: dict[str, str] | None = None,
         k: int = 5,
         status: str = "completed",
     ) -> list[SolutionResult]:

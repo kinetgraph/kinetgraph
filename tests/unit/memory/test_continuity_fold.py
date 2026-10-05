@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import uuid
 
-
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.memory.continuity import (
     ContinuityEventType,
     ContinuityManager,

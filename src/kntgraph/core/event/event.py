@@ -42,9 +42,10 @@ clearer stack trace.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Mapping, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from .._typing import JsonValue
@@ -55,8 +56,9 @@ from .operational import OperationalEventType
 from .validators import utcnow, validate_data, validate_event_type
 
 if TYPE_CHECKING:
-    from .correlation import CorrelationContext
     from kntgraph.security.signing import Signature
+
+    from .correlation import CorrelationContext
 
 if TYPE_CHECKING:
     from .correlation import CorrelationContext
@@ -95,8 +97,8 @@ class Event:
     event_class: EventClass
     timestamp: datetime
     data: Mapping[str, JsonValue]
-    correlation: "CorrelationContext"
-    causation_id: Optional[UUID] = None
+    correlation: CorrelationContext
+    causation_id: UUID | None = None
     version: int = 1
     # Optional Ed25519 signature (ADR-016 L1). ``None`` for
     # events written before this ADR or for events whose
@@ -105,7 +107,7 @@ class Event:
     # serialised-on-the-wire events continue to load and
     # roundtrip unchanged. See ``kntgraph.security`` for
     # the signing primitives.
-    signature: Optional["Signature"] = None
+    signature: Signature | None = None
     # Identity of the :class:`Principal` that produced
     # this event (ADR-066 §4.1, DEBT §2.27 step 1).
     # ``None`` for events written before v0.16 (the
@@ -119,7 +121,7 @@ class Event:
     # boundary and stamps the resolved identity
     # here so the worker's gate-1 check does not
     # need a separate lookup.
-    producer_principal_id: Optional[str] = None
+    producer_principal_id: str | None = None
 
     def __post_init__(self) -> None:
         # The Literal type is a static-only contract. The wire
@@ -158,15 +160,15 @@ class Event:
         event_type: str,
         agent_id: str,
         event_class: EventClass,
-        correlation: Optional["CorrelationContext"] = None,
-        data: Optional[Mapping[str, JsonValue]] = None,
-        causation_id: Optional[UUID] = None,
-        event_id: Optional[UUID] = None,
-        timestamp: Optional[datetime] = None,
+        correlation: CorrelationContext | None = None,
+        data: Mapping[str, JsonValue] | None = None,
+        causation_id: UUID | None = None,
+        event_id: UUID | None = None,
+        timestamp: datetime | None = None,
         version: int = 1,
-        signature: Optional["Signature"] = None,
-        producer_principal_id: Optional[str] = None,
-    ) -> "Event":
+        signature: Signature | None = None,
+        producer_principal_id: str | None = None,
+    ) -> Event:
         """
         Builds an Event. The `event_id` defaults to uuid5 of
         (agent_id, event_type, payload) so re-emitting the same
@@ -240,13 +242,13 @@ class Event:
         *,
         agent_id: str,
         type: OperationalEventType,
-        data: Optional[Mapping[str, JsonValue]] = None,
-        correlation: Optional["CorrelationContext"] = None,
-        causation_id: Optional[UUID] = None,
-        event_id: Optional[UUID] = None,
-        timestamp: Optional[datetime] = None,
-        producer_principal_id: Optional[str] = None,
-    ) -> "Event":
+        data: Mapping[str, JsonValue] | None = None,
+        correlation: CorrelationContext | None = None,
+        causation_id: UUID | None = None,
+        event_id: UUID | None = None,
+        timestamp: datetime | None = None,
+        producer_principal_id: str | None = None,
+    ) -> Event:
         """
         Builds a framework-owned OPERATIONAL event (lifecycle class).
 
@@ -279,13 +281,13 @@ class Event:
         *,
         agent_id: str,
         type: str,
-        data: Optional[Mapping[str, JsonValue]] = None,
-        correlation: Optional["CorrelationContext"] = None,
-        causation_id: Optional[UUID] = None,
-        event_id: Optional[UUID] = None,
-        timestamp: Optional[datetime] = None,
-        producer_principal_id: Optional[str] = None,
-    ) -> "Event":
+        data: Mapping[str, JsonValue] | None = None,
+        correlation: CorrelationContext | None = None,
+        causation_id: UUID | None = None,
+        event_id: UUID | None = None,
+        timestamp: datetime | None = None,
+        producer_principal_id: str | None = None,
+    ) -> Event:
         """
         Builds an APPLICATION-defined DOMAIN event.
 
@@ -338,7 +340,7 @@ class Event:
         return event_to_dict(self)
 
     @classmethod
-    def from_dict(cls, d: dict) -> "Event":
+    def from_dict(cls, d: dict) -> Event:
         """
         Inverse of ``to_dict``. Delegates to
         ``event.codec.event_from_dict`` so the
@@ -358,7 +360,7 @@ class Event:
         return event_to_json(self)
 
     @classmethod
-    def from_json(cls, s: str) -> "Event":
+    def from_json(cls, s: str) -> Event:
         """Inverse of ``to_json``. Thin wrapper
         over ``codec.event_from_json``."""
         from .codec import event_from_json

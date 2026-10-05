@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from kntgraph.core.world import World
 
 
-__all__ = ["WorldProjection", "MemoryHydrationProjection"]
+__all__ = ["MemoryHydrationProjection", "WorldProjection"]
 
 
 @runtime_checkable
@@ -75,7 +75,7 @@ class WorldProjection(Protocol):
     projections.
     """
 
-    def __call__(self, world: "World", events: list["Event"]) -> "World": ...
+    def __call__(self, world: World, events: list[Event]) -> World: ...
 
 
 class MemoryHydrationProjection:
@@ -130,7 +130,7 @@ class MemoryHydrationProjection:
 
         self._project_memory_fn = project_memory
 
-    def __call__(self, world: "World", events: list["Event"]) -> "World":
+    def __call__(self, world: World, events: list[Event]) -> World:
         """Apply the memory-hydration projection.
 
         Args:

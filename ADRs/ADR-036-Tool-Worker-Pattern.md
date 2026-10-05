@@ -36,7 +36,7 @@ return [
     Event.create(
         event_type="tool.pii_redactor.requested",
         agent_id=world.agent_id,
-        data={"tool": "pii_redactor", "params": {"text": "..."}}
+        data={"tool": "pii_redactor", "params": {"text": "..."}},
     )
 ]
 ```
@@ -60,7 +60,7 @@ Criaremos um componente de infraestrutura (o `GenericToolWorker`) que rodará **
 Para reduzir o *boilerplate* do desenvolvedor que precisará dividir sua lógica em dois estágios ("pedir" e "reagir"), forneceremos uma classe base (ou módulo helper) que facilita a verificação dos componentes:
 ```python
 if not has_tool_completed(view, request_id):
-    return [] # dispatcher processará outros agentes
+    return []  # dispatcher processará outros agentes
 return process_tool_result(view, request_id)
 ```
 *(Nota: Isso integrará as projeções do ADR-034 na projeção padrão do sistema).*
@@ -70,8 +70,7 @@ Para abstrair a complexidade de infraestrutura dos desenvolvedores de ferramenta
 ```python
 @tool_worker(name="pii_redactor", max_concurrency=5, retries=3)
 class PiiRedactionTool:
-    async def invoke(self, *, idempotency_key: str, **kwargs) -> Result[...]:
-        ...
+    async def invoke(self, *, idempotency_key: str, **kwargs) -> Result[...]: ...
 ```
 No *startup*, o `WorkerManager` escaneia os metadados, inicializa o `ProcessPoolExecutor`, e conecta cada *worker* à fila correta, criando uma experiência *plug-and-play*.
 

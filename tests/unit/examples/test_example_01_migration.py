@@ -88,10 +88,9 @@ def test_example_01_main_uses_litellm_tool_worker() -> None:
     with patch(
         "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
         return_value=fake_transport,
-    ):
-        with patch.dict(os.environ, {"KNT_LLM_DEFAULT_MODEL": "ollama/qwen3.5:4b"}):
-            module = _load_module("01_llm_basic")
-            asyncio.run(module.main())
+    ), patch.dict(os.environ, {"KNT_LLM_DEFAULT_MODEL": "ollama/qwen3.5:4b"}):
+        module = _load_module("01_llm_basic")
+        asyncio.run(module.main())
 
     # The fake transport was called once.
     assert fake_transport.call_count == 1

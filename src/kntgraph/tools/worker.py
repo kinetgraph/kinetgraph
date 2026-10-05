@@ -9,7 +9,8 @@ Tools worker - primitives for the Tool Worker Pattern (ADR-036).
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, TypeVar, get_type_hints
+from collections.abc import Callable
+from typing import Any, TypeVar, get_type_hints
 
 from pydantic import create_model
 
@@ -33,10 +34,10 @@ def tool_worker(
     """
 
     def decorator(cls: T) -> T:
-        if not hasattr(cls, "invoke") or not callable(getattr(cls, "invoke")):
+        if not hasattr(cls, "invoke") or not callable(cls.invoke):
             raise TypeError(f"Tool {cls.__name__} must implement an 'invoke' method.")
 
-        invoke_method = getattr(cls, "invoke")
+        invoke_method = cls.invoke
         sig = inspect.signature(invoke_method)
 
         # Validate idempotency_key
@@ -110,11 +111,11 @@ def tool_worker(
             del schema["title"]
 
         # Inject metadata into the class
-        setattr(cls, "name", name)
-        setattr(cls, "description", description)
-        setattr(cls, "input_schema", schema)
-        setattr(cls, "__tool_worker_max_concurrency__", max_concurrency)
-        setattr(cls, "__tool_worker_retries__", retries)
+        cls.name = name
+        cls.description = description
+        cls.input_schema = schema
+        cls.__tool_worker_max_concurrency__ = max_concurrency
+        cls.__tool_worker_retries__ = retries
 
         return cls
 

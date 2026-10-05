@@ -21,8 +21,6 @@ Iter 12 (ADR-019 epílogo + Iter 12 do sharding).
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .._protocol import GraphAdapter
 
 
@@ -138,7 +136,7 @@ class GraphDocumentAdapter:
             },
         )
 
-    async def find_by_id(self, doc_id: str) -> Optional[dict]:
+    async def find_by_id(self, doc_id: str) -> dict | None:
         """
         Look up a ``(:Document)`` node by ``doc_id``.
 

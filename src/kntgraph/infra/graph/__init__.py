@@ -10,8 +10,8 @@ from ._adapter import FalkorDBGraphAdapter
 from ._pool import GRAPH_NAME_PREFIX, GraphPool, graph_name_for_tenant
 
 __all__ = [
-    "FalkorDBGraphAdapter",
     "GRAPH_NAME_PREFIX",
+    "FalkorDBGraphAdapter",
     "GraphPool",
     "graph_name_for_tenant",
 ]

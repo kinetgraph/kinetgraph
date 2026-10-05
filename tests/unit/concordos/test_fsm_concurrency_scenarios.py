@@ -33,6 +33,7 @@ from typing import Any
 import pytest
 from fakeredis.aioredis import FakeRedis
 
+from kntgraph.concordos import ConcordoCatalog
 from kntgraph.concordos.fsm import (
     BusinessFSMConcordo,
     FSMConfig,
@@ -40,14 +41,13 @@ from kntgraph.concordos.fsm import (
     FSMSystem,
     FSMTransition,
 )
-from kntgraph.concordos import ConcordoCatalog
-from kntgraph.core.event import Event, CorrelationContext, correlation_middleware
-from kntgraph.testing import assert_all_correlation_ids
+from kntgraph.core.event import CorrelationContext, Event, correlation_middleware
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import DomainComponent, World, domain_component
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
+from kntgraph.testing import assert_all_correlation_ids
 from kntgraph.tools import tool_worker
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter

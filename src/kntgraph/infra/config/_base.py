@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from pydantic_settings import BaseSettings as _PydanticBaseSettings
 from pydantic_settings import SettingsConfigDict
@@ -123,7 +122,7 @@ def default_dotenv_candidates() -> list[Path]:
     return [Path.cwd() / ".env", Path.home() / ".env"]
 
 
-def env_or_default(name: str, default: Optional[str] = None) -> Optional[str]:
+def env_or_default(name: str, default: str | None = None) -> str | None:
     """
     Read ``name`` from ``os.environ``, returning
     ``default`` if unset or empty. Kept as a function

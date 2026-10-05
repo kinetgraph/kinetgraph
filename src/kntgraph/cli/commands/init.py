@@ -25,7 +25,6 @@ from rich.console import Console
 
 from kntgraph.cli._templates import render_template
 
-
 console = Console()
 
 

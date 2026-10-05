@@ -25,27 +25,24 @@ Result contract (AGENTS.md §6):
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
-
-from ....core._typing import JsonValue
 
 import structlog
 
 from kntgraph.core.result import Err, Ok, Result
 
+from ....core._typing import JsonValue
 from .._client import RedisLike
 from .._codec import decode_value
-from .._prefix import namespaced
-from ._adapter import CacheRecord
 from .._errors import (
     MemoryDecodeError,
     MemoryError,
     MemoryMiss,
     MemorySerializationError,
 )
-
+from .._prefix import namespaced
+from ._adapter import CacheRecord
 
 logger = structlog.get_logger()
 
@@ -65,7 +62,7 @@ class RedisSessionStorage:
     """
 
     client: RedisLike
-    ttl_seconds: Optional[int] = None
+    ttl_seconds: int | None = None
     key_prefix: str = ""
 
     def _k(self, key: str) -> str:
@@ -116,7 +113,7 @@ class RedisSessionStorage:
         key: str,
         record: CacheRecord,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a JSON-encoded payload via ``SET`` with optional TTL."""
         try:
@@ -188,7 +185,7 @@ class RedisSessionStorage:
         key: str,
         cursor: str,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """
         Persist the fold cursor at the parallel

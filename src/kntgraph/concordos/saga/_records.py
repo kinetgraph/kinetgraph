@@ -30,9 +30,6 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from ..base import StepContext, ViewTrigger
 
 if TYPE_CHECKING:
-    from kntgraph.core._typing import JsonValue
-    from kntgraph.core.clock import Clock
-    from kntgraph.core.event.event import Event
     from kntgraph.concordos.saga._components import SagaProgressComponent
     from kntgraph.concordos.saga._config import SagaConfig, SagaStepConfig
 
@@ -44,17 +41,20 @@ if TYPE_CHECKING:
     # type information it needs to verify that
     # ``SagaSystem`` matches the Protocol.
     from kntgraph.concordos.saga._system import SagaSystem  # noqa: F401
+    from kntgraph.core._typing import JsonValue
+    from kntgraph.core.clock import Clock
+    from kntgraph.core.event.event import Event
 
 
 __all__ = [
-    "emit",
-    "saga_completed",
     "dlq_event",
+    "emit",
+    "first_non_skipped_step",
+    "next_non_skipped_step",
     "record_start",
     "record_step_completed",
     "record_step_failed",
-    "first_non_skipped_step",
-    "next_non_skipped_step",
+    "saga_completed",
 ]
 
 
@@ -80,9 +80,9 @@ class _SagaSystemLike(Protocol):
     attribute.
     """
 
-    _cfg: "SagaConfig"
-    _step_map: "Mapping[str, SagaStepConfig]"
-    _now: "Clock"
+    _cfg: SagaConfig
+    _step_map: Mapping[str, SagaStepConfig]
+    _now: Clock
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +95,8 @@ def emit(
     trigger: ViewTrigger,
     *,
     event_type: str,
-    data: "Mapping[str, JsonValue]",
-) -> "Event":
+    data: Mapping[str, JsonValue],
+) -> Event:
     """Low-level event constructor used by all saga helpers.
 
     Mirrors ``SagaSystem._emit`` but lives at module level so
@@ -119,8 +119,8 @@ def emit(
 def saga_completed(
     saga: _SagaSystemLike,
     trigger: ViewTrigger,
-    progress: "SagaProgressComponent",
-) -> "Event":
+    progress: SagaProgressComponent,
+) -> Event:
     """Emit the saga-completed event."""
     return emit(
         saga,
@@ -132,9 +132,9 @@ def saga_completed(
 
 def dlq_event(
     saga: _SagaSystemLike,
-    progress: "SagaProgressComponent",
+    progress: SagaProgressComponent,
     trigger: ViewTrigger,
-) -> "Event":
+) -> Event:
     """Build the DLQ-emission domain event for a saga whose
     compensation could not be completed.
 
@@ -163,10 +163,10 @@ def dlq_event(
 
 def record_start(
     saga: _SagaSystemLike,
-    trigger: "ViewTrigger",
-    progress: "SagaProgressComponent",
-    step_config: "SagaStepConfig",
-) -> "Event":
+    trigger: ViewTrigger,
+    progress: SagaProgressComponent,
+    step_config: SagaStepConfig,
+) -> Event:
     """Record the saga start (the first step is now in flight)."""
     return emit(
         saga,
@@ -178,12 +178,12 @@ def record_start(
 
 def record_step_completed(
     saga: _SagaSystemLike,
-    progress: "SagaProgressComponent",
-    step_config: "SagaStepConfig",
-    trigger: "ViewTrigger",
+    progress: SagaProgressComponent,
+    step_config: SagaStepConfig,
+    trigger: ViewTrigger,
     new_states: dict,
     new_results: dict,
-) -> "Event":
+) -> Event:
     """Record a step completion, carrying the updated
     step_states / step_results so the next dispatch can
     enrich from them.
@@ -203,12 +203,12 @@ def record_step_completed(
 
 def record_step_failed(
     saga: _SagaSystemLike,
-    progress: "SagaProgressComponent",
-    step_config: "SagaStepConfig",
-    trigger: "ViewTrigger",
+    progress: SagaProgressComponent,
+    step_config: SagaStepConfig,
+    trigger: ViewTrigger,
     new_states: dict,
     new_results: dict,
-) -> "Event":
+) -> Event:
     """Record a step failure, carrying the updated
     step_states / step_results."""
     return emit(
@@ -231,9 +231,9 @@ def record_step_failed(
 
 def first_non_skipped_step(
     saga: _SagaSystemLike,
-    progress: "SagaProgressComponent",
-    trigger: "ViewTrigger",
-) -> "SagaStepConfig | None":
+    progress: SagaProgressComponent,
+    trigger: ViewTrigger,
+) -> SagaStepConfig | None:
     """Return the first step in declared order that is not
     skipped (per its ``skip_when`` Specification)."""
     ctx = StepContext(
@@ -257,9 +257,9 @@ def first_non_skipped_step(
 
 def next_non_skipped_step(
     saga: _SagaSystemLike,
-    current_step: "SagaStepConfig",
+    current_step: SagaStepConfig,
     ctx: StepContext,
-) -> "SagaStepConfig | None":
+) -> SagaStepConfig | None:
     """Return the next step after ``current_step`` in declared
     order that is not skipped."""
     order = saga._cfg.steps

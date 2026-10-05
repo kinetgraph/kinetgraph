@@ -16,19 +16,10 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 from uuid import UUID
 
-from kntgraph.core.event import Event
-from kntgraph.core.tool_event import (
-    ToolEventKind,
-    is_tool_event,
-    tool_name_of,
-)
-from kntgraph.core.world import World
-from kntgraph.knowledge.extraction.base import EntityExtractor
-from kntgraph.knowledge.extraction.heuristic import HeuristicEntityExtractor
 from kntgraph.agents.memory.solutions._extractor_helpers import _entities_to_tags
 from kntgraph.agents.memory.solutions._fingerprints import (
     fingerprint_params,
@@ -43,6 +34,15 @@ from kntgraph.agents.memory.solutions._values import (
     Problem,
     SolutionCandidate,
 )
+from kntgraph.core.event import Event
+from kntgraph.core.tool_event import (
+    ToolEventKind,
+    is_tool_event,
+    tool_name_of,
+)
+from kntgraph.core.world import World
+from kntgraph.knowledge.extraction.base import EntityExtractor
+from kntgraph.knowledge.extraction.heuristic import HeuristicEntityExtractor
 
 
 @dataclass(frozen=True)
@@ -80,8 +80,8 @@ class SolutionExtractor:
     `with_allowlist`.
     """
 
-    entity_extractor: Optional[EntityExtractor] = None
-    allowlist: Optional[frozenset[str]] = None
+    entity_extractor: EntityExtractor | None = None
+    allowlist: frozenset[str] | None = None
 
     def __post_init__(self) -> None:
         # The `entity_extractor` field accepts `None`
@@ -127,10 +127,10 @@ class SolutionExtractor:
     @classmethod
     def create(
         cls,
-        entity_extractor: Optional[EntityExtractor] = None,
+        entity_extractor: EntityExtractor | None = None,
         *,
-        allowlist: Optional[Sequence[str]] = None,
-    ) -> "SolutionExtractor":
+        allowlist: Sequence[str] | None = None,
+    ) -> SolutionExtractor:
         """
         Ergonomic factory mirroring the previous
         constructor signature.
@@ -157,7 +157,7 @@ class SolutionExtractor:
             allowlist=(frozenset(allowlist) if allowlist is not None else None),
         )
 
-    def with_allowlist(self, allowlist: Optional[Sequence[str]]) -> "SolutionExtractor":
+    def with_allowlist(self, allowlist: Sequence[str] | None) -> SolutionExtractor:
         """
         Return a NEW extractor with the given tool
         allowlist. Returns `self` unchanged when the
@@ -173,7 +173,7 @@ class SolutionExtractor:
         The extractor is frozen; this method is the
         only sanctioned way to change the allowlist.
         """
-        new_allowlist: Optional[frozenset[str]] = (
+        new_allowlist: frozenset[str] | None = (
             frozenset(allowlist) if allowlist is not None else None
         )
         if new_allowlist == self.allowlist:
@@ -239,7 +239,7 @@ class SolutionExtractor:
     def extract_from_events(
         self,
         events: Sequence[Event],
-        agent_ids: Optional[Sequence[str]] = None,
+        agent_ids: Sequence[str] | None = None,
     ) -> list[SolutionCandidate]:
         """
         Build candidates from a flat event list.
@@ -278,14 +278,14 @@ class SolutionExtractor:
     @staticmethod
     def _group_events_by_agent(
         events: Sequence[Event],
-        agent_ids: Optional[Sequence[str]],
+        agent_ids: Sequence[str] | None,
     ) -> dict[str, list[Event]]:
         """
         Group events by `agent_id`, optionally filtering
         to a subset of agents. When `agent_ids` is None,
         every event is kept.
         """
-        agents_filter: Optional[set[str]] = (
+        agents_filter: set[str] | None = (
             set(agent_ids) if agent_ids is not None else None
         )
         per_agent: dict[str, list[Event]] = {}
@@ -298,7 +298,7 @@ class SolutionExtractor:
     @staticmethod
     def _index_results_and_requests(
         agent_events: Sequence[Event],
-    ) -> "tuple[dict[UUID, Event], list[Event]]":
+    ) -> tuple[dict[UUID, Event], list[Event]]:
         """
         Walk the per-agent event list and produce two
         collections:
@@ -413,7 +413,7 @@ class SolutionExtractor:
         agent_id: str,
         request: Event,
         result: Event,
-    ) -> Optional[SolutionCandidate]:
+    ) -> SolutionCandidate | None:
         """
         Build a single `SolutionCandidate` from a
         request/result pair. Returns `None` when the
@@ -463,7 +463,7 @@ class SolutionExtractor:
         latency = maybe_float(result.data.get("latency_ms"))
         if status == "completed":
             sig = result_signature(result.data.get("result"))
-            err: Optional[str] = None
+            err: str | None = None
         else:
             sig = ""
             err_raw = result.data.get("error")

@@ -30,9 +30,9 @@ from __future__ import annotations
 import re
 
 import pytest
+from packaging.version import InvalidVersion, Version
 
 import kntgraph
-from packaging.version import InvalidVersion, Version
 
 
 class TestVersionDiscovery:

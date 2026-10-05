@@ -99,6 +99,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.core.components.role import RoleComponent, has_tool_access
 from kntgraph.core.event import (
     CorrelationContext,
@@ -117,9 +119,6 @@ from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
-
-from _lib.redis_or_fake import make_redis_client
-
 
 # ---------------------------------------------------------------------------
 # Event factories — centralise the wire format of the events the
@@ -305,7 +304,7 @@ class ChatSystem(ToolAwareSystem):
     def _emit_access_denied(
         self,
         agent_id: str,
-        view: "Any",
+        view: Any,
     ) -> Event:
         """Emit ``tool.chat_llm.failed`` with
         ``error="access_denied"`` when the persona does not
@@ -332,7 +331,7 @@ class ChatSystem(ToolAwareSystem):
     def _emit_request(
         self,
         agent_id: str,
-        view: "Any",
+        view: Any,
         message: str,
     ) -> Event:
         """Emit ``tool.chat_llm.requested`` (the tool is
@@ -368,7 +367,7 @@ class ChatSystem(ToolAwareSystem):
     def _consume_completions(
         self,
         agent_id: str,
-        view: "Any",
+        view: Any,
     ) -> list[Event]:
         """Emit ``chat.reply.generated`` for each completed
         ``chat_llm`` call that this system dispatched."""

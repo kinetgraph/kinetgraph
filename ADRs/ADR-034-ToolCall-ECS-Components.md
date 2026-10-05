@@ -116,6 +116,7 @@ class ToolCallRequest:
     on the completion event is the `event_id` of the
     request (used to match).
     """
+
     request_event_id: str
     tool_name: str
     agent_id: str
@@ -142,6 +143,7 @@ class ToolCallCompletion:
     ArchetypeStorage indexes the migration in O(1)
     amortized.
     """
+
     request_event_id: str
     status: str  # "completed" | "failed"
     result: Optional[Mapping[str, Any]] = None
@@ -184,9 +186,7 @@ def project_tool_calls(
     state migration needed.
     """
     base_views = base_projection(events)
-    tool_requests: dict[str, dict[str, ToolCallRequest]] = (
-        collections.defaultdict(dict)
-    )
+    tool_requests: dict[str, dict[str, ToolCallRequest]] = collections.defaultdict(dict)
     tool_completions: dict[str, dict[str, ToolCallCompletion]] = (
         collections.defaultdict(dict)
     )
@@ -195,8 +195,7 @@ def project_tool_calls(
         # Legacy bare form "tool.requested" is also accepted
         # for back-compat with old EventLogs.
         if e.event_type == "tool.requested" or (
-            e.event_type.startswith("tool.")
-            and e.event_type.endswith(".requested")
+            e.event_type.startswith("tool.") and e.event_type.endswith(".requested")
         ):
             tool_name = (
                 e.data["tool"]
@@ -212,19 +211,14 @@ def project_tool_calls(
                 requested_at=e.timestamp,
             )
             tool_requests[e.agent_id][req.request_event_id] = req
-        elif (
-            e.event_type in ("tool.completed", "tool.failed")
-            or (
-                e.event_type.startswith("tool.")
-                and e.event_type.endswith((".completed", ".failed"))
-            )
+        elif e.event_type in ("tool.completed", "tool.failed") or (
+            e.event_type.startswith("tool.")
+            and e.event_type.endswith((".completed", ".failed"))
         ):
             # Canonical (ADR-036) and legacy (ADR-034) forms
             # are both accepted. The completion event's
             # causation_id points to the request's event_id.
-            target_causation = (
-                str(e.causation_id) if e.causation_id else None
-            )
+            target_causation = str(e.causation_id) if e.causation_id else None
             if not target_causation:
                 continue
             # Find the request by causation_id (== request's event_id).
@@ -232,23 +226,15 @@ def project_tool_calls(
             if req is None:
                 continue
             completed_at = e.timestamp
-            latency_ms = (
-                (completed_at - req.requested_at).total_seconds() * 1000.0
-            )
+            latency_ms = (completed_at - req.requested_at).total_seconds() * 1000.0
             status = e.event_type.split(".")[-1]  # "completed" | "failed"
             comp = ToolCallCompletion(
                 request_event_id=req.request_event_id,
                 status=status,
                 result=(
-                    MappingProxyType(dict(e.data))
-                    if status == "completed"
-                    else None
+                    MappingProxyType(dict(e.data)) if status == "completed" else None
                 ),
-                error=(
-                    str(e.data.get("error"))
-                    if status == "failed"
-                    else None
-                ),
+                error=(str(e.data.get("error")) if status == "failed" else None),
                 completed_at=completed_at,
                 latency_ms=latency_ms,
             )
@@ -258,12 +244,8 @@ def project_tool_calls(
     out: dict[str, AgentView] = {}
     for agent_id, base_view in base_views.items():
         components = dict(base_view.components)
-        components["tool_requests"] = dict(
-            tool_requests.get(agent_id, {})
-        )
-        components["tool_completions"] = dict(
-            tool_completions.get(agent_id, {})
-        )
+        components["tool_requests"] = dict(tool_requests.get(agent_id, {}))
+        components["tool_completions"] = dict(tool_completions.get(agent_id, {}))
         out[agent_id] = dataclasses.replace(
             base_view, components=MappingProxyType(components)
         )
@@ -290,6 +272,7 @@ class SolutionExtractorSystem:
 
     ~80 LOC vs the 892 LOC of `KnowledgeConsolidator`.
     """
+
     def __init__(
         self,
         bus: SolutionPromotionBus,
@@ -303,26 +286,22 @@ class SolutionExtractorSystem:
     def __call__(self, world: World) -> list[Event]:
         out: list[Event] = []
         for agent_id, view in world.agents.items():
-            requests: dict[str, ToolCallRequest] = (
-                view.components.get("tool_requests", {})
+            requests: dict[str, ToolCallRequest] = view.components.get(
+                "tool_requests", {}
             )
-            completions: dict[str, ToolCallCompletion] = (
-                view.components.get("tool_completions", {})
+            completions: dict[str, ToolCallCompletion] = view.components.get(
+                "tool_completions", {}
             )
             for req_id, req in requests.items():
                 comp = completions.get(req_id)
                 if comp is None or comp.status != "completed":
                     continue
                 # Cross-agent bump via world.agents.
-                cross_count = self._cross_agent_count(
-                    world, req, completions
-                )
+                cross_count = self._cross_agent_count(world, req, completions)
                 if cross_count < self._config.bump_min_agents:
                     continue
                 # Emit solution.candidate_extracted.
-                out.append(
-                    self._emit_candidate(agent_id, req, comp, cross_count)
-                )
+                out.append(self._emit_candidate(agent_id, req, comp, cross_count))
         return out
 
     def _cross_agent_count(
@@ -349,8 +328,7 @@ class SolutionExtractorSystem:
         req: ToolCallRequest,
         comp: ToolCallCompletion,
         cross_count: int,
-    ) -> Event:
-        ...
+    ) -> Event: ...
 ```
 
 ### 2.4 KnowledgeConsolidator deletado
@@ -749,8 +727,12 @@ Apps que usavam `KnowledgeConsolidator`:
 ```python
 # Antes
 cons = KnowledgeConsolidator(
-    log=log, bus=bus, extractor=extractor, promoter=promoter,
-    config=config, redis=redis,
+    log=log,
+    bus=bus,
+    extractor=extractor,
+    promoter=promoter,
+    config=config,
+    redis=redis,
 )
 await cons.start()
 # ... após algumas horas ...
@@ -759,9 +741,7 @@ await cons.stop()
 # Depois
 dispatcher = ReactiveDispatcher(log=log, redis=redis)
 dispatcher.add_system(SolutionExtractorSystem(bump_min_agents=2))
-dispatcher.add_system(
-    SolutionPromoterSystem(tenant_id="t-1", graph_pool=pool)
-)
+dispatcher.add_system(SolutionPromoterSystem(tenant_id="t-1", graph_pool=pool))
 dispatcher.add_system(
     SolutionReviewPublisherSystem(
         tenant_id="t-1", review_queue=queue, review_threshold=2

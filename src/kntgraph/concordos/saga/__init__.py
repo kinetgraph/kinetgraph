@@ -77,8 +77,8 @@ class WorkflowSagaConcordo:
 
     config: SagaConfig
     name: str = field(init=False)
-    systems: tuple["WorldSystem", ...] = field(init=False)
-    projections: tuple["WorldProjection", ...] = field(init=False)
+    systems: tuple[WorldSystem, ...] = field(init=False)
+    projections: tuple[WorldProjection, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         # The dataclass is frozen; use ``object.__setattr__``

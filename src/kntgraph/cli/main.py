@@ -18,7 +18,6 @@ import typer
 
 from kntgraph.cli.commands import concordo, init, keys, new, upgrade
 
-
 app = typer.Typer(
     name="knt",
     help="Kinetgraph CLI - Boilerplate Generator",

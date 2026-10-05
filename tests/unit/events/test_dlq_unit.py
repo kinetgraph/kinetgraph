@@ -21,7 +21,7 @@ required):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis.aioredis
@@ -41,7 +41,6 @@ from kntgraph.events.dlq import (
 )
 from kntgraph.infra.redis._dlq import RedisDLQStorage
 from kntgraph.infra.redis._errors import MemoryError
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,7 +99,7 @@ def _make_dlq_event(
         reason=reason,
         error_message=error_message,
         original_timestamp=event.timestamp,
-        dlq_timestamp=datetime.now(tz=timezone.utc),
+        dlq_timestamp=datetime.now(tz=UTC),
         retry_count=retry_count,
         metadata={"hint": "unit"},
     )
@@ -191,13 +190,17 @@ class TestAppend:
 
 
 class TestReads:
-    async def test_get_event_unknown_id_returns_none(self, queue):
-        assert await queue.get_event(str(uuid.uuid4())) is None
+    async def test_get_event_unknown_id_returns_ok_none(self, queue):
+        result = await queue.get_event(str(uuid.uuid4()))
+        assert result.is_ok()
+        assert result.ok_value() is None
 
     async def test_get_event_returns_inserted_entry(self, queue):
         dl = _make_dlq_event()
         await queue.append(dl)
-        out = await queue.get_event(str(dl.event.event_id))
+        result = await queue.get_event(str(dl.event.event_id))
+        assert result.is_ok()
+        out = result.ok_value()
         assert out is not None
         assert out.event.event_id == dl.event.event_id
         assert out.reason == dl.reason
@@ -207,7 +210,9 @@ class TestReads:
         e2 = _make_event(agent_id="agent-B")
         await queue.append(_make_dlq_event(event=e1))
         await queue.append(_make_dlq_event(event=e2))
-        a_entries = await queue.list_for_agent("agent-A")
+        result = await queue.list_for_agent("agent-A")
+        assert result.is_ok()
+        a_entries = result.ok_value()
         assert all(e.event.agent_id == "agent-A" for e in a_entries)
 
     async def test_list_by_reason_filters(self, queue):
@@ -215,14 +220,18 @@ class TestReads:
         e2 = _make_event()
         await queue.append(_make_dlq_event(event=e1, reason=DLQReason.TIMEOUT))
         await queue.append(_make_dlq_event(event=e2, reason=DLQReason.VALIDATION_ERROR))
-        timeouts = await queue.list_by_reason(DLQReason.TIMEOUT)
+        result = await queue.list_by_reason(DLQReason.TIMEOUT)
+        assert result.is_ok()
+        timeouts = result.ok_value()
         assert all(e.reason == DLQReason.TIMEOUT for e in timeouts)
 
     async def test_list_all_returns_inserts(self, queue):
         for i in range(3):
             e = _make_event(type_=f"test.failed.{i}")
             await queue.append(_make_dlq_event(event=e))
-        all_entries = await queue.list_all()
+        result = await queue.list_all()
+        assert result.is_ok()
+        all_entries = result.ok_value()
         assert len(all_entries) == 3
 
 
@@ -233,35 +242,39 @@ class TestReads:
 
 class TestStatsAndPurge:
     async def test_get_stats_empty(self, queue):
-        stats = await queue.get_stats()
+        result = await queue.get_stats()
+        assert result.is_ok()
+        stats = result.ok_value()
         assert stats["total_events"] == 0
         assert stats["unique_agents"] == 0
         assert stats["by_reason"] == {}
 
-    async def test_get_event_returns_none_when_storage_errors(self):
+    async def test_get_event_returns_err_when_storage_errors(self):
         storage = MagicMock()
         storage.find_by_event_id = AsyncMock(return_value=Err(MemoryError("boom")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.get_event("missing") is None
+        result = await queue.get_event("missing")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_list_for_agent_returns_empty_on_storage_error(self):
+    async def test_list_for_agent_returns_err_on_storage_error(self):
         storage = MagicMock()
         storage.list_for_agent = AsyncMock(return_value=Err(MemoryError("boom")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.list_for_agent("agent-1") == []
+        result = await queue.list_for_agent("agent-1")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_get_stats_returns_default_dict_on_storage_error(self):
+    async def test_get_stats_returns_err_on_storage_error(self):
         storage = MagicMock()
         storage.get_stats = AsyncMock(return_value=Err(MemoryError("boom")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.get_stats() == {
-            "total_events": 0,
-            "unique_agents": 0,
-            "by_reason": {},
-        }
+        result = await queue.get_stats()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
     async def test_purge_returns_err_on_storage_error(self):
         storage = MagicMock()
@@ -277,10 +290,10 @@ class TestStatsAndPurge:
         e2 = _make_event()
         await queue.append(_make_dlq_event(event=e1, reason=DLQReason.TIMEOUT))
         await queue.append(_make_dlq_event(event=e2, reason=DLQReason.VALIDATION_ERROR))
-        stats = await queue.get_stats()
+        result = await queue.get_stats()
+        assert result.is_ok()
+        stats = result.ok_value()
         assert stats["total_events"] == 2
-        # The per-reason counter is bumped best-effort.
-        # The storage layer also reports it.
         assert "by_reason" in stats
 
     async def test_purge_clears_entries(self, queue):
@@ -288,7 +301,9 @@ class TestStatsAndPurge:
         await queue.append(_make_dlq_event())
         result = await queue.purge()
         assert result.is_ok()
-        assert await queue.list_all() == []
+        list_result = await queue.list_all()
+        assert list_result.is_ok()
+        assert list_result.ok_value() == []
 
 
 # ---------------------------------------------------------------------------
@@ -344,35 +359,43 @@ class TestErrorBranches:
         assert result.is_ok()
         assert result.ok_value() != PLACEHOLDER
 
-    async def test_get_event_returns_none_when_read_errors(self):
+    async def test_get_event_returns_err_when_read_errors(self):
         storage = MagicMock()
         storage.find_by_event_id = AsyncMock(return_value=Ok("1234-0"))
         storage.read = AsyncMock(return_value=Err(MemoryError("read fail")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.get_event("any") is None
+        result = await queue.get_event("any")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_get_event_returns_none_when_read_returns_none(self):
+    async def test_get_event_returns_ok_none_when_read_returns_none(self):
         storage = MagicMock()
         storage.find_by_event_id = AsyncMock(return_value=Ok("1234-0"))
         storage.read = AsyncMock(return_value=Ok(None))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.get_event("any") is None
+        result = await queue.get_event("any")
+        assert result.is_ok()
+        assert result.ok_value() is None
 
-    async def test_list_by_reason_returns_empty_on_storage_error(self):
+    async def test_list_by_reason_returns_err_on_storage_error(self):
         storage = MagicMock()
         storage.list_by_reason = AsyncMock(return_value=Err(MemoryError("boom")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.list_by_reason(DLQReason.TIMEOUT) == []
+        result = await queue.list_by_reason(DLQReason.TIMEOUT)
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_list_all_returns_empty_on_storage_error(self):
+    async def test_list_all_returns_err_on_storage_error(self):
         storage = MagicMock()
         storage.list_all = AsyncMock(return_value=Err(MemoryError("boom")))
         queue = DeadLetterQueue(storage)
 
-        assert await queue.list_all() == []
+        result = await queue.list_all()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
 
 # ---------------------------------------------------------------------------
@@ -390,13 +413,17 @@ class TestActions:
         await queue.append(dl)
         event_id = str(dl.event.event_id)
         # Entry is present
-        assert await queue.get_event(event_id) is not None
+        get_before = await queue.get_event(event_id)
+        assert get_before.is_ok()
+        assert get_before.ok_value() is not None
         # Reprocess returns the original event
         result = await actions.reprocess(event_id)
         assert result.is_ok()
         assert result.unwrap().event_id == dl.event.event_id
         # Entry is removed
-        assert await queue.get_event(event_id) is None
+        get_after = await queue.get_event(event_id)
+        assert get_after.is_ok()
+        assert get_after.ok_value() is None
 
     async def test_discard_unknown_event_returns_err(self, actions):
         result = await actions.discard(str(uuid.uuid4()))
@@ -409,7 +436,10 @@ class TestActions:
         result = await actions.discard(event_id)
         assert result.is_ok()
         assert result.unwrap() is True
-        assert await queue.get_event(event_id) is None
+        # Entry is removed
+        get_after = await queue.get_event(event_id)
+        assert get_after.is_ok()
+        assert get_after.ok_value() is None
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +470,7 @@ class TestActionsErrorBranches:
         with pytest.raises(TypeError):
             DeadLetterActions()
 
-    async def test_drop_entry_silently_skips_on_read_index_failure(
+    async def test_drop_entry_propagates_err_on_read_index_failure(
         self, queue, monkeypatch
     ):
         async def failing_read_index(self, *_args, **_kwargs):
@@ -454,9 +484,10 @@ class TestActionsErrorBranches:
         await queue.append(dl)
         event_id = str(dl.event.event_id)
         result = await DeadLetterActions(queue=queue).reprocess(event_id)
-        assert result.is_ok()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_drop_entry_silently_skips_on_drop_failure(self, queue, monkeypatch):
+    async def test_drop_entry_propagates_err_on_drop_failure(self, queue, monkeypatch):
         async def failing_drop(self, *_args, **_kwargs):
             return Err(MemoryError("drop down"))
 
@@ -468,9 +499,10 @@ class TestActionsErrorBranches:
         await queue.append(dl)
         event_id = str(dl.event.event_id)
         result = await DeadLetterActions(queue=queue).reprocess(event_id)
-        assert result.is_ok()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_drop_entry_silently_skips_on_counter_failure(
+    async def test_drop_entry_propagates_err_on_counter_failure(
         self, queue, monkeypatch
     ):
         async def failing_bump(self, *_args, **_kwargs):
@@ -484,9 +516,12 @@ class TestActionsErrorBranches:
         await queue.append(dl)
         event_id = str(dl.event.event_id)
         result = await DeadLetterActions(queue=queue).reprocess(event_id)
-        assert result.is_ok()
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
-    async def test_find_entry_via_storage_returns_none_on_lookup_error(self, storage):
+    async def test_find_entry_via_storage_propagates_err_on_lookup_error(
+        self, storage
+    ):
         async def failing_find(self, *_args, **_kwargs):
             return Err(MemoryError("find down"))
 
@@ -502,21 +537,14 @@ class TestActionsErrorBranches:
         finally:
             monkeypatch_.undo()
 
-    async def test_find_entry_via_storage_returns_none_when_lookup_none(self, storage):
+    async def test_find_entry_via_storage_returns_err_when_lookup_none(self, storage):
         async def none_find(self, *_args, **_kwargs):
             return Ok(None)
 
-        monkeypatch_ = __import__("pytest").MonkeyPatch()
-        monkeypatch_.setattr(
-            "kntgraph.infra.redis._dlq._redis.RedisDLQStorage.find_by_event_id",
-            none_find,
-        )
-        try:
-            actions = DeadLetterActions(storage=storage)
-            result = await actions.reprocess("any-id")
-            assert result.is_err()
-        finally:
-            monkeypatch_.undo()
+        actions = DeadLetterActions(storage=storage)
+        result = await actions.reprocess("any-id")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
 
     async def test_find_entry_via_storage_returns_none_when_read_errors(self, storage):
         async def ok_find(self, *_args, **_kwargs):

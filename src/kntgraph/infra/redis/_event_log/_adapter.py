@@ -24,7 +24,7 @@ Why split
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import structlog
 
@@ -53,15 +53,13 @@ def _event_to_redis(event: Event) -> dict[str, str]:
 
 def _parse_event(mid: bytes | str, mdata: dict) -> Event:
     """Local import wrapper — see module docstring."""
-    from kntgraph.stream.event_log.codec import parse_event
-
     from typing import cast
+
+    from kntgraph.stream.event_log.codec import parse_event
 
     return parse_event(cast(bytes, mid), mdata)
 
 
-if TYPE_CHECKING:
-    pass
 
 
 logger = structlog.get_logger()

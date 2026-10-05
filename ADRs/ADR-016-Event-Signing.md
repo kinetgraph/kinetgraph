@@ -276,9 +276,10 @@ class Signature:
     Covers the JCS-canonical bytes of the event's
     ``to_dict()`` with ``signature`` field absent.
     """
-    alg: str   # "ed25519-v1"
-    pk: str    # base64 (32 bytes)
-    sig: str   # base64 (64 bytes)
+
+    alg: str  # "ed25519-v1"
+    pk: str  # base64 (32 bytes)
+    sig: str  # base64 (64 bytes)
 ```
 
 The `Signature` is added to `Event` as an
@@ -318,7 +319,8 @@ verification step.
 class AggregateSignature:
     """v1: concatenation of N signatures.
     v2: BLS12-381 (single 96-byte sig)."""
-    alg: str                      # "concat-v1" | "bls12-381-v1"
+
+    alg: str  # "concat-v1" | "bls12-381-v1"
     signatures: tuple[Signature, ...]
 ```
 
@@ -361,6 +363,7 @@ class KeyRegistry(Protocol):
     v2: VaultKeyRegistry / KmsKeyRegistry (HSM-backed).
     The Protocol is the integration point.
     """
+
     def public_key(self, agent_id: str) -> PublicKey: ...
     def private_key(self, agent_id: str) -> PrivateKey: ...
     def register(self, agent_id: str, priv: PrivateKey) -> None: ...

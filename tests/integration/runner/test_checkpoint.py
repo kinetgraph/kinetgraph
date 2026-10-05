@@ -27,19 +27,19 @@ See: ADR-018 — WorldIncremental + WorldSystem.
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 
 from uuid import uuid4
 
 import pytest
 
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._world_checkpoint._redis import RedisWorldCheckpointStorage
 from kntgraph.infra.world_checkpoint import (
     IncrementalWorldStore,
     WorldCheckpoint,
 )
-from kntgraph.infra.redis._world_checkpoint._redis import RedisWorldCheckpointStorage
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 

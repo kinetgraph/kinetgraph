@@ -33,7 +33,6 @@ docstring for the full contract.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import structlog
 
@@ -42,7 +41,6 @@ from kntgraph.core.result import Err, Ok, Result
 from .._client import RedisLike
 from .._errors import MemoryError
 from .._prefix import namespaced, validate_prefix
-
 
 logger = structlog.get_logger()
 
@@ -106,7 +104,7 @@ class RedisAPIKeyStorage:
         """
         return storage_key(self.key_prefix, digest)
 
-    async def lookup(self, digest: str) -> Result[Optional[bytes], MemoryError]:
+    async def lookup(self, digest: str) -> Result[bytes | None, MemoryError]:
         """Look up a key binding by digest.
 
         Returns ``Ok(None)`` on miss; ``Err(MemoryError)`` on

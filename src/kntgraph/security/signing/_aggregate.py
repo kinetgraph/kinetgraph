@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 def verify_aggregate_concat(
     batch: BatchSignature,
     *,
-    key_registry: "KeyRegistry | None" = None,
+    key_registry: KeyRegistry | None = None,
 ) -> bool:
     """Verify a concat-v1 batch of per-event signatures.
 
@@ -68,7 +68,7 @@ def verify_aggregate_concat(
 def _verify_entry(
     entry: BatchEntry,
     *,
-    key_registry: "KeyRegistry | None",
+    key_registry: KeyRegistry | None,
 ) -> bool:
     """Verify a single ``BatchEntry``.
 
@@ -108,8 +108,8 @@ def _verify_entry(
 def _is_revoked(
     sig: Signature,
     *,
-    event: "Event",
-    key_registry: "KeyRegistry",
+    event: Event,
+    key_registry: KeyRegistry,
 ) -> bool:
     """True iff ``(agent_id, key_epoch)`` is revoked. Any
     exception from the registry is treated as "revoked"
@@ -124,7 +124,7 @@ def _is_revoked(
 
 
 def aggregate_concat(
-    signatures_and_events: list[tuple[Signature, "Event", "Ed25519PublicKeyWrapper"]],
+    signatures_and_events: list[tuple[Signature, Event, Ed25519PublicKeyWrapper]],
 ) -> BatchSignature:
     """Build a ``BatchSignature`` (concat-v1) from per-event triples.
 

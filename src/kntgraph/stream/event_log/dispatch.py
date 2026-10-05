@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Optional, cast
+from typing import cast
 
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...resilience import CircuitBreaker
@@ -44,8 +44,8 @@ from ...resilience.timeout import BackoffPolicy
 async def dispatch_redis_call(
     redis_call: Callable[[], Awaitable[bytes]],
     *,
-    circuit_breaker: Optional[CircuitBreaker] = None,
-    append_backoff: Optional[BackoffPolicy] = None,
+    circuit_breaker: CircuitBreaker | None = None,
+    append_backoff: BackoffPolicy | None = None,
     append_timeout_seconds: float = 5.0,
 ) -> Result[bytes, PersistenceError]:
     """
@@ -80,11 +80,7 @@ async def dispatch_redis_call(
                 backoff=backoff,
             )
             return Ok(cast(bytes, stream_id))
-        except (
-            asyncio.TimeoutError,
-            ConnectionError,
-            TimeoutError,
-        ) as e:
+        except (ConnectionError, TimeoutError) as e:
             return Err(PersistenceError(f"redis_timeout: {type(e).__name__}"))
 
     try:
@@ -93,7 +89,7 @@ async def dispatch_redis_call(
             timeout=append_timeout_seconds,
         )
         return Ok(stream_id)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return Err(PersistenceError(f"redis_timeout after {append_timeout_seconds}s"))
 
 

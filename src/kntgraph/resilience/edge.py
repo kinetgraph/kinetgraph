@@ -46,7 +46,8 @@ exists.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # ``ASGIMiddleware`` is the framework-level adapter
@@ -69,8 +70,8 @@ if TYPE_CHECKING:  # pragma: no cover - type-only imports
 
 __all__ = [
     "build_cors_middleware",
-    "build_trusted_host_middleware",
     "build_https_redirect_middleware",
+    "build_trusted_host_middleware",
 ]
 
 
@@ -86,7 +87,7 @@ def _parse_csv(value: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def build_cors_middleware(*, allow_origins: str = "") -> "type[ASGIMiddleware] | None":
+def build_cors_middleware(*, allow_origins: str = "") -> type[ASGIMiddleware] | None:
     """
     Build a Starlette ``CORSMiddleware`` configured by
     the operator.
@@ -159,7 +160,7 @@ def build_cors_middleware(*, allow_origins: str = "") -> "type[ASGIMiddleware] |
 
 def build_trusted_host_middleware(
     *, allowed_hosts: str = ""
-) -> "type[ASGIMiddleware] | None":
+) -> type[ASGIMiddleware] | None:
     """
     Build a custom middleware that rejects requests
     whose ``Host`` header is not in the allow-list.
@@ -234,7 +235,7 @@ def build_https_redirect_middleware(
     enabled: bool = True,
     status_code: int = 308,
     hsts_max_age: int = 0,
-) -> "type[ASGIMiddleware] | None":
+) -> type[ASGIMiddleware] | None:
     """
     Build a custom middleware that 308-redirects
     GET/HEAD requests from http → https when the

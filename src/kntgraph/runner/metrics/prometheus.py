@@ -52,7 +52,7 @@ right ``pip install`` line.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ..._optional import require_optional
 from .._metrics import MetricsSink
@@ -125,7 +125,7 @@ class PrometheusMetricsSink(MetricsSink):
         # constructor forwards ``registry`` to
         # ``prometheus_client.Gauge`` / ``Counter`` and
         # rejects anything that is not the real type.
-        registry: Optional["CollectorRegistry"] = None,
+        registry: CollectorRegistry | None = None,
         namespace: str = "kntgraph",
     ) -> None:
         """Build the sink and register the five metrics.
@@ -158,7 +158,7 @@ class PrometheusMetricsSink(MetricsSink):
         # ``registry=None`` they fall back to the global
         # ``REGISTRY`` (the standard Prometheus client
         # convention).
-        self._registry: Optional["CollectorRegistry"] = registry
+        self._registry: CollectorRegistry | None = registry
         self._namespace = namespace
         self._in_flight = prom.Gauge(
             _IN_FLIGHT_METRIC,
@@ -241,7 +241,7 @@ class PrometheusMetricsSink(MetricsSink):
         # See the matching note on ``__init__``: the
         # type is unresolvable through the
         # TYPE_CHECKING / lazy-import boundary.
-        registry: Optional["CollectorRegistry"] = None,
+        registry: CollectorRegistry | None = None,
     ) -> None:
         """Convenience wrapper around
         ``prometheus_client.start_http_server``.

@@ -12,19 +12,20 @@ tenant, signature) + delegation to the injected storage.
 
 from __future__ import annotations
 
-from kntgraph.core.event import Event
-
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
+from kntgraph.core.event import Event
 
 pytestmark = pytest.mark.asyncio
 
 
 def _make_event(agent_id: str = "a-1"):
-    from datetime import datetime, timezone
+    from datetime import datetime
+
     from kntgraph.core.event import Event
 
     return Event(
@@ -33,7 +34,7 @@ def _make_event(agent_id: str = "a-1"):
         agent_id=agent_id,
         event_class="domain",
         data={"k": "v"},
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         correlation=None,
     )
 
@@ -95,9 +96,8 @@ class TestEventLogAppendDelegates:
         storage.append.assert_not_awaited()
 
     async def test_append_blocks_tenant_violation(self):
-        from kntgraph.stream.event_log.store import EventLog
-
         from kntgraph.security import Principal, PrincipalLevel, principal_ctx
+        from kntgraph.stream.event_log.store import EventLog
 
         storage = _fake_storage()
         log = EventLog(storage=storage)
@@ -283,9 +283,9 @@ class TestReadAfterCursor:
         future refactor does not regress the
         ``read_after_cursor`` semantics.
         """
-        from kntgraph.stream.event_log.store import EventLog
-
         from types import SimpleNamespace
+
+        from kntgraph.stream.event_log.store import EventLog
 
         async def _stub_read(agent_id, start="", end="", count=None):
             # The fallback closed the cursor with
@@ -313,9 +313,9 @@ class TestReadAfterCursor:
         future refactor does not regress the fall-through
         path for the most common cursor.
         """
-        from kntgraph.stream.event_log.store import EventLog
-
         from types import SimpleNamespace
+
+        from kntgraph.stream.event_log.store import EventLog
 
         captured: dict[str, str] = {}
 
@@ -347,9 +347,9 @@ class TestReadAfterCursor:
         Pinned so a future refactor does not raise on
         an empty read.
         """
-        from kntgraph.stream.event_log.store import EventLog
-
         from types import SimpleNamespace
+
+        from kntgraph.stream.event_log.store import EventLog
 
         async def _stub_read(agent_id, start="", end="", count=None):
             return []
@@ -376,9 +376,9 @@ class TestReadAfterCursor:
         API. Pinned so a future refactor does not
         accidentally drop the delegation.
         """
-        from kntgraph.stream.event_log.store import EventLog
-
         from types import SimpleNamespace
+
+        from kntgraph.stream.event_log.store import EventLog
 
         sample_event = _make_event("a-1")
         expected_cursor = "1234-0"

@@ -37,12 +37,11 @@ import the helpers from the vertical package.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
 
 from ..core._typing import JsonValue
 from ..infra.hashing import short_hash
-
 
 __all__ = [
     "FieldSpec",
@@ -79,11 +78,11 @@ class FieldSpec:
     name: str
     json_type: str  # "string" | "number" | "integer"
     required: bool
-    format: Optional[str] = None
+    format: str | None = None
 
 
 def walk_schema(
-    schema: Optional[Mapping[str, JsonValue]],
+    schema: Mapping[str, JsonValue] | None,
     *,
     required_defaults: tuple[str, ...] = (),
 ) -> list[FieldSpec]:
@@ -113,7 +112,7 @@ def walk_schema(
 
 
 def _extract_properties(
-    schema: Optional[Mapping[str, JsonValue]],
+    schema: Mapping[str, JsonValue] | None,
 ) -> dict[str, JsonValue]:
     """Return the top-level ``properties`` mapping, or
     ``{}`` for any malformed / missing input. Centralises
@@ -128,7 +127,7 @@ def _extract_properties(
     return properties
 
 
-def _field_spec(name: object, prop: object, required: bool) -> Optional[FieldSpec]:
+def _field_spec(name: object, prop: object, required: bool) -> FieldSpec | None:
     """Build a ``FieldSpec`` for one property, or
     return ``None`` when the property should be
     skipped (V1 limitation: only string/number/integer).
@@ -154,7 +153,7 @@ def _field_spec(name: object, prop: object, required: bool) -> Optional[FieldSpe
     )
 
 
-def compute_schema_version(schema: Optional[Mapping[str, JsonValue]]) -> str:
+def compute_schema_version(schema: Mapping[str, JsonValue] | None) -> str:
     """
     Stable hash of the relevant parts of the schema.
 

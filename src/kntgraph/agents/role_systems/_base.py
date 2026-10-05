@@ -18,7 +18,7 @@ import it without dragging in the legacy role systems
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -301,11 +301,11 @@ class _BaseRoleSystem(ToolAwareSystem):
 def _emit_chat_completion(
     *,
     base: _BaseRoleSystem,
-    view: "AgentView",
+    view: AgentView,
     text: str,
     follow_up_questions: list[str],
     input_text: str,
-) -> "Event":
+) -> Event:
     """
     Build a ``chat.reply.generated`` domain event with
     the standard wire format used by the LLM-backed

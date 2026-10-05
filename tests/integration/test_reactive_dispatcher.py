@@ -32,12 +32,11 @@ See ADR-018.
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.core.event import CorrelationContext
 
 import pytest
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 
@@ -216,7 +215,6 @@ class TestCursorPersistence:
         async def broken_scan(*args, **kwargs):
             if False:
                 yield b""
-            return
 
         log._storage.client.scan_iter = broken_scan  # type: ignore[assignment]
 
@@ -449,7 +447,6 @@ class TestSeenAgents:
         async def broken_scan(*args, **kwargs):
             if False:
                 yield b""
-            return
 
         log._storage.client.scan_iter = broken_scan  # type: ignore[assignment]
 

@@ -34,7 +34,6 @@ from kntgraph.infra.redis._memory._profile import (
     RedisProfileStorage,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

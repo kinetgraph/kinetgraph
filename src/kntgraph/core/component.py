@@ -28,10 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import (
     Any,
-    FrozenSet,
-    Type,
-    runtime_checkable,
     Protocol,
+    runtime_checkable,
 )
 
 
@@ -61,19 +59,19 @@ class ComponentMeta:
     qualname: str
 
     @classmethod
-    def of(cls, t: Type[Any]) -> "ComponentMeta":
+    def of(cls, t: type[Any]) -> ComponentMeta:
         return cls(t.__module__, t.__qualname__)
 
     def __str__(self) -> str:
         return f"{self.module}.{self.qualname}"
 
 
-def component_meta(t: Type[Any]) -> ComponentMeta:
+def component_meta(t: type[Any]) -> ComponentMeta:
     """Convenience: returns ComponentMeta.of(t)."""
     return ComponentMeta.of(t)
 
 
-def archetype_id(component_types: FrozenSet[Type[Any]]) -> FrozenSet[ComponentMeta]:
+def archetype_id(component_types: frozenset[type[Any]]) -> frozenset[ComponentMeta]:
     """
     Returns the archetype key (a frozen set of ComponentMeta) for a set
     of component types. Two entities with the same archetype id share

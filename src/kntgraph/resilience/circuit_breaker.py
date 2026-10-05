@@ -50,13 +50,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Awaitable, Callable, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import structlog
 
-from ..core.result import Err, Ok, Result, BusinessError
-
+from ..core.result import BusinessError, Err, Ok, Result
 
 # ``R`` is the coroutine's resolved value; ``P`` captures
 # the parameter shape so callers retain their concrete
@@ -85,7 +85,6 @@ class CircuitBreakerError(Exception):
     ``except`` blocks at the API edge).
     """
 
-    pass
 
 
 class CircuitBreaker:

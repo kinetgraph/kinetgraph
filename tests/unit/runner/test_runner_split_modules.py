@@ -44,7 +44,6 @@ from kntgraph.runner._systems_runner import (
     run_systems_and_persist,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

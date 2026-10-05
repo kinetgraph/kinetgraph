@@ -53,8 +53,7 @@ from kntgraph.stream.event_log import EventLog
 from kntgraph.stream.projection import fold_world
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _lib.redis_or_fake import make_redis_client  # noqa: E402
-
+from _lib.redis_or_fake import make_redis_client
 
 TENANT_ID = "tenant-1"
 ORDER_1 = "order-001"

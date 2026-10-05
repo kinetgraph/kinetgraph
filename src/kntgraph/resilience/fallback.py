@@ -74,7 +74,7 @@ P = ParamSpec("P")
 Stage = tuple[Callable[[], Awaitable[T]], str]
 
 
-async def with_fallback(
+async def with_fallback[**P, T](
     primary: Callable[P, Awaitable[T]],
     secondary: Callable[P, Awaitable[T]],
     *args: P.args,
@@ -106,7 +106,7 @@ async def with_fallback(
         return await secondary(*args, **kwargs)
 
 
-async def with_default_on_failure(
+async def with_default_on_failure[**P, T](
     primary: Callable[P, Awaitable[T]],
     default: T,
     *args: P.args,
@@ -138,7 +138,7 @@ async def with_default_on_failure(
         return default
 
 
-async def with_fallback_chain(
+async def with_fallback_chain[T](
     *stages: Stage,
     default: T | None = None,
 ) -> T | None:

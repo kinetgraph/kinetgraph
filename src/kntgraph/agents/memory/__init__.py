@@ -59,18 +59,17 @@ from kntgraph.agents.memory.solution_review_publisher import (
 from kntgraph.agents.memory.solutions import (
     SolutionCandidate,
     SolutionExtractor,
-    SolutionPromotionBus,
     SolutionPromoter,
+    SolutionPromotionBus,
 )
-
 
 __all__ = [
     "PromoteStats",
     "SolutionCandidate",
     "SolutionExtractor",
     "SolutionExtractorSystem",
-    "SolutionPromotionBus",
     "SolutionPromoter",
     "SolutionPromoterSystem",
+    "SolutionPromotionBus",
     "SolutionReviewPublisherSystem",
 ]

@@ -51,20 +51,16 @@ to the builtins; this module just bridges from
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ._mini_lang import (
     BUILTIN_SPECS,
+    NameLookup,
     evaluate,
     is_pure_name,
-    NameLookup,
     parse_expression,
 )
 from .base import Specification, StepContext
-
-if TYPE_CHECKING:
-    pass
-
 
 __all__ = [
     "MiniLangSpec",
@@ -109,7 +105,7 @@ class MiniLangSpec(Specification):
 
     expression: str
     _ast: Any = field(init=False, repr=False, compare=False)
-    _registry: "SpecRegistry | None" = field(
+    _registry: SpecRegistry | None = field(
         init=False, repr=False, compare=False, default=None
     )
 
@@ -121,7 +117,7 @@ class MiniLangSpec(Specification):
         object.__setattr__(self, "_ast", parse_expression(self.expression))
         object.__setattr__(self, "_registry", None)
 
-    def with_registry(self, registry: "SpecRegistry") -> "MiniLangSpec":
+    def with_registry(self, registry: SpecRegistry) -> MiniLangSpec:
         """Return a new spec with the given registry bound.
 
         Specs are frozen; the registry is part of the
@@ -203,7 +199,7 @@ class SpecRegistry:
     def get_expression(self, spec_id: str) -> str | None:
         return self._specs.get(spec_id)
 
-    def get(self, spec_id: str) -> "Specification | None":
+    def get(self, spec_id: str) -> Specification | None:
         """Resolve a spec name to a :class:`Specification`.
 
         Returns ``None`` if the name is not registered.
@@ -214,7 +210,7 @@ class SpecRegistry:
         spec = MiniLangSpec(expr)
         return spec.with_registry(self)
 
-    def resolve(self, expression: str) -> "Specification":
+    def resolve(self, expression: str) -> Specification:
         """Resolve an expression (name or compound) to a spec.
 
         - If the expression is a pure name lookup AND

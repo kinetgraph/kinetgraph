@@ -15,11 +15,11 @@ so the algorithm can evolve in one place.
 from __future__ import annotations
 
 import json
-from typing import Mapping
+from collections.abc import Mapping
 
+from kntgraph.agents.memory.solutions._values import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.infra.hashing import short_hash
-from kntgraph.agents.memory.solutions._values import JsonValue
 
 
 def fingerprint_problem(data: Mapping[str, JsonValue]) -> str:

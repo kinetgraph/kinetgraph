@@ -170,6 +170,7 @@ class StepContext:
     called the Specification, not to the
     Specification itself.
     """
+
     step_results: MappingProxyType[str, "JsonValue"]
     step_states: MappingProxyType[str, str]
     domain: "DomainComponent | None"
@@ -213,6 +214,7 @@ class Specification(ABC, Composable):
 class AndSpec(Specification):
     left: Specification
     right: Specification
+
     def is_satisfied_by(self, ctx): ...
 
 
@@ -220,12 +222,14 @@ class AndSpec(Specification):
 class OrSpec(Specification):
     left: Specification
     right: Specification
+
     def is_satisfied_by(self, ctx): ...
 
 
 @dataclass(frozen=True, slots=True)
 class NotSpec(Specification):
     inner: Specification
+
     def is_satisfied_by(self, ctx): ...
 ```
 
@@ -235,13 +239,13 @@ The framework ships a standard library of
 Specifications:
 
 ```python
-StepCompleted(step_name)        # step_states[name] == "completed"
-StepFailed(step_name)           # step_states[name] in ("failed", "timed_out")
-StepTimedOut(step_name)         # step_states[name] == "timed_out"
+StepCompleted(step_name)  # step_states[name] == "completed"
+StepFailed(step_name)  # step_states[name] in ("failed", "timed_out")
+StepTimedOut(step_name)  # step_states[name] == "timed_out"
 StepResultEquals(step, field, value)  # step_results[step][field] == value
-DomainStateIs(field, value)     # ctx.domain.field == value
-ProfileTierIs(tier)             # ctx.profile.tier == tier
-ContinuityToolUsed(tool_name)   # tool_name in ctx.continuity.last_tools
+DomainStateIs(field, value)  # ctx.domain.field == value
+ProfileTierIs(tier)  # ctx.profile.tier == tier
+ContinuityToolUsed(tool_name)  # tool_name in ctx.continuity.last_tools
 ```
 
 These map to the mini-language builtins in
@@ -273,7 +277,9 @@ reference:
 @dataclass(frozen=True, slots=True)
 class NfeRequired(Specification):
     default: bool = True
+
     def is_satisfied_by(self, ctx: StepContext) -> bool: ...
+
 
 # fmh_office/app_setup.py
 SpecRegistry.register("nfe_required", NfeRequired())
@@ -367,19 +373,16 @@ with `__post_init__` that derives `systems` and
 @dataclass(frozen=True, slots=True)
 class BusinessFSMConcordo:
     """C-01 — see ADR-071 for the full design."""
+
     config: FSMConfig
     name: str = field(init=False)
     systems: tuple["WorldSystem", ...] = field(init=False)
     projections: tuple["WorldProjection", ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "name", f"fsm:{self.config.component_type.__name__}"
-        )
+        object.__setattr__(self, "name", f"fsm:{self.config.component_type.__name__}")
         object.__setattr__(self, "systems", (FSMSystem(self.config),))
-        object.__setattr__(
-            self, "projections", (FSMProjection(self.config),)
-        )
+        object.__setattr__(self, "projections", (FSMProjection(self.config),))
 ```
 
 The full definition of `BusinessFSMConcordo` lives in
@@ -484,8 +487,10 @@ The framework centralises this in `core/clock.py`:
 ```python
 Clock = Callable[[], datetime]
 
+
 def utcnow() -> datetime:
     return datetime.now(tz=timezone.utc)
+
 
 def injectable_clock(now: Clock | None) -> Clock:
     return now or utcnow
@@ -520,6 +525,7 @@ async def ingest_compensation_failures(event):
         metadata=event.data,
     )
     await dlq.append(dl_event)
+
 
 dispatcher.subscribe(["*"], ingest_compensation_failures)
 ```

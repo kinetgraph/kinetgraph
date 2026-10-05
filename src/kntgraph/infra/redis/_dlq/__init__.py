@@ -30,16 +30,15 @@ from ._redis import (
     idem_key_for,
 )
 
-
 __all__ = [
     "ALL_KEYS",
     "DLQ_AGENT_INDEX",
     "DLQ_EVENT_INDEX",
     "DLQ_REASON_INDEX",
     "DLQ_STREAM_KEY",
-    "DLQStorage",
     "MAXLEN_DEFAULT",
     "PLACEHOLDER",
+    "DLQStorage",
     "RedisDLQStorage",
     "idem_key_for",
 ]

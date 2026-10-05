@@ -28,15 +28,14 @@ third-party deps.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, Union, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from kntgraph.tools.schema import FieldSpec
-
 
 # The value side of the ``(value, confidence)`` tuple.
 # JSON-typed scalars match the schema types (``string`` /
 # ``integer`` / ``number``).
-FieldValue = Union[str, int, float, None]
+FieldValue = str | int | float | None
 
 
 @runtime_checkable
@@ -56,7 +55,7 @@ class FieldFinder(Protocol):
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple[FieldValue, float]]: ...
+    ) -> tuple[FieldValue, float] | None: ...
 
 
 class RegexFieldFinder(FieldFinder):
@@ -96,7 +95,7 @@ class RegexFieldFinder(FieldFinder):
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple[FieldValue, float]]:
+    ) -> tuple[FieldValue, float] | None:
         import re
 
         if not text:

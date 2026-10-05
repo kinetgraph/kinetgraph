@@ -48,7 +48,6 @@ from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.runner.runner import Runner
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

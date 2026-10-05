@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from kntgraph.infra.redis._tools import TOOL_QUEUE_KEY_TEMPLATE, tool_queue_key
 
-
 # ---------------------------------------------------------------------------
 # TOOL_QUEUE_KEY_TEMPLATE -- suffix template shape
 # ---------------------------------------------------------------------------

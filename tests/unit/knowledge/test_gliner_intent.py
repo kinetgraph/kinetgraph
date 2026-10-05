@@ -34,7 +34,6 @@ from kntgraph.knowledge.extraction.gliner_intent import (
     GlinerIntentAdapter,
 )
 
-
 # ---------------------------------------------------------------------------
 # Classification / IntentScore
 # ---------------------------------------------------------------------------

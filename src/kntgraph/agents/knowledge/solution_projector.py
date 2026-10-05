@@ -53,7 +53,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from typing import Optional, cast
+from typing import cast
 
 import structlog
 
@@ -61,11 +61,10 @@ from kntgraph.agents.memory.solutions import (
     SolutionCandidate,
     ToolDescriptor,
 )
-from kntgraph.knowledge.embedding.provider import EmbeddingProvider
 from kntgraph.infra.graph import GraphPool
+from kntgraph.knowledge.embedding.provider import EmbeddingProvider
 from kntgraph.knowledge.graph._sub._solution import GraphSolutionAdapter
 from kntgraph.resilience import BulkheadPool
-
 
 logger = structlog.get_logger()
 
@@ -130,7 +129,7 @@ class SolutionProjector:
         embedding: EmbeddingProvider,
         *,
         tenant_id: str = "default",
-        bulkhead: Optional[BulkheadPool] = None,
+        bulkhead: BulkheadPool | None = None,
         query_timeout_seconds: float = 5.0,
     ) -> None:
         """
@@ -358,6 +357,6 @@ class SolutionProjector:
 
 
 __all__ = [
-    "SolutionProjector",
     "PROBLEM_VECTOR_INDEX_CYPHER",
+    "SolutionProjector",
 ]

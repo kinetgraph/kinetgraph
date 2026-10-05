@@ -128,6 +128,7 @@ Layer 3 — Agent liveness (Runner already covers this):
 @dataclass(frozen=True, slots=True)
 class SagaStepConfig:
     """Configuration for a single saga step."""
+
     name: str
     tool_name: str | None
     compensate_tool: str | None = None
@@ -150,6 +151,7 @@ class SagaStepConfig:
 @dataclass(frozen=True, slots=True)
 class SagaConfig:
     """Configuration for a WorkflowSaga."""
+
     name: str
     steps: tuple[SagaStepConfig, ...]
     fail_when: "Specification | None" = None
@@ -197,19 +199,18 @@ class SagaProgressComponent(DomainComponent):
       Compensated: {SagaProgressComponent}  (direction="compensated")
       Failed:      {SagaProgressComponent}  (direction="compensation_failed")
     """
+
     saga_id: str
     saga_name: str
     current_step: str
     direction: str  # forward | compensating | done | compensated |
-                   # compensation_failed
+    # compensation_failed
     step_order: tuple[str, ...]
     step_states: MappingProxyType[str, str]
     step_results: MappingProxyType[str, "JsonValue"]
     compensate_stack: tuple[str, ...]
     started_at: datetime
-    awaiting_approval_at: MappingProxyType[str, datetime] = (
-        MappingProxyType({})
-    )
+    awaiting_approval_at: MappingProxyType[str, datetime] = MappingProxyType({})
 ```
 
 ### 3.4 WorldSystem — `SagaSystem`
@@ -388,13 +389,15 @@ class SagaTimeoutSystem:
                 agent_id=view.agent_id,
             )
             correlation = correlation_middleware.current()
-            out.append(Event.domain_from(
-                event_id=eid,
-                agent_id=view.agent_id,
-                type=event_type,
-                data=data,
-                correlation=correlation,
-            ))
+            out.append(
+                Event.domain_from(
+                    event_id=eid,
+                    agent_id=view.agent_id,
+                    type=event_type,
+                    data=data,
+                    correlation=correlation,
+                )
+            )
         return out
 ```
 
@@ -459,15 +462,14 @@ class WorkflowSagaConcordo:
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", f"saga:{self.config.name}")
         object.__setattr__(
-            self, "systems",
+            self,
+            "systems",
             (
                 SagaSystem(self.config),
                 SagaTimeoutSystem({self.config.name: self.config}),
             ),
         )
-        object.__setattr__(
-            self, "projections", (SagaProjection(self.config),)
-        )
+        object.__setattr__(self, "projections", (SagaProjection(self.config),))
 ```
 
 DLQ ingestion is NOT wired here. The application
@@ -479,53 +481,53 @@ framework's `DeadLetterQueue` by registering a
 ### 3.8 Example — NF-e emission saga
 
 ```python
-nfe_emission_saga = WorkflowSagaConcordo(SagaConfig(
-    name="nfe_emission",
-    saga_timeout_ms=300_000,  # 5 minutes total
-
-    # Fail the saga when ANY emission path failed.
-    # Earlier drafts composed
-    # ``StepFailed("emit_nfe").and_(StepFailed("emit_nfce"))`` —
-    # but the two steps are mutually exclusive at
-    # runtime (one is skipped via
-    # ``skip_when=NfeRequired().not_()`` exactly when
-    # the other runs), so the AND was logically
-    # unreachable. A failing saga must be triggered
-    # by EITHER branch.
-    fail_when=StepFailed("emit_nfe").or_(StepFailed("emit_nfce")),
-
-    steps=(
-        SagaStepConfig(
-            name="validate_fiscal",
-            tool_name="sefaz_validator",
-            timeout_ms=10_000,
+nfe_emission_saga = WorkflowSagaConcordo(
+    SagaConfig(
+        name="nfe_emission",
+        saga_timeout_ms=300_000,  # 5 minutes total
+        # Fail the saga when ANY emission path failed.
+        # Earlier drafts composed
+        # ``StepFailed("emit_nfe").and_(StepFailed("emit_nfce"))`` —
+        # but the two steps are mutually exclusive at
+        # runtime (one is skipped via
+        # ``skip_when=NfeRequired().not_()`` exactly when
+        # the other runs), so the AND was logically
+        # unreachable. A failing saga must be triggered
+        # by EITHER branch.
+        fail_when=StepFailed("emit_nfe").or_(StepFailed("emit_nfce")),
+        steps=(
+            SagaStepConfig(
+                name="validate_fiscal",
+                tool_name="sefaz_validator",
+                timeout_ms=10_000,
+            ),
+            SagaStepConfig(
+                name="emit_nfe",
+                tool_name="nfe_emitter",
+                compensate_tool="nfe_canceller",
+                skip_when=NfeRequired().not_(),
+                compensate_when=StepTimedOut("emit_nfe").not_(),
+                enrich_from=("cfop", "tax_amount", "series"),
+                timeout_ms=30_000,
+            ),
+            SagaStepConfig(
+                name="emit_nfce",
+                tool_name="nfce_emitter",
+                compensate_tool="nfce_canceller",
+                skip_when=TaxRegimeIs("simples").not_(),
+                compensate_when=StepTimedOut("emit_nfce").not_(),
+                enrich_from=("cfop", "tax_amount"),
+                timeout_ms=30_000,
+            ),
+            SagaStepConfig(
+                name="register_receivable",
+                tool_name="erp_receivable_tool",
+                compensate_tool="erp_reversal_tool",
+                timeout_ms=15_000,
+            ),
         ),
-        SagaStepConfig(
-            name="emit_nfe",
-            tool_name="nfe_emitter",
-            compensate_tool="nfe_canceller",
-            skip_when=NfeRequired().not_(),
-            compensate_when=StepTimedOut("emit_nfe").not_(),
-            enrich_from=("cfop", "tax_amount", "series"),
-            timeout_ms=30_000,
-        ),
-        SagaStepConfig(
-            name="emit_nfce",
-            tool_name="nfce_emitter",
-            compensate_tool="nfce_canceller",
-            skip_when=TaxRegimeIs("simples").not_(),
-            compensate_when=StepTimedOut("emit_nfce").not_(),
-            enrich_from=("cfop", "tax_amount"),
-            timeout_ms=30_000,
-        ),
-        SagaStepConfig(
-            name="register_receivable",
-            tool_name="erp_receivable_tool",
-            compensate_tool="erp_reversal_tool",
-            timeout_ms=15_000,
-        ),
-    ),
-))
+    )
+)
 ```
 
 ### 3.9 Unit tests
@@ -560,18 +562,12 @@ def test_saga_dispatches_first_step_on_start() -> None:
                 started_at=FIXED_NOW,
             )
         )
-        .with_trigger(
-            "saga.nfe_emission.started", data={"saga_id": "saga-001"}
-        )
+        .with_trigger("saga.nfe_emission.started", data={"saga_id": "saga-001"})
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world
-    )
-    assert any(
-        e.event_type == "tool.sefaz_validator.requested" for e in out
-    )
+    out = run_system(SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world)
+    assert any(e.event_type == "tool.sefaz_validator.requested" for e in out)
 
 
 def test_saga_skips_nfe_when_not_required() -> None:
@@ -587,12 +583,13 @@ def test_saga_skips_nfe_when_not_required() -> None:
                 direction="forward",
                 step_order=("validate_fiscal", "emit_nfe"),
                 step_states=MappingProxyType(
-                    {"validate_fiscal": "completed",
-                     "emit_nfe": "in_flight"}
+                    {"validate_fiscal": "completed", "emit_nfe": "in_flight"}
                 ),
-                step_results=MappingProxyType({
-                    "validate_fiscal": {"nfe_required": False},
-                }),
+                step_results=MappingProxyType(
+                    {
+                        "validate_fiscal": {"nfe_required": False},
+                    }
+                ),
                 compensate_stack=(),
                 started_at=FIXED_NOW,
             )
@@ -610,12 +607,8 @@ def test_saga_skips_nfe_when_not_required() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world
-    )
-    assert not any(
-        e.event_type == "tool.nfe_emitter.requested" for e in out
-    )
+    out = run_system(SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world)
+    assert not any(e.event_type == "tool.nfe_emitter.requested" for e in out)
 
 
 def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
@@ -631,13 +624,14 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
                 direction="forward",
                 step_order=("validate_fiscal", "emit_nfe"),
                 step_states=MappingProxyType(
-                    {"validate_fiscal": "completed",
-                     "emit_nfe": "timed_out"}
+                    {"validate_fiscal": "completed", "emit_nfe": "timed_out"}
                 ),
-                step_results=MappingProxyType({
-                    "validate_fiscal": {"nfe_required": True},
-                    "emit_nfe": {},
-                }),
+                step_results=MappingProxyType(
+                    {
+                        "validate_fiscal": {"nfe_required": True},
+                        "emit_nfe": {},
+                    }
+                ),
                 compensate_stack=("validate_fiscal", "emit_nfe"),
                 started_at=FIXED_NOW,
             )
@@ -655,12 +649,8 @@ def test_saga_compensates_on_timeout_except_timed_out_steps() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world
-    )
-    assert not any(
-        e.event_type == "tool.nfe_canceller.requested" for e in out
-    )
+    out = run_system(SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world)
+    assert not any(e.event_type == "tool.nfe_canceller.requested" for e in out)
 
 
 def test_saga_timeout_system_emits_timed_out() -> None:
@@ -690,9 +680,7 @@ def test_saga_timeout_system_emits_timed_out() -> None:
         now=lambda: FIXED_NOW,
     )
     out = run_system(system, world)
-    assert any(
-        e.event_type == "saga.nfe_emission.timed_out" for e in out
-    )
+    assert any(e.event_type == "saga.nfe_emission.timed_out" for e in out)
 
 
 def test_saga_compensation_failure_emits_dlq() -> None:
@@ -707,9 +695,7 @@ def test_saga_compensation_failure_emits_dlq() -> None:
                 current_step="emit_nfe",
                 direction="compensating",
                 step_order=("validate_fiscal", "emit_nfe"),
-                step_states=MappingProxyType(
-                    {"emit_nfe": "compensation_failed"}
-                ),
+                step_states=MappingProxyType({"emit_nfe": "compensation_failed"}),
                 step_results=MappingProxyType({}),
                 compensate_stack=("emit_nfe",),
                 started_at=FIXED_NOW,
@@ -728,12 +714,8 @@ def test_saga_compensation_failure_emits_dlq() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world
-    )
-    assert any(
-        e.event_type == "saga.nfe_emission.dlq" for e in out
-    )
+    out = run_system(SagaSystem(nfe_emission_saga.config, now=lambda: FIXED_NOW), world)
+    assert any(e.event_type == "saga.nfe_emission.dlq" for e in out)
 ```
 
 ---

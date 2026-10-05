@@ -33,7 +33,6 @@ from __future__ import annotations
 import asyncio
 import os
 import time
-from typing import Optional
 from uuid import uuid4
 
 import pytest
@@ -52,7 +51,6 @@ from kntgraph.runner._systems_runner import run_systems_and_persist
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -68,7 +66,7 @@ def _make_client():
     return Redis.from_url(url, decode_responses=False)
 
 
-def _seed_event(agent_id: str, payload: Optional[dict] = None) -> Event:
+def _seed_event(agent_id: str, payload: dict | None = None) -> Event:
     return Event.create(
         event_type="fixture.event",
         agent_id=agent_id,
@@ -197,7 +195,7 @@ class TestDirtyOnlySave:
             async def load(self, agent_id: str) -> WorldCheckpoint:
                 return WorldCheckpoint(world=World.empty(), last_stream_id="-")
 
-            async def load_cursor(self, agent_id: str) -> Optional[str]:
+            async def load_cursor(self, agent_id: str) -> str | None:
                 return None
 
             async def save(
@@ -205,8 +203,8 @@ class TestDirtyOnlySave:
                 agent_id: str,
                 checkpoint: WorldCheckpoint,
                 *,
-                ttl_seconds: Optional[int] = None,
-                cursor: Optional[str] = None,
+                ttl_seconds: int | None = None,
+                cursor: str | None = None,
             ) -> None:
                 calls.append(agent_id)
 

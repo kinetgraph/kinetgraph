@@ -40,7 +40,6 @@ from kntgraph.infra.world_checkpoint import WorldCheckpoint
 from kntgraph.runner import MetricsSink
 from kntgraph.runner.reactive import ReactiveDispatcher
 
-
 pytestmark = pytest.mark.asyncio
 
 

@@ -17,18 +17,17 @@ Public API
 
 from ._adapter import WorldCheckpointStorage
 from ._redis import (
-    RedisWorldCheckpointStorage,
     WORLD_CHECKPOINT_KEY_TEMPLATE,
     WORLD_CURSOR_KEY_TEMPLATE,
+    RedisWorldCheckpointStorage,
     cursor_key,
     storage_key,
 )
 
-
 __all__ = [
-    "RedisWorldCheckpointStorage",
     "WORLD_CHECKPOINT_KEY_TEMPLATE",
     "WORLD_CURSOR_KEY_TEMPLATE",
+    "RedisWorldCheckpointStorage",
     "WorldCheckpointStorage",
     "cursor_key",
     "storage_key",

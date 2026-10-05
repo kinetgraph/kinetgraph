@@ -37,14 +37,18 @@ Reprodução do bug (validado em `core/event/event.py`):
 
 ```python
 entry = Event.create(
-    event_type="user.intent", agent_id="a-1", event_class="domain",
+    event_type="user.intent",
+    agent_id="a-1",
+    event_class="domain",
     data={"intent": "get_weather"},
     correlation=correlation_middleware.start(correlation_id=uuid.uuid4()),
 )
 # entry.correlation.correlation_id = X (flow id)
 
 req = Event.create(
-    event_type="tool.weather.requested", agent_id="a-1", event_class="domain",
+    event_type="tool.weather.requested",
+    agent_id="a-1",
+    event_class="domain",
     data={"tool": "weather"},
     causation_id=entry.event_id,  # aponta para entry
 )
@@ -71,14 +75,18 @@ Tornar `correlation: CorrelationContext` **não-opcional** em `Event.create` (e 
 # Entry event: o caller cria o CorrelationContext.
 ctx = correlation_middleware.start(correlation_id=my_flow_id)
 entry = Event.create(
-    event_type="user.intent", agent_id="a-1", event_class="domain",
+    event_type="user.intent",
+    agent_id="a-1",
+    event_class="domain",
     data={"intent": "get_weather"},
     correlation=ctx,
 )
 
 # Evento derivado: o caller propaga do event pai.
 req = Event.create(
-    event_type="tool.weather.requested", agent_id="a-1", event_class="domain",
+    event_type="tool.weather.requested",
+    agent_id="a-1",
+    event_class="domain",
     data={"tool": "weather"},
     causation_id=entry.event_id,
     correlation=correlation_middleware.continue_from(entry),

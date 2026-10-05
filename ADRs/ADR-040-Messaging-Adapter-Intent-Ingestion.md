@@ -85,6 +85,7 @@ from kntgraph.security import Principal, Role
 
 logger = logging.getLogger(__name__)
 
+
 class IntentMessageConsumer:
     """
     Template messaging consumer.
@@ -98,14 +99,14 @@ class IntentMessageConsumer:
         logger.print("Starting Intent Message Consumer loop...")
         # Placeholder for connection logic
         # connection = await connect_queue()
-        
+
         while True:
             try:
                 # 1. Fetch message from queue (Replace with actual queue read)
                 # message = await queue.get()
                 await asyncio.sleep(1.0)
                 continue
-                
+
                 # 2. Extract metadata
                 # payload = json.loads(message.body)
                 # correlation_id = message.headers.get("x-correlation-id") or str(uuid.uuid4())
@@ -113,7 +114,7 @@ class IntentMessageConsumer:
                 # tenant_id = payload.get("tenant_id")
                 # intent_name = payload["intent"]
                 # params = payload.get("params", {})
-                
+
                 # 3. Setup context (L2 Principal & Correlation Context)
                 # principal = Principal(
                 #     agent_id=agent_id,
@@ -122,7 +123,7 @@ class IntentMessageConsumer:
                 #     key_id="messaging-gateway"
                 # )
                 # correlation = CorrelationContext.new(correlation_id=uuid.UUID(correlation_id))
-                
+
                 # 4. Create and append the intent event
                 # intent_event = Event.domain_from(
                 #     agent_id=agent_id,
@@ -136,10 +137,10 @@ class IntentMessageConsumer:
                 #     # principal_ctx bound at log.append context
                 # )
                 # await self._log.append(intent_event)
-                
+
                 # 5. Acknowledge message
                 # await message.ack()
-                
+
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
                 # Handle reject/NACK/DLQ logic here

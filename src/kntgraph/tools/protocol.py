@@ -100,7 +100,7 @@ class Describable(Protocol):
 
     name: str
     description: str
-    input_schema: dict[str, "JsonValue"]
+    input_schema: dict[str, JsonValue]
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class Tool(Describable, Protocol[R]):
 
     name: str
     description: str
-    input_schema: dict[str, "JsonValue"]
+    input_schema: dict[str, JsonValue]
 
     async def invoke(
         self,

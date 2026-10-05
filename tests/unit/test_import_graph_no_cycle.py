@@ -160,13 +160,12 @@ class TestToolsCacheImportChain:
         # block.
         top_level_eventlog_imports: list[ast.ImportFrom] = []
         for node in tree.body:
-            if isinstance(node, ast.ImportFrom):
-                if (
-                    node.module
-                    and node.module.endswith("stream.event_log")
-                    and any(alias.name == "EventLog" for alias in node.names)
-                ):
-                    top_level_eventlog_imports.append(node)
+            if isinstance(node, ast.ImportFrom) and (
+                node.module
+                and node.module.endswith("stream.event_log")
+                and any(alias.name == "EventLog" for alias in node.names)
+            ):
+                top_level_eventlog_imports.append(node)
 
         # Now walk again looking for TYPE_CHECKING blocks.
         type_checking_imports: list[ast.ImportFrom] = []

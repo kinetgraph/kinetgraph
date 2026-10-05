@@ -175,6 +175,7 @@ class ToolChainingForbiddenError(RuntimeError):
     matching `tool.b.completed` event from the EventLog.
     """
 
+
 async def _safe_dispatch(self, tool: Tool, **kwargs):
     # The Tool is currently inside its own async frame;
     # the EventLog does NOT yet contain a "completed"

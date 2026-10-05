@@ -54,7 +54,6 @@ import redis.asyncio as aioredis
 
 from kntgraph.security import Principal, PrincipalLevel
 
-
 KEY_PREFIX = "knt:api:keys:"
 SCAN_COUNT = 100
 

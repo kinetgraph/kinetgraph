@@ -44,6 +44,15 @@ application uses for any custom system (ADR-069 §11.11).
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
+from kntgraph.concordos._loader import LoadedBundle
+
+from ._loader import (
+    ConcordoBundleError,
+    LoadedBundle,
+    load_bundle_dict,
+    load_bundle_json,
+    load_bundle_yaml,
+)
 from .base import (
     AndSpec,
     Composable,
@@ -62,41 +71,33 @@ from .specs import (
     StepResultEquals,
     StepTimedOut,
 )
-from ._loader import (
-    ConcordoBundleError,
-    LoadedBundle,
-    load_bundle_dict,
-    load_bundle_json,
-    load_bundle_yaml,
-)
 
 __all__ = [
     # base
     "AndSpec",
     "Composable",
-    "NotSpec",
-    "OrSpec",
-    "Specification",
-    "StepContext",
-    "ViewTrigger",
+    # loader
+    "ConcordoBundleError",
     # specs
     "ContinuityToolUsed",
     "DomainStateIs",
+    "LoadedBundle",
+    "NotSpec",
+    "OrSpec",
     "ProfileTierIs",
+    "Specification",
     "StepCompleted",
+    "StepContext",
     "StepFailed",
     "StepResultEquals",
     "StepTimedOut",
-    # loader
-    "ConcordoBundleError",
-    "LoadedBundle",
+    "ViewTrigger",
     "load_bundle_dict",
     "load_bundle_json",
     "load_bundle_yaml",
 ]
 
 if TYPE_CHECKING:
-    from kntgraph.concordos._loader import LoadedBundle
     from kntgraph.core.system import WorldSystem
     from kntgraph.runner.reactive import ReactiveDispatcher
     from kntgraph.runner.reactive_extensions import WorldProjection

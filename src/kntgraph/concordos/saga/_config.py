@@ -66,9 +66,9 @@ class SagaStepConfig:
     name: str
     tool_name: str | None
     compensate_tool: str | None = None
-    skip_when: "Specification | None" = None
-    proceed_when: "Specification | None" = None
-    compensate_when: "Specification | None" = None
+    skip_when: Specification | None = None
+    proceed_when: Specification | None = None
+    compensate_when: Specification | None = None
     enrich_from: tuple[str, ...] = ()
     timeout_ms: int = 30_000
     approval_timeout_ms: int | None = None
@@ -101,5 +101,5 @@ class SagaConfig:
 
     name: str
     steps: tuple[SagaStepConfig, ...]
-    fail_when: "Specification | None" = None  # None = fail on first failure
+    fail_when: Specification | None = None  # None = fail on first failure
     saga_timeout_ms: int = 300_000

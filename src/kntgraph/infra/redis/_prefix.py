@@ -79,7 +79,7 @@ def validate_prefix(prefix: str) -> None:
     if prefix == "":
         return
     if not isinstance(prefix, str):
-        raise ValueError(f"redis_key_prefix must be str, got {type(prefix).__name__}")
+        raise TypeError(f"redis_key_prefix must be str, got {type(prefix).__name__}")
     if not _PREFIX_RE.match(prefix):
         raise ValueError(
             f"redis_key_prefix contains invalid characters: {prefix!r}. "
@@ -145,8 +145,7 @@ def namespaced(prefix: str, key: str) -> str:
     # ``"<namespace>:"`` (e.g. ``"acme-billing:"``);
     # ``"<namespace>:knt:"`` produces the SAME composed
     # key after this strip.
-    if prefix.endswith("knt:"):
-        prefix = prefix[: -len("knt:")]
+    prefix = prefix.removesuffix("knt:")
     return f"{prefix}{key}"
 
 

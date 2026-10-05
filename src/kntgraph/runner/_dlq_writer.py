@@ -66,14 +66,14 @@ replay will retry the append.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import structlog
 
 from ..core.event import Event
 from ..events.dlq.store import DeadLetterQueue
-from ..events.dlq.values import DLQReason, DeadLetterEvent
+from ..events.dlq.values import DeadLetterEvent, DLQReason
 
 if TYPE_CHECKING:
     from ..core._typing import JsonValue
@@ -107,7 +107,7 @@ DEFAULT_DLQ_REASON = DLQReason.PROCESSING_FAILED
 
 async def append_dlq_events(
     outgoing: list[Event],
-    dlq: Optional[DeadLetterQueue],
+    dlq: DeadLetterQueue | None,
     *,
     default_reason: DLQReason = DEFAULT_DLQ_REASON,
 ) -> list[str]:
@@ -165,7 +165,7 @@ async def append_dlq_events(
         return []
 
     stream_ids: list[str] = []
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     for event in outgoing:
         if not event.event_type.endswith(DLQ_EVENT_SUFFIX):
             continue
@@ -211,11 +211,25 @@ async def append_dlq_events(
         # scans the per-event_id index and returns the
         # first match; comparing the returned entry's
         # ``reason`` against the one we would append is
-        # the dedup boundary. ``None`` ⇒ first-time
-        # write; same reason ⇒ dedup hit (skip);
+        # the dedup boundary. ``Ok(None)`` ⇒ first-time
+        # write; ``Ok(same reason)`` ⇒ dedup hit (skip);
         # different reason ⇒ separate entry for the same
-        # event under a different failure mode.
-        existing = await dlq.get_event(str(event.event_id))
+        # event under a different failure mode. ``Err``
+        # ⇒ storage failure; treat as miss so a transient
+        # Redis blip does NOT cascade-fail the saga
+        # (the storage's idempotency boundary at append
+        # time closes the duplicate window).
+        existing_result = await dlq.get_event(str(event.event_id))
+        if existing_result.is_err():
+            logger.warning(
+                "dlq_writer.precheck_failed",
+                event_id=str(event.event_id),
+                event_type=event.event_type,
+                error=str(existing_result.err_value()),
+            )
+            existing = None
+        else:
+            existing = existing_result.ok_value()
         if existing is not None and existing.reason == reason:
             logger.debug(
                 "dlq_writer.idempotent_skip",
@@ -263,7 +277,7 @@ async def append_dlq_events(
 
 
 __all__ = [
-    "DLQ_EVENT_SUFFIX",
     "DEFAULT_DLQ_REASON",
+    "DLQ_EVENT_SUFFIX",
     "append_dlq_events",
 ]

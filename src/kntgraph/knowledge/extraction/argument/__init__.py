@@ -70,7 +70,6 @@ from ._gliner_finder import (
     match_to_value,
 )
 
-
 __all__ = [
     "CoercedValue",
     "FieldFinder",

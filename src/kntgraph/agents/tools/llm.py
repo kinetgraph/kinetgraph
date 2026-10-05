@@ -67,7 +67,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from typing import Any, Optional, cast
+from typing import Any, Self, cast
 
 import structlog
 
@@ -87,7 +87,6 @@ from kntgraph.tools.llm_transport import (
 )
 from kntgraph.tools.worker import tool_worker
 
-
 logger = structlog.get_logger()
 
 
@@ -105,9 +104,9 @@ logger = structlog.get_logger()
 class _StreamDone:
     """Sentinel: the async iterator is exhausted."""
 
-    _instance: "_StreamDone | None" = None
+    _instance: _StreamDone | None = None
 
-    def __new__(cls) -> "_StreamDone":
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -119,9 +118,9 @@ class _StreamDone:
 class _StreamTimeout:
     """Sentinel: the chunk did not arrive before the deadline."""
 
-    _instance: "_StreamTimeout | None" = None
+    _instance: _StreamTimeout | None = None
 
-    def __new__(cls) -> "_StreamTimeout":
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -141,7 +140,7 @@ _STREAM_TIMEOUT = _StreamTimeout()
 # -----------------------------------------------------------------------------
 
 
-def _compute_cost_usd(response: dict) -> Optional[float]:
+def _compute_cost_usd(response: dict) -> float | None:
     """
     Best-effort cost extraction. LiteLLM has `completion_cost`
     but it requires the model to be in its pricing DB. Local
@@ -195,7 +194,7 @@ class LiteLLMTransportAdapter(LLMTransport):
 
     async def __call__(
         self,
-        request: "LLMRequest",
+        request: LLMRequest,
     ) -> dict:
         import litellm
 
@@ -232,7 +231,7 @@ class LiteLLMTransportAdapter(LLMTransport):
 
     def _build_completion_kwargs(
         self,
-        request: "LLMRequest",
+        request: LLMRequest,
         *,
         drop_params: bool,
     ) -> dict[str, Any]:
@@ -424,7 +423,7 @@ def _to_llm_response(
 
 def _parse_message(
     completion: Any,
-) -> "tuple[str, Optional[str]]":
+) -> tuple[str, str | None]:
     """
     Extract ``text`` and ``finish_reason`` from the
     first choice of the completion. The first choice
@@ -672,9 +671,9 @@ class LiteLLMToolWorker:
         # ``litellm`` import cost in the parent
         # process; the worker process is a fresh
         # interpreter anyway).
-        self._transport: "LLMTransport | None" = None
+        self._transport: LLMTransport | None = None
 
-    def _get_transport(self) -> "LLMTransport":
+    def _get_transport(self) -> LLMTransport:
         if self._transport is None:
             self._transport = LiteLLMTransportAdapter()
         return self._transport
@@ -685,13 +684,13 @@ class LiteLLMToolWorker:
         user: str,
         *,
         idempotency_key: str,
-        model: "str | None" = None,
-        temperature: "float | None" = None,
-        max_tokens: "int | None" = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         think: bool = False,
-        response_format: "dict | None" = None,
+        response_format: dict | None = None,
         stream: bool = False,
-    ) -> "Result[dict[str, Any], ToolError]":
+    ) -> Result[dict[str, Any], ToolError]:
         """
         Run a single LLM completion via the
         ``LiteLLMTransportAdapter`` and return the
@@ -795,7 +794,7 @@ class LiteLLMToolWorker:
                     operation_name=f"llm.invoke.{effective_model}",
                 ),
             )
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             # All retries exhausted on timeout. The
             # ``with_timeout_and_retry`` re-raised the
             # last ``asyncio.TimeoutError``.

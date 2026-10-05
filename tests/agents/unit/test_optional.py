@@ -26,16 +26,16 @@ class _Blocker:
     def __init__(self, *names: str) -> None:
         self._names = names
 
-    def find_spec(self, fullname, path=None, target=None):  # noqa: ARG002
+    def find_spec(self, fullname, path=None, target=None):
         for n in self._names:
             if fullname == n or fullname.startswith(n + "."):
                 from importlib.machinery import ModuleSpec
 
                 class _Loader:
-                    def create_module(self, spec):  # noqa: ARG002
+                    def create_module(self, spec):
                         raise ImportError(f"simulated: {fullname} not installed")
 
-                    def exec_module(self, module):  # noqa: ARG002
+                    def exec_module(self, module):
                         raise ImportError(f"simulated: {fullname} not installed")
 
                 return ModuleSpec(fullname, _Loader())

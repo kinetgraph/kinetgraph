@@ -355,9 +355,7 @@ from fmh_office.concordos.invoice_fsm import invoice_fsm
 from fmh_office.concordos.nfe_emission_saga import nfe_emission_saga
 
 dispatcher = ReactiveDispatcher(log=log, redis=redis)
-ConcordoCatalog(invoice_fsm, nfe_emission_saga).install_all(
-    dispatcher
-)
+ConcordoCatalog(invoice_fsm, nfe_emission_saga).install_all(dispatcher)
 
 
 # YAML-loaded

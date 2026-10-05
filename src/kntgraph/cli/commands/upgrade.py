@@ -53,14 +53,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import typer
+from jinja2 import Environment, FileSystemLoader
 from rich.console import Console
 from rich.table import Table
-from jinja2 import Environment, FileSystemLoader
-
 
 app = typer.Typer(
     help="Regenerate boilerplate files against the current templates.",
@@ -660,4 +659,4 @@ def apply_all(
     )
 
 
-__all__ = ["app", "list_templates", "check", "apply", "apply_all"]
+__all__ = ["app", "apply", "apply_all", "check", "list_templates"]

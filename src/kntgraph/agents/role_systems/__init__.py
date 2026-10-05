@@ -92,14 +92,13 @@ from ._prompts import (
 )
 from ._rule_based import ChatRule, RuleBasedChatSystem
 
-
 __all__ = [
     "ChatRoleSystem",
     "ChatRule",
+    "PersonalizedRoleSystem",
     "PlannerRoleSystem",
     "RuleBasedChatSystem",
     "SummarizerRoleSystem",
-    "PersonalizedRoleSystem",
 ]
 
 

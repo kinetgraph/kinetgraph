@@ -26,7 +26,6 @@ import pytest
 
 from kntgraph.infra.redis._world_checkpoint import RedisWorldCheckpointStorage
 
-
 pytestmark = pytest.mark.asyncio
 
 

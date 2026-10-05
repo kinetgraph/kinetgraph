@@ -177,7 +177,9 @@ class StructuredExtractor(Protocol):
     """
 
     async def extract(
-        self, text: str, schema: dict,
+        self,
+        text: str,
+        schema: dict,
     ) -> list[dict]: ...
 ```
 
@@ -212,7 +214,9 @@ class GlinerStructuredAdapter(StructuredExtractor):
     ) -> None: ...
 
     async def extract(
-        self, text: str, schema: dict,
+        self,
+        text: str,
+        schema: dict,
     ) -> list[dict]: ...
 ```
 
@@ -284,12 +288,17 @@ class StructuredExtractionTool:
     }
 
     def __init__(
-        self, *, extractor: SLMStructuredExtractor,
+        self,
+        *,
+        extractor: SLMStructuredExtractor,
     ) -> None: ...
 
     async def invoke(
-        self, *, idempotency_key: str,
-        text: str, schema: dict,
+        self,
+        *,
+        idempotency_key: str,
+        text: str,
+        schema: dict,
     ) -> Result[list[dict], ToolError]: ...
 ```
 

@@ -178,8 +178,13 @@ Lista de labels default shipped pelo framework:
 
 ```python
 DEFAULT_PII_LABELS = (
-    "cpf", "cnpj", "email", "telefone",
-    "endereco", "nome_pessoa", "chave_pix",
+    "cpf",
+    "cnpj",
+    "email",
+    "telefone",
+    "endereco",
+    "nome_pessoa",
+    "chave_pix",
     "cartao_credito",
 )
 ```

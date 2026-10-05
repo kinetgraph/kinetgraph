@@ -31,11 +31,11 @@ dicts (no fakeredis needed).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Optional, Union, cast
+from typing import cast
 
 from ...core._typing import JsonValue
 from ...infra.redis._codec import decode_dict
-from .state import ContinuityState, MAX_FIELD_VALUE_LEN
+from .state import MAX_FIELD_VALUE_LEN, ContinuityState
 
 
 def serialize_for_cache(
@@ -70,11 +70,11 @@ def serialize_for_cache(
 
 
 def read_cache(
-    raw: Mapping[str, Union[str, JsonValue]],
+    raw: Mapping[str, str | JsonValue],
     *,
     tenant_id: str = "",
     user_id: str = "",
-) -> Optional[ContinuityState]:
+) -> ContinuityState | None:
     """
     Decode a `HGETALL` result into a `ContinuityState`.
 
@@ -124,7 +124,7 @@ def read_cache(
 
 
 def _normalise_raw(
-    raw: Mapping[str, Union[str, JsonValue]],
+    raw: Mapping[str, str | JsonValue],
 ) -> dict[str, str]:
     """Normalise the HGETALL payload to a flat
     ``dict[str, str]``. Handles both bytes-keyed
@@ -162,7 +162,7 @@ def _extract_slots(
     return last_tools, last_entities, last_categories
 
 
-def _coerce_float_or_none(value: Union[str, JsonValue, None]) -> Optional[float]:
+def _coerce_float_or_none(value: str | JsonValue | None) -> float | None:
     """Coerce a ``JsonValue`` (or ``str``) to ``float``;
     returns ``None`` for non-scalar or empty values.
     Used for the optional ``cleared_at`` field.
@@ -181,7 +181,7 @@ def _coerce_float_or_none(value: Union[str, JsonValue, None]) -> Optional[float]
     return None
 
 
-def _coerce_float_or_zero(value: Union[str, JsonValue]) -> float:
+def _coerce_float_or_zero(value: str | JsonValue) -> float:
     """Coerce a ``JsonValue`` to ``float``; returns
     ``0.0`` for non-scalar values. Used for required
     timestamp fields (``created_at``/``updated_at``).

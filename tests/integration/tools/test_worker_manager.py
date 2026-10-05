@@ -25,7 +25,7 @@ import uuid
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.result import Ok, Err, Result
+from kntgraph.core.result import Err, Ok, Result
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools.worker import tool_worker
 
@@ -63,8 +63,8 @@ async def test_worker_manager_happy_path(clean_redis):
     Test that a registered tool processes a requested event from the global
     queue and outputs a completed event to the agent's event log.
     """
-    from kntgraph.tools.manager import WorkerManager
     from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
 
     agent_id = f"a-{uuid.uuid4()}"
     adapter = RedisEventLogAdapter(clean_redis)
@@ -125,8 +125,8 @@ async def test_worker_manager_railway_error(clean_redis):
     Test that if a tool returns an Err(str), the manager translates it
     into a tool.failed event in the agent's log.
     """
-    from kntgraph.tools.manager import WorkerManager
     from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
 
     agent_id = f"a-{uuid.uuid4()}"
     adapter = RedisEventLogAdapter(clean_redis)
@@ -174,8 +174,8 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
     the XAUTOCLAIM reaper detects the poison pill and forces a tool.failed
     event into the agent's log, unblocking the agent.
     """
-    from kntgraph.tools.manager import WorkerManager
     from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
 
     agent_id = f"a-{uuid.uuid4()}"
     adapter = RedisEventLogAdapter(clean_redis)
@@ -245,8 +245,8 @@ async def test_worker_manager_uses_spawn_start_method(clean_redis):
     import os
     import sys
 
-    from kntgraph.tools.manager import WorkerManager
     from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
 
     parent_pid = os.getpid()
 

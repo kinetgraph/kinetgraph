@@ -28,8 +28,6 @@ explicitly deleted.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import Field
 
 from kntgraph.infra.config._base import BaseSettings
@@ -39,6 +37,6 @@ class MemorySettingsMixin(BaseSettings):
     """TTL knobs for Session, Profile, Continuity, and Solution."""
 
     session_ttl_seconds: int = Field(default=24 * 60 * 60)
-    profile_ttl_seconds: Optional[int] = Field(default=None)
+    profile_ttl_seconds: int | None = Field(default=None)
     continuity_ttl_seconds: int = Field(default=90 * 24 * 60 * 60)
-    solution_ttl_seconds: Optional[int] = Field(default=None)
+    solution_ttl_seconds: int | None = Field(default=None)

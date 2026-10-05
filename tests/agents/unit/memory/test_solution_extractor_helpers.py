@@ -16,27 +16,27 @@ of the outer loop.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from datetime import UTC, datetime
 from types import MappingProxyType
-from typing import Any, Mapping, Optional
+from typing import Any
 from uuid import UUID
 
+from kntgraph.agents.memory.solutions._extractor import SolutionExtractor
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.core.event.event import Event
 
-from kntgraph.agents.memory.solutions._extractor import SolutionExtractor
-
 
 def _ts() -> datetime:
-    return datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
 
 
 def _event(
     *,
     event_type: str,
     agent_id: str = "agent-1",
-    data: Optional[Mapping[str, Any]] = None,
-    causation_id: Optional[UUID] = None,
+    data: Mapping[str, Any] | None = None,
+    causation_id: UUID | None = None,
 ) -> Event:
     return Event.create(
         event_type=event_type,

@@ -29,18 +29,16 @@ Coverage:
 
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
 
 # fastapi is an opt-in dep; skip the test module if not
 # installed (mirrors `test_intent_router.py`).
 pytest.importorskip("fastapi")
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from kntgraph.resilience.rate_limit import (  # noqa: E402
+from kntgraph.resilience.rate_limit import (
     DEFAULT_BYPASS_PATHS,
     RateLimiter,
     build_rate_limit_middleware,
@@ -144,7 +142,7 @@ class TestCustomKeyFn:
         a tenant id, a header value.
         """
 
-        async def key_by_header(request) -> Optional[str]:
+        async def key_by_header(request) -> str | None:
             return request.headers.get("x-tenant")
 
         client = _build_app(rpm=2, key_fn=key_by_header)
@@ -166,7 +164,7 @@ class TestCustomKeyFn:
         internal admin endpoints).
         """
 
-        async def allow_admin_only(request) -> Optional[str]:
+        async def allow_admin_only(request) -> str | None:
             if request.headers.get("x-admin") == "yes":
                 return None
             return "default"

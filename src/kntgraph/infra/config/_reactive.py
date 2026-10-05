@@ -41,7 +41,7 @@ class ReactiveSettingsMixin(BaseSettings):
     fallback_poll_interval: float = Field(default=5.0)
 
     @model_validator(mode="after")
-    def _validate_positive_cadences(self) -> "ReactiveSettingsMixin":
+    def _validate_positive_cadences(self) -> ReactiveSettingsMixin:
         """
         A zero or negative cadence would either busy-spin the
         loop (poll intervals) or make the fallback poll fire

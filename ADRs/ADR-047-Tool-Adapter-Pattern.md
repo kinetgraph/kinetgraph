@@ -107,6 +107,7 @@ This ensures that:
 ```python
 def __init__(self, gateway: PaymentGatewayLike | None = None) -> None:
     from kntgraph.agents.tools.payments import StripePaymentAdapter
+
     self._gateway = gateway or StripePaymentAdapter()
 ```
 
@@ -145,12 +146,15 @@ The `LLMTransport` protocol is defined at the framework level in `src/kntgraph/t
 from typing import Protocol, runtime_checkable
 from dataclasses import dataclass, field
 
+
 @dataclass(frozen=True, slots=True)
 class LLMUsage:
     """Token usage extracted from an LLM response."""
+
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+
 
 @dataclass(frozen=True, slots=True)
 class LLMResponse:
@@ -165,6 +169,7 @@ class LLMResponse:
     it (e.g. via `litellm.completion_cost`); it may be
     `None` for local or unknown models.
     """
+
     text: str
     model: str
     usage: LLMUsage
@@ -172,6 +177,7 @@ class LLMResponse:
     cost_usd: "float | None" = None
     finish_reason: "str | None" = None
     raw: dict = field(default_factory=dict)
+
 
 @dataclass(frozen=True, slots=True)
 class LLMRequest:
@@ -184,6 +190,7 @@ class LLMRequest:
     ``top_p``, ``stop``, ``tools``); unused keys are
     ignored.
     """
+
     model: str
     messages: list[dict]
     temperature: float
@@ -192,6 +199,7 @@ class LLMRequest:
     drop_unsupported_params: bool = True
     idempotency_key: "str | None" = None
     extra: "dict[str, JsonValue]" = field(default_factory=dict)
+
 
 @runtime_checkable
 class LLMTransport(Protocol):
@@ -216,6 +224,7 @@ class LLMTransport(Protocol):
     auth, and timeout errors as exceptions. The Tool
     translates them into ``Result`` outcomes.
     """
+
     async def __call__(self, request: LLMRequest) -> dict: ...
 ```
 
@@ -241,21 +250,19 @@ from kntgraph.core.result import Ok, Err, Result, ToolError
 from kntgraph.tools.worker import tool_worker
 from kntgraph.tools.llm_transport import LLMTransport, LLMRequest
 
+
 @tool_worker(name="intent_classifier", description="Classifies user intent.")
 class IntentClassifierTool:
-
-    def __init__(self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini") -> None:
+    def __init__(
+        self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini"
+    ) -> None:
         from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
 
         self._llm = llm or LiteLLMTransportAdapter()
         self._model = model
 
     async def invoke(
-        self,
-        text: str,
-        categories: list[str],
-        *,
-        idempotency_key: str
+        self, text: str, categories: list[str], *, idempotency_key: str
     ) -> Result[dict[str, Any], ToolError]:
         prompt = f"Classify the text: '{text}' into categories: {categories}."
         request = LLMRequest(
@@ -276,9 +283,7 @@ class IntentClassifierTool:
         # result envelope (the same shape every
         # ``@tool_worker`` returns).
         text_value = (
-            completion.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
+            completion.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
         return Ok({"category": text_value.strip()})
 ```
@@ -293,21 +298,19 @@ from kntgraph.core.result import Ok, Err, Result, ToolError
 from kntgraph.tools.worker import tool_worker
 from kntgraph.tools.llm_transport import LLMTransport, LLMRequest
 
+
 @tool_worker(name="text_generator", description="Generates creative text content.")
 class TextGeneratorTool:
-
-    def __init__(self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini") -> None:
+    def __init__(
+        self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini"
+    ) -> None:
         from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
 
         self._llm = llm or LiteLLMTransportAdapter()
         self._model = model
 
     async def invoke(
-        self,
-        prompt: str,
-        max_length: int = 500,
-        *,
-        idempotency_key: str
+        self, prompt: str, max_length: int = 500, *, idempotency_key: str
     ) -> Result[dict[str, Any], ToolError]:
         request = LLMRequest(
             model=self._model,
@@ -323,9 +326,7 @@ class TextGeneratorTool:
             err.__cause__ = e
             return Err(err)
         text_value = (
-            completion.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
+            completion.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
         return Ok({"text": text_value})
 ```
@@ -340,10 +341,12 @@ from kntgraph.core.result import Ok, Err, Result, ToolError
 from kntgraph.tools.worker import tool_worker
 from kntgraph.tools.llm_transport import LLMTransport, LLMRequest
 
+
 @tool_worker(name="image_analyzer", description="Analyzes and describes an image.")
 class ImageAnalyzerTool:
-
-    def __init__(self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini") -> None:
+    def __init__(
+        self, llm: LLMTransport | None = None, model: str = "gpt-4o-mini"
+    ) -> None:
         from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
 
         self._llm = llm or LiteLLMTransportAdapter()
@@ -354,19 +357,21 @@ class ImageAnalyzerTool:
         image_base64: str,
         question: str = "Describe this image",
         *,
-        idempotency_key: str
+        idempotency_key: str,
     ) -> Result[dict[str, Any], ToolError]:
         # Formulate multimodal messages structure for the adapter
-        messages = [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": question},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
-                }
-            ]
-        }]
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                    },
+                ],
+            }
+        ]
 
         request = LLMRequest(
             model=self._model,
@@ -382,9 +387,7 @@ class ImageAnalyzerTool:
             err.__cause__ = e
             return Err(err)
         text_value = (
-            completion.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
+            completion.get("choices", [{}])[0].get("message", {}).get("content", "")
         )
         return Ok({"description": text_value})
 ```
@@ -458,11 +461,12 @@ The completion event payload gains a `partial: bool` flag and an auto-incremente
 from kntgraph.tools.worker import streams_worker
 from kntgraph.tools.llm_transport import LLMTransport, LLMRequest
 
+
 @streams_worker(name="streaming_chat", description="Streaming chat completion.")
 class StreamingChatWorker:
-
     def __init__(self, llm: LLMTransport | None = None) -> None:
         from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
+
         self._llm = llm or LiteLLMTransportAdapter()
 
     async def invoke(
@@ -496,11 +500,13 @@ class StreamingChatWorker:
         # Redis imports.
         new_partial_id = await self._state.save(next_cursor)
 
-        return Ok(StreamPartial(
-            chunk=chunk,
-            partial_id=new_partial_id,
-            is_final=is_final,
-        ))
+        return Ok(
+            StreamPartial(
+                chunk=chunk,
+                partial_id=new_partial_id,
+                is_final=is_final,
+            )
+        )
 ```
 
 **Framework adaptation rules:**

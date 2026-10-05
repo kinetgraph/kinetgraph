@@ -38,37 +38,31 @@ from __future__ import annotations
 class UnwrapError(Exception):
     """Raised when unwrap() is called on an Err."""
 
-    pass
 
 
 class RailwayError(Exception):
     """Base for errors in the railway flow."""
 
-    pass
 
 
 class ValidationError(RailwayError):
     """Validation error."""
 
-    pass
 
 
 class PersistenceError(RailwayError):
     """Persistence error."""
 
-    pass
 
 
 class BusinessError(RailwayError):
     """Business rule error."""
 
-    pass
 
 
 class ToolError(RailwayError):
     """Error executing an external Tool."""
 
-    pass
 
 
 __all__ = [

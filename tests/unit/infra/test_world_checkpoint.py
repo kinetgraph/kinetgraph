@@ -43,7 +43,7 @@ class FakeRedisClient:
         for key in keys:
             self.data[key] = None
 
-    def pipeline(self, transaction: bool = True) -> "_FakePipeline":
+    def pipeline(self, transaction: bool = True) -> _FakePipeline:
         self.ops.append(("pipeline", transaction))
         return _FakePipeline(self)
 
@@ -57,7 +57,7 @@ class _FakePipeline:
         self._client = client
         self._queued: list[tuple[str, bytes, int | None]] = []
 
-    def set(self, key: str, value: bytes, *, ex: int | None = None) -> "_FakePipeline":
+    def set(self, key: str, value: bytes, *, ex: int | None = None) -> _FakePipeline:
         self._queued.append((key, value, ex))
         return self
 

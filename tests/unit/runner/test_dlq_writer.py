@@ -26,14 +26,14 @@ mocking out the storage layer.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.result import Err, Ok, PersistenceError
-from kntgraph.events.dlq import DLQReason, DeadLetterEvent
+from kntgraph.core.result import Err, Ok, PersistenceError, Result
+from kntgraph.events.dlq import DeadLetterEvent, DLQReason
 from kntgraph.events.dlq.store import DeadLetterQueue
 from kntgraph.runner._dlq_writer import (
     DEFAULT_DLQ_REASON,
@@ -41,7 +41,6 @@ from kntgraph.runner._dlq_writer import (
     PLACEHOLDER,
     append_dlq_events,
 )
-
 
 # All tests in this module are async; the global mark
 # avoids per-test decorator noise (the project's
@@ -90,17 +89,19 @@ class _FakeDeadLetterQueue:
     def _idem_key(self, event_id: str, reason: str) -> str:
         return f"{event_id}:{reason}"
 
-    async def get_event(self, event_id: str) -> "DeadLetterEvent | None":
+    async def get_event(
+        self, event_id: str
+    ) -> Result[DeadLetterEvent | None, PersistenceError]:
         """Return the first DLQ entry for ``event_id``,
-        or ``None`` if no entry exists. Mirrors the real
-        ``DeadLetterQueue.get_event`` contract.
+        or ``Ok(None)`` if no entry exists. Mirrors the
+        real ``DeadLetterQueue.get_event`` contract.
         """
         record = self.by_event_id.get(event_id)
-        return record.dl_event if record is not None else None
+        return Ok(record.dl_event if record is not None else None)
 
     async def append(
         self, dl_event: DeadLetterEvent
-    ) -> "Any":  # Result[str, PersistenceError]
+    ) -> Any:  # Result[str, PersistenceError]
         if self.fail_next:
             self.fail_next = False
             return Err(PersistenceError("storage unavailable"))
@@ -414,16 +415,16 @@ async def test_dlq_writer_runs_from_append_system_outgoing() -> None:
         # the rest are required by ``append_system_outgoing``
         # for the EventLog + cursor advancement paths.
         _log: Any
-        _dlq: Optional[DeadLetterQueue]
+        _dlq: DeadLetterQueue | None
         _systems: list
-        _tool_router: Optional[Any] = None
+        _tool_router: Any | None = None
         _metrics_sink: Any = None
         _tick_runners: set[tuple[str, str]] = field(default_factory=set)
 
     log = _EventLog()
     dispatcher = _Dispatcher(
         _log=log,
-        _dlq=fake_dlq,
+        _dlq=fake_dlq,  # type: ignore[arg-type]
         _systems=[],
     )
     dlq_event = _dlq_event(saga_name="integration")
@@ -467,9 +468,9 @@ async def test_dlq_writer_skipped_when_dispatcher_has_no_dlq() -> None:
     @dataclass
     class _Dispatcher:
         _log: Any
-        _dlq: Optional[DeadLetterQueue]
+        _dlq: DeadLetterQueue | None
         _systems: list
-        _tool_router: Optional[Any] = None
+        _tool_router: Any | None = None
         _metrics_sink: Any = None
         _tick_runners: set[tuple[str, str]] = field(default_factory=set)
 

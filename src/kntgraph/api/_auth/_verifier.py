@@ -39,7 +39,6 @@ from ...security import Principal
 from ._errors import AuthError
 from ._helpers import _decode, _digest
 
-
 logger = structlog.get_logger()
 
 
@@ -91,7 +90,7 @@ class RedisAPIKeyVerifier:
         client,
         *,
         key_prefix: str = "",
-    ) -> "RedisAPIKeyVerifier":
+    ) -> RedisAPIKeyVerifier:
         """
         Convenience constructor for the common case:
         build the verifier from a raw Redis-like client.

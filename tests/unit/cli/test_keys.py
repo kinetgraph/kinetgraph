@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
+
 from typer.testing import CliRunner
 
 from kntgraph.cli.main import app

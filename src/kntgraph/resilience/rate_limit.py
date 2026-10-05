@@ -48,12 +48,10 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from collections.abc import Awaitable, Callable
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
-    Callable,
-    Optional,
     Protocol,
     cast,
     runtime_checkable,
@@ -102,10 +100,10 @@ R = object
 
 
 __all__ = [
+    "DEFAULT_BYPASS_PATHS",
     "RateLimiter",
     "RateLimiterProtocol",
     "build_rate_limit_middleware",
-    "DEFAULT_BYPASS_PATHS",
 ]
 
 
@@ -119,7 +117,7 @@ class RateLimiterProtocol(Protocol):
     """Minimal interface both consumers rely on."""
 
     async def allow(self, key: str = "_default") -> bool: ...
-    async def reset(self, key: Optional[str] = None) -> None: ...
+    async def reset(self, key: str | None = None) -> None: ...
     @property
     def rpm(self) -> int: ...
 
@@ -187,7 +185,7 @@ class RateLimiter:
             bucket.append(now)
             return True
 
-    async def reset(self, key: Optional[str] = None) -> None:
+    async def reset(self, key: str | None = None) -> None:
         """
         Clear the limiter state. When ``key`` is None,
         clears every bucket (use sparingly — typically
@@ -253,7 +251,7 @@ def _client_ip(request: object) -> str:
     by setting the header themselves.
     """
     headers = getattr(request, "headers", None)
-    fwd_raw: Optional[str] = (
+    fwd_raw: str | None = (
         headers.get("x-forwarded-for") if headers is not None else None
     )
     if isinstance(fwd_raw, str) and fwd_raw:
@@ -278,13 +276,13 @@ def _make_middleware_class() -> type:
     class _HTTPRateLimitMiddleware(BaseHTTPMiddleware):
         def __init__(
             self,
-            app: "ASGIApp",
+            app: ASGIApp,
             *,
             requests_per_minute: int = 60,
-            key_fn: Optional["Callable[[object], Awaitable[Optional[str]]]"] = None,
+            key_fn: Callable[[object], Awaitable[str | None]] | None = None,
             bypass_paths: tuple[str, ...] = DEFAULT_BYPASS_PATHS,
             key_separator: str = ":",
-            limiter: Optional[RateLimiterProtocol] = None,
+            limiter: RateLimiterProtocol | None = None,
         ) -> None:
             super().__init__(app)
             if requests_per_minute < 1:
@@ -311,9 +309,9 @@ def _make_middleware_class() -> type:
 
         async def dispatch(
             self,
-            request: "HttpRequest",
-            call_next: "Callable[[HttpRequest], Awaitable[HttpResponse]]",
-        ) -> "HttpResponse":
+            request: HttpRequest,
+            call_next: Callable[[HttpRequest], Awaitable[HttpResponse]],
+        ) -> HttpResponse:
             url = getattr(request, "url", None)
             path = getattr(url, "path", "/")
             if not isinstance(path, str):
@@ -369,10 +367,10 @@ def _make_middleware_class() -> type:
 def build_rate_limit_middleware(
     *,
     requests_per_minute: int = 60,
-    key_fn: Optional["Callable[[object], Awaitable[Optional[str]]]"] = None,
+    key_fn: Callable[[object], Awaitable[str | None]] | None = None,
     bypass_paths: tuple[str, ...] = DEFAULT_BYPASS_PATHS,
     key_separator: str = ":",
-    limiter: Optional[RateLimiterProtocol] = None,
+    limiter: RateLimiterProtocol | None = None,
 ) -> type:
     """
     Build a class suitable for ``app.add_middleware(...)``.
@@ -395,16 +393,16 @@ def build_rate_limit_middleware(
     if requests_per_minute < 1:
         raise ValueError("requests_per_minute must be >= 1")
     cls = _make_middleware_class()
-    kwargs = dict(
-        requests_per_minute=requests_per_minute,
-        key_fn=key_fn,
-        bypass_paths=bypass_paths,
-        key_separator=key_separator,
-        limiter=limiter,
-    )
+    kwargs = {
+        "requests_per_minute": requests_per_minute,
+        "key_fn": key_fn,
+        "bypass_paths": bypass_paths,
+        "key_separator": key_separator,
+        "limiter": limiter,
+    }
 
     class _Bound(cls):
-        def __init__(self, app: "ASGIApp") -> None:
+        def __init__(self, app: ASGIApp) -> None:
             super().__init__(app, **kwargs)
 
     return _Bound

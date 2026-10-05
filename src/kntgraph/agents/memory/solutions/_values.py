@@ -28,8 +28,8 @@ from there when needed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Union
 
 
 # Framework-level type for JSON-serialisable values
@@ -38,12 +38,12 @@ from typing import Mapping, Optional, Union
 # JSON-serialises them with ``default=str`` as a
 # safety net. Concrete event payloads are documented
 # in ADR-013 §2.
-JsonScalar = Union[str, int, float, bool, None]
-JsonValue = Union[
-    JsonScalar,
-    dict[str, "JsonValue"],
-    list["JsonValue"],
-]
+JsonScalar = str | int | float | bool | None
+JsonValue = (
+    JsonScalar
+    | dict[str, "JsonValue"]
+    | list["JsonValue"]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,12 +113,12 @@ class Outcome:
     """
 
     status: str  # "completed" | "failed"
-    latency_ms: Optional[float] = None
+    latency_ms: float | None = None
     # Stable hash of the result payload. Two completions
     # with the same result_signature are observationally
     # equivalent; useful for dedup at the consolidate-time.
     result_signature: str = ""
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"completed", "failed"}:

@@ -35,7 +35,7 @@ structured log.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger()
 
 
-def validate_agent_id_for_redis(agent_id: ValidatorInput) -> Optional[str]:
+def validate_agent_id_for_redis(agent_id: ValidatorInput) -> str | None:
     """
     Thin wrapper around
     :func:`kntgraph.core.agent_id.validate_agent_id`.
@@ -72,9 +72,9 @@ def validate_agent_id_for_redis(agent_id: ValidatorInput) -> Optional[str]:
 def check_signature(
     event: Event,
     *,
-    key_registry: Optional["KeyRegistry"] = None,
+    key_registry: KeyRegistry | None = None,
     require_signatures: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """Pre-flight signature check (ADR-016 PR 5).
 
     Returns ``None`` when the event passes (or when
@@ -131,8 +131,8 @@ def check_signature(
 
 def check_tenant_ownership(
     event: Event,
-    principal: Optional["Principal"],
-) -> Optional[PersistenceError]:
+    principal: Principal | None,
+) -> PersistenceError | None:
     """
     ADR-017 §3.3: tenant ownership check. If a
     principal is bound for this task, the event's

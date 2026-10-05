@@ -8,13 +8,11 @@ Integration tests for memory/session.py and memory/profile.py
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.infra.redis._memory import RedisProfileStorage
-from kntgraph.infra.redis._memory import RedisSessionStorage
-
 
 import pytest
 
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._memory import RedisProfileStorage, RedisSessionStorage
 from kntgraph.memory.cache_warmer import (
     CacheRefreshBus,
     CacheRefreshRequest,
@@ -66,7 +64,7 @@ class TestSessionManager:
         await sm.append_message("sess-1", "user", "tudo bem?")
 
         # Read through the manager (which folds from log)
-        state = await sm.read("sess-1")
+        state = (await sm.read("sess-1")).ok_value()
         assert state is not None
         assert len(state.messages) == 3
         assert state.messages[0]["content"] == "olá"
@@ -78,7 +76,7 @@ class TestSessionManager:
         sm = SessionManager(log, RedisSessionStorage(clean_redis))
         await sm.start("sess-1", user_id="u", tenant_id="t")
         await sm.set_context("sess-1", "scratchpad", {"todo": "x"})
-        state = await sm.read("sess-1")
+        state = (await sm.read("sess-1")).ok_value()
         assert state.context["scratchpad"] == {"todo": "x"}
 
     async def test_end_marks_inactive(self, clean_redis):
@@ -88,7 +86,7 @@ class TestSessionManager:
         await sm.append_message("sess-1", "user", "olá")
         await sm.end("sess-1")
 
-        state = await sm.read("sess-1")
+        state = (await sm.read("sess-1")).ok_value()
         assert state is not None
         assert not state.is_active()
         assert state.ended_at is not None
@@ -96,7 +94,7 @@ class TestSessionManager:
     async def test_read_with_no_events_returns_none(self, clean_redis):
         log = EventLog(RedisEventLogAdapter(clean_redis))
         sm = SessionManager(log, RedisSessionStorage(clean_redis))
-        state = await sm.read("nonexistent")
+        state = (await sm.read("nonexistent")).ok_value()
         assert state is None
 
     async def test_cache_rebuilt_from_log(self, clean_redis):
@@ -117,7 +115,7 @@ class TestSessionManager:
         assert not await clean_redis.exists("knt:session:sess-1")
 
         # Read should rebuild from log
-        state = await sm.read("sess-1")
+        state = (await sm.read("sess-1")).ok_value()
         assert state is not None
         assert len(state.messages) == 1
         # Cache is now re-populated
@@ -150,7 +148,7 @@ class TestProfileManager:
         )
         assert result.is_ok()
 
-        state = await pm.read("t-1", "u-1")
+        state = (await pm.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.preferences == {"lang": "pt-BR"}
         assert state.tier == "vip"
@@ -173,7 +171,7 @@ class TestProfileManager:
         await pm.set_preference("t-1", "u-1", "lang", "pt-BR")
         await pm.set_preference("t-1", "u-1", "currency", "BRL")
 
-        state = await pm.read("t-1", "u-1")
+        state = (await pm.read("t-1", "u-1")).ok_value()
         assert state.preferences == {"lang": "pt-BR", "currency": "BRL"}
 
     async def test_unset_preference(self, clean_redis):
@@ -182,7 +180,7 @@ class TestProfileManager:
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
         await pm.unset_preference("t-1", "u-1", "lang")
 
-        state = await pm.read("t-1", "u-1")
+        state = (await pm.read("t-1", "u-1")).ok_value()
         assert "lang" not in state.preferences
 
     async def test_change_tier(self, clean_redis):
@@ -191,7 +189,7 @@ class TestProfileManager:
         await pm.create("t-1", "u-1", tier="standard")
         await pm.change_tier("t-1", "u-1", "vip")
 
-        state = await pm.read("t-1", "u-1")
+        state = (await pm.read("t-1", "u-1")).ok_value()
         assert state.tier == "vip"
 
     async def test_cache_rebuilt_from_log(self, clean_redis):
@@ -203,7 +201,7 @@ class TestProfileManager:
         # Delete cache
         await clean_redis.delete("knt:profile:t-1:u-1")
         # Read rebuilds
-        state = await pm.read("t-1", "u-1")
+        state = (await pm.read("t-1", "u-1")).ok_value()
         assert state.preferences == {"lang": "pt-BR", "currency": "BRL"}
         # Cache re-populated
         assert await clean_redis.exists("knt:profile:t-1:u-1")
@@ -211,7 +209,7 @@ class TestProfileManager:
     async def test_read_unknown_returns_none(self, clean_redis):
         log = EventLog(RedisEventLogAdapter(clean_redis))
         pm = ProfileManager(log, RedisProfileStorage(clean_redis))
-        state = await pm.read("t-x", "u-x")
+        state = (await pm.read("t-x", "u-x")).ok_value()
         assert state is None
 
     async def test_idempotent_create(self, clean_redis):
@@ -280,8 +278,8 @@ class TestConsolidator:
         # repopulating. ``invalidate_cache`` drops both.
         await sm.start("s-1", user_id="u", tenant_id="t")
         await pm.create("t-1", "u-1", preferences={"lang": "pt-BR"})
-        await sm.invalidate_cache("s-1")
-        await pm.invalidate_cache("t-1", "u-1")
+        (await sm.invalidate_cache("s-1")).is_ok()
+        (await pm.invalidate_cache("t-1", "u-1")).is_ok()
 
         # Publish via the Consolidator's cyclic system
         from kntgraph.stream.projection import fold_world
@@ -292,8 +290,8 @@ class TestConsolidator:
         assert len(bus) == 2
 
         # Warmer consumes + writes
-        applied = await warmer.pump_once()
-        assert applied == 2
+        applied = (await warmer.pump_once()).ok_value()
+        assert applied.ok == 2
         assert len(bus) == 0
 
         # Caches are now warm
@@ -307,8 +305,8 @@ class TestConsolidator:
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, sm, pm)
 
-        applied = await warmer.pump_once()
-        assert applied == 0
+        applied = (await warmer.pump_once()).ok_value()
+        assert applied.ok == 0
         assert len(bus) == 0
 
     async def test_warmer_continues_on_individual_failure(self, clean_redis):
@@ -330,8 +328,8 @@ class TestConsolidator:
         bus.publish(CacheRefreshRequest(kind="profile", id1="t-x", id2="u-x"))
 
         # Both should be applied (no exception)
-        applied = await warmer.pump_once()
-        assert applied == 2
+        applied = (await warmer.pump_once()).ok_value()
+        assert applied.ok == 2
 
     async def test_projector_project_all(self, clean_redis):
         log = EventLog(RedisEventLogAdapter(clean_redis))
@@ -349,7 +347,7 @@ class TestConsolidator:
         await clean_redis.delete("knt:profile:t-1:u-1")
 
         # Project all
-        result = await proj.project_all()
+        result = (await proj.project_all()).ok_value()
         # ``continuity`` always appears in the counts (ADR-014),
         # with value 0 when no continuity events exist.
         assert result == {"sessions": 1, "profiles": 1, "continuity": 0}
@@ -388,9 +386,9 @@ class TestPublicCacheContract:
             started_at=1.0,
         )
         # Must work without going through start()
-        await sm.write_cache("s-1", state)
+        (await sm.write_cache("s-1", state)).is_ok()
         # The cache now has the value we wrote
-        cached = await sm.read("s-1")
+        cached = (await sm.read("s-1")).ok_value()
         assert cached is not None
         assert cached.context == {"k": "v"}
 
@@ -407,10 +405,10 @@ class TestPublicCacheContract:
         # Wipe the cache manually
         await clean_redis.delete("knt:session:s-1")
         # The public method rebuilds it
-        await sm.refresh_cache("s-1")
+        (await sm.refresh_cache("s-1")).is_ok()
         # The cache is back
         assert await clean_redis.exists("knt:session:s-1")
-        state = await sm.read("s-1")
+        state = (await sm.read("s-1")).ok_value()
         assert state is not None
         assert len(state.messages) == 1
 
@@ -425,8 +423,8 @@ class TestPublicCacheContract:
             created_at=1.0,
             updated_at=2.0,
         )
-        await pm.write_cache("t", "u", state)
-        cached = await pm.read("t", "u")
+        (await pm.write_cache("t", "u", state)).is_ok()
+        cached = (await pm.read("t", "u")).ok_value()
         assert cached is not None
         assert cached.tier == "vip"
         assert cached.preferences == {"lang": "pt-BR"}
@@ -437,8 +435,8 @@ class TestPublicCacheContract:
         await pm.create("t", "u", preferences={"lang": "pt-BR"})
         await pm.set_preference("t", "u", "currency", "BRL")
         await clean_redis.delete("knt:profile:t:u")
-        await pm.refresh_cache("t", "u")
-        state = await pm.read("t", "u")
+        (await pm.refresh_cache("t", "u")).is_ok()
+        state = (await pm.read("t", "u")).ok_value()
         assert state is not None
         assert state.preferences == {"lang": "pt-BR", "currency": "BRL"}
 
@@ -464,7 +462,7 @@ class TestPublicCacheContract:
         # The Projector must call the public methods. If the
         # contract is broken (e.g. someone reintroduces a
         # leading underscore), AttributeError surfaces here.
-        result = await proj.project_all()
+        result = (await proj.project_all()).ok_value()
         # ``continuity`` always appears in the counts (ADR-014),
         # with value 0 when no continuity events exist.
         assert result == {"sessions": 1, "profiles": 1, "continuity": 0}
@@ -493,6 +491,6 @@ class TestPublicCacheContract:
 
         # If the contract is broken, the warmer will raise
         # AttributeError on the underscore-prefixed call.
-        applied = await warmer.pump_once()
-        assert applied == 1
+        applied = (await warmer.pump_once()).ok_value()
+        assert applied.ok == 1
         assert await clean_redis.exists("knt:session:s-1")

@@ -45,8 +45,7 @@ This module is a private implementation detail of
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
-from typing import Callable, Optional
+from collections.abc import Awaitable, Callable
 
 from ...security import Principal, principal_ctx
 from ._verifier import APIKeyVerifier
@@ -80,8 +79,8 @@ def check_agent_binding(principal: Principal, agent_id: str) -> None:
 
 
 def bind_principal_dependency(
-    verifier: "APIKeyVerifier",
-) -> "Callable[..., Awaitable[Principal]]":
+    verifier: APIKeyVerifier,
+) -> Callable[..., Awaitable[Principal]]:
     """
     Build a FastAPI ``Depends``-compatible dependency
     that:
@@ -127,7 +126,7 @@ def bind_principal_dependency(
     from fastapi import Header, HTTPException
 
     async def _dependency(
-        x_api_key: Optional[str] = Header(default=None),
+        x_api_key: str | None = Header(default=None),
     ) -> Principal:
         result = await verifier.verify(x_api_key or "")
         if result.is_err():

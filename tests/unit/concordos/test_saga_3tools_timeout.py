@@ -21,7 +21,7 @@ Flow:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -50,7 +50,7 @@ from kntgraph.tools.router import ToolRouter
 
 pytestmark = [pytest.mark.asyncio]
 
-FIXED_NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 14, 12, 0, tzinfo=UTC)
 
 
 def _three_tool_saga_config() -> SagaConfig:

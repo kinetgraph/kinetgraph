@@ -24,8 +24,8 @@ from kntgraph.concordos.fsm import (
     BusinessFSMConcordo,
     FSMConfig,
     FSMProjection,
-    FSMTransition,
     FSMSystem,
+    FSMTransition,
 )
 from kntgraph.core.world import DomainComponent
 

@@ -39,10 +39,10 @@ __all__ = [
     # embedding
     "EmbeddingClient",
     "EmbeddingProvider",
-    "OllamaEmbeddingAdapter",
     # graph (Iter 24: GraphPool replaces FalkorDBClient)
     "FalkorDBProjector",
     # graphrag
     "GraphRAGRetriever",
+    "OllamaEmbeddingAdapter",
     "RetrievalResult",
 ]

@@ -105,7 +105,7 @@ def test_run_system_invokes_with_correlation_scope() -> None:
             )
 
             out: list[Event] = []
-            for agent_id, view in world.views.items():
+            for agent_id in world.views:
                 out.append(
                     Event.create(
                         event_type="fsm.transitioned",

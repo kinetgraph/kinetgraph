@@ -49,7 +49,7 @@ base).**
 @dataclass(frozen=True, slots=True)
 class AgentView:
     agent_id: str
-    components: Mapping[str, Any]   # derivados do último domain event
+    components: Mapping[str, Any]  # derivados do último domain event
     operational_phase: OperationalPhase
     operational_at: datetime | None
     domain_phase: str | None
@@ -64,8 +64,7 @@ class World:
     views: dict[str, AgentView]
 
     @classmethod
-    def empty(cls, tick: int = 0) -> "World":
-        ...
+    def empty(cls, tick: int = 0) -> "World": ...
 
     @classmethod
     def fold(
@@ -74,8 +73,7 @@ class World:
         *,
         projection: Callable = project_default,
         tick: int | None = None,
-    ) -> "World":
-        ...
+    ) -> "World": ...
 ```
 
 ### 2.1 O que sai
@@ -212,16 +210,28 @@ Dado um stream `S` e uma projeção `P`:
 ```python
 # Event sourcing puro
 events = [
-    Event.create(event_type="agent.spawned",     agent_id="nf-001", event_class="lifecycle"),
-    Event.create(event_type="document.received", agent_id="nf-001", event_class="domain", data={"xml": "..."}),
-    Event.create(event_type="document.validated",agent_id="nf-001", event_class="domain", data={"cnpj": "..."},
-                 causation_id=events[1].event_id),
+    Event.create(
+        event_type="agent.spawned", agent_id="nf-001", event_class="lifecycle"
+    ),
+    Event.create(
+        event_type="document.received",
+        agent_id="nf-001",
+        event_class="domain",
+        data={"xml": "..."},
+    ),
+    Event.create(
+        event_type="document.validated",
+        agent_id="nf-001",
+        event_class="domain",
+        data={"cnpj": "..."},
+        causation_id=events[1].event_id,
+    ),
 ]
 
 world = World.fold(events, tick=3)
 
 print(world.agents["nf-001"].operational_phase)  # "spawned"
-print(world.agents["nf-001"].domain_phase)      # "document.validated"
+print(world.agents["nf-001"].domain_phase)  # "document.validated"
 print(world.agents["nf-001"].components["document.validated"])
 # {"cnpj": "..."}
 ```

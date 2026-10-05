@@ -59,11 +59,9 @@ import inspect
 import json
 import multiprocessing
 import time
-from concurrent.futures import ProcessPoolExecutor
-from typing import Any, Optional, Type, cast
-
 import uuid
-from typing import TYPE_CHECKING
+from concurrent.futures import ProcessPoolExecutor
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from multiprocessing.context import BaseContext
@@ -95,7 +93,7 @@ logger = structlog.get_logger()
 # v0.17 step flips the default to ``default_acl()``
 # and uses this sentinel to detect the explicit opt
 # out).
-_UNSET: "object" = object()
+_UNSET: object = object()
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -125,7 +123,7 @@ class WorkerManager:
 
     def __init__(
         self,
-        redis: "RedisLike",
+        redis: RedisLike,
         event_log: EventLog,
         group_name: str = "fmh_tool_workers",
         consumer_name: str = "worker-1",
@@ -152,11 +150,11 @@ class WorkerManager:
 
         self._reaper_interval = reaper_interval
         self._reaper_idle_time = reaper_idle_time
-        self._tools: dict[str, Type] = {}
+        self._tools: dict[str, type] = {}
         self._pool: ProcessPoolExecutor | None = None
         # Cached in ``start()``; stored here so tests can
         # assert on it without re-deriving the default.
-        self._mp_context: "BaseContext | None" = None
+        self._mp_context: BaseContext | None = None
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -169,7 +167,7 @@ class WorkerManager:
         # caller passes ``acl=...``, the value is the
         # ``ToolACL`` they passed (or ``default_acl()``
         # for ``acl=None`` explicitly).
-        self._acls: dict[str, "ToolACL | object"] = {}
+        self._acls: dict[str, ToolACL | object] = {}
         # Observability surface: the consume loop updates the
         # counters and timestamps on every message; the heartbeat
         # log line is emitted by ``_consume_loop`` itself.
@@ -185,9 +183,9 @@ class WorkerManager:
 
     def register(
         self,
-        tool_cls: Type,
+        tool_cls: type,
         *,
-        acl: Optional[ToolACL] = _UNSET,  # type: ignore[assignment]
+        acl: ToolACL | None = _UNSET,  # type: ignore[assignment]
     ) -> None:
         """Register a class decorated with @tool_worker.
 
@@ -239,7 +237,7 @@ class WorkerManager:
         else:
             self._acls[tool_cls.name] = acl
 
-    def acl_for(self, name: str) -> Optional[ToolACL]:
+    def acl_for(self, name: str) -> ToolACL | None:
         """Return the ``ToolACL`` for ``name`` (or
         ``None`` if the tool is not registered, or
         was registered without an explicit
@@ -257,7 +255,7 @@ class WorkerManager:
             return None
         return stored  # type: ignore[return-value]
 
-    def get(self, name: str) -> "Type | None":
+    def get(self, name: str) -> type | None:
         """Return the registered ``@tool_worker`` class
         for ``name`` (or ``None`` if not registered).
 
@@ -557,7 +555,7 @@ class WorkerManager:
         # ``reason`` so the operator can diagnose).
         acl = self.acl_for(tool_name)
         principal_id = request_event.producer_principal_id
-        denied_reason: Optional[str] = None
+        denied_reason: str | None = None
         if acl is None:
             # Tool registered without ``acl=`` (legacy).
             # Default-allow: the operator must opt in to
@@ -727,7 +725,7 @@ class WorkerManager:
                         event_class="domain",
                         causation_id=uuid.UUID(idempotency_key),
                         data={
-                            "error": f"Max retries exceeded / Worker crash: {str(e)}"
+                            "error": f"Max retries exceeded / Worker crash: {e!s}"
                         },
                         correlation=request_event.correlation,
                     )

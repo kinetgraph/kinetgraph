@@ -50,7 +50,6 @@ from kntgraph.infra.world_checkpoint import IncrementalWorldStore
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -159,7 +158,9 @@ async def test_saga_dlq_event_lands_in_redis_dlq_through_dispatcher(
     await dispatcher.dispatch_once()
 
     # The DLQ writer pushed the event to the Redis DLQ.
-    entries = await dlq.list_all(count=10)
+    list_result = await dlq.list_all(count=10)
+    assert list_result.is_ok()
+    entries = list_result.ok_value() or []
     assert len(entries) == 1, f"expected 1 DLQ entry, got {len(entries)}: {entries!r}"
     entry = entries[0]
     # The original event is preserved on the DLQ entry.
@@ -212,7 +213,9 @@ async def test_non_dlq_events_in_batch_do_not_touch_dlq(
     await dispatcher.dispatch_once()
 
     # Only the *.dlq event lands in the DLQ.
-    entries = await dlq.list_all(count=10)
+    list_result = await dlq.list_all(count=10)
+    assert list_result.is_ok()
+    entries = list_result.ok_value() or []
     assert len(entries) == 1
     assert entries[0].event.event_id == saga_dlq_event.event_id
 
@@ -258,7 +261,9 @@ async def test_explicit_reason_in_event_data_overrides_default(
     await log.append(seed)
     await dispatcher.dispatch_once()
 
-    entries = await dlq.list_all(count=10)
+    list_result = await dlq.list_all(count=10)
+    assert list_result.is_ok()
+    entries = list_result.ok_value() or []
     assert len(entries) == 1
     entry = entries[0]
     assert entry.reason == DLQReason.TIMEOUT
@@ -332,7 +337,7 @@ async def test_idempotent_rerun_of_same_batch_does_not_double_write(
     """
     from kntgraph.runner._dlq_writer import append_dlq_events
 
-    dispatcher, log, dlq = _wire_dispatcher(clean_redis)
+    dispatcher, _log, dlq = _wire_dispatcher(clean_redis)
 
     agent_id = "a-idem"
     dlq_event = Event.create(
@@ -357,7 +362,9 @@ async def test_idempotent_rerun_of_same_batch_does_not_double_write(
 
     # The DLQ stream has exactly ONE entry -- the dedup
     # hit did not create a duplicate.
-    entries = await dlq.list_all(count=10)
+    list_result = await dlq.list_all(count=10)
+    assert list_result.is_ok()
+    entries = list_result.ok_value() or []
     assert len(entries) == 1
     assert entries[0].event.event_id == dlq_event.event_id
 
@@ -394,7 +401,9 @@ async def test_unknown_reason_in_event_data_falls_back_to_default(
     await log.append(seed)
     await dispatcher.dispatch_once()
 
-    entries = await dlq.list_all(count=10)
+    list_result = await dlq.list_all(count=10)
+    assert list_result.is_ok()
+    entries = list_result.ok_value() or []
     assert len(entries) == 1
     # Fallback to PROCESSING_FAILED -- the writer does
     # not crash on unknown reasons.

@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-from kntgraph.core.result import Err, Ok, ToolError
 from kntgraph.agents.tools.protocol import (
     Tool,
     ToolEventType,
 )
+from kntgraph.core.result import Err, Ok, ToolError
 from kntgraph.tools.manager import WorkerManager
 
 

@@ -27,7 +27,6 @@ from kntgraph.core.event import (
     generate_deterministic_event_id,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper: a fresh CorrelationContext for tests that
 # pre-date ADR-037 and don't care about correlation. New
@@ -501,12 +500,12 @@ class TestCorrelationIsMandatory:
         pinned (here: the same explicit correlation).
         """
         ctx = CorrelationContext.new(correlation_id=uuid4())
-        kwargs = dict(
-            agent_id="a-1",
-            type="document.received",
-            data={"x": 1},
-            correlation=ctx,
-        )
+        kwargs = {
+            "agent_id": "a-1",
+            "type": "document.received",
+            "data": {"x": 1},
+            "correlation": ctx,
+        }
         e1 = Event.domain_from(**kwargs)
         e2 = Event.domain_from(**kwargs)
         assert e1.event_id == e2.event_id

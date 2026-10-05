@@ -146,8 +146,8 @@ class TestLLMTransportProtocol:
         """A class with the right ``__call__`` shape
         satisfies ``LLMTransport`` (structural)."""
         from kntgraph.tools.llm_transport import (
-            LLMTransport,
             LLMRequest,
+            LLMTransport,
         )
 
         class _StubTransport:

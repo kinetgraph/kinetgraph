@@ -27,7 +27,6 @@ from uuid import UUID
 
 from ..agent_id import AGENT_ID_RE
 
-
 # Deterministic namespaces for uuid5. Reserved for future
 # framework-owned deterministic ids; the framework itself does
 # not currently assign agent_ids — the application owns that.
@@ -51,7 +50,7 @@ _AGENT_ID_RE = AGENT_ID_RE
 
 __all__ = [
     "ALLOWED_EVENT_CLASSES",
-    "EventClass",
     "KNT_AGENT_NAMESPACE",
     "KNT_EVENT_NAMESPACE",
+    "EventClass",
 ]

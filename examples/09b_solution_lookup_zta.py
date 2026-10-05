@@ -88,6 +88,8 @@ import asyncio
 import logging
 from typing import Any
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.agents.memory.solution_lookup import (
     CachedSolution,
     InMemorySolutionStore,
@@ -101,9 +103,6 @@ from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
-
-from _lib.redis_or_fake import make_redis_client
-
 
 logger = logging.getLogger(__name__)
 

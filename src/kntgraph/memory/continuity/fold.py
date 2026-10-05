@@ -36,7 +36,6 @@ small and single-purpose.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Optional
 
 from ...core.event import Event
 from .state import ContinuityEventType, ContinuityState
@@ -73,7 +72,7 @@ def _fold_continuity_events(
     tenant_id: str,
     user_id: str,
     events: Iterable[Event],
-) -> Optional[ContinuityState]:
+) -> ContinuityState | None:
     """
     Pure fold of continuity events.
 
@@ -128,18 +127,18 @@ class _ContinuityFoldState:
     """
 
     __slots__ = (
-        "created_at",
-        "updated_at",
         "cleared_at",
-        "last_tools",
-        "last_entities",
+        "created_at",
         "last_categories",
+        "last_entities",
+        "last_tools",
+        "updated_at",
     )
 
     def __init__(self) -> None:
-        self.created_at: Optional[float] = None
+        self.created_at: float | None = None
         self.updated_at: float = 0.0
-        self.cleared_at: Optional[float] = None
+        self.cleared_at: float | None = None
         self.last_tools: dict[str, str] = {}
         self.last_entities: dict[str, str] = {}
         self.last_categories: dict[str, str] = {}

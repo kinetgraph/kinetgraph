@@ -43,7 +43,6 @@ from ._protocol import (
     OllamaEmbeddingResponse,
 )
 
-
 __all__ = [
     "DEFAULT_PARAPHRASE_MULTILINGUAL_DIM",
     "DEFAULT_PARAPHRASE_MULTILINGUAL_MODEL",

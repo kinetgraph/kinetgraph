@@ -34,7 +34,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-
 # ---------------------------------------------------------------------------
 # Typed errors raised at the adapter boundary.
 # ---------------------------------------------------------------------------
@@ -109,7 +108,7 @@ class OllamaClient(Protocol):
     extra.
     """
 
-    def embeddings(  # noqa: D401 - protocol method
+    def embeddings(
         self,
         *,
         model: str,

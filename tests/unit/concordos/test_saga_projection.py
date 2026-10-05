@@ -13,7 +13,7 @@ same progress without an in-memory cache. These tests build a real
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kntgraph.concordos.saga import (
     SagaConfig,
@@ -25,7 +25,7 @@ from kntgraph.core.event import Event
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.testing import AgentViewBuilder, WorldBuilder
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 def _saga_config() -> SagaConfig:

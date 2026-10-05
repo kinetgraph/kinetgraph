@@ -49,6 +49,7 @@ The tests below exercise:
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -66,7 +67,6 @@ from kntgraph.infra.redis._memory._solution import (
     SolutionStoreError,
     SolutionStoreSerializationError,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -519,7 +519,7 @@ class TestProtocolCompatibility:
         solution = _sample_solution()
         client.hget = AsyncMock(return_value=_encode(solution))
 
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from kntgraph.core.world import AgentView, World
         from kntgraph.core.world.components import ToolCallRequest
@@ -533,7 +533,7 @@ class TestProtocolCompatibility:
         # Build a minimal World with the ToolCallRequest
         # on the ``tool_requests`` slot, the way the
         # tool-call overlay would have laid it out.
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         req = ToolCallRequest(
             request_event_id="22222222-2222-2222-2222-222222222222",
             tool_name="knowledge_lookup",

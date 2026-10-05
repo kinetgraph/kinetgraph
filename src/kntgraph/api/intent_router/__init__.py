@@ -55,7 +55,6 @@ from .helpers import (
     _MAX_IDEMPOTENCY_KEY_LEN,
 )
 
-
 # Module-level ``app`` is intentionally ``None`` at
 # import time. Production deployments call
 # ``create_app(...)`` with a populated registry and a

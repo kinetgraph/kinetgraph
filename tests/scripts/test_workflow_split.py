@@ -27,7 +27,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 RELEASE_YML = WORKFLOWS_DIR / "release.yml"
 PUBLISH_YML = WORKFLOWS_DIR / "publish.yml"

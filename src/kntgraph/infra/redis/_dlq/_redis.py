@@ -36,8 +36,8 @@ of all 4 keys (used by ``purge``).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
 
 import structlog
 
@@ -47,7 +47,6 @@ from .._client import RedisLike, safe_xrange
 from .._codec import decode_dict, decode_value
 from .._errors import MemoryError
 from .._prefix import namespaced
-
 
 logger = structlog.get_logger()
 
@@ -183,7 +182,7 @@ class RedisDLQStorage:
 
     async def read(
         self, stream_id: str
-    ) -> Result[Optional[Mapping[str, str]], MemoryError]:
+    ) -> Result[Mapping[str, str] | None, MemoryError]:
         """Read a single DLQ entry by stream id."""
         try:
             messages = await safe_xrange(
@@ -246,7 +245,7 @@ class RedisDLQStorage:
 
     async def read_index(
         self, event_id: str, reason: str
-    ) -> Result[Optional[str], MemoryError]:
+    ) -> Result[str | None, MemoryError]:
         """Look up the stream id for ``(event_id, reason)``."""
         try:
             raw = await self.client.hget(
@@ -264,7 +263,7 @@ class RedisDLQStorage:
 
     async def find_by_event_id(
         self, event_id: str
-    ) -> Result[Optional[str], MemoryError]:
+    ) -> Result[str | None, MemoryError]:
         """Find the first stream id for ``event_id`` across all reasons.
 
         Scans ``<event_id>:*`` keys of the per-event_id index.

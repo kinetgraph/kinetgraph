@@ -24,7 +24,6 @@ import pytest
 
 from kntgraph.runner import MetricsSink, NullMetricsSink
 
-
 # ---------------------------------------------------------------------------
 # Protocol contract
 # ---------------------------------------------------------------------------
@@ -127,7 +126,7 @@ def test_runner_public_surface_includes_metrics_sink() -> None:
     ``NullMetricsSink`` so applications can wire them
     without reaching into the private ``_metrics`` module.
     """
-    import kntgraph.runner as runner
+    from kntgraph import runner
 
     assert runner.MetricsSink is MetricsSink
     assert runner.NullMetricsSink is NullMetricsSink

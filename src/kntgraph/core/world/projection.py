@@ -123,7 +123,7 @@ def _is_derived_component_key(key: Any) -> bool:
     return False
 
 
-def _log_overlay_key_collision(event: "Event", key: str) -> None:
+def _log_overlay_key_collision(event: Event, key: str) -> None:
     """Log a caller mistake: a domain event whose ``event_type``
     collides with an overlay-owned component key
     (``tool_requests`` / ``tool_completions``). The overlay

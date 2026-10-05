@@ -52,7 +52,6 @@ from kntgraph.infra.redis._event_log._adapter import (
 )
 from kntgraph.stream.event_log.codec import event_to_redis
 
-
 pytestmark = pytest.mark.asyncio
 
 

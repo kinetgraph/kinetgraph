@@ -25,7 +25,6 @@ import pytest
 
 from kntgraph.infra.redis._prefix import namespaced, validate_prefix
 
-
 # ---------------------------------------------------------------------------
 # validate_prefix
 # ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -147,7 +146,7 @@ class TestOrchestrator:
         )
 
         redis = MagicMock()
-        redis.get = AsyncMock(return_value="99-0".encode())
+        redis.get = AsyncMock(return_value=b"99-0")
         result = await claim_event_id_slot(redis, IDEM_KEY, "stream", {}, 1000)
         assert result == "99-0"
         redis.pipeline.assert_not_called()

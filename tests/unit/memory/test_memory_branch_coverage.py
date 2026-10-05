@@ -177,7 +177,8 @@ class TestCacheWarmerUnknownKind:
         """``pump_once`` skips a request whose ``kind`` is
         not one of ``session``/``profile``/``continuity``
         (cache_warmer.py:161->155). The request is still
-        drained (counted) but no manager is called."""
+        drained but counted as a failure (unknown kind is
+        an operator misconfiguration)."""
         bus = CacheRefreshBus()
         warmer = CacheWarmer(bus, session_manager, profile_manager)
         # Bypass the dataclass's Literal type by constructing
@@ -189,7 +190,10 @@ class TestCacheWarmerUnknownKind:
         object.__setattr__(req, "id1", "x")
         object.__setattr__(req, "id2", "")
         bus._queue.append(req)
-        assert await warmer.pump_once() == 1
+        outcome = (await warmer.pump_once()).ok_value()
+        assert outcome.ok == 0
+        assert outcome.failed == 1
+        assert "unknown" in str(outcome.errors[0])
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +244,7 @@ class TestProjectorAllBranches:
             )
         )
         proj = Projector(event_log, session_manager, profile_manager)
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value() or {}
         # ``empty`` folds to None (no started event) → False.
         # ``ghost`` folds to a state → True. The branch is
         # exercised for the False case.
@@ -274,7 +278,7 @@ class TestProjectorAllBranches:
             )
         )
         proj = Projector(event_log, session_manager, profile_manager)
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value() or {}
         # The implicit-materialisation agent projects (1); the
         # ghost agent (no profile.* event) is skipped (0 for it).
         assert counts["profiles"] == 1
@@ -317,7 +321,7 @@ class TestProjectorAllBranches:
         proj = Projector(
             event_log, session_manager, profile_manager, continuity_manager
         )
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value() or {}
         # The implicit-materialisation agent projects (1); the
         # ghost agent (no continuity.* event) is skipped.
         assert counts["continuity"] == 1
@@ -360,7 +364,7 @@ class TestProjectorAllBranches:
             )
         )
         monkeypatch.setattr("kntgraph.memory.consolidation.parse_agent_id", _fake_parse)
-        counts = await proj.project_all()
+        counts = (await proj.project_all()).ok_value() or {}
         assert counts == {"sessions": 0, "profiles": 0, "continuity": 0}
 
 
@@ -560,7 +564,7 @@ class TestContinuityManagerListForTenantBranches:
         await fake_redis.hset(
             f"{CONTINUITY_KEY_PREFIX}t-1:u-1", mapping={"updated_at": "1.0"}
         )
-        out = await continuity_manager.list_for_tenant("t-1")
+        out = (await continuity_manager.list_for_tenant("t-1")).ok_value()
         assert out == []
 
     async def test_list_for_tenant_skips_none_state_and_respects_limit(
@@ -580,7 +584,7 @@ class TestContinuityManagerListForTenantBranches:
         continuity_manager._storage = _NullReadForOneStorage(
             continuity_manager._storage, f"{CONTINUITY_KEY_PREFIX}t-1:u-2"
         )
-        out = await continuity_manager.list_for_tenant("t-1", limit=10)
+        out = (await continuity_manager.list_for_tenant("t-1", limit=10)).ok_value()
         # The None-state entry is skipped; only the valid one.
         assert len(out) == 1
         assert out[0].user_id == "u-1"
@@ -868,7 +872,7 @@ class TestProfileListForTenantNoneState:
         profile_manager._storage = _EmptyReadForOneStorage(
             profile_manager._storage, "knt:profile:t-1:u-2"
         )
-        out = await profile_manager.list_for_tenant("t-1", limit=10)
+        out = (await profile_manager.list_for_tenant("t-1", limit=10)).ok_value()
         # The empty-decode entry is skipped; only the valid
         # profile survives.
         assert len(out) == 1

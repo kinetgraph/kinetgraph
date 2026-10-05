@@ -28,6 +28,8 @@ decrements the per-reason counter.
 
 from __future__ import annotations
 
+from typing import cast
+
 import structlog
 
 from ...core.event import Event
@@ -36,8 +38,7 @@ from ...infra.redis._dlq import (
     DLQStorage,
 )
 from .store import DeadLetterQueue
-from .values import DLQReason
-
+from .values import DeadLetterEvent, DLQReason
 
 logger = structlog.get_logger()
 
@@ -91,13 +92,22 @@ class DeadLetterActions:
         Note: the entry is removed (XDEL) only on success of
         the surrounding reprocess workflow. If the caller
         fails to re-append, the entry is still in the DLQ.
+
+        Errors propagate from the underlying
+        ``_find_entry`` / ``_drop_entry`` helpers (no
+        fail-soft; AGENTS.md §6).
         """
-        # Look up the entry across all reasons (the
-        # ``get_event`` helper searches by event_id).
-        entry = await self._find_entry(event_id)
+        entry_result = await self._find_entry(event_id)
+        if entry_result.is_err():
+            err = entry_result.err_value_or_raise()
+            return Err(err)
+        entry = entry_result.ok_value()
         if entry is None:
             return Err(PersistenceError(f"No DLQ entry for event_id={event_id}"))
-        await self._drop_entry(event_id, entry.reason)
+        drop_result = await self._drop_entry(event_id, entry.reason)
+        if drop_result.is_err():
+            err = drop_result.err_value_or_raise()
+            return Err(err)
         logger.info(
             "dlq.reprocess.ok",
             event_id=event_id,
@@ -110,11 +120,21 @@ class DeadLetterActions:
         Remove the DLQ entry without reprocessing (e.g.
         poison pill). Same handling of indexes as
         ``reprocess``.
+
+        Errors propagate from the underlying helpers
+        (no fail-soft; AGENTS.md §6).
         """
-        entry = await self._find_entry(event_id)
+        entry_result = await self._find_entry(event_id)
+        if entry_result.is_err():
+            err = entry_result.err_value_or_raise()
+            return Err(err)
+        entry = entry_result.ok_value()
         if entry is None:
             return Err(PersistenceError(f"No DLQ entry for event_id={event_id}"))
-        await self._drop_entry(event_id, entry.reason)
+        drop_result = await self._drop_entry(event_id, entry.reason)
+        if drop_result.is_err():
+            err = drop_result.err_value_or_raise()
+            return Err(err)
         logger.info(
             "dlq.discard.ok",
             event_id=event_id,
@@ -122,24 +142,46 @@ class DeadLetterActions:
         )
         return Ok(True)
 
-    async def _find_entry(self, event_id: str):
-        """Look up a DLQ entry by event_id (across all reasons)."""
+    async def _find_entry(
+        self, event_id: str
+    ) -> Result[DeadLetterEvent | None, PersistenceError]:
+        """
+        Look up a DLQ entry by event_id (across all reasons).
+
+        Returns ``Ok(None)`` on a clean miss (no entry for
+        the event_id). Returns ``Err(PersistenceError)`` on
+        storage failure (callers MUST inspect the error;
+        AGENTS.md §6: "wrap-in-result, no fail-soft").
+        """
         if self._queue is not None:
             return await self._queue.get_event(event_id)
         # No queue — fall back to direct storage scan.
         lookup = await self._storage.find_by_event_id(event_id)
         if lookup.is_err():
-            return None
+            return Err(
+                PersistenceError(
+                    f"Storage error in find_by_event_id: {lookup.err_value()}"
+                )
+            )
         stream_id: str | None = lookup.ok_value()
         if stream_id is None:
-            return None
+            return Ok(None)
         entry_result = await self._storage.read(stream_id)
+        if entry_result.is_err():
+            return Err(
+                PersistenceError(
+                    f"Storage error in read({stream_id}): "
+                    f"{entry_result.err_value()}"
+                )
+            )
+        payload = entry_result.ok_value()
+        if payload is None:
+            return Ok(None)
+        return Ok(self._build_event(cast("dict[str, str]", payload)))
 
-        if entry_result.is_err() or entry_result.ok_value() is None:
-            return None
-        return self._build_event(entry_result.ok_value())
-
-    async def _drop_entry(self, event_id: str, reason: DLQReason) -> None:
+    async def _drop_entry(
+        self, event_id: str, reason: DLQReason
+    ) -> Result[None, PersistenceError]:
         """
         Remove the DLQ entry for ``(event_id, reason)`` and
         decrement the per-reason counter.
@@ -153,10 +195,10 @@ class DeadLetterActions:
              placeholder written during a concurrent
              insert).
           3. Storage HDELs the per-event_id index entry.
-          4. Decrement the per-reason counter (best-effort;
-             a counter failure does not roll back the XDEL
-             because the inconsistency is recoverable: a
-             future ``purge`` rebuilds the counters).
+          4. Decrement the per-reason counter (a counter
+             failure is surfaced as ``Err(PersistenceError)``
+             so the caller can decide whether to retry;
+             AGENTS.md §6: "wrap-in-result, no fail-soft").
 
         The agent index is left alone — it points to the
         agent's FIRST failure, which may be a different
@@ -171,7 +213,11 @@ class DeadLetterActions:
                 reason=reason.value,
                 error=str(lookup.err_value()),
             )
-            return
+            return Err(
+                PersistenceError(
+                    f"Storage error in read_index: {lookup.err_value()}"
+                )
+            )
         stream_id = lookup.ok_value() or ""
 
         drop_result = await self._storage.drop_entry(event_id, reason.value, stream_id)
@@ -182,9 +228,12 @@ class DeadLetterActions:
                 reason=reason.value,
                 error=str(drop_result.err_value()),
             )
-            return
+            return Err(
+                PersistenceError(
+                    f"Storage error in drop_entry: {drop_result.err_value()}"
+                )
+            )
 
-        # Best-effort counter decrement.
         bump = await self._storage.bump_reason_counter(reason.value, -1)
         if bump.is_err():
             logger.warning(
@@ -193,11 +242,16 @@ class DeadLetterActions:
                 reason=reason.value,
                 error=str(bump.err_value()),
             )
+            return Err(
+                PersistenceError(
+                    f"Storage error in bump_reason_counter: "
+                    f"{bump.err_value()}"
+                )
+            )
+        return Ok(None)
 
     @staticmethod
-    def _build_event(payload):
-        from .values import DeadLetterEvent
-
+    def _build_event(payload: dict) -> DeadLetterEvent:
         return DeadLetterEvent.from_dict(payload)
 
 

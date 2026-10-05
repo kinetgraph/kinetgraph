@@ -46,8 +46,8 @@ def _transitioned_to_state(e: Event) -> str | None:
 def _fold_agent(
     config: FSMConfig,
     agent_events: Sequence[Event],
-    base: "DomainComponent | None",
-) -> "DomainComponent | None":
+    base: DomainComponent | None,
+) -> DomainComponent | None:
     """Fold a batch of ``fsm.transitioned`` events into the
     configured ``DomainComponent``, advancing ``state_field``.
 
@@ -80,7 +80,7 @@ def _fold_agent(
 def reconcile_fsm_state(
     config: FSMConfig,
     events: Sequence[Event],
-    base_views: "Mapping[str, AgentView]",
+    base_views: Mapping[str, AgentView],
 ) -> dict[str, AgentView]:
     """Pure fold: ``fsm.transitioned`` events → AgentView with the
     configured ``DomainComponent``'s ``state_field`` advanced.
@@ -119,7 +119,7 @@ class FSMProjection:
     def __init__(self, config: FSMConfig) -> None:
         self._config = config
 
-    def __call__(self, world: "World", events: list[Event]) -> "World":
+    def __call__(self, world: World, events: list[Event]) -> World:
         new_views = reconcile_fsm_state(self._config, events, world.views)
         if not new_views:
             return world

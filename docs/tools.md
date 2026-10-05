@@ -54,9 +54,9 @@ Este documento cobre:
 ```python
 # fmh_backend/src/fmh_backend/tools/protocol.py
 class Tool(Protocol):
-    name: str            # "invoice.issue" (provider.action)
-    description: str     # humano-legível, usado em prompts
-    input_schema: dict   # JSON-schema-like (opcional)
+    name: str  # "invoice.issue" (provider.action)
+    description: str  # humano-legível, usado em prompts
+    input_schema: dict  # JSON-schema-like (opcional)
 
     async def invoke(self, **kwargs) -> Result[Any, ToolError]: ...
 ```
@@ -92,9 +92,9 @@ registry = ToolRegistry()
 registry.register(invoice_issue_tool)
 registry.register(erp_create_invoice_tool)
 
-registry.names()           # ["invoice.issue", "erp.create_invoice"]
+registry.names()  # ["invoice.issue", "erp.create_invoice"]
 registry.get("invoice.issue")  # Tool
-"invoice.issue" in registry    # True
+"invoice.issue" in registry  # True
 ```
 
 - Simples: `dict[str, Tool]`. Sem hot-reload nem discovery.
@@ -172,9 +172,7 @@ evento vai para a DLQ.
     "tool": "<name>",
     "reason": "missing required: ['valor']; type mismatches: [...]",
     "missing": ["valor"],
-    "type_mismatches": [
-        {"field": "valor", "expected": "number", "got": "str"}
-    ],
+    "type_mismatches": [{"field": "valor", "expected": "number", "got": "str"}],
     "unexpected": ["junk"],
     "latency_ms": 1.2,  # opcional
 }
@@ -222,6 +220,7 @@ import httpx
 from kntgraph.core.result import Ok, Err, ToolError
 from kntgraph.tools.protocol import Tool
 
+
 class InvoiceIssueTool:
     name = "invoice.issue"
     description = "Emite um documento fiscal via serviço externo."
@@ -229,8 +228,8 @@ class InvoiceIssueTool:
         "type": "object",
         "required": ["xml_b64", "tp_amb"],
         "properties": {
-            "xml_b64":  {"type": "string"},
-            "tp_amb":   {"type": "integer", "enum": [1, 2]},
+            "xml_b64": {"type": "string"},
+            "tp_amb": {"type": "integer", "enum": [1, 2]},
         },
     }
 
@@ -290,6 +289,7 @@ registry.register(InvoiceIssueTool(endpoint="https://..."))
 
 invoker = ToolInvoker(log=log, registry=registry)
 
+
 # Loop do adapter (em produção: scheduler / daemon)
 async def adapter_loop():
     while True:
@@ -331,11 +331,15 @@ from kntgraph.knowledge.extraction import GlinerArgumentExtractor
 
 extractor = GlinerArgumentExtractor(registry, model_name="gliner2-base")
 
+
 async def hook(text: str, tool_name: str):
     return await extractor.extract(text, tool_name)
 
+
 invoker = ToolInvoker(
-    log=log, registry=registry, pre_invoke_args_extractor=hook,
+    log=log,
+    registry=registry,
+    pre_invoke_args_extractor=hook,
 )
 ```
 
@@ -401,6 +405,7 @@ from kntgraph.resilience.circuit_breaker import CircuitBreaker
 from kntgraph.resilience.retry import retry
 
 breaker = CircuitBreaker(failure_threshold=5, recovery_time_s=30)
+
 
 @retry(max_attempts=3, backoff="exponential")
 async def safe_invoke(tool, **kwargs):

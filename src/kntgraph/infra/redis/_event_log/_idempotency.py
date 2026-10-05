@@ -39,7 +39,6 @@ from .._codec import decode_value
 from .._errors import IdempotencyConflict
 from ._keys import IDEMPOTENCY_TTL_DEFAULT
 
-
 PLACEHOLDER: str = "PLACEHOLDER"
 
 

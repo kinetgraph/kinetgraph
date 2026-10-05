@@ -8,7 +8,8 @@ Helper for building WorldSystems that request tool executions via the Worker Pat
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, cast
+from collections.abc import Mapping
+from typing import cast
 from uuid import UUID
 
 from kntgraph.core._typing import JsonValue
@@ -41,9 +42,9 @@ class ToolAwareSystem:
         agent_id: str,
         tool_name: str,
         params: Mapping[str, JsonValue],
-        causation_id: Optional[str] = None,
-        correlation: Optional[CorrelationContext] = None,
-        producer_principal_id: Optional[str] = None,
+        causation_id: str | None = None,
+        correlation: CorrelationContext | None = None,
+        producer_principal_id: str | None = None,
     ) -> Event:
         """
         Builds a ``tool.<name>.requested`` event (the canonical
@@ -97,14 +98,14 @@ class ToolAwareSystem:
             agent_id=agent_id,
             event_class="domain",
             data=payload,
-            causation_id=cast("Optional[UUID]", causation_id),
+            causation_id=cast("UUID | None", causation_id),
             correlation=correlation,
             producer_principal_id=producer_principal_id,
         )
 
     def get_request(
         self, view: AgentView, request_event_id: str
-    ) -> Optional[ToolCallRequest]:
+    ) -> ToolCallRequest | None:
         """
         Finds a ToolCallRequest by its ID in the agent's view.
         """
@@ -113,7 +114,7 @@ class ToolAwareSystem:
 
     def get_completion(
         self, view: AgentView, request_event_id: str
-    ) -> Optional[ToolCallCompletion]:
+    ) -> ToolCallCompletion | None:
         """
         Finds a ToolCallCompletion by the request's ID.
         """

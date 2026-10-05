@@ -23,10 +23,10 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from kntgraph.resilience.edge import (  # noqa: E402
+from kntgraph.resilience.edge import (
     build_cors_middleware,
     build_https_redirect_middleware,
     build_trusted_host_middleware,
@@ -91,7 +91,7 @@ class TestCORS:
         r = client.get("/healthz", headers={"Origin": "https://x.com"})
         assert r.status_code == 200
         assert "access-control-allow-origin" not in {
-            k.lower() for k in r.headers.keys()
+            k.lower() for k in r.headers
         }
 
     def test_single_origin_allowed(self):
@@ -254,7 +254,7 @@ class TestHTTPSRedirect:
         )
         assert r.status_code == 200
         # No Location header (no redirect).
-        assert "location" not in {k.lower() for k in r.headers.keys()}
+        assert "location" not in {k.lower() for k in r.headers}
 
     def test_http_request_redirects_to_https(self):
         client = _build_app(https_redirect=True)
@@ -296,7 +296,7 @@ class TestHTTPSRedirect:
         )
         assert r.status_code == 200
         # The POST succeeded; no Location header.
-        assert "location" not in {k.lower() for k in r.headers.keys()}
+        assert "location" not in {k.lower() for k in r.headers}
 
     def test_redirect_preserves_path_and_query(self):
         client = _build_app(https_redirect=True)
@@ -419,7 +419,7 @@ class TestHTTPSRedirectHSTS:
             follow_redirects=False,
         )
         assert r.status_code == 308
-        assert "strict-transport-security" not in {k.lower() for k in r.headers.keys()}
+        assert "strict-transport-security" not in {k.lower() for k in r.headers}
 
     def test_hsts_emitted_with_max_age(self):
         """``hsts_max_age=31536000`` (1 year) emits

@@ -31,8 +31,6 @@ import asyncio
 
 import pytest
 
-from kntgraph.testing import FakeEmbeddingProvider
-
 from kntgraph.agents.knowledge.solution_projector import (
     PROBLEM_VECTOR_INDEX_CYPHER,
     SolutionProjector,
@@ -44,7 +42,7 @@ from kntgraph.agents.memory.solutions import (
     SolutionCandidate,
     ToolDescriptor,
 )
-
+from kntgraph.testing import FakeEmbeddingProvider
 
 # ---------------------------------------------------------------------------
 # Mocks

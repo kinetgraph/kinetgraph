@@ -15,11 +15,10 @@ simply no-ops.
 from __future__ import annotations
 
 import json
-from typing import Mapping
-
-from .._typing import JsonValue
+from collections.abc import Mapping
 from uuid import UUID, uuid5
 
+from .._typing import JsonValue
 from .constants import KNT_EVENT_NAMESPACE
 
 

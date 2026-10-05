@@ -3,15 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+
 import redis.asyncio as aioredis
 
 from kntgraph.core.event import correlation_middleware
 from kntgraph.security.principal import (
-    Principal,
-    Role,
     Action,
-    Resource,
     DefaultPolicy,
+    Principal,
+    Resource,
+    Role,
     principal_ctx,
 )
 

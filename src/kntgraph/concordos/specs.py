@@ -86,7 +86,7 @@ class StepResultEquals(Specification):
 
     step_name: str
     field: str
-    value: "JsonValue"
+    value: JsonValue
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
         result = ctx.step_results.get(self.step_name)

@@ -35,14 +35,14 @@ type inference at every chain.
 
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from result import Err as BaseErr
 from result import Ok as BaseOk
 from result import Result as BaseResult
 
 from .errors import UnwrapError
-
 
 T = TypeVar("T")
 E = TypeVar("E", bound=Exception)
@@ -56,7 +56,7 @@ F = TypeVar("F", bound=Exception)
 R = TypeVar("R")
 
 
-class Result(Generic[T, E]):
+class Result[T, E: Exception]:
     """
     Result of an operation that may fail (wrapper around
     the `result` library).
@@ -73,7 +73,7 @@ class Result(Generic[T, E]):
         cls,
         func: Callable[[], T],
         exception_type: type[Exception] | tuple[type[Exception], ...] = Exception,
-    ) -> "Result[T, Exception]":
+    ) -> Result[T, Exception]:
         """
         Executa função e captura exceções.
 
@@ -91,12 +91,12 @@ class Result(Generic[T, E]):
             return Err(e)
 
     @classmethod
-    def ok(cls, value: T) -> "Result[T, E]":
+    def ok(cls, value: T) -> Result[T, E]:
         """Build a success result."""
         return cls(BaseOk(value))
 
     @classmethod
-    def err(cls, error: E) -> "Result[T, E]":
+    def err(cls, error: E) -> Result[T, E]:
         """Build an error result."""
         return cls(BaseErr(error))
 
@@ -134,7 +134,7 @@ class Result(Generic[T, E]):
                 return e
         raise UnwrapError("err_value_or_raise called on an Ok Result")
 
-    def map(self, func: Callable[[T], U]) -> "Result[U, E]":
+    def map(self, func: Callable[[T], U]) -> Result[U, E]:
         """
         Transform the success value.
 
@@ -147,7 +147,7 @@ class Result(Generic[T, E]):
                 return Ok(func(v))
         return self._as_same_err()
 
-    def map_err(self, func: Callable[[E], F]) -> "Result[T, F]":
+    def map_err(self, func: Callable[[E], F]) -> Result[T, F]:
         """
         Transform the error value.
 
@@ -160,7 +160,7 @@ class Result(Generic[T, E]):
                 return Err(func(e))
         return self._as_same_ok()
 
-    def bind(self, func: Callable[[T], "Result[U, E]"]) -> "Result[U, E]":
+    def bind(self, func: Callable[[T], Result[U, E]]) -> Result[U, E]:
         """
         Chain operations (flatMap).
 
@@ -274,19 +274,19 @@ class Result(Generic[T, E]):
     # construction per failure path, which is negligible.
     # ------------------------------------------------------------------
 
-    def _as_same_err(self) -> "Result[U, E]":
+    def _as_same_err(self) -> Result[U, E]:
         if self.is_err():
             return Err(self.err_value_or_raise())
         # Unreachable: the callers only invoke this on Err.
         raise UnwrapError("_as_same_err called on an Ok Result")
 
-    def _as_same_ok(self) -> "Result[T, F]":
+    def _as_same_ok(self) -> Result[T, F]:
         if self.is_ok():
             return Ok(self.ok_value())  # type: ignore[arg-type]
         raise UnwrapError("_as_same_ok called on an Err Result")
 
 
-def Ok(value: T) -> Result[T, E]:
+def Ok[T](value: T) -> Result[T, E]:
     """Build a Result Ok (convenience function).
 
     The error slot is left generic (``E`` is unbound)
@@ -296,7 +296,7 @@ def Ok(value: T) -> Result[T, E]:
     return Result(BaseOk(value))
 
 
-def Err(error: E) -> Result[T, E]:
+def Err[E: Exception](error: E) -> Result[T, E]:
     """Build a Result Err (convenience function).
 
     The value slot is left generic (``T`` is unbound)

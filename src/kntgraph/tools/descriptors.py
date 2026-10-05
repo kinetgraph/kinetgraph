@@ -38,8 +38,9 @@ the dataclass it produces.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 import structlog
 
@@ -57,7 +58,7 @@ class ToolDescriptor:
             raise ValueError("ToolDescriptor.name must be non-empty")
 
 
-def schema_to_json(schema: "Mapping[str, Any] | None") -> "str | None":
+def schema_to_json(schema: Mapping[str, Any] | None) -> str | None:
     """Serialise a Tool's ``input_schema`` to a JSON string
     suitable for storage in FalkorDB or for an HTTP
     ``ToolDescriptor`` response.

@@ -61,8 +61,7 @@ Coverage
 from __future__ import annotations
 
 import uuid
-
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 
@@ -74,16 +73,15 @@ import pytest
 # pattern used in `test_falkordb_client.py` for the
 # `[falkordb]` extra).
 pytest.importorskip("fastapi")
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi.testclient import TestClient
 
-from kntgraph.api import create_app  # noqa: E402
-from kntgraph.api.auth import AuthError  # noqa: E402
-from kntgraph.core.result import Err, Ok  # noqa: E402
-from kntgraph.tools.manager import WorkerManager  # noqa: E402
+from kntgraph.api import create_app
+from kntgraph.api.auth import AuthError
+from kntgraph.core.result import Err, Ok
+from kntgraph.tools.manager import WorkerManager
 
 from ._fake_log import FakeEventLog
 from ._fake_worker_manager import build_fake_manager
-
 
 # ---------------------------------------------------------------------------
 # Test doubles
@@ -125,9 +123,9 @@ class _FakeVerifier:
 
 def _build_app(
     *,
-    bindings: Optional[dict[str, str]] = None,
-    log: Optional[FakeEventLog] = None,
-    worker_manager: Optional[WorkerManager] = None,
+    bindings: dict[str, str] | None = None,
+    log: FakeEventLog | None = None,
+    worker_manager: WorkerManager | None = None,
 ) -> TestClient:
     bindings = bindings or {"key-for-a1": "agent-1"}
     log = log or FakeEventLog()

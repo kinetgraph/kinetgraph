@@ -21,24 +21,24 @@ contract, this test fails.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
 from kntgraph.core.components.memory import (
     ContinuityComponent,
     ProfileComponent,
     SessionComponent,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 from kntgraph.core.world.projection_memory import project_memory
 from kntgraph.core.world.view import AgentView
 
 
 def _ts(offset_s: int = 0) -> datetime:
-    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     from datetime import timedelta
 
     return base + timedelta(seconds=offset_s)
@@ -48,9 +48,9 @@ def _event(
     *,
     event_type: str,
     agent_id: str = "agent-1",
-    data: Optional[Mapping[str, Any]] = None,
-    causation_id: Optional[UUID] = None,
-    timestamp: Optional[datetime] = None,
+    data: Mapping[str, Any] | None = None,
+    causation_id: UUID | None = None,
+    timestamp: datetime | None = None,
 ) -> Event:
     return Event.create(
         event_type=event_type,

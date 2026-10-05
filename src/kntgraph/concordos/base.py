@@ -31,10 +31,11 @@ from ``core/`` and stdlib, per the type-discipline skill
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Callable, Mapping
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -106,15 +107,15 @@ class StepContext:
     Specification, not to the Specification itself.
     """
 
-    step_results: MappingProxyType[str, "JsonValue"]
+    step_results: MappingProxyType[str, JsonValue]
     step_states: MappingProxyType[str, str]
-    domain: "DomainComponent | None"
-    continuity: "ContinuityComponent | None"
-    profile: "ProfileComponent | None"
+    domain: DomainComponent | None
+    continuity: ContinuityComponent | None
+    profile: ProfileComponent | None
     agent_id: str
     now: datetime
-    trigger_data: "MappingProxyType[str, JsonValue] | None" = None
-    cross_agent_resolver: "Callable[[str], AgentView | None] | None" = None
+    trigger_data: MappingProxyType[str, JsonValue] | None = None
+    cross_agent_resolver: Callable[[str], AgentView | None] | None = None
 
 
 class Composable:
@@ -132,13 +133,13 @@ class Composable:
     implementations silently forget to include it).
     """
 
-    def and_(self: "Specification", other: "Specification") -> "AndSpec":
+    def and_(self: Specification, other: Specification) -> AndSpec:
         return AndSpec(self, other)
 
-    def or_(self: "Specification", other: "Specification") -> "OrSpec":
+    def or_(self: Specification, other: Specification) -> OrSpec:
         return OrSpec(self, other)
 
-    def not_(self: "Specification") -> "NotSpec":
+    def not_(self: Specification) -> NotSpec:
         return NotSpec(self)
 
 
@@ -218,7 +219,7 @@ class ViewTrigger:
     agent_id: str
     event_type: str
     event_id: UUID | None
-    data: Mapping[str, "JsonValue"]
-    correlation: "CorrelationContext | None"
+    data: Mapping[str, JsonValue]
+    correlation: CorrelationContext | None
     causation_id: UUID | None = None
     producer_principal_id: str | None = None

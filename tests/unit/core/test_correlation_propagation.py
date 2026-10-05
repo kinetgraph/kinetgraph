@@ -48,7 +48,6 @@ from kntgraph.core.event import (
     correlation_middleware,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

@@ -69,13 +69,12 @@ from __future__ import annotations
 
 import importlib
 from types import ModuleType
-from typing import Optional
 
 
 def _format_message(
     package: str,
     extra: str,
-    purpose: Optional[str],
+    purpose: str | None,
 ) -> str:
     """
     Build the canonical ImportError message. Kept in one
@@ -99,7 +98,7 @@ def require_optional(
     package: str,
     extra: str,
     *,
-    purpose: Optional[str] = None,
+    purpose: str | None = None,
 ) -> ModuleType:
     """
     Import ``package`` or raise ``ImportError`` with a
@@ -128,8 +127,8 @@ def require_optional(
 
 def try_import(
     package: str,
-    extra: Optional[str] = None,
-) -> Optional[ModuleType]:
+    extra: str | None = None,
+) -> ModuleType | None:
     """
     Best-effort import — returns ``None`` instead of
     raising. Useful for capability checks where the

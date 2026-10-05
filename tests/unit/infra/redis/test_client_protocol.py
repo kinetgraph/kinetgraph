@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -65,9 +64,7 @@ class TestRedisLikeProtocol:
         """`isinstance(client, RedisLike)` must work at runtime."""
         from kntgraph.infra.redis import RedisLike
 
-        assert getattr(RedisLike, "_is_runtime_protocol", False) or hasattr(
-            RedisLike, "__call__"
-        ), "RedisLike must be decorated with @runtime_checkable"
+        assert getattr(RedisLike, "_is_runtime_protocol", False) or callable(RedisLike), "RedisLike must be decorated with @runtime_checkable"
 
     async def test_redis_like_lists_required_methods(self):
         from kntgraph.infra.redis import RedisLike

@@ -94,11 +94,9 @@ Usage
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Optional, cast
+from collections.abc import Iterable
+from typing import TYPE_CHECKING, cast
 
-from .base import Classification, Entity
-from .gliner import DEFAULT_LABELS, GlinerEntityAdapter
-from .gliner_intent import GlinerIntentAdapter
 from kntgraph.knowledge.extraction.base import (
     ArgExtraction,
     ArgumentExtractor,
@@ -106,6 +104,10 @@ from kntgraph.knowledge.extraction.base import (
     EntityExtractorWithMentions,
     IntentClassifier,
 )
+
+from .base import Classification, Entity
+from .gliner import DEFAULT_LABELS, GlinerEntityAdapter
+from .gliner_intent import GlinerIntentAdapter
 
 if TYPE_CHECKING:
     from kntgraph.tools.manager import WorkerManager
@@ -142,7 +144,7 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
     def __init__(
         self,
         *,
-        adapter: Optional[EntityExtractorWithMentions] = None,
+        adapter: EntityExtractorWithMentions | None = None,
         labels: tuple[str, ...] | None = None,
         threshold: float = 0.5,
     ) -> None:
@@ -167,7 +169,7 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
             # ``extract`` being available). The Union
             # keeps the wider type exposed so the
             # facade's ``extract`` method is type-safe.
-            self._adapter: "EntityExtractor | EntityExtractorWithMentions" = adapter
+            self._adapter: EntityExtractor | EntityExtractorWithMentions = adapter
         else:
             self._adapter = GlinerEntityAdapter(
                 labels=labels if labels is not None else DEFAULT_LABELS,
@@ -185,7 +187,7 @@ class SLMEntityExtractor(EntityExtractorWithMentions):
 
     async def extract_with_mentions(
         self, text: str
-    ) -> list[tuple[Entity, Optional[int]]]:
+    ) -> list[tuple[Entity, int | None]]:
         # Narrow to the rich Protocol; the runtime is
         # always the ``EntityExtractorWithMentions`` path
         # because ``self._adapter`` is only typed as the
@@ -213,9 +215,9 @@ class SLMIntentClassifier(IntentClassifier):
     def __init__(
         self,
         *,
-        adapter: Optional[IntentClassifier] = None,
+        adapter: IntentClassifier | None = None,
         model_name: str | None = None,
-        device: Optional[str] = None,
+        device: str | None = None,
         threshold: float = 0.5,
     ) -> None:
         """
@@ -248,7 +250,7 @@ class SLMIntentClassifier(IntentClassifier):
         self,
         text: str,
         labels: Iterable[str],
-        descriptions: Optional[Iterable[str]] = None,
+        descriptions: Iterable[str] | None = None,
     ) -> Classification:
         # ``self._adapter`` is typed as ``IntentClassifier``,
         # whose ``classify`` accepts 2 args. The default
@@ -289,11 +291,11 @@ class SLMArgumentExtractor(ArgumentExtractor):
 
     def __init__(
         self,
-        worker_manager: "WorkerManager",
+        worker_manager: WorkerManager,
         *,
-        adapter: Optional[ArgumentExtractor] = None,
+        adapter: ArgumentExtractor | None = None,
         model_name: str | None = None,
-        device: Optional[str] = None,
+        device: str | None = None,
         field_threshold: float = 0.5,
     ) -> None:
         """
@@ -339,7 +341,7 @@ class SLMArgumentExtractor(ArgumentExtractor):
 
 
 __all__ = [
+    "SLMArgumentExtractor",
     "SLMEntityExtractor",
     "SLMIntentClassifier",
-    "SLMArgumentExtractor",
 ]

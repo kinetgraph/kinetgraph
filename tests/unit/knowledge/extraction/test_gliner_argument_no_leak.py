@@ -165,10 +165,10 @@ class TestGlinerArgumentAdapterFromFramework:
         """The static ``_resolve_model_name`` helper
         returns the explicit arg when given, or the
         Settings default when ``None``."""
+        from kntgraph.infra.config import fresh_settings
         from kntgraph.knowledge.extraction import (
             GlinerArgumentAdapter,
         )
-        from kntgraph.infra.config import fresh_settings
 
         # Explicit arg wins.
         assert (

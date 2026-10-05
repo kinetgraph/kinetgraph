@@ -196,7 +196,7 @@ def _on_session_ended(e: Event, state: dict[str, Any]) -> None:
     state["ended_at"] = e.timestamp.timestamp()
 
 
-_SESSION_HANDLERS: dict[str, "Callable[[Event, dict[str, Any]], None]"] = {
+_SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
     SESSION_STARTED: _on_session_started,
     SESSION_MESSAGE: _on_session_message,
     SESSION_CONTEXT: _on_session_context,
@@ -326,7 +326,7 @@ def _seed_identity_from_agent_id(agent_id: str, state: dict[str, Any]) -> None:
     memory agent_id convention when the events did not carry
     them. Tolerates a one-part id (``profile:{tenant_id}``) — the
     ``user_id`` stays empty rather than fabricating a value."""
-    prefix, sep, rest = agent_id.partition(":")
+    _prefix, sep, rest = agent_id.partition(":")
     if not sep or not rest:
         return
     parts = rest.split(":")
@@ -406,7 +406,7 @@ def _on_profile_tier_changed(e: Event, state: dict[str, Any]) -> None:
     state["updated_at"] = e.timestamp.timestamp()
 
 
-_PROFILE_HANDLERS: dict[str, "Callable[[Event, dict[str, Any]], None]"] = {
+_PROFILE_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
     PROFILE_CREATED: _on_profile_created,
     PROFILE_PREFERENCE_SET: _on_profile_preference_set,
     PROFILE_PREFERENCE_UNSET: _on_profile_preference_unset,
@@ -582,7 +582,7 @@ def _on_continuity_cleared(e: Event, state: dict[str, Any]) -> None:
     state["last_categories"].clear()
 
 
-_CONTINUITY_HANDLERS: dict[str, "Callable[[Event, dict[str, Any]], None]"] = {
+_CONTINUITY_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
     CONTINUITY_CREATED: _on_continuity_created,
     CONTINUITY_TOOL_USED: _on_continuity_tool_used,
     CONTINUITY_ENTITY_SEEN: _on_continuity_entity_seen,
@@ -611,7 +611,7 @@ def _build_continuity_component(state: dict[str, Any]) -> ContinuityComponent:
 
 def project_memory(
     events: Sequence[Event],
-    base_views: "Mapping[str, AgentView] | None" = None,
+    base_views: Mapping[str, AgentView] | None = None,
 ) -> dict[str, AgentView]:
     """
     Pure fold: events → AgentView with memory
@@ -658,8 +658,8 @@ def _group_events_by_agent(
 def _project_memory_for_agent(
     agent_id: str,
     agent_events: list[Event],
-    base_views: "Mapping[str, AgentView]",
-) -> "AgentView | None":
+    base_views: Mapping[str, AgentView],
+) -> AgentView | None:
     """Build the memory component overlay for a
     single agent. Returns ``None`` when the batch
     has no memory event AND the base view has no
@@ -677,8 +677,8 @@ def _project_memory_for_agent(
 def _fold_memory_components(
     agent_id: str,
     agent_events: list[Event],
-    base_view: "AgentView",
-) -> "tuple[SessionComponent | None, ProfileComponent | None, ContinuityComponent | None]":
+    base_view: AgentView,
+) -> tuple[SessionComponent | None, ProfileComponent | None, ContinuityComponent | None]:
     """Run the three memory folds for a single
     agent, threading the base components through so
     the batch can re-use state that the events do
@@ -699,11 +699,11 @@ def _fold_memory_components(
 
 
 def _with_memory_components(
-    base_view: "AgentView",
+    base_view: AgentView,
     session: SessionComponent | None,
     profile: ProfileComponent | None,
     continuity: ContinuityComponent | None,
-) -> "AgentView":
+) -> AgentView:
     """Return a new ``AgentView`` carrying the
     three memory components (the ones that the fold
     re-derived or the base ones the fold preserved).

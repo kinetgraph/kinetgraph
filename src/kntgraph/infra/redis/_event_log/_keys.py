@@ -41,7 +41,6 @@ from __future__ import annotations
 
 from kntgraph.infra.redis._prefix import namespaced
 
-
 # Suffix templates. Pure strings; the adapter prepends the
 # prefix via :func:`namespaced` at every key build.
 AGENT_STREAM_KEY: str = "knt:agents:{agent_id}:events"

@@ -25,16 +25,15 @@ import pytest
 
 pytest.importorskip("fastapi")
 
-from fastapi import HTTPException  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
-from kntgraph.api.auth import (  # noqa: E402
+from kntgraph.api.auth import (
     AuthError,
     bind_principal_dependency,
 )
-from kntgraph.core.result import Err, Ok  # noqa: E402
-from kntgraph.security import Principal, PrincipalLevel, principal_ctx  # noqa: E402
-
+from kntgraph.core.result import Err, Ok
+from kntgraph.security import Principal, PrincipalLevel, principal_ctx
 
 # ---------------------------------------------------------------------------
 # Test doubles
