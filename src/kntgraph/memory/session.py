@@ -44,7 +44,7 @@ import structlog
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
 from ..core.result import Err, Ok, PersistenceError, Result
-from ..infra.redis._errors import MemoryDecodeError, MemoryMiss
+from ..infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
 from ..infra.redis._memory import ShortMemoryStorage
 from ..stream.event_log import EventLog
 from .base import BaseShortTermMemory
@@ -361,40 +361,33 @@ class SessionManager(BaseShortTermMemory[SessionState]):
 
     async def list_active(
         self, tenant_id: str, limit: int = 100
-    ) -> Result[list[SessionState], PersistenceError]:
+    ) -> Result[list[SessionState], MemoryError]:
         """
         Scan the Redis cache for active sessions belonging
         to a tenant.
 
-        Returns ``Err`` when the storage iteration reports a
-        transport failure (AGENTS.md §6). Per-entry decode
-        failures are mapped to ``Ok([])`` — the entry is
-        skipped and the scan continues (the cache is the
-        working set, not the source of truth).
+        Per ADR-077: the storage Protocol's ``iter_keys``
+        returns ``AsyncIterator[str]`` and a transport
+        failure during the scan surfaces as
+        ``Err(MemoryError)`` from the storage layer. We
+        trust the Protocol and let the exception propagate
+        as an ``Err`` at the call site.
+
+        Per-entry decode failures are mapped to ``Ok([])``
+        — the entry is skipped and the scan continues (the
+        cache is the working set, not the source of truth).
         """
         out: list[SessionState] = []
-        try:
-            async for key in self._storage.iter_keys(SESSION_KEY_PREFIX):
-                sid = key[len(SESSION_KEY_PREFIX) :]
-                cache_result = await self._read_cache(self.cache_key(sid), sid)
-                if cache_result.is_err():
-                    continue
-                state = cache_result.ok_value()
-                if state and state.tenant_id == tenant_id and state.is_active():
-                    out.append(state)
-                if len(out) >= limit:
-                    break
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "session.list_active.storage_error",
-                tenant_id=tenant_id,
-                error=str(e),
-            )
-            return Err(
-                PersistenceError(
-                    f"iter_keys for prefix {SESSION_KEY_PREFIX!r} failed: {e}"
-                )
-            )
+        async for key in self._storage.iter_keys(SESSION_KEY_PREFIX):
+            sid = key[len(SESSION_KEY_PREFIX) :]
+            cache_result = await self._read_cache(self.cache_key(sid), sid)
+            if cache_result.is_err():
+                continue
+            state = cache_result.ok_value()
+            if state and state.tenant_id == tenant_id and state.is_active():
+                out.append(state)
+            if len(out) >= limit:
+                break
         return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)
@@ -634,14 +627,14 @@ def _build_session_state(
     tenant_id = _coerce_str(raw, "tenant_id")
     messages_raw = raw.get("messages") or []
     if not isinstance(messages_raw, list):
-        raise ValueError("messages is not a list")  # noqa: TRY004
+        raise TypeError("messages is not a list")
     messages: list[dict[str, JsonValue]] = []
     for entry in messages_raw:
         if isinstance(entry, dict):
             messages.append({str(k): v for k, v in entry.items()})
     context_raw = raw.get("context") or {}
     if not isinstance(context_raw, dict):
-        raise ValueError("context is not a dict")  # noqa: TRY004
+        raise TypeError("context is not a dict")
     context: dict[str, JsonValue] = {str(k): v for k, v in context_raw.items()}
     started_at = _coerce_float(raw.get("started_at"), default=0.0)
     ended_at_raw = raw.get("ended_at")

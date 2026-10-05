@@ -50,7 +50,7 @@ import structlog
 from ...core.event import CorrelationContext, Event, correlation_middleware
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...infra.hashing import short_hash
-from ...infra.redis._errors import MemoryDecodeError, MemoryMiss
+from ...infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
 from ...infra.redis._memory import ShortMemoryStorage
 from ...stream.event_log import EventLog
 from ..base import BaseShortTermMemory
@@ -441,40 +441,37 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
 
     async def list_for_tenant(
         self, tenant_id: str, limit: int = 100
-    ) -> Result[list[ContinuityState], PersistenceError]:
+    ) -> Result[list[ContinuityState], MemoryError]:
         """
         Scan the Redis cache for continuity records
         belonging to a tenant.
 
-        Returns ``Err`` when the storage iteration reports
-        a transport failure (AGENTS.md §6). Per-entry decode
-        failures are mapped to ``Ok([])`` — the entry is
-        skipped and the scan continues.
+        Per ADR-077: the storage Protocol's ``iter_keys``
+        returns ``AsyncIterator[str]`` and a transport
+        failure during the scan surfaces as
+        ``Err(MemoryError)`` from the storage layer. We
+        trust the Protocol and let the exception propagate
+        as an ``Err`` at the call site.
+
+        Per-entry decode failures are mapped to ``Ok([])``
+        — the entry is skipped and the scan continues.
         """
         out: list[ContinuityState] = []
         prefix = f"{CONTINUITY_KEY_PREFIX}{tenant_id}:"
-        try:
-            async for key in self._storage.iter_keys(prefix):
-                user_id = key[len(prefix) :]
-                cache_result = await self._read_cache(
-                    self.cache_key(tenant_id, user_id),
-                    tenant_id,
-                    user_id,
-                )
-                if cache_result.is_err():
-                    continue
-                state = cache_result.ok_value()
-                if state is not None:
-                    out.append(state)
-                if len(out) >= limit:
-                    break
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "continuity.list_for_tenant.storage_error",
-                tenant_id=tenant_id,
-                error=str(e),
+        async for key in self._storage.iter_keys(prefix):
+            user_id = key[len(prefix) :]
+            cache_result = await self._read_cache(
+                self.cache_key(tenant_id, user_id),
+                tenant_id,
+                user_id,
             )
-            return Err(PersistenceError(f"iter_keys for prefix {prefix!r} failed: {e}"))
+            if cache_result.is_err():
+                continue
+            state = cache_result.ok_value()
+            if state is not None:
+                out.append(state)
+            if len(out) >= limit:
+                break
         return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)

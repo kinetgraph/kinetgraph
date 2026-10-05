@@ -236,9 +236,11 @@ class TestColdPathSeedsCursor:
     async def test_session_cold_refresh_stamps_cursor(self, event_log, session_manager):
         await event_log.append(_session_started_event("sess-1"))
         (await session_manager.refresh_cache("sess-1")).is_ok()
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
         # Format: ``<ms>-<seq>`` (Redis stream id).
         assert "-" in cursor
@@ -246,9 +248,11 @@ class TestColdPathSeedsCursor:
     async def test_profile_cold_refresh_stamps_cursor(self, event_log, profile_manager):
         await event_log.append(_profile_created_event("t", "u"))
         (await profile_manager.refresh_cache("t", "u")).is_ok()
-        cursor = await profile_manager._read_fold_cursor(
+        cursor_result = await profile_manager._read_fold_cursor(
             profile_manager.cache_key("t", "u")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
     async def test_cold_path_payload_keeps_legacy_shape(
@@ -290,9 +294,11 @@ class TestColdPathSeedsCursor:
         the cold path leaves the cursor key untouched —
         no spurious cursor for non-existent identities."""
         (await session_manager.refresh_cache("sess-does-not-exist")).is_ok()
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-does-not-exist")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is None
 
 
@@ -311,9 +317,11 @@ class TestIncrementalPath:
         (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
         cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
     async def test_empty_delta_is_noop(self, event_log, session_manager):
@@ -321,16 +329,20 @@ class TestIncrementalPath:
         to the cache payload; cursor untouched."""
         await event_log.append(_session_started_event("sess-1"))
         (await session_manager.refresh_cache("sess-1")).is_ok()
-        first_cursor = await session_manager._read_fold_cursor(
+        first_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert first_cursor_result.is_ok()
+        first_cursor = first_cursor_result.ok_value()
         assert first_cursor is not None
         # No new events; second incremental call must
         # leave the cache untouched.
         (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
-        cursor_after = await session_manager._read_fold_cursor(
+        cursor_after_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_after_result.is_ok()
+        cursor_after = cursor_after_result.ok_value()
         assert cursor_after == first_cursor
 
     async def test_non_empty_delta_falls_back_to_cold(self, event_log, session_manager):
@@ -339,17 +351,21 @@ class TestIncrementalPath:
         → cold rebuild, cursor advances."""
         await event_log.append(_session_started_event("sess-1"))
         (await session_manager.refresh_cache("sess-1")).is_ok()
-        first_cursor = await session_manager._read_fold_cursor(
+        first_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert first_cursor_result.is_ok()
+        first_cursor = first_cursor_result.ok_value()
         msg = _session_message_event("sess-1", "user", "hi")
         await event_log.append(msg)
         (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
         # Cold rebuild path: cursor must have advanced
         # past both events.
-        second_cursor = await session_manager._read_fold_cursor(
+        second_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert second_cursor_result.is_ok()
+        second_cursor = second_cursor_result.ok_value()
         assert second_cursor is not None
         assert second_cursor != first_cursor
         cached = (await session_manager.read("sess-1")).ok_value()
@@ -404,9 +420,11 @@ class TestAutoCorrection:
         cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         # Cursor was re-seeded by the cold rebuild.
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
 

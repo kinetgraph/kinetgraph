@@ -24,6 +24,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core.result import Err, Ok, Result
 
@@ -131,7 +132,9 @@ class RedisContinuityStorage:
 
     # ------------------------------------------------------------ fold cursor (P4)
 
-    async def read_fold_cursor(self, key: str) -> str | None:
+    async def read_fold_cursor(
+        self, key: str
+    ) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor from a plain string key.
 
@@ -139,21 +142,24 @@ class RedisContinuityStorage:
         resets ``EXPIRE`` on both the cache and the
         parallel cursor key, so the cursor tracks the
         cache's freshness.
+
+        Returns ``Ok(None)`` on miss; ``Err(MemoryError)``
+        on Redis-side failure (per ADR-077).
         """
         try:
             raw = await self.client.get(key)
-        except Exception as e:
+        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
             logger.warning(
                 "continuity_storage.read_fold_cursor.redis_error",
                 key=key,
-                error=str(e),
+                error=str(exc),
             )
-            return None
+            return Err(MemoryError(f"redis error: {exc}", key=key))
         if raw is None:
-            return None
+            return Ok(None)
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
-        return str(raw)
+        return Ok(str(raw))
 
     async def write_fold_cursor(
         self,
@@ -181,13 +187,13 @@ class RedisContinuityStorage:
                 await self.client.set(key, cursor, ex=effective_ttl)
             else:
                 await self.client.set(key, cursor)
-        except Exception as e:
+        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
             logger.warning(
                 "continuity_storage.write_fold_cursor.redis_error",
                 key=key,
-                error=str(e),
+                error=str(exc),
             )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+            return Err(MemoryError(f"redis error: {exc}", key=key))
         return Ok(None)
 
     async def delete_fold_cursor(self, key: str) -> Result[None, MemoryError]:

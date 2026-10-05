@@ -135,7 +135,7 @@ from ..core.result import Err, Ok, PersistenceError, Result
 from ..stream.event_log import EventLog
 
 if TYPE_CHECKING:
-    from ..infra.redis._errors import MemoryDecodeError
+    from ..infra.redis._errors import MemoryDecodeError, MemoryError
     from ..infra.redis._memory import ShortMemoryStorage
 
 logger = structlog.get_logger()
@@ -357,7 +357,15 @@ class BaseShortTermMemory[StateT](ABC):
         (AGENTS.md §6).
         """
         key = self.cache_key(*key_parts)
-        cursor = await self._read_fold_cursor(key)
+        cursor_result = await self._read_fold_cursor(key)
+        if cursor_result.is_err():
+            err = cursor_result.err_value()
+            return Err(
+                PersistenceError(
+                    f"Fold-cursor read for {key!r} failed: {err}"
+                )
+            )
+        cursor = cursor_result.ok_value()
         if cursor is None:
             return await self.refresh_cache(*key_parts)
 
@@ -448,13 +456,17 @@ class BaseShortTermMemory[StateT](ABC):
         """
         return key + FOLD_CURSOR_SUFFIX
 
-    async def _read_fold_cursor(self, key: str) -> str | None:
+    async def _read_fold_cursor(
+        self, key: str
+    ) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor stored at the parallel key.
-        Returns ``None`` on cache miss or transport
-        failure (a missing cursor means "next call must
-        use the cold path" — there is no ambiguity).
 
+        Per ADR-077: the storage Protocol returns
+        ``Result[str | None, MemoryError]`` — ``Ok(None)``
+        is a clean miss (caller falls back to the cold
+        path); ``Err(MemoryError)`` is a transport failure
+        (propagates to the public ``refresh_cache`` API).
         The cursor is a plain string value (NOT a Hash
         field and NOT a JSON entry); the parallel-key
         convention keeps it independent of the cache
@@ -462,19 +474,11 @@ class BaseShortTermMemory[StateT](ABC):
         to the storage; it does not touch the raw
         Redis client (domain/infra separation, ADR-019).
         """
-        try:
-            return await self._storage.read_fold_cursor(self._fold_cursor_key(key))
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "short_term.fold_cursor.read_failed",
-                key=key,
-                error=str(e),
-            )
-            return None
+        return await self._storage.read_fold_cursor(self._fold_cursor_key(key))
 
     async def _write_fold_cursor(
         self, key: str, cursor: str
-    ) -> Result[None, PersistenceError]:
+    ) -> Result[None, MemoryError]:
         """
         Persist the fold cursor on the parallel key.
 
@@ -486,22 +490,19 @@ class BaseShortTermMemory[StateT](ABC):
         inconsistency self-corrects, but matching TTLs
         is the honest contract.
 
-        Errors propagate to the caller (AGENTS.md §6).
+        Per ADR-077: the storage Protocol returns
+        ``Result[None, MemoryError]``; the consumer
+        trusts the Protocol and propagates ``Err``
+        unchanged to the public API (which then maps
+        ``MemoryError`` to ``PersistenceError`` so the
+        public surface keeps the broader error type
+        the framework exposes for the EventLog).
         """
         cursor_key = self._fold_cursor_key(key)
         ttl = self._ttl if self._ttl and self._ttl > 0 else None
-        try:
-            await self._storage.write_fold_cursor(cursor_key, cursor, ttl_seconds=ttl)
-            return Ok(None)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "short_term.fold_cursor.write_failed",
-                key=key,
-                error=str(e),
-            )
-            return Err(
-                PersistenceError(f"write_fold_cursor for {cursor_key!r} failed: {e}")
-            )
+        return await self._storage.write_fold_cursor(
+            cursor_key, cursor, ttl_seconds=ttl
+        )
 
     async def _read_state_for_incremental(
         self, key: str, *key_parts: str

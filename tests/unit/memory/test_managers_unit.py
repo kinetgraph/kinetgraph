@@ -562,22 +562,22 @@ class TestSessionManagerBranchCoverage:
         assert _coerce_float([1.0]) == 0.0
 
     async def test_build_session_state_rejects_non_list_messages(self):
-        """``_build_session_state`` raises ``ValueError``
+        """``_build_session_state`` raises ``TypeError``
         when ``messages`` is not a list (line 569)."""
         from kntgraph.memory.session import _build_session_state
 
-        with pytest.raises(ValueError, match="messages is not a list"):
+        with pytest.raises(TypeError, match="messages is not a list"):
             _build_session_state(
                 {"messages": "not-a-list"},
                 session_id="s1",
             )
 
     async def test_build_session_state_rejects_non_dict_context(self):
-        """``_build_session_state`` raises ``ValueError``
+        """``_build_session_state`` raises ``TypeError``
         when ``context`` is not a dict (line 576)."""
         from kntgraph.memory.session import _build_session_state
 
-        with pytest.raises(ValueError, match="context is not a dict"):
+        with pytest.raises(TypeError, match="context is not a dict"):
             _build_session_state(
                 {"context": "not-a-dict"},
                 session_id="s1",

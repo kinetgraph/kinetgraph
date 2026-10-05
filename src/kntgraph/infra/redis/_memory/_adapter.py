@@ -150,15 +150,24 @@ class ShortMemoryStorage(Protocol):
 
     # ----------------------------------------------------------- fold cursor (P4)
 
-    async def read_fold_cursor(self, key: str) -> str | None:
+    async def read_fold_cursor(
+        self, key: str
+    ) -> Result[str | None, MemoryError]:
         """Read the fold cursor stored at
         ``<key>:fold_cursor``.
 
         ADR-068 §3.4 P4: the cursor is the Redis Stream
         id of the last event consumed by the fold that
-        wrote the cache. Returns ``None`` on miss /
-        failure — the caller falls back to the cold
-        rebuild when the cursor is missing.
+        wrote the cache. Returns ``Ok(None)`` on a clean
+        miss; ``Err(MemoryError(...))`` on Redis-side
+        failure (per ADR-077: the Protocol documents the
+        failure surface, and ``asyncio.CancelledError``
+        propagates — the adapter does not catch it).
+
+        The caller falls back to the cold rebuild when
+        the cursor is missing (Ok(None) branch) or when
+        the transport is down (Err branch — the base
+        class propagates the Err up to its public API).
 
         Concrete impls choose the right Redis primitive
         (``GET`` for plain string keys — all three tiers

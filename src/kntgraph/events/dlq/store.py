@@ -44,6 +44,7 @@ from __future__ import annotations
 from typing import cast
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...infra.redis._dlq import (
@@ -145,11 +146,11 @@ class DeadLetterQueue:
                     dl_event.event.agent_id,
                     stream_id,
                 )
-            except Exception as e:  # noqa: BLE001  # pragma: no cover
+            except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:  # pragma: no cover
                 logger.warning(
                     "dlq.append.agent_index_failed",
                     event_id=event_id,
-                    error=str(e),
+                    error=str(exc),
                 )
 
         logger.warning(
