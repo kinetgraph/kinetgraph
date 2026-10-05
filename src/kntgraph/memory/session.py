@@ -634,14 +634,14 @@ def _build_session_state(
     tenant_id = _coerce_str(raw, "tenant_id")
     messages_raw = raw.get("messages") or []
     if not isinstance(messages_raw, list):
-        raise TypeError("messages is not a list")
+        raise ValueError("messages is not a list")
     messages: list[dict[str, JsonValue]] = []
     for entry in messages_raw:
         if isinstance(entry, dict):
             messages.append({str(k): v for k, v in entry.items()})
     context_raw = raw.get("context") or {}
     if not isinstance(context_raw, dict):
-        raise TypeError("context is not a dict")
+        raise ValueError("context is not a dict")
     context: dict[str, JsonValue] = {str(k): v for k, v in context_raw.items()}
     started_at = _coerce_float(raw.get("started_at"), default=0.0)
     ended_at_raw = raw.get("ended_at")
