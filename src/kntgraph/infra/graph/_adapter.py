@@ -40,7 +40,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from kntgraph.knowledge.graph._protocol import GraphError, GraphQueryResult
+# The framework's graph Protocol types (GraphAdapter,
+# GraphError, GraphQueryResult) are the framework's
+# canonical boundary. The vertical re-exports them for
+# back-compat; the adapter imports the canonical home.
+from kntgraph.infra.graph._protocol import (
+    GraphError,
+    GraphQueryResult,
+)
 
 if TYPE_CHECKING:
     from falkordb.asyncio.graph import AsyncGraph

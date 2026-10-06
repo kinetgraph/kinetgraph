@@ -66,7 +66,7 @@ import structlog
 from kntgraph.infra.graph._pool import (
     graph_name_for_tenant,
 )
-from kntgraph.knowledge.graph._protocol import (
+from kntgraph.infra.graph._protocol import (
     GraphAdapter,
     GraphError,
     GraphQueryResult,

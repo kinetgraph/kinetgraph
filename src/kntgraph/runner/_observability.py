@@ -29,7 +29,8 @@ import structlog
 
 if TYPE_CHECKING:
     from kntgraph.core.world.view import AgentView
-    from kntgraph.events.dlq.values import DeadLetterEvent
+
+    from ._dlq_protocol import DeadLetterEvent
 
 logger = structlog.get_logger()
 

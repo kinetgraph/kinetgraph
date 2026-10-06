@@ -111,7 +111,7 @@ from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.core.world.view import AgentView
 
 if TYPE_CHECKING:
-    from kntgraph.events.dlq.store import DeadLetterQueue
+    from ._dlq_protocol import DLQAdapter as DeadLetterQueue
 
 
 # The error string emitted on a TTL-expired request.
@@ -310,7 +310,7 @@ class ToolCallTTLSweeperSystem:
         here — that's ``WorkerManager``'s concern); callers
         that have richer info can override the reason.
         """
-        from kntgraph.events.dlq.values import (
+        from ._dlq_protocol import (
             DeadLetterEvent,
             DLQReason,
         )
@@ -319,6 +319,7 @@ class ToolCallTTLSweeperSystem:
             event=failed_event,
             reason=DLQReason.TOOL_STALE_UNACKNOWLEDGED,
             error_message=self._error_message,
+            retry_count=0,
             original_timestamp=failed_event.timestamp,
             dlq_timestamp=datetime.now(tz=UTC),
             metadata={"request_event_id": request_id, "agent_id": agent_id},

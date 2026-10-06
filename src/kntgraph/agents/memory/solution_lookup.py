@@ -53,9 +53,19 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from kntgraph.core.components.role import RoleComponent, has_tool_access
+
+# ``CachedSolution`` lives in the framework (the canonical
+# home is ``core.components.solution``). The vertical
+# re-exports it so existing callers
+# (``from kntgraph.agents.memory.solution_lookup import
+# CachedSolution``) keep working without import-path
+# changes; new code should import from the canonical home.
+from kntgraph.core.components.solution import (
+    CachedSolution,
+)
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
@@ -68,29 +78,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class CachedSolution:
-    """
-    The minimum payload the lookup system needs to
-    synthesize a ``tool.<name>.completed`` event.
-
-    Equivalent to a FalkorDB ``(:Action)-[:PRODUCED]->(:Outcome)``
-    edge plus the cached result body. Operators may
-    extend this with the full ``Outcome`` (latency_ms,
-    error_message, etc.) when wiring their own store.
-    """
-
-    tool_name: str
-    params_fingerprint: str
-    confidence: int
-    result: dict[str, Any]
-    # The EventLog ``event_id`` of the original
-    # ``tool.<name>.completed`` event whose payload
-    # this Solution captures. Used as the
-    # ``request_event_id`` join key for downstream
-    # consumers (the read-side Solution carries the
-    # original completion's event id, not a new one).
-    source_completion_event_id: str = ""
+# ``CachedSolution`` was relocated to
+# ``kntgraph.core.components.solution`` (the framework's
+# canonical home) so the Redis adapter at
+# ``infra/redis/_memory/_solution.py`` can import it
+# without crossing the framework→vertical boundary. The
+# symbol is re-exported above (``from
+# kntgraph.core.components.solution import CachedSolution``)
+# so existing callers do not need to update their imports.
 
 
 @runtime_checkable

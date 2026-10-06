@@ -81,7 +81,7 @@ from typing import Any
 
 import structlog
 
-from kntgraph.agents.memory.solution_lookup import CachedSolution
+from kntgraph.core.components.solution import CachedSolution
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._client import RedisLike
 from kntgraph.infra.redis._codec import decode_dict, decode_value

@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from kntgraph.knowledge.graph._protocol import GraphAdapter
+from kntgraph.infra.graph._protocol import GraphAdapter
 
 from ._adapter import FalkorDBGraphAdapter
 
