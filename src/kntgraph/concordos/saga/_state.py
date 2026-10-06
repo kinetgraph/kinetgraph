@@ -28,12 +28,13 @@ declared ``step_order`` and which steps carry a
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any
 
+from kntgraph.core._typing import JsonValue
+from kntgraph.core.clock import utcnow
 from kntgraph.core.event import Event
 from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.world import World
@@ -64,81 +65,168 @@ def _saga_event_types(config: SagaConfig) -> frozenset[str]:
     )
 
 
-def _init_state(config: SagaConfig) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class SagaState:
+    """The mutable accumulator inside the saga fold.
+
+    Per the same pattern as :class:`SessionFoldState` in
+    :mod:`kntgraph.core.world._fold_state`: replacing the
+    previous bare ``dict[str, Any]`` with a frozen
+    dataclass restores field-level types the audit
+    recommended. The fold's per-event handlers return
+    *new* :class:`SagaState` instances via :func:`dataclasses.replace`
+    (the dataclass is ``frozen``; the same wire shape
+    is preserved end-to-end).
+
+    Field semantics:
+
+    - ``saga_id`` — the event_id of the ``started`` event;
+      the saga's stable handle. Empty until the first
+      handler stamps it.
+    - ``saga_name`` — the saga's logical name (carried
+      from the config; constant for the fold's lifetime).
+    - ``current_step`` — the in-flight step name (empty
+      before the first ``step_started`` and during
+      compensation).
+    - ``direction`` — ``"forward"`` during normal execution,
+      ``"compensating"`` during rollback, ``"done"`` after
+      completion, ``"compensation_failed"`` after a
+      failed compensation (which routes the saga to the
+      DLQ).
+    - ``step_states`` — ``step_name -> step_state`` map
+      (``"in_flight"`` / ``"awaiting_approval"`` /
+      ``"completed"`` / ``"failed"`` /
+      ``"compensating_started"`` / ``"compensated"``).
+    - ``step_results`` — ``step_name -> result`` map
+      (step-specific opaque value; the projection does
+      not interpret it).
+    - ``compensate_stack`` — the stack of step names to
+      compensate, in reverse order; pushed on
+      ``step_failed``, popped on ``compensated``.
+    - ``started_at`` — the event timestamp of the
+      ``started`` event (used by the saga-deadline
+      timeout).
+    - ``awaiting_approval_at`` —
+      ``step_name -> timestamp`` map for human-step
+      stalls (the per-step approval timeout uses it).
+    """
+
+    saga_id: str = ""
+    saga_name: str = ""
+    current_step: str = ""
+    direction: str = "forward"
+    step_states: dict[str, str] = field(default_factory=dict)
+    step_results: dict[str, JsonValue] = field(default_factory=dict)
+    compensate_stack: list[str] = field(default_factory=list)
+    started_at: datetime | None = None
+    awaiting_approval_at: dict[str, datetime] = field(default_factory=dict)
+
+
+def _init_state(config: SagaConfig) -> SagaState:
     """Initialise the fold's mutable state from the config."""
-    return {
-        "saga_id": "",
-        "saga_name": config.name,
-        "current_step": "",
-        "direction": "forward",
-        "step_states": {},
-        "step_results": {},
-        "compensate_stack": [],
-        "started_at": None,
-        "awaiting_approval_at": {},
-    }
+    return SagaState(saga_name=config.name)
 
 
-def _on_started(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_started(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.started``: begin the saga in ``forward``."""
-    state["saga_id"] = str(e.data.get("saga_id", state["saga_id"]))
-    state["direction"] = "forward"
-    state["started_at"] = e.timestamp
+    return replace(
+        state,
+        saga_id=str(e.data.get("saga_id", state.saga_id)),
+        direction="forward",
+        started_at=e.timestamp,
+    )
     # The first step is not yet dispatched; the SagaSystem
     # dispatches it on the next tick. ``current_step`` stays
     # empty until ``step_started`` lands.
 
 
-def _on_step_started(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_step_started(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.step_started``: the named step is in flight."""
     step_name = str(e.data.get("step_name", ""))
-    if step_name:
-        state["current_step"] = step_name
-        state["step_states"][step_name] = "in_flight"
-        # A human step (``tool_name is None``) is not dispatched
-        # via a tool; it enters ``awaiting_approval``. Record the
-        # timestamp so the per-step approval timeout (ADR-069 §9.2
-        # item 3) can detect a stalled approval.
-        step_cfg = next((s for s in config.steps if s.name == step_name), None)
-        if step_cfg is not None and step_cfg.tool_name is None:
-            state["awaiting_approval_at"][step_name] = e.timestamp
+    if not step_name:
+        return state
+    new_step_states = dict(state.step_states)
+    new_step_states[step_name] = "in_flight"
+    new_awaiting = dict(state.awaiting_approval_at)
+    # A human step (``tool_name is None``) is not dispatched
+    # via a tool; it enters ``awaiting_approval``. Record the
+    # timestamp so the per-step approval timeout (ADR-069 §9.2
+    # item 3) can detect a stalled approval.
+    step_cfg = next((s for s in config.steps if s.name == step_name), None)
+    if step_cfg is not None and step_cfg.tool_name is None:
+        new_awaiting[step_name] = e.timestamp
+    return replace(
+        state,
+        current_step=step_name,
+        step_states=new_step_states,
+        awaiting_approval_at=new_awaiting,
+    )
 
 
-def _on_awaiting_approval(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_awaiting_approval(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.<step>.awaiting_approval``: a human step is
     waiting for external approval. Record the timestamp."""
     step_name = str(e.data.get("step_name", ""))
-    if step_name:
-        state["current_step"] = step_name
-        state["step_states"][step_name] = "awaiting_approval"
-        state["awaiting_approval_at"][step_name] = e.timestamp
+    if not step_name:
+        return state
+    new_step_states = dict(state.step_states)
+    new_step_states[step_name] = "awaiting_approval"
+    new_awaiting = dict(state.awaiting_approval_at)
+    new_awaiting[step_name] = e.timestamp
+    return replace(
+        state,
+        current_step=step_name,
+        step_states=new_step_states,
+        awaiting_approval_at=new_awaiting,
+    )
 
 
-def _on_step_completed(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_step_completed(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.step_completed``: carry the updated
     step_states / step_results (the saga system stamps them on
     the event)."""
-    _apply_step_snapshot(e, state)
+    return _apply_step_snapshot(e, state)
 
 
-def _on_step_failed(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_step_failed(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.step_failed``: carry the updated
     step_states / step_results."""
-    _apply_step_snapshot(e, state)
+    return _apply_step_snapshot(e, state)
 
 
-def _apply_step_snapshot(e: Event, state: dict[str, Any]) -> None:
+def _apply_step_snapshot(
+    e: Event, state: SagaState
+) -> SagaState:
     """Merge the ``step_states`` / ``step_results`` snapshots the
     saga system stamps on ``step_completed`` / ``step_failed``."""
     states = e.data.get("step_states")
-    if isinstance(states, Mapping):
-        state["step_states"] = dict(states)
+    new_step_states = (
+        dict(states) if isinstance(states, Mapping) else dict(state.step_states)
+    )
     results = e.data.get("step_results")
-    if isinstance(results, Mapping):
-        state["step_results"] = dict(results)
+    new_step_results = (
+        dict(results) if isinstance(results, Mapping) else dict(state.step_results)
+    )
+    return replace(
+        state,
+        step_states=new_step_states,
+        step_results=new_step_results,
+    )
 
 
-def _on_compensating(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_compensating(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.compensating``: the saga is rolling back.
 
     Marks the direction as compensating and seeds the
@@ -148,21 +236,22 @@ def _on_compensating(e: Event, state: dict[str, Any], config: SagaConfig) -> Non
     (ADR-069 §11.18.2) refine the stack on subsequent
     ticks.
     """
-    state["direction"] = "compensating"
-    # The compensate_stack is the set of steps that completed and
-    # carry a compensate_tool (config-derived), in LIFO order.
-    # Per-step events narrow this down.
-    state["compensate_stack"] = [
+    new_stack = [
         s.name
         for s in reversed(config.steps)
         if s.compensate_tool is not None
-        and state["step_states"].get(s.name) == "completed"
+        and state.step_states.get(s.name) == "completed"
     ]
+    return replace(
+        state,
+        direction="compensating",
+        compensate_stack=new_stack,
+    )
 
 
 def _on_compensation_started(
-    e: Event, state: dict[str, Any], config: SagaConfig
-) -> None:
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.<step>.compensation_started`` (ADR-069 §11.18.2):
     the saga dispatched the compensation tool for ``<step>``.
 
@@ -178,18 +267,25 @@ def _on_compensation_started(
     """
     step_name = str(e.data.get("step_name", ""))
     if not step_name:
-        return
+        return state
     # Add to the stack (LIFO order — most recent last).
-    stack = list(state["compensate_stack"])
+    stack = list(state.compensate_stack)
     if step_name not in stack:
         # Insert at the end (will be compensated first in
         # LIFO order; the saga system walks reversed()).
         stack.append(step_name)
-        state["compensate_stack"] = stack
-    state["step_states"][step_name] = "compensating_started"
+    new_step_states = dict(state.step_states)
+    new_step_states[step_name] = "compensating_started"
+    return replace(
+        state,
+        compensate_stack=stack,
+        step_states=new_step_states,
+    )
 
 
-def _on_compensated(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_compensated(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.<step>.compensated`` (ADR-069 §11.18.2):
     the compensation tool for ``<step>`` completed.
 
@@ -197,46 +293,68 @@ def _on_compensated(e: Event, state: dict[str, Any], config: SagaConfig) -> None
     """
     step_name = str(e.data.get("step_name", ""))
     if not step_name:
-        return
-    stack = list(state["compensate_stack"])
+        return state
+    stack = list(state.compensate_stack)
     if step_name in stack:
         stack.remove(step_name)
-        state["compensate_stack"] = stack
-    state["step_states"][step_name] = "compensated"
+    new_step_states = dict(state.step_states)
+    new_step_states[step_name] = "compensated"
+    return replace(
+        state,
+        compensate_stack=stack,
+        step_states=new_step_states,
+    )
 
 
-def _on_completed(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_completed(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.completed``: the saga finished forward."""
-    state["direction"] = "done"
+    return replace(state, direction="done")
 
 
-def _on_dlq(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_dlq(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.dlq``: compensation could not finish."""
-    state["direction"] = "compensation_failed"
     stuck = e.data.get("stuck_step")
-    if stuck:
-        state["current_step"] = str(stuck)
+    if not stuck:
+        return replace(state, direction="compensation_failed")
+    return replace(
+        state,
+        direction="compensation_failed",
+        current_step=str(stuck),
+    )
 
 
-def _on_timed_out(e: Event, state: dict[str, Any], config: SagaConfig) -> None:
+def _on_timed_out(
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.timed_out``: the saga exceeded its deadline."""
     stuck = e.data.get("stuck_at_step")
-    if stuck:
-        state["current_step"] = str(stuck)
+    if not stuck:
+        return state
+    return replace(state, current_step=str(stuck))
 
 
 def _on_compensation_failed(
-    e: Event, state: dict[str, Any], config: SagaConfig
-) -> None:
+    e: Event, state: SagaState, config: SagaConfig
+) -> SagaState:
     """``saga.<name>.compensation_failed``: a compensation tool
     failed; the saga routes to the DLQ."""
-    state["direction"] = "compensation_failed"
     stuck = e.data.get("stuck_step")
-    if stuck:
-        state["current_step"] = str(stuck)
+    if not stuck:
+        return replace(state, direction="compensation_failed")
+    return replace(
+        state,
+        direction="compensation_failed",
+        current_step=str(stuck),
+    )
 
 
-_HANDLERS: dict[str, Any] = {
+_HANDLERS: dict[
+    str, Callable[[Event, SagaState, SagaConfig], SagaState]
+] = {
     "started": _on_started,
     "step_started": _on_step_started,
     "step_completed": _on_step_completed,
@@ -262,14 +380,17 @@ def _fold_agent(
     """
     state = _init_state(config)
     if base is not None:
-        state["saga_id"] = base.saga_id
-        state["current_step"] = base.current_step
-        state["direction"] = base.direction
-        state["step_states"] = dict(base.step_states)
-        state["step_results"] = dict(base.step_results)
-        state["compensate_stack"] = list(base.compensate_stack)
-        state["started_at"] = base.started_at
-        state["awaiting_approval_at"] = dict(base.awaiting_approval_at)
+        state = SagaState(
+            saga_id=base.saga_id,
+            saga_name=state.saga_name,
+            current_step=base.current_step,
+            direction=base.direction,
+            step_states=dict(base.step_states),
+            step_results=dict(base.step_results),
+            compensate_stack=list(base.compensate_stack),
+            started_at=base.started_at,
+            awaiting_approval_at=dict(base.awaiting_approval_at),
+        )
 
     prefix = f"saga.{config.name}."
     saw_event = False
@@ -294,31 +415,36 @@ def _fold_agent(
             else:
                 continue
         saw_event = True
-        handler(e, state, config)
+        # Each handler returns a new SagaState via
+        # ``dataclasses.replace``; the fold body chains
+        # the results. The state is a frozen dataclass
+        # so the chain preserves the typed-field
+        # guarantee (the audit's recommendation P4).
+        state = handler(e, state, config)
 
     if not saw_event and base is None:
         return None
-    if not state["saga_id"]:
+    if not state.saga_id:
         return None
     return _build_component(config, state)
 
 
 def _build_component(
-    config: SagaConfig, state: dict[str, Any]
+    config: SagaConfig, state: SagaState
 ) -> SagaProgressComponent:
     """Materialise the ``SagaProgressComponent`` from the fold
     state."""
     return SagaProgressComponent(
-        saga_id=state["saga_id"],
+        saga_id=state.saga_id,
         saga_name=config.name,
-        current_step=state["current_step"],
-        direction=state["direction"],
+        current_step=state.current_step,
+        direction=state.direction,
         step_order=tuple(s.name for s in config.steps),
-        step_states=MappingProxyType(dict(state["step_states"])),
-        step_results=MappingProxyType(dict(state["step_results"])),
-        compensate_stack=tuple(state["compensate_stack"]),
-        started_at=state["started_at"] or datetime.min,
-        awaiting_approval_at=MappingProxyType(dict(state["awaiting_approval_at"])),
+        step_states=MappingProxyType(dict(state.step_states)),
+        step_results=MappingProxyType(dict(state.step_results)),
+        compensate_stack=tuple(state.compensate_stack),
+        started_at=state.started_at or utcnow(),
+        awaiting_approval_at=MappingProxyType(dict(state.awaiting_approval_at)),
     )
 
 
@@ -343,7 +469,7 @@ def reconcile_saga_progress(
         updated = _fold_agent(config, agent_events, base)
         if updated is None:
             continue
-        new_components: dict[Any, Any] = dict(view.components)
+        new_components = dict(view.components)
         new_components[SagaProgressComponent] = updated
         out[agent_id] = replace(view, components=new_components)
     return out

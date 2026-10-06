@@ -33,14 +33,22 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
 from uuid import uuid4
 
+from ...core._typing import JsonValue
 from ...core.event import Event
 from ...infra.redis._codec import decode_value
 
+# Redis Stream entries have key types that depend on the
+# client's ``decode_responses`` setting:
+#   - ``decode_responses=True``  -> ``str`` keys
+#   - ``decode_responses=False`` -> ``bytes`` keys
+# The codec accepts both; the runtime ``isinstance`` check
+# below makes the dispatch type-safe.
+MdataKey = str | bytes
 
-def event_to_redis(event: Event) -> dict[str, Any]:
+
+def event_to_redis(event: Event) -> dict[str, JsonValue]:
     """
     Serialize an Event as a Redis Stream entry. All values are
     strings; structured values (data, correlation) are JSON-encoded.
@@ -59,7 +67,7 @@ def event_to_redis(event: Event) -> dict[str, Any]:
     bytes to confirm authenticity.
     """
     cid = event.causation_id or event.correlation.causation_id
-    payload: dict[str, Any] = {
+    payload: dict[str, JsonValue] = {
         "event_id": str(event.event_id),
         "agent_id": event.agent_id,
         "event_type": event.event_type,
@@ -87,7 +95,9 @@ def event_to_redis(event: Event) -> dict[str, Any]:
     return payload
 
 
-def parse_event(_stream_id: bytes, mdata: dict) -> Event:
+def parse_event(
+    _stream_id: bytes, mdata: dict[MdataKey, JsonValue]
+) -> Event:
     """
     Inverse of `event_to_redis`. Reads from a Redis Stream entry
     (bytes) and reconstructs an Event.
@@ -103,28 +113,46 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
     when absent or empty, ``signature=None`` is passed.
     """
 
-    def s(key: bytes, default: str = "") -> str:
+    def s(key: MdataKey, default: str = "") -> str:
         v = mdata.get(key)
         if v is None:
-            v = mdata.get(key.decode("utf-8"), default)
+            # Fallback: try the alternate key shape (bytes
+            # or str). The codec supports both Redis client
+            # configurations.
+            alt_key = key.decode("utf-8") if isinstance(key, bytes) else key.encode()
+            v = mdata.get(alt_key, default)
+        if not isinstance(v, (str, bytes)):
+            return default
         decoded = decode_value(v)
         return decoded if decoded is not None else default
 
-    corr_json = s(b"correlation", "")
+    def k(name: str) -> MdataKey:
+        return name.encode()
+
+    corr_json = s(k("correlation"), "")
     if corr_json:
         try:
             correlation_dict = json.loads(corr_json)
-        except Exception:
+        except Exception:  # noqa: BLE001
+            # The wire format stores the correlation
+            # context as a JSON-encoded string. A malformed
+            # value is treated as an empty correlation
+            # context (downstream ``Event.from_dict``
+            # synthesises a default from the individual
+            # fields). The codec's contract is lenient on
+            # what it accepts: corrupt wire data must not
+            # crash the EventLog append path; the rest of
+            # the decode carries the typed fields.
             correlation_dict = {}
     else:
         correlation_dict = {
-            "correlation_id": s(b"correlation_id"),
-            "causation_id": s(b"causation_id"),
-            "span_id": s(b"span_id"),
-            "metadata": json.loads(s(b"metadata", "{}")),
+            "correlation_id": s(k("correlation_id")),
+            "causation_id": s(k("causation_id")),
+            "span_id": s(k("span_id")),
+            "metadata": json.loads(s(k("metadata"), "{}")),
         }
-    sig_raw = s(b"signature", "")
-    sig_obj: dict[str, Any] | None = None
+    sig_raw = s(k("signature"), "")
+    sig_obj: dict[str, JsonValue] | None = None
     if sig_raw:
         try:
             sig_obj = json.loads(sig_raw)
@@ -133,8 +161,8 @@ def parse_event(_stream_id: bytes, mdata: dict) -> Event:
             # so downstream verify_event sees signature=None
             # and returns False (defensive default).
             sig_obj = None
-    event_id_str = s(b"event_id") or str(uuid4())
-    timestamp_str = s(b"timestamp") or datetime.now(UTC).isoformat()
+    event_id_str = s(k("event_id")) or str(uuid4())
+    timestamp_str = s(k("timestamp")) or datetime.now(UTC).isoformat()
     return Event.from_dict(
         {
             "event_id": event_id_str,
