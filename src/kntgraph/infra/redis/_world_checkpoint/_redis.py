@@ -20,6 +20,7 @@ from kntgraph.core.result import Err, Ok, Result
 from .._client import RedisLike
 from .._errors import MemoryError
 from .._prefix import namespaced, validate_prefix
+from .._translation import translate_redis_call
 
 logger = structlog.get_logger()
 
@@ -80,16 +81,21 @@ class RedisWorldCheckpointStorage:
         return cursor_key(self.key_prefix, agent_id)
 
     async def load(self, agent_id: str) -> Result[bytes | None, MemoryError]:
-        """Load the pickled checkpoint payload (or None on miss)."""
-        try:
-            raw = await self.client.get(self.storage_key(agent_id))
-        except Exception as e:
-            logger.warning(
-                "world_checkpoint_storage.load.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """Load the pickled checkpoint payload (or None on miss).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.get(self.storage_key(agent_id)),
+            op_name="world_checkpoint_storage.load",
+            error_cls=MemoryError,
+            key=self.storage_key(agent_id),
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
             return Ok(None)
         if isinstance(raw, (bytes, bytearray)):
@@ -103,16 +109,20 @@ class RedisWorldCheckpointStorage:
         small key first and only escalate to the full
         ``load`` (pickled World) when there is actually new
         work past the cursor.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            raw = await self.client.get(self.cursor_key(agent_id))
-        except Exception as e:
-            logger.warning(
-                "world_checkpoint_storage.load_cursor.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        result = await translate_redis_call(
+            self.client.get(self.cursor_key(agent_id)),
+            op_name="world_checkpoint_storage.load_cursor",
+            error_cls=MemoryError,
+            key=self.cursor_key(agent_id),
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
             return Ok(None)
         if isinstance(raw, (bytes, bytearray)):
@@ -133,42 +143,59 @@ class RedisWorldCheckpointStorage:
         written in the same call so the two never disagree
         (the cursor is derived from the payload's
         ``last_stream_id`` at the facade level).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            if cursor is not None:
-                cursor_payload: bytes = cursor.encode("utf-8")
+        if cursor is not None:
+            cursor_payload: bytes = cursor.encode("utf-8")
+
+            async def _run_pipeline() -> None:
                 pipe = self.client.pipeline(transaction=True)
                 pipe.set(self.storage_key(agent_id), payload, ex=ttl_seconds)
                 pipe.set(self.cursor_key(agent_id), cursor_payload, ex=ttl_seconds)
                 await pipe.execute()
-            else:
-                await self.client.set(
-                    self.storage_key(agent_id), payload, ex=ttl_seconds
-                )
-        except Exception as e:
-            logger.warning(
-                "world_checkpoint_storage.save.redis_error",
+
+            result = await translate_redis_call(
+                _run_pipeline(),
+                op_name="world_checkpoint_storage.save",
+                error_cls=MemoryError,
+                key=self.storage_key(agent_id),
                 agent_id=agent_id,
-                error=str(e),
             )
-            return Err(MemoryError(f"redis error: {e}"))
+        else:
+            result = await translate_redis_call(
+                self.client.set(
+                    self.storage_key(agent_id), payload, ex=ttl_seconds
+                ),
+                op_name="world_checkpoint_storage.save",
+                error_cls=MemoryError,
+                key=self.storage_key(agent_id),
+                agent_id=agent_id,
+            )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def discard(self, agent_id: str) -> Result[None, MemoryError]:
         """Drop the checkpoint. Idempotent: the companion
         cursor key goes with it (UNLINK is a no-op for a
-        missing key)."""
-        try:
-            await self.client.unlink(
+        missing key).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.unlink(
                 self.storage_key(agent_id), self.cursor_key(agent_id)
-            )
-        except Exception as e:
-            logger.warning(
-                "world_checkpoint_storage.discard.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+            ),
+            op_name="world_checkpoint_storage.discard",
+            error_cls=MemoryError,
+            key=self.storage_key(agent_id),
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     # ------------------------------------------------------------------
@@ -199,16 +226,24 @@ class RedisWorldCheckpointStorage:
         than ``XLEN`` directly so the storage stays within the
         typed Redis Protocol — adapters like ``fakeredis`` that
         implement ``RedisLike`` but omit ``XLEN`` still work.
+
+        Per ADR-077: the catch is fail-open
+        (``translate_redis_call_fall_back``); a transport
+        failure returns ``0`` (the dispatcher's
+        ``stuck_in_queue`` query treats ``0`` as "no stuck
+        this tick" and reruns next tick). The catch list
+        is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call_fall_back`.
         """
-        try:
-            info = await self.client.xinfo_stream(stream_key)
-        except Exception as e:
-            # Missing stream → no work, no stuck.
-            logger.debug(
-                "world_checkpoint_storage.queue_length.miss_or_error",
-                stream_key=stream_key,
-                error=str(e),
-            )
+        from .._translation import translate_redis_call_fall_back
+
+        info = await translate_redis_call_fall_back(
+            self.client.xinfo_stream(stream_key),
+            op_name="world_checkpoint_storage.queue_length",
+            fallback={},
+            key=stream_key,
+        )
+        if not info:
             return 0
         length = info.get("length") if isinstance(info, dict) else None
         try:
@@ -234,24 +269,25 @@ class RedisWorldCheckpointStorage:
         expanding the Protocol — full enumeration would be
         wasteful for the dispatcher's binary stuck/unstuck
         decision.
+
+        Per ADR-077: the catch is fail-open (same as
+        :meth:`queue_length`).
         """
-        try:
-            entries = await self.client.xpending_range(
+        from .._translation import translate_redis_call_fall_back
+
+        entries = await translate_redis_call_fall_back(
+            self.client.xpending_range(
                 name=stream_key,
                 groupname=self._tool_group_name,
                 min="-",
                 max="+",
                 count=1,
-            )
-        except Exception as e:
-            # Missing stream / missing group → no PEL.
-            logger.debug(
-                "world_checkpoint_storage.pending_count.miss_or_error",
-                stream_key=stream_key,
-                group_name=self._tool_group_name,
-                error=str(e),
-            )
-            return 0
+            ),
+            op_name="world_checkpoint_storage.pending_count",
+            fallback=[],
+            key=stream_key,
+            group_name=self._tool_group_name,
+        )
         return 1 if entries else 0
 
 

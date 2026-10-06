@@ -20,6 +20,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis import exceptions as redis_exceptions
 
 pytestmark = pytest.mark.asyncio
 
@@ -108,7 +109,7 @@ class TestRedisCheckpointStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hget = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.hget = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisCheckpointStorage(client=redis)
         result = await storage.load("agent-1")
         assert result.is_err()
@@ -136,7 +137,7 @@ class TestRedisCheckpointStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hset = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.hset = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisCheckpointStorage(client=redis)
         result = await storage.save("agent-1", SAMPLE_PAYLOAD)
         assert result.is_err()
@@ -197,7 +198,7 @@ class TestRedisCheckpointStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hdel = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.hdel = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisCheckpointStorage(client=redis)
         result = await storage.clear("agent-1")
         assert result.is_err()
@@ -220,7 +221,7 @@ class TestRedisCheckpointStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.delete = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisCheckpointStorage(client=redis)
         result = await storage.clear_all()
         assert result.is_err()

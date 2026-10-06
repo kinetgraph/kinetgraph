@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from kntgraph.infra.config import Settings, fresh_settings
 
@@ -108,11 +109,24 @@ class RedisPool:
         return self._key_prefix
 
     async def aclose(self) -> None:
-        """Close all connections in the pool. Idempotent."""
+        """Close all connections in the pool. Idempotent.
+
+        Per ADR-077: the catch is narrow
+        (``redis_exceptions.RedisError, ConnectionError,
+        TimeoutError, OSError``); ``asyncio.CancelledError``
+        propagates. ``aclose`` is best-effort (the
+        process is shutting down); a transport error
+        is logged at ``warning`` but does not raise.
+        """
         try:
             await self._client.aclose()
-        except Exception as e:  # pragma: no cover
-            logger.warning("redis_pool.aclose.failed", error=str(e))
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:  # pragma: no cover
+            logger.warning("redis_pool.aclose.failed", error=str(exc))
 
 
 def create_redis_pool(settings: Settings | None = None) -> RedisPool:

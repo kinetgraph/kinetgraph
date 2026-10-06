@@ -19,6 +19,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from redis import exceptions as redis_exceptions
 
 pytestmark = pytest.mark.asyncio
 
@@ -90,7 +91,7 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.xadd = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.xadd = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisDLQStorage(client=redis)
         result = await storage.append("dlq:abc:timeout", SAMPLE_PAYLOAD)
         assert result.is_err()
@@ -126,7 +127,7 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.xrange = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.xrange = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisDLQStorage(client=redis)
         result = await storage.read("1-0")
         assert result.is_err()
@@ -147,7 +148,7 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hget = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.hget = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisDLQStorage(client=redis)
         result = await storage.list_for_agent("agent-1")
         assert result.is_err()
@@ -158,7 +159,7 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hscan_iter = MagicMock(side_effect=RuntimeError("redis down"))
+        redis.hscan_iter = MagicMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisDLQStorage(client=redis)
         result = await storage.find_by_event_id("abc")
         assert result.is_err()
@@ -169,7 +170,7 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.delete = AsyncMock(side_effect=RuntimeError("redis down"))
+        redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
         storage = RedisDLQStorage(client=redis)
         result = await storage.purge()
         assert result.is_err()
@@ -489,10 +490,11 @@ class TestGetStatsMissingStream:
 
     async def test_get_stats_returns_zero_when_stream_missing(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))
+        redis.xinfo_stream = AsyncMock(
+            side_effect=redis_exceptions.ConnectionError("no such key")
+        )
         storage = RedisDLQStorage(client=redis)
         result = await storage.get_stats()
         assert result.is_ok()
@@ -515,10 +517,11 @@ class TestPurgeMissingStream:
 
     async def test_purge_returns_zero_when_stream_missing(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.xinfo_stream = AsyncMock(side_effect=MemoryError("no such key"))
+        redis.xinfo_stream = AsyncMock(
+            side_effect=redis_exceptions.ConnectionError("no such key")
+        )
         storage = RedisDLQStorage(client=redis)
         result = await storage.purge()
         assert result.is_ok()

@@ -47,6 +47,7 @@ from .._client import RedisLike, safe_xrange
 from .._codec import decode_dict, decode_value
 from .._errors import MemoryError
 from .._prefix import namespaced
+from .._translation import translate_redis_call
 
 logger = structlog.get_logger()
 
@@ -172,7 +173,18 @@ class RedisDLQStorage:
 
             await self.client.hset(self._k(DLQ_EVENT_INDEX), idem_key, stream_id)
             return Ok(stream_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
+            # The body above issues 4 sequential Redis calls
+            # (hget / xadd / hsetnx / hset) and is not easily
+            # extracted to a single ``await`` for the
+            # translate helper. The catch is left as a wide
+            # ``except Exception`` (deferred to a future
+            # refactor that splits ``append`` into
+            # ``_check_existing`` / ``_xadd`` / ``_claim_placeholder`` /
+            # ``_finalise_id`` per-step helpers, each of which
+            # would route through ``translate_redis_call``).
+            # Tracked in DEBT §2.39 as the "DLQ append 3-step
+            # split" follow-up.
             logger.warning(
                 "dlq_storage.append.redis_error",
                 idem_key=idem_key,
@@ -183,18 +195,23 @@ class RedisDLQStorage:
     async def read(
         self, stream_id: str
     ) -> Result[Mapping[str, str] | None, MemoryError]:
-        """Read a single DLQ entry by stream id."""
-        try:
-            messages = await safe_xrange(
+        """Read a single DLQ entry by stream id.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            safe_xrange(
                 self.client, self._k(DLQ_STREAM_KEY), min=stream_id, max=stream_id
-            )
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.read.redis_error",
-                stream_id=stream_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+            ),
+            op_name="dlq_storage.read",
+            error_cls=MemoryError,
+            key=self._k(DLQ_STREAM_KEY),
+            stream_id=stream_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        messages = result.ok_value()
         if not messages:
             return Ok(None)
         _, m = messages[0]
@@ -203,17 +220,21 @@ class RedisDLQStorage:
     async def list_for_agent(
         self, agent_id: str, count: int = 100
     ) -> Result[list[Mapping[str, str]], MemoryError]:
-        """List DLQ entries for one agent (forward-scan from head)."""
-        try:
-            raw = await self.client.hget(self._k(DLQ_AGENT_INDEX), agent_id)
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.list_for_agent.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
-        head = decode_value(raw)
+        """List DLQ entries for one agent (forward-scan from head).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.hget(self._k(DLQ_AGENT_INDEX), agent_id),
+            op_name="dlq_storage.list_for_agent",
+            error_cls=MemoryError,
+            key=self._k(DLQ_AGENT_INDEX),
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        head = decode_value(result.ok_value())
         if head is None:
             return Ok([])
         return await self._scan_from(head, count)
@@ -233,111 +254,179 @@ class RedisDLQStorage:
     async def list_all(
         self, count: int = 100
     ) -> Result[list[Mapping[str, str]], MemoryError]:
-        """List DLQ entries (full scan)."""
-        try:
-            messages = await safe_xrange(
+        """List DLQ entries (full scan).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            safe_xrange(
                 self.client, self._k(DLQ_STREAM_KEY), min="-", max="+", count=count
-            )
-        except Exception as e:
-            logger.warning("dlq_storage.list_all.redis_error", error=str(e))
-            return Err(MemoryError(f"redis error: {e}"))
+            ),
+            op_name="dlq_storage.list_all",
+            error_cls=MemoryError,
+            key=self._k(DLQ_STREAM_KEY),
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        messages = result.ok_value() or []
         return Ok([decode_dict(m) for _, m in messages])
 
     async def read_index(
         self, event_id: str, reason: str
     ) -> Result[str | None, MemoryError]:
-        """Look up the stream id for ``(event_id, reason)``."""
-        try:
-            raw = await self.client.hget(
+        """Look up the stream id for ``(event_id, reason)``.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.hget(
                 self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)
-            )
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.read_index.redis_error",
-                event_id=event_id,
-                reason=reason,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
-        return Ok(decode_value(raw))
+            ),
+            op_name="dlq_storage.read_index",
+            error_cls=MemoryError,
+            key=self._k(DLQ_EVENT_INDEX),
+            event_id=event_id,
+            reason=reason,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        return Ok(decode_value(result.ok_value()))
 
     async def find_by_event_id(self, event_id: str) -> Result[str | None, MemoryError]:
         """Find the first stream id for ``event_id`` across all reasons.
 
         Scans ``<event_id>:*`` keys of the per-event_id index.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        A Redis transport failure surfaces as
+        ``Err(MemoryError(...))`` — the caller is the DLQ
+        facade which already handles the Err and surfaces
+        it through the public ``Result`` channel.
         """
-        try:
+        async def _scan() -> str | None:
             async for _, stream_id in self.client.hscan_iter(
                 self._k(DLQ_EVENT_INDEX), match=f"{event_id}:*"
             ):
                 decoded = decode_value(stream_id)
                 if decoded is None or decoded == PLACEHOLDER:
                     continue
-                return Ok(decoded)
-            return Ok(None)
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.find_by_event_id.redis_error",
-                event_id=event_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+                return decoded
+            return None
+
+        result = await translate_redis_call(
+            _scan(),
+            op_name="dlq_storage.find_by_event_id",
+            error_cls=MemoryError,
+            key=self._k(DLQ_EVENT_INDEX),
+            event_id=event_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        return Ok(result.ok_value())
 
     async def bump_reason_counter(
         self, reason: str, delta: int
     ) -> Result[None, MemoryError]:
-        """HINCRBY the per-reason counter by ``delta``."""
-        try:
-            await self.client.hincrby(self._k(DLQ_REASON_INDEX), reason, delta)
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.bump_reason_counter.redis_error",
-                reason=reason,
-                delta=delta,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """HINCRBY the per-reason counter by ``delta``.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.hincrby(self._k(DLQ_REASON_INDEX), reason, delta),
+            op_name="dlq_storage.bump_reason_counter",
+            error_cls=MemoryError,
+            key=self._k(DLQ_REASON_INDEX),
+            reason=reason,
+            delta=delta,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def get_stats(self) -> Result[dict, MemoryError]:
-        """Aggregate stats: total events, unique agents, by-reason."""
-        try:
-            length = 0
+        """Aggregate stats: total events, unique agents, by-reason.
+
+        The inner ``XINFO STREAM`` call is a fail-soft
+        catch (``XINFO`` raises on a missing stream —
+        treat that as 0 entries). The outer wrap is
+        :func:`translate_redis_call` per ADR-077.
+        """
+        from .._translation import translate_redis_call_fall_back
+
+        async def _read_length() -> int:
+            info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
+            if not isinstance(info, dict):
+                return 0
             try:
-                info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
-                length = int(info.get("length", 0))
-            except Exception:
-                # XINFO raises when the stream does not exist;
-                # treat that as 0 entries.
-                length = 0
+                return int(info.get("length", 0))
+            except (TypeError, ValueError):
+                return 0
+
+        length = await translate_redis_call_fall_back(
+            _read_length(),
+            op_name="dlq_storage.get_stats.length",
+            fallback=0,
+            key=self._k(DLQ_STREAM_KEY),
+        )
+
+        async def _read_reasons_and_agents() -> dict:
             reasons_raw = await self.client.hgetall(self._k(DLQ_REASON_INDEX))
             reasons = _decode_int_dict(reasons_raw)
             agents_count = await self.client.hlen(self._k(DLQ_AGENT_INDEX))
-            return Ok(
-                {
-                    "total_events": length,
-                    "unique_agents": agents_count,
-                    "by_reason": reasons,
-                }
-            )
-        except Exception as e:
-            logger.warning("dlq_storage.get_stats.redis_error", error=str(e))
-            return Err(MemoryError(f"redis error: {e}"))
+            return {
+                "total_events": length,
+                "unique_agents": agents_count,
+                "by_reason": reasons,
+            }
+
+        result = await translate_redis_call(
+            _read_reasons_and_agents(),
+            op_name="dlq_storage.get_stats",
+            error_cls=MemoryError,
+            key=self._k(DLQ_REASON_INDEX),
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        return Ok(result.ok_value() or {})
 
     async def purge(self) -> Result[int, MemoryError]:
-        """Wipe all 4 DLQ keys. Returns the number of entries purged."""
-        try:
-            length = 0
+        """Wipe all 4 DLQ keys. Returns the number of entries purged.
+
+        The inner ``XINFO STREAM`` is a fail-soft catch
+        (XINFO raises on a missing stream — treat as 0).
+        The outer wrap is
+        :func:`translate_redis_call` per ADR-077.
+        """
+        from .._translation import translate_redis_call_fall_back
+
+        async def _read_length() -> int:
+            info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
+            if not isinstance(info, dict):
+                return 0
             try:
-                info = await self.client.xinfo_stream(self._k(DLQ_STREAM_KEY))
-                length = int(info.get("length", 0))
-            except Exception:
-                length = 0
-            await self.client.delete(*self._all_keys())
-            return Ok(length)
-        except Exception as e:
-            logger.warning("dlq_storage.purge.redis_error", error=str(e))
-            return Err(MemoryError(f"redis error: {e}"))
+                return int(info.get("length", 0))
+            except (TypeError, ValueError):
+                return 0
+
+        length = await translate_redis_call_fall_back(
+            _read_length(),
+            op_name="dlq_storage.purge.length",
+            fallback=0,
+            key=self._k(DLQ_STREAM_KEY),
+        )
+        result = await translate_redis_call(
+            self.client.delete(*self._all_keys()),
+            op_name="dlq_storage.purge",
+            error_cls=MemoryError,
+            key="<dlq-all-keys>",
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        return Ok(length)
 
     async def drop_entry(
         self,
@@ -351,42 +440,53 @@ class RedisDLQStorage:
         in-flight marker from a concurrent claim). The
         caller passes the stream_id (looked up via
         ``read_index``) so we avoid a second HGET.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
+        async def _do_drop() -> None:
             if stream_id and stream_id != PLACEHOLDER:
                 await self.client.xdel(self._k(DLQ_STREAM_KEY), stream_id)
             await self.client.hdel(
                 self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)
             )
-            return Ok(None)
-        except Exception as e:
-            logger.warning(
-                "dlq_storage.drop_entry.redis_error",
-                event_id=event_id,
-                reason=reason,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+
+        result = await translate_redis_call(
+            _do_drop(),
+            op_name="dlq_storage.drop_entry",
+            error_cls=MemoryError,
+            key=self._k(DLQ_EVENT_INDEX),
+            event_id=event_id,
+            reason=reason,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        return Ok(None)
 
     async def _scan_from(
         self, head_stream_id: str, count: int
     ) -> Result[list[Mapping[str, str]], MemoryError]:
-        """Forward-scan the stream from a given head."""
-        try:
-            messages = await safe_xrange(
+        """Forward-scan the stream from a given head.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            safe_xrange(
                 self.client,
                 self._k(DLQ_STREAM_KEY),
                 min=head_stream_id,
                 max="+",
                 count=count,
-            )
-        except Exception as e:
-            logger.warning(
-                "dlq_storage._scan_from.redis_error",
-                head=head_stream_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+            ),
+            op_name="dlq_storage._scan_from",
+            error_cls=MemoryError,
+            key=self._k(DLQ_STREAM_KEY),
+            head=head_stream_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        messages = result.ok_value() or []
         return Ok([decode_dict(m) for _, m in messages])
 
 
