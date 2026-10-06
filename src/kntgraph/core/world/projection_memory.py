@@ -57,6 +57,11 @@ from ..components.memory import (
     SessionComponent,
 )
 from ..event import Event
+from ._fold_state import (
+    ContinuityFoldState,
+    ProfileFoldState,
+    SessionFoldState,
+)
 from .view import AgentView
 
 SESSION_STARTED = "session.started"
@@ -101,23 +106,29 @@ def _fold_session(
     for e in events:
         handler = _SESSION_HANDLERS.get(e.event_type)
         if handler is not None:
-            handler(e, state)
+            state = handler(e, state)
 
-    if state["started_at"] == 0.0:
+    if state.started_at == 0.0:
         return None
 
-    state["intent_event_id"] = _compute_intent_event_id(events, state)
+    state = replace(state, intent_event_id=_compute_intent_event_id(events, state))
     return _build_session_component(agent_id, state)
 
 
 def _init_session_state(
     base_session: SessionComponent | None,
-) -> dict[str, Any]:
+) -> SessionFoldState:
     """Initialise the fold's mutable state from the
     base component (or from scratch when no base is
-    given). The state is a dict (not a dataclass) so
-    the per-event handlers can mutate fields without
-    rebuilding the state object every step.
+    given).
+
+    Per Audit Prioridade 4: the previous bare
+    ``dict[str, Any]`` lost the field-level types; the
+    fold now uses :class:`SessionFoldState` so the
+    per-event handler signatures carry typed fields.
+    Each handler returns a new
+    :class:`SessionFoldState` (the fold is a chain
+    of ``replace`` calls).
 
     The ``session_id`` field is captured from the
     ``session.started`` event payload (DEBT §2.33
@@ -126,29 +137,22 @@ def _init_session_state(
     is empty.
     """
     if base_session is None:
-        return {
-            "session_id": "",
-            "messages": [],
-            "context": {},
-            "started_at": 0.0,
-            "ended_at": None,
-            "user_id": "",
-            "tenant_id": "",
-            "intent_event_id": None,
-        }
-    return {
-        "session_id": base_session.session_id,
-        "messages": list(base_session.messages),
-        "context": dict(base_session.context),
-        "started_at": base_session.started_at,
-        "ended_at": base_session.ended_at,
-        "user_id": base_session.user_id,
-        "tenant_id": base_session.tenant_id,
-        "intent_event_id": base_session.intent_event_id,
-    }
+        return SessionFoldState()
+    return SessionFoldState(
+        session_id=base_session.session_id,
+        messages=list(base_session.messages),
+        context=dict(base_session.context),
+        started_at=base_session.started_at,
+        ended_at=base_session.ended_at,
+        user_id=base_session.user_id,
+        tenant_id=base_session.tenant_id,
+        intent_event_id=base_session.intent_event_id,
+    )
 
 
-def _on_session_started(e: Event, state: dict[str, Any]) -> None:
+def _on_session_started(
+    e: Event, state: SessionFoldState
+) -> SessionFoldState:
     """``session.started`` handler: stamp the start
     time and capture the identity fields. ``user_id``
     / ``tenant_id`` / ``session_id`` default to the
@@ -158,45 +162,59 @@ def _on_session_started(e: Event, state: dict[str, Any]) -> None:
 
     ``session_id`` (DEBT §2.33 fix) is captured from
     ``e.data["session_id"]``; ``_build_session_component``
-    falls back to the ``agent_id`` derivation when
-    the state is empty.
+    falls back to the ``agent_id`` derivation when the
+    state is empty.
     """
-    state["started_at"] = e.timestamp.timestamp()
-    state["user_id"] = str(e.data.get("user_id", state["user_id"]))
-    state["tenant_id"] = str(e.data.get("tenant_id", state["tenant_id"]))
-    state["session_id"] = str(e.data.get("session_id", state["session_id"]))
+    return replace(
+        state,
+        started_at=e.timestamp.timestamp(),
+        user_id=str(e.data.get("user_id", state.user_id)),
+        tenant_id=str(e.data.get("tenant_id", state.tenant_id)),
+        session_id=str(e.data.get("session_id", state.session_id)),
+    )
 
 
-def _on_session_message(e: Event, state: dict[str, Any]) -> None:
+def _on_session_message(
+    e: Event, state: SessionFoldState
+) -> SessionFoldState:
     """``session.message`` handler: append a single
     message. ``role`` defaults to ``"user"`` when the
     event payload omits it (the fold is permissive on
     the wire format; the canonical enforcer is upstream
     in the recorder)."""
-    state["messages"].append(
+    new_messages = list(state.messages)
+    new_messages.append(
         {
             "role": e.data.get("role", "user"),
             "content": e.data.get("content", ""),
         }
     )
+    return replace(state, messages=new_messages)
 
 
-def _on_session_context(e: Event, state: dict[str, Any]) -> None:
+def _on_session_context(
+    e: Event, state: SessionFoldState
+) -> SessionFoldState:
     """``session.context`` handler: write a key/value
     pair. Empty keys are dropped (the Redis schema
     disallows them; a defensive guard here keeps the
     fold idempotent)."""
     key = str(e.data.get("key", ""))
-    if key:
-        state["context"][key] = str(e.data.get("value", ""))
+    if not key:
+        return state
+    new_context = dict(state.context)
+    new_context[key] = str(e.data.get("value", ""))
+    return replace(state, context=new_context)
 
 
-def _on_session_ended(e: Event, state: dict[str, Any]) -> None:
+def _on_session_ended(
+    e: Event, state: SessionFoldState
+) -> SessionFoldState:
     """``session.ended`` handler: stamp the end time."""
-    state["ended_at"] = e.timestamp.timestamp()
+    return replace(state, ended_at=e.timestamp.timestamp())
 
 
-_SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
+_SESSION_HANDLERS: dict[str, Callable[[Event, SessionFoldState], SessionFoldState]] = {
     SESSION_STARTED: _on_session_started,
     SESSION_MESSAGE: _on_session_message,
     SESSION_CONTEXT: _on_session_context,
@@ -206,7 +224,7 @@ _SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
 
 def _compute_intent_event_id(
     events: Sequence[Event],
-    state: dict[str, Any],
+    state: SessionFoldState,
 ) -> str | None:
     """The ``intent_event_id`` is the event_id of the
     last domain event in the batch, EXCLUDING
@@ -214,7 +232,7 @@ def _compute_intent_event_id(
     (bookkeeping) and ``tool.*`` (worker round-trips).
     If the batch had no domain event, keep the base
     value (we are still reacting to the same intent)."""
-    last_intent: str | None = state["intent_event_id"]
+    last_intent: str | None = state.intent_event_id
     for e in events:
         if e.event_class != "domain":
             continue
@@ -224,7 +242,9 @@ def _compute_intent_event_id(
     return last_intent
 
 
-def _build_session_component(agent_id: str, state: dict[str, Any]) -> SessionComponent:
+def _build_session_component(
+    agent_id: str, state: SessionFoldState
+) -> SessionComponent:
     """Materialise the ``SessionComponent`` from the
     fold state.
 
@@ -238,9 +258,8 @@ def _build_session_component(agent_id: str, state: dict[str, Any]) -> SessionCom
     ``session:<id>`` is the agent namespace and the
     bare id is the session id).
     """
-    wire_session_id = state["session_id"]
-    if wire_session_id:
-        session_id = wire_session_id
+    if state.session_id:
+        session_id = state.session_id
     else:
         session_id = (
             agent_id.removeprefix("session:")
@@ -249,13 +268,13 @@ def _build_session_component(agent_id: str, state: dict[str, Any]) -> SessionCom
         )
     return SessionComponent(
         session_id=session_id,
-        user_id=state["user_id"],
-        tenant_id=state["tenant_id"],
-        messages=tuple(state["messages"]),
-        context=state["context"],
-        started_at=state["started_at"],
-        ended_at=state["ended_at"],
-        intent_event_id=state["intent_event_id"],
+        user_id=state.user_id,
+        tenant_id=state.tenant_id,
+        messages=tuple(state.messages),
+        context=state.context,
+        started_at=state.started_at,
+        ended_at=state.ended_at,
+        intent_event_id=state.intent_event_id,
     )
 
 
@@ -290,123 +309,150 @@ def _fold_profile(
     """
     state = _init_profile_state(base_profile)
 
-    saw_profile_event = _apply_profile_handlers(events, state)
+    saw_profile_event, state = _apply_profile_handlers(events, state)
 
     # Materialisation gate (ADR-067): the component exists
     # when the batch carried ANY ``profile.*`` event, or when
     # the base component was already materialised (a previous
     # batch created it; this batch may carry no profile event
     # at all and the state must survive).
-    if not saw_profile_event and state["created_at"] == 0.0:
+    if not saw_profile_event and state.created_at == 0.0:
         return None
     if saw_profile_event:
-        _seed_identity_from_agent_id(agent_id, state)
+        state = _seed_identity_from_agent_id(agent_id, state)
     return _build_profile_component(state)
 
 
 def _apply_profile_handlers(
     events: Sequence[Event],
-    state: dict[str, Any],
-) -> bool:
-    """Run the ``profile.*`` handler table over the batch,
-    mutating ``state`` in place. Returns True when the batch
-    carried at least one ``profile.*`` event (the implicit
-    materialisation signal of ADR-067)."""
+    state: ProfileFoldState,
+) -> tuple[bool, ProfileFoldState]:
+    """Run the ``profile.*`` handler table over the batch.
+
+    Each handler returns a new :class:`ProfileFoldState`;
+    the fold chains them via ``replace``. The return
+    tuple is ``(saw_event, final_state)``: ``saw_event``
+    is True when the batch carried at least one
+    ``profile.*`` event (the implicit materialisation
+    signal of ADR-067).
+    """
     saw_profile_event = False
     for e in events:
         handler = _PROFILE_HANDLERS.get(e.event_type)
         if handler is not None:
             saw_profile_event = True
-            handler(e, state)
-    return saw_profile_event
+            state = handler(e, state)
+    return saw_profile_event, state
 
 
-def _seed_identity_from_agent_id(agent_id: str, state: dict[str, Any]) -> None:
+def _seed_identity_from_agent_id(
+    agent_id: str, state: ProfileFoldState
+) -> ProfileFoldState:
     """Recover the identity (``tenant_id`` / ``user_id``) from the
     memory agent_id convention when the events did not carry
     them. Tolerates a one-part id (``profile:{tenant_id}``) — the
     ``user_id`` stays empty rather than fabricating a value."""
     _prefix, sep, rest = agent_id.partition(":")
     if not sep or not rest:
-        return
+        return state
     parts = rest.split(":")
-    if not state.get("tenant_id") and len(parts) >= 1:
-        state["tenant_id"] = parts[0]
-    if not state.get("user_id") and len(parts) >= 2:
-        state["user_id"] = parts[1]
+    new_tenant_id = state.tenant_id
+    new_user_id = state.user_id
+    if not new_tenant_id and len(parts) >= 1:
+        new_tenant_id = parts[0]
+    if not new_user_id and len(parts) >= 2:
+        new_user_id = parts[1]
+    return replace(state, tenant_id=new_tenant_id, user_id=new_user_id)
 
 
 def _init_profile_state(
     base_profile: ProfileComponent | None,
-) -> dict[str, Any]:
+) -> ProfileFoldState:
     """Initialise the fold's mutable state from the
     base component (or from scratch when no base is
-    given). The state dict lets the per-event
-    handlers mutate fields without rebuilding the
-    state object every step."""
+    given). Per Audit Prioridade 4: the previous
+    ``dict[str, Any]`` lost the field-level types; the
+    fold now uses :class:`ProfileFoldState`."""
     if base_profile is None:
-        return {
-            "preferences": {},
-            "tier": "standard",
-            "created_at": 0.0,
-            "updated_at": 0.0,
-            "tenant_id": "",
-            "user_id": "",
-        }
-    return {
-        "preferences": dict(base_profile.preferences),
-        "tier": base_profile.tier,
-        "created_at": base_profile.created_at,
-        "updated_at": base_profile.updated_at,
-        "tenant_id": base_profile.tenant_id,
-        "user_id": base_profile.user_id,
-    }
+        return ProfileFoldState()
+    return ProfileFoldState(
+        preferences=dict(base_profile.preferences),
+        tier=base_profile.tier,
+        created_at=base_profile.created_at,
+        updated_at=base_profile.updated_at,
+        tenant_id=base_profile.tenant_id,
+        user_id=base_profile.user_id,
+    )
 
 
-def _on_profile_created(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_created(
+    e: Event, state: ProfileFoldState
+) -> ProfileFoldState:
     """``profile.created`` handler: stamp the
     creation time, capture the identity, and seed
     preferences + tier from the event payload."""
-    state["created_at"] = e.timestamp.timestamp()
-    state["tenant_id"] = str(e.data.get("tenant_id", state["tenant_id"]))
-    state["user_id"] = str(e.data.get("user_id", state["user_id"]))
     initial = e.data.get("preferences") or {}
+    new_preferences: dict[str, str] = {}
     if isinstance(initial, dict):
         for k, v in initial.items():
-            state["preferences"][str(k)] = str(v)
-    state["tier"] = str(e.data.get("tier", state["tier"]))
+            new_preferences[str(k)] = str(v)
+    return replace(
+        state,
+        created_at=e.timestamp.timestamp(),
+        tenant_id=str(e.data.get("tenant_id", state.tenant_id)),
+        user_id=str(e.data.get("user_id", state.user_id)),
+        preferences=new_preferences,
+        tier=str(e.data.get("tier", state.tier)),
+    )
 
 
-def _on_profile_preference_set(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_preference_set(
+    e: Event, state: ProfileFoldState
+) -> ProfileFoldState:
     """``profile.preference_set`` handler: write a
     single preference. Empty keys are dropped
     (defensive; the canonical enforcer is upstream
     in the recorder)."""
     k = str(e.data.get("key", ""))
-    if k:
-        state["preferences"][k] = str(e.data.get("value", ""))
-    state["updated_at"] = e.timestamp.timestamp()
+    if not k:
+        return state
+    new_preferences = dict(state.preferences)
+    new_preferences[k] = str(e.data.get("value", ""))
+    return replace(
+        state, preferences=new_preferences, updated_at=e.timestamp.timestamp()
+    )
 
 
-def _on_profile_preference_unset(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_preference_unset(
+    e: Event, state: ProfileFoldState
+) -> ProfileFoldState:
     """``profile.preference_unset`` handler: drop a
     single preference. Missing keys are silently
     ignored (Redis HDEL semantics)."""
     k = str(e.data.get("key", ""))
-    if k:
-        state["preferences"].pop(k, None)
-    state["updated_at"] = e.timestamp.timestamp()
+    if not k:
+        return state
+    new_preferences = dict(state.preferences)
+    new_preferences.pop(k, None)
+    return replace(
+        state, preferences=new_preferences, updated_at=e.timestamp.timestamp()
+    )
 
 
-def _on_profile_tier_changed(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_tier_changed(
+    e: Event, state: ProfileFoldState
+) -> ProfileFoldState:
     """``profile.tier_changed`` handler: update the
     tier scalar. The default tier (``"standard"``)
     is preserved when the event omits a target."""
-    state["tier"] = str(e.data.get("tier", state["tier"]))
-    state["updated_at"] = e.timestamp.timestamp()
+    return replace(
+        state,
+        tier=str(e.data.get("tier", state.tier)),
+        updated_at=e.timestamp.timestamp(),
+    )
 
 
-_PROFILE_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
+_PROFILE_HANDLERS: dict[str, Callable[[Event, ProfileFoldState], ProfileFoldState]] = {
     PROFILE_CREATED: _on_profile_created,
     PROFILE_PREFERENCE_SET: _on_profile_preference_set,
     PROFILE_PREFERENCE_UNSET: _on_profile_preference_unset,
@@ -414,19 +460,19 @@ _PROFILE_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
 }
 
 
-def _build_profile_component(state: dict[str, Any]) -> ProfileComponent:
+def _build_profile_component(state: ProfileFoldState) -> ProfileComponent:
     """Materialise the ``ProfileComponent`` from the
     fold state. The identity (``tenant_id`` /
     ``user_id``) and the timestamps come straight
-    from the state dict; the per-event handlers are
-    responsible for the values."""
+    from the state dataclass; the per-event handlers
+    are responsible for the values."""
     return ProfileComponent(
-        tenant_id=state["tenant_id"],
-        user_id=state["user_id"],
-        preferences=state["preferences"],
-        tier=state["tier"],
-        created_at=state["created_at"],
-        updated_at=state["updated_at"],
+        tenant_id=state.tenant_id,
+        user_id=state.user_id,
+        preferences=state.preferences,
+        tier=state.tier,
+        created_at=state.created_at,
+        updated_at=state.updated_at,
     )
 
 
@@ -460,92 +506,122 @@ def _fold_continuity(
     """
     state = _init_continuity_state(base_continuity)
 
-    saw_continuity_event = _apply_continuity_handlers(events, state)
+    saw_continuity_event, state = _apply_continuity_handlers(events, state)
 
     # Materialisation gate (ADR-067): mirror of the profile
     # gate — ANY ``continuity.*`` event materialises; a base
     # component survives a batch with no continuity event.
-    if not saw_continuity_event and state["created_at"] == 0.0:
+    if not saw_continuity_event and state.created_at == 0.0:
         return None
     if saw_continuity_event:
-        _seed_identity_from_agent_id(agent_id, state)
+        state = _seed_identity_from_continuity_agent_id(agent_id, state)
     return _build_continuity_component(state)
 
 
 def _apply_continuity_handlers(
     events: Sequence[Event],
-    state: dict[str, Any],
-) -> bool:
-    """Run the ``continuity.*`` handler table over the batch,
-    mutating ``state`` in place. Returns True when the batch
-    carried at least one ``continuity.*`` event (the implicit
-    materialisation signal of ADR-067)."""
+    state: ContinuityFoldState,
+) -> tuple[bool, ContinuityFoldState]:
+    """Run the ``continuity.*`` handler table over the batch.
+
+    Each handler returns a new :class:`ContinuityFoldState`;
+    the fold chains them via ``replace``. Returns
+    ``(saw_event, final_state)``.
+    """
     saw_continuity_event = False
     for e in events:
         handler = _CONTINUITY_HANDLERS.get(e.event_type)
         if handler is not None:
             saw_continuity_event = True
-            handler(e, state)
-    return saw_continuity_event
+            state = handler(e, state)
+    return saw_continuity_event, state
+
+
+def _seed_identity_from_continuity_agent_id(
+    agent_id: str, state: ContinuityFoldState
+) -> ContinuityFoldState:
+    """Recover the identity from a ``continuity:{tenant}:{user}``
+    agent_id when the events did not carry it. Tolerates
+    a one-part id (``continuity:{tenant}``) — the
+    ``user_id`` stays empty rather than fabricating a
+    value.
+    """
+    _prefix, sep, rest = agent_id.partition(":")
+    if not sep or not rest:
+        return state
+    parts = rest.split(":")
+    new_tenant_id = state.tenant_id
+    new_user_id = state.user_id
+    if not new_tenant_id and len(parts) >= 1:
+        new_tenant_id = parts[0]
+    if not new_user_id and len(parts) >= 2:
+        new_user_id = parts[1]
+    return replace(state, tenant_id=new_tenant_id, user_id=new_user_id)
 
 
 def _init_continuity_state(
     base_continuity: ContinuityComponent | None,
-) -> dict[str, Any]:
+) -> ContinuityFoldState:
     """Initialise the fold's mutable state from the
     base component (or from scratch when no base is
-    given). The state dict lets the per-event
-    handlers mutate fields without rebuilding the
-    state object every step."""
+    given). Per Audit Prioridade 4: the previous
+    ``dict[str, Any]`` lost the field-level types; the
+    fold now uses :class:`ContinuityFoldState`."""
     if base_continuity is None:
-        return {
-            "last_tools": {},
-            "last_entities": {},
-            "last_categories": {},
-            "created_at": 0.0,
-            "updated_at": 0.0,
-            "cleared_at": None,
-            "tenant_id": "",
-            "user_id": "",
-        }
-    return {
-        "last_tools": dict(base_continuity.last_tools),
-        "last_entities": dict(base_continuity.last_entities),
-        "last_categories": dict(base_continuity.last_categories),
-        "created_at": base_continuity.created_at,
-        "updated_at": base_continuity.updated_at,
-        "cleared_at": base_continuity.cleared_at,
-        "tenant_id": base_continuity.tenant_id,
-        "user_id": base_continuity.user_id,
-    }
+        return ContinuityFoldState()
+    return ContinuityFoldState(
+        last_tools=dict(base_continuity.last_tools),
+        last_entities=dict(base_continuity.last_entities),
+        last_categories=dict(base_continuity.last_categories),
+        created_at=base_continuity.created_at,
+        updated_at=base_continuity.updated_at,
+        cleared_at=base_continuity.cleared_at,
+        tenant_id=base_continuity.tenant_id,
+        user_id=base_continuity.user_id,
+    )
 
 
-def _on_continuity_created(e: Event, state: dict[str, Any]) -> None:
+def _on_continuity_created(
+    e: Event, state: ContinuityFoldState
+) -> ContinuityFoldState:
     """``continuity.created`` handler: stamp the
     creation time and capture the identity. The
     three ``last_*`` maps are seeded empty by the
     fold state and grow as the agent uses tools /
     sees entities / chooses categories."""
-    state["created_at"] = e.timestamp.timestamp()
-    state["tenant_id"] = str(e.data.get("tenant_id", state["tenant_id"]))
-    state["user_id"] = str(e.data.get("user_id", state["user_id"]))
+    return replace(
+        state,
+        created_at=e.timestamp.timestamp(),
+        tenant_id=str(e.data.get("tenant_id", state.tenant_id)),
+        user_id=str(e.data.get("user_id", state.user_id)),
+    )
 
 
-def _on_continuity_tool_used(e: Event, state: dict[str, Any]) -> None:
+def _on_continuity_tool_used(
+    e: Event, state: ContinuityFoldState
+) -> ContinuityFoldState:
     """``continuity.tool_used`` handler: record the
     last usage of a tool. The value is a pipe-
     separated ``<result_signature>|<timestamp>`` so
     a second call with the same signature is
     idempotent (the timestamp rolls forward)."""
     tool = str(e.data.get("tool", ""))
-    if tool:
-        state["last_tools"][tool] = (
-            f"{e.data.get('result_signature', '')}|{e.timestamp}"
-        )
-    state["updated_at"] = e.timestamp.timestamp()
+    if not tool:
+        return replace(state, updated_at=e.timestamp.timestamp())
+    new_last_tools = dict(state.last_tools)
+    new_last_tools[tool] = (
+        f"{e.data.get('result_signature', '')}|{e.timestamp}"
+    )
+    return replace(
+        state,
+        last_tools=new_last_tools,
+        updated_at=e.timestamp.timestamp(),
+    )
 
 
-def _on_continuity_entity_seen(e: Event, state: dict[str, Any]) -> None:
+def _on_continuity_entity_seen(
+    e: Event, state: ContinuityFoldState
+) -> ContinuityFoldState:
     """``continuity.entity_seen`` handler: record
     the PII-hash of an entity the agent saw. The
     key is ``<kind>:<value_hash[:16]>`` so the map
@@ -553,36 +629,55 @@ def _on_continuity_entity_seen(e: Event, state: dict[str, Any]) -> None:
     key; the full hash is the value)."""
     kind = str(e.data.get("kind", ""))
     value_hash = str(e.data.get("value_hash", ""))
-    if kind and value_hash:
-        state["last_entities"][f"{kind}:{value_hash[:16]}"] = value_hash
-    state["updated_at"] = e.timestamp.timestamp()
+    if not (kind and value_hash):
+        return replace(state, updated_at=e.timestamp.timestamp())
+    new_last_entities = dict(state.last_entities)
+    new_last_entities[f"{kind}:{value_hash[:16]}"] = value_hash
+    return replace(
+        state,
+        last_entities=new_last_entities,
+        updated_at=e.timestamp.timestamp(),
+    )
 
 
-def _on_continuity_category_chosen(e: Event, state: dict[str, Any]) -> None:
+def _on_continuity_category_chosen(
+    e: Event, state: ContinuityFoldState
+) -> ContinuityFoldState:
     """``continuity.category_chosen`` handler:
     record a slot's last-chosen category. Empty
     slots are dropped (the canonical enforcer is
     upstream in the semantic router)."""
     slot = str(e.data.get("slot", ""))
-    if slot:
-        state["last_categories"][slot] = f"{e.data.get('value', '')}|{e.timestamp}"
-    state["updated_at"] = e.timestamp.timestamp()
+    if not slot:
+        return replace(state, updated_at=e.timestamp.timestamp())
+    new_last_categories = dict(state.last_categories)
+    new_last_categories[slot] = f"{e.data.get('value', '')}|{e.timestamp}"
+    return replace(
+        state,
+        last_categories=new_last_categories,
+        updated_at=e.timestamp.timestamp(),
+    )
 
 
-def _on_continuity_cleared(e: Event, state: dict[str, Any]) -> None:
+def _on_continuity_cleared(
+    e: Event, state: ContinuityFoldState
+) -> ContinuityFoldState:
     """``continuity.cleared`` handler: LGPD
     forget-me-now — stamp the ``cleared_at`` and
     drop the three last-* maps. The fold keeps the
     creation identity (the LGPD request is a
     forgetting operation, not a deletion of the
     audit trail)."""
-    state["cleared_at"] = e.timestamp.timestamp()
-    state["last_tools"].clear()
-    state["last_entities"].clear()
-    state["last_categories"].clear()
+    return replace(
+        state,
+        cleared_at=e.timestamp.timestamp(),
+        last_tools={},
+        last_entities={},
+        last_categories={},
+    )
 
 
-_CONTINUITY_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
+_CONTINUITY_HANDLERS: dict[str, Callable[[Event, ContinuityFoldState], ContinuityFoldState]] = {
     CONTINUITY_CREATED: _on_continuity_created,
     CONTINUITY_TOOL_USED: _on_continuity_tool_used,
     CONTINUITY_ENTITY_SEEN: _on_continuity_entity_seen,
@@ -591,21 +686,21 @@ _CONTINUITY_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
 }
 
 
-def _build_continuity_component(state: dict[str, Any]) -> ContinuityComponent:
+def _build_continuity_component(state: ContinuityFoldState) -> ContinuityComponent:
     """Materialise the ``ContinuityComponent`` from
     the fold state. The three ``last_*`` maps and
     the timestamps come straight from the state
-    dict; the per-event handlers are responsible
+    dataclass; the per-event handlers are responsible
     for the values."""
     return ContinuityComponent(
-        tenant_id=state["tenant_id"],
-        user_id=state["user_id"],
-        last_tools=state["last_tools"],
-        last_entities=state["last_entities"],
-        last_categories=state["last_categories"],
-        created_at=state["created_at"],
-        updated_at=state["updated_at"],
-        cleared_at=state["cleared_at"],
+        tenant_id=state.tenant_id,
+        user_id=state.user_id,
+        last_tools=state.last_tools,
+        last_entities=state.last_entities,
+        last_categories=state.last_categories,
+        created_at=state.created_at,
+        updated_at=state.updated_at,
+        cleared_at=state.cleared_at,
     )
 
 

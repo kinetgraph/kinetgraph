@@ -3612,7 +3612,7 @@ succeeded).
 
 ## 2.39 `DeadLetterQueue.append` 3-step split (ADR-077 §3.4 follow-up)
 
-**Status:** Open (deferred from PR "storage adapters translation table"; 2026-10-05)
+**Status:** CLOSED (2026-10-05; refactor landed in this session)
 **Owner:** knetgraph architecture team
 
 The `DeadLetterQueue.append` method
