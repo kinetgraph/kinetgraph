@@ -101,7 +101,15 @@ class SolutionPromoterSystem:
                 )
                 upserts += 1
                 out.append(self._emit_promoted(ev, status="upserted"))
-            except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, RuntimeError, KeyError):
+            except (
+                ConnectionError,
+                OSError,
+                TimeoutError,
+                ValueError,
+                TypeError,
+                RuntimeError,
+                KeyError,
+            ):
                 failed += 1
                 out.append(self._emit_promoted(ev, status="failed"))
         # Update cumulative stats (replace, not mutate).

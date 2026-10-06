@@ -274,7 +274,13 @@ class TestFalkorDBProjector:
             for tid in (tenant_a, tenant_b):
                 try:
                     await falkordb_client.graph(tid).query("MATCH (n) DETACH DELETE n")
-                except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
+                except (
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                    ValueError,
+                    RuntimeError,
+                ):
                     pass
 
 

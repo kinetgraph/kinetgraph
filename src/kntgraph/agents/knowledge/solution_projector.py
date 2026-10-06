@@ -349,7 +349,14 @@ class SolutionProjector:
                 params={"dimension": self._embedding.dimension},
             )
             self._problem_index_created = True
-        except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, RuntimeError) as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "falkordb.problem_vector_index.create_failed",
                 error=str(e),

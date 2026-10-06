@@ -9,10 +9,7 @@ Aggregate (batch) signature verification and construction.
 from __future__ import annotations
 
 import base64
-import binascii
 from typing import TYPE_CHECKING, cast
-
-from cryptography.exceptions import InvalidSignature
 
 from kntgraph.security.signing._canonical import canonical_event_bytes
 from kntgraph.security.signing._crypto import (

@@ -814,7 +814,15 @@ class LiteLLMToolWorker:
             return Err(err)
         except asyncio.CancelledError:
             raise
-        except (LLMError, LLMAuthError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as e:
+        except (
+            LLMError,
+            LLMAuthError,
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            RuntimeError,
+        ) as e:
             # ``LLMAuthError`` / generic ``LLMError`` /
             # anything else propagates immediately (no
             # retry). The envelope mirrors the legacy

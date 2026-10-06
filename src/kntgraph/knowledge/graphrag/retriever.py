@@ -152,7 +152,15 @@ class GraphRAGRetriever:
         doc_adapter = GraphDocumentAdapter(graph)
         try:
             rows = await doc_adapter.vector_search(query_embedding=query_embedding, k=k)
-        except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, KeyError, RuntimeError) as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.vector_search.failed",
                 error=str(e),
@@ -235,7 +243,15 @@ class GraphRAGRetriever:
                 tool_name=tool_name,
                 status=status,
             )
-        except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, KeyError, RuntimeError) as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.find_solutions_by_problem.failed",
                 error=str(e),
@@ -297,7 +313,15 @@ class GraphRAGRetriever:
                 tags=tags,
                 status=status,
             )
-        except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, KeyError, RuntimeError) as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.find_solutions_by_tool.failed",
                 error=str(e),

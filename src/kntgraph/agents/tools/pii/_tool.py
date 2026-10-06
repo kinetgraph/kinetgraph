@@ -13,7 +13,7 @@ and emits a ``RedactionResult``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from kntgraph.agents.tools.pii._level1 import redact_value
 from kntgraph.agents.tools.pii._level2 import ner_redact
@@ -96,7 +96,7 @@ class PiiRedactionTool(Tool):
         "in a `Result`. Fail-closed: any error propagates as "
         "`Err(ToolError)` so the caller must NOT persist."
     )
-    input_schema: dict = {
+    input_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {
             "payload": {

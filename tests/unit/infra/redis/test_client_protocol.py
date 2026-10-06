@@ -118,9 +118,9 @@ class TestProtocolCoverage:
     `self._redis.X(...)` call without updating the Protocol.
     """
 
-    EXCLUDED_DIRS = {
+    EXCLUDED_DIRS = (
         "infra/redis/",
-    }
+    )
 
     async def test_protocol_covers_all_framework_redis_calls(self):
         from kntgraph.infra.redis import RedisLike
@@ -151,9 +151,9 @@ class TestNoDirectRedisImportInFramework:
     ``infra/redis/``.
     """
 
-    EXCLUDED = {
+    EXCLUDED = (
         "infra/redis/",
-    }
+    )
 
     async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re

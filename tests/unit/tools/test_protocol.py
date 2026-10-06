@@ -8,6 +8,8 @@ Unit tests for the tools/protocol.py module.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from kntgraph.agents.tools.protocol import (
@@ -23,7 +25,7 @@ class _HelloTool:
 
     name = "hello.greet"
     description = "Greets someone."
-    input_schema = {
+    input_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"name": {"type": "string"}},
     }

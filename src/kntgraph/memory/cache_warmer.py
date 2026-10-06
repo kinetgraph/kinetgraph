@@ -241,7 +241,14 @@ class CacheWarmer:
                     continue
             except asyncio.CancelledError:
                 raise
-            except (MemoryError, ValueError, TypeError, AttributeError, RuntimeError, KeyError) as exc:
+            except (
+                MemoryError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                RuntimeError,
+                KeyError,
+            ) as exc:
                 # Defensive: a buggy implementation might raise
                 # instead of returning Err. Convert to a typed
                 # ``MemoryError`` so the per-batch outcome stays

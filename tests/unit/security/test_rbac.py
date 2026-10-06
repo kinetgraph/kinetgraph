@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 import fakeredis.aioredis
 import pytest
@@ -326,7 +326,7 @@ class TestToolACL:
 class _EchoTool:
     name = "echo"
     description = "echo"
-    input_schema: dict = {}
+    input_schema: ClassVar[dict] = {}
 
     async def invoke(self, *, idempotency_key: str, **kwargs: Any) -> Any:
         return {"echo": kwargs}

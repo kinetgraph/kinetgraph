@@ -23,6 +23,7 @@ endpoint. These tests cover:
 from __future__ import annotations
 
 import json
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock
 
 from kntgraph.core.result import Ok
@@ -44,7 +45,7 @@ def _make_manager() -> WorkerManager:
 class _SimpleTool:
     name = "invoice.issue"
     description = "Issues an invoice via external service."
-    input_schema = {
+    input_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {
             "xml": {"type": "string"},
@@ -69,7 +70,7 @@ class _NoSchemaTool:
 class _EmptyDictSchemaTool:
     name = "y"
     description = "empty dict"
-    input_schema = {}
+    input_schema: ClassVar[dict] = {}
 
     async def invoke(self, *, idempotency_key, **kwargs):
         return Ok(None)
