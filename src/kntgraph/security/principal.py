@@ -235,7 +235,7 @@ class Principal:
         stored in :attr:`level`.
         """
         if not isinstance(payload, dict):
-            raise TypeError(
+            raise ValueError(
                 f"Principal JSON must be a dict, got {type(payload).__name__}"
             )
         try:

@@ -133,7 +133,7 @@ class TestReactiveCheckpoint:
         assert restored.state_hash is None
 
     async def test_is_frozen(self, checkpoint: ReactiveCheckpoint) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):
             checkpoint.agent_id = "other"  # type: ignore[misc]
 
 

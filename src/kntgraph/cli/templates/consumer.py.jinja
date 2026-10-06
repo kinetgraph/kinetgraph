@@ -333,7 +333,7 @@ class {{ class_prefix }}StreamConsumer:
             decoded["payload"] = payload_value
         try:
             return _IngressPayload.model_validate(decoded)
-        except Exception as exc:
+        except (ValueError, TypeError, KeyError) as exc:
             # Pydantic's ValidationError is a subclass of
             # ValueError; we re-raise as a permanent
             # ingress error so the consumer routes to DLQ.
@@ -362,7 +362,7 @@ class {{ class_prefix }}StreamConsumer:
                 maxlen=1000,
                 approximate=True,  # type: ignore[arg-type]
             )
-        except Exception as exc:
+        except (ResponseError, redis_async.RedisError, ConnectionError, OSError) as exc:
             logger.critical(
                 "Failed to forward %s to DLQ: %s",
                 message_id.decode(errors="replace"),

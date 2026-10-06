@@ -507,7 +507,7 @@ def register_sse_events(
                             )
                     except asyncio.CancelledError:
                         raise
-                    except Exception as e:
+                    except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, KeyError, AttributeError) as e:
                         logger.warning(
                             "intent_router.sse_read_failed",
                             agent_id=agent_id,

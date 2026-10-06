@@ -47,7 +47,7 @@ async def redis_client():
     )
     try:
         await client.ping()
-    except Exception as e:
+    except (aioredis.RedisError, ConnectionError, OSError, TimeoutError) as e:
         await client.aclose()
         pytest.skip(f"Redis not available: {e}")
         return

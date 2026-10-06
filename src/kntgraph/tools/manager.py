@@ -69,6 +69,7 @@ if TYPE_CHECKING:
     from kntgraph.infra.redis import RedisLike
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
@@ -476,7 +477,12 @@ class WorkerManager:
                             res = close_fn()
                             if asyncio.iscoroutine(res):
                                 await res
-                        except Exception:
+                        except (
+                            redis_exceptions.RedisError,
+                            AttributeError,
+                            OSError,
+                            TimeoutError,
+                        ):
                             pass
                     pool = getattr(self._redis, "connection_pool", None)
                     if pool and hasattr(pool, "disconnect"):
@@ -484,7 +490,12 @@ class WorkerManager:
                             dis_res = pool.disconnect()
                             if asyncio.iscoroutine(dis_res):
                                 await dis_res
-                        except Exception:
+                        except (
+                            redis_exceptions.RedisError,
+                            AttributeError,
+                            OSError,
+                            TimeoutError,
+                        ):
                             pass
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)

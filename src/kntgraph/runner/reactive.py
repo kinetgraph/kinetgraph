@@ -808,7 +808,7 @@ class ReactiveDispatcher:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - top-level wake loop isolates transport crash
             # A failed wake-up is an I/O crash signal: log, then
             # let the fallback poll below converge the state.
             # Swallowing without logging would turn a Redis

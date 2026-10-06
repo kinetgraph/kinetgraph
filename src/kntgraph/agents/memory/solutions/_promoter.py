@@ -18,6 +18,7 @@ the pump continues with the next one.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol
 
@@ -268,6 +269,8 @@ class SolutionPromoter:
                 else:
                     upserts += 1
                     by_tool[c.action.tool_name] = by_tool.get(c.action.tool_name, 0) + 1
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 if self._allow_fail_closed:
                     failed += 1

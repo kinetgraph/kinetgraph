@@ -209,6 +209,8 @@ class Runner:
         while self._running:
             try:
                 await self.tick_once()
-            except Exception as e:
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 - top-level runner loop isolates tick errors
                 logger.error("runner.loop.error", error=str(e))
             await asyncio.sleep(self._interval)

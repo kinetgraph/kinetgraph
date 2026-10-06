@@ -9,7 +9,10 @@ Aggregate (batch) signature verification and construction.
 from __future__ import annotations
 
 import base64
+import binascii
 from typing import TYPE_CHECKING, cast
+
+from cryptography.exceptions import InvalidSignature
 
 from kntgraph.security.signing._canonical import canonical_event_bytes
 from kntgraph.security.signing._crypto import (
@@ -86,23 +89,17 @@ def _verify_entry(
         return False
     try:
         bytes_to_verify = canonical_event_bytes(entry.event)
-    except Exception:
-        return False
-    try:
         sig_bytes = base64.urlsafe_b64decode(sig.sig + "=" * (-len(sig.sig) % 4))
-    except Exception:
-        return False
-    raw_pub = cast(
-        Ed25519PublicKey,
-        getattr(entry.public_key, "_key", entry.public_key),
-    )
-    if not hasattr(raw_pub, "verify"):
-        return False
-    try:
+        raw_pub = cast(
+            Ed25519PublicKey,
+            getattr(entry.public_key, "_key", entry.public_key),
+        )
+        if not hasattr(raw_pub, "verify"):
+            return False
         raw_pub.verify(sig_bytes, bytes_to_verify)
-    except Exception:  # noqa: BLE001 - intentional
+        return True
+    except Exception:  # noqa: BLE001 — cryptographic boundary fail-closed safety
         return False
-    return True
 
 
 def _is_revoked(
@@ -119,7 +116,7 @@ def _is_revoked(
         from kntgraph.security.signing._verify import _epoch
 
         return key_registry.is_revoked(event.agent_id, _epoch(sig.key_epoch))
-    except Exception:
+    except Exception:  # noqa: BLE001 — security boundary fail-closed on any error
         return True
 
 

@@ -19,7 +19,7 @@ async def redis_client():
     client = aioredis.Redis(host="localhost", port=6379, db=15, decode_responses=False)
     try:
         await client.ping()
-    except Exception as e:
+    except (aioredis.RedisError, ConnectionError, OSError, TimeoutError) as e:
         pytest.skip(f"Redis not available: {e}")
         return
     await client.flushdb()

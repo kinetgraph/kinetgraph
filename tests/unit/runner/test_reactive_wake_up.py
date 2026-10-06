@@ -254,6 +254,18 @@ class _IdleLog:
     """EventLog storage double that returns nothing and
     accepts appends without a server."""
 
+    async def get(self, key: str):
+        return None
+
+    async def set(self, key: str, value, **kwargs):
+        return True
+
+    async def eval(self, *args, **kwargs):
+        return "1-0"
+
+    async def xadd(self, *args, **kwargs):
+        return "1-0"
+
     async def append(self, *, agent_id: str, event: Event):
         from kntgraph.core.result import Ok
 

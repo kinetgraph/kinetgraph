@@ -336,7 +336,7 @@ class TestIncrementalWorldStoreQueueInspection:
         The dispatcher's stuck-in-queue query is best-effort:
         a Redis hiccup must not escalate into a recovery loop.
         """
-        stub = _StubStorage(raise_queue_length=RuntimeError("redis down"))
+        stub = _StubStorage(raise_queue_length=ConnectionError("redis down"))
         store = IncrementalWorldStore(stub)  # type: ignore[arg-type]
         result = await store.queue_length("any:key")
         assert result == 0

@@ -88,7 +88,7 @@ def tool_worker(
                     ns = {**vars(_typing), **vars(mod)}
                     hints = get_type_hints(invoke_method, globalns=ns, localns=ns)
                     param_type = hints.get(param_name, Any)
-                except Exception:
+                except (NameError, TypeError, AttributeError, ImportError, KeyError, ValueError):
                     param_type = Any
 
             if param.default is inspect.Parameter.empty:

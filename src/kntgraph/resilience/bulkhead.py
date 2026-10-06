@@ -185,7 +185,7 @@ class BulkheadPool:
             # the task ends properly. The ``finally`` block
             # still releases the slot.
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
             self.total_failed += 1
             logger.warning(
                 "Bulkhead execution failed",

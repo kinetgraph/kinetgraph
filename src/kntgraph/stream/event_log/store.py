@@ -274,6 +274,8 @@ class EventLog:
             )
         except _StorageError as e:
             return Err(e.persistence_error)
+        except Exception as e:  # noqa: BLE001 — Storage boundary converts raw exceptions to Err(PersistenceError)
+            return Err(PersistenceError(str(e)))
         if result.is_err():
             return Err(result.err_value())  # type: ignore[arg-type]
         logger.debug(

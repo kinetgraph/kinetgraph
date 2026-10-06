@@ -131,7 +131,7 @@ def parse_event(_stream_id: bytes, mdata: dict[MdataKey, JsonValue]) -> Event:
     if corr_json:
         try:
             correlation_dict = json.loads(corr_json)
-        except Exception:  # noqa: BLE001
+        except (json.JSONDecodeError, TypeError, ValueError):
             # The wire format stores the correlation
             # context as a JSON-encoded string. A malformed
             # value is treated as an empty correlation

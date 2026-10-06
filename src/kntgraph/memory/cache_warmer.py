@@ -239,7 +239,9 @@ class CacheWarmer:
                         MemoryError(f"unknown CacheRefreshKind {req.kind!r}")
                     )
                     continue
-            except Exception as exc:  # noqa: BLE001
+            except asyncio.CancelledError:
+                raise
+            except (MemoryError, ValueError, TypeError, AttributeError, RuntimeError, KeyError) as exc:
                 # Defensive: a buggy implementation might raise
                 # instead of returning Err. Convert to a typed
                 # ``MemoryError`` so the per-batch outcome stays

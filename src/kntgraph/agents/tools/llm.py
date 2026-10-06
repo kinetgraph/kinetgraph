@@ -164,7 +164,7 @@ def _compute_cost_usd(response: dict) -> float | None:
 
         computed = float(litellm.completion_cost(completion_response=response))
         return computed
-    except Exception as exc:
+    except (ImportError, AttributeError, ValueError, TypeError, KeyError) as exc:
         logger.debug("llm.compute_cost_fallback", error=str(exc))
     # Fallback for transport-side explicit cost.
     fallback = response.get("_cost_usd")
@@ -304,7 +304,7 @@ class LiteLLMTransportAdapter(LLMTransport):
         if callable(dump):
             try:
                 return response.model_dump()
-            except Exception as exc:
+            except (AttributeError, ValueError, TypeError) as exc:
                 logger.debug("llm.transport_model_dump_failed", error=str(exc))
         if isinstance(response, dict):
             return dict(response)
@@ -394,7 +394,7 @@ def _safe_dict(obj: Any) -> dict:
             if callable(v):
                 continue
             out[attr] = v
-        except Exception as exc:
+        except (AttributeError, ValueError, TypeError) as exc:
             logger.debug("llm.safe_dict_attr_failed", attr=attr, error=str(exc))
     return out
 
@@ -476,7 +476,7 @@ def _convert_to_raw_dict(completion: Any) -> dict:
     if hasattr(completion, "model_dump"):
         try:
             return completion.model_dump()
-        except Exception:
+        except (AttributeError, ValueError, TypeError):
             return _safe_dict(completion)
     if isinstance(completion, dict):
         return dict(completion)
@@ -535,7 +535,9 @@ async def _astream_litellm_inner(
                     finish_reason=finish,
                 )
             )
-    except Exception as e:
+    except asyncio.CancelledError:
+        raise
+    except (LLMError, ValueError, TypeError, KeyError, AttributeError) as e:
         yield Err(ToolError(f"stream_error: {e!r}"))
 
     # ``drop_params`` and ``LITELLM_TELEMETRY`` are
@@ -810,7 +812,9 @@ class LiteLLMToolWorker:
             err = ToolError(f"llm_rate_limit: {e}")
             err.__cause__ = e
             return Err(err)
-        except Exception as e:
+        except asyncio.CancelledError:
+            raise
+        except (LLMError, LLMAuthError, ValueError, TypeError, KeyError, AttributeError, RuntimeError) as e:
             # ``LLMAuthError`` / generic ``LLMError`` /
             # anything else propagates immediately (no
             # retry). The envelope mirrors the legacy

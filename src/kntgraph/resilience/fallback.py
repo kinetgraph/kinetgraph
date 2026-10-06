@@ -62,6 +62,7 @@ host application's structlog processor.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import ParamSpec, TypeVar
 
@@ -97,7 +98,9 @@ async def with_fallback[**P, T](
         result = await primary(*args, **kwargs)
         logger.info("fallback.primary_ok", op=op)
         return result
-    except Exception as primary_err:
+    except asyncio.CancelledError:
+        raise
+    except Exception as primary_err:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
         logger.warning(
             "fallback.primary_failed",
             op=op,
@@ -129,7 +132,9 @@ async def with_default_on_failure[**P, T](
         result = await primary(*args, **kwargs)
         logger.info("fallback.primary_ok", op=op)
         return result
-    except Exception as primary_err:
+    except asyncio.CancelledError:
+        raise
+    except Exception as primary_err:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
         logger.warning(
             "fallback.primary_failed_using_default",
             op=op,
@@ -158,7 +163,9 @@ async def with_fallback_chain[T](
             result: T = await fn()
             logger.info("fallback.chain.stage_ok", stage=name)
             return result
-        except Exception as stage_err:
+        except asyncio.CancelledError:
+            raise
+        except Exception as stage_err:  # noqa: BLE001 - policy wrapper isolates arbitrary stage execution
             logger.warning(
                 "fallback.chain.stage_failed",
                 stage=name,

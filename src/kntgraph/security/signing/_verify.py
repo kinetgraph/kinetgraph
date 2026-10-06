@@ -9,7 +9,10 @@ Verify a single-event signature.
 from __future__ import annotations
 
 import base64
+import binascii
 from typing import TYPE_CHECKING, cast
+
+from cryptography.exceptions import InvalidSignature
 
 from kntgraph.security.keys._types import KeyEpoch
 from kntgraph.security.signing._canonical import canonical_event_bytes
@@ -92,7 +95,7 @@ def _is_revoked(
     """
     try:
         return key_registry.is_revoked(event.agent_id, _epoch(sig.key_epoch))
-    except Exception:
+    except Exception:  # noqa: BLE001 — security boundary fail-closed on any error
         return True
 
 
@@ -110,23 +113,15 @@ def _crypto_verify(
     """
     try:
         bytes_to_verify = canonical_event_bytes(event)
-    except Exception:
-        return False
-
-    try:
         sig_bytes = base64.urlsafe_b64decode(sig.sig + "=" * (-len(sig.sig) % 4))
-    except Exception:
-        return False
-
-    raw_pub = cast(
-        Ed25519PublicKey,
-        getattr(public_key, "_key", public_key),
-    )
-    if not hasattr(raw_pub, "verify"):
-        return False
-
-    try:
+        raw_pub = cast(
+            Ed25519PublicKey,
+            getattr(public_key, "_key", public_key),
+        )
+        if not hasattr(raw_pub, "verify"):
+            return False
         raw_pub.verify(sig_bytes, bytes_to_verify)
-    except Exception:  # noqa: BLE001 - intentional
+        return True
+    except Exception:  # noqa: BLE001 — cryptographic boundary fail-closed safety
         return False
-    return True
+

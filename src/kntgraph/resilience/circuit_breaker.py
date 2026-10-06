@@ -341,7 +341,7 @@ class CircuitBreaker:
             # constructed instances during unittests; the
             # snapshot best-effort in that case.
             locked = not self._lock.locked()
-        except Exception:  # pragma: no cover
+        except AttributeError:  # pragma: no cover
             locked = False
         if not locked:
             return self._snapshot()

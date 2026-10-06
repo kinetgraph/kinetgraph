@@ -289,7 +289,9 @@ class TestSchemaArgumentExtractor:
         ext = SchemaArgumentExtractor(mgr, _StubFinder({}))
         import asyncio
 
-        with pytest.raises(Exception):
+        from kntgraph.core.result.errors import ToolError
+
+        with pytest.raises((KeyError, ValueError, ToolError)):
             asyncio.run(ext.extract("text", "unregistered-tool"))
 
     def test_empty_text_returns_empty_extraction(self) -> None:

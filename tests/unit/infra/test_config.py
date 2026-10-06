@@ -74,7 +74,7 @@ class TestBaseSettings:
 
     def test_int_coerced_from_string(self, monkeypatch) -> None:
         monkeypatch.setenv("BAR", "not-an-int")
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             _Sample()
 
 

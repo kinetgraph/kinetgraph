@@ -351,7 +351,7 @@ def load_bundle_dict(d: dict) -> LoadedBundle:
                     for e in errors_iter
                     if isinstance(e, dict)
                 ]
-            except Exception:  # noqa: BLE001
+            except (TypeError, ValueError, AttributeError):
                 # ``errors_callable`` is the result of
                 # ``getattr(exc, "errors", None)``; on a
                 # well-behaved Pydantic ``ValidationError``

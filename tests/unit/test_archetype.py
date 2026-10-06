@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from kntgraph.core.archetype import ArchetypeId, archetype_of
 
 
@@ -79,11 +81,8 @@ class TestArchetypeId:
 
     def test_immutable(self):
         arch = ArchetypeId.of(DocumentComponent)
-        try:
+        with pytest.raises(AttributeError):
             arch.components = frozenset()  # type: ignore[misc]
-            assert False, "should have raised"
-        except Exception:
-            pass
 
 
 class TestArchetypeOf:

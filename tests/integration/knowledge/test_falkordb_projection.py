@@ -68,7 +68,7 @@ def falkordb_client() -> Iterator[GraphPool]:
     c = GraphPool(host=host, port=port, password=password)
     try:
         c.connect()
-    except Exception as e:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError) as e:
         pytest.skip(f"FalkorDB not reachable: {e}")
     yield c
     c.close()
@@ -86,13 +86,13 @@ async def clean_falkordb_graph(falkordb_client: GraphPool):
     # Clean BEFORE the test in case a previous run left state
     try:
         await graph.query("MATCH (n) DETACH DELETE n")
-    except Exception:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
         pass
     yield tenant, graph
     # Cleanup AFTER
     try:
         await graph.query("MATCH (n) DETACH DELETE n")
-    except Exception:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
         pass
 
 
@@ -274,7 +274,7 @@ class TestFalkorDBProjector:
             for tid in (tenant_a, tenant_b):
                 try:
                     await falkordb_client.graph(tid).query("MATCH (n) DETACH DELETE n")
-                except Exception:
+                except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
                     pass
 
 

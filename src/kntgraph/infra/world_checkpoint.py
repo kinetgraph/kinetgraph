@@ -84,6 +84,7 @@ from dataclasses import dataclass
 import structlog
 
 from kntgraph.core.world import World
+from kntgraph.infra.redis._errors import RedisAdapterError
 from kntgraph.infra.redis._world_checkpoint import (
     WORLD_CHECKPOINT_KEY_TEMPLATE,
     WorldCheckpointStorage,
@@ -318,7 +319,7 @@ class IncrementalWorldStore:
             return 0
         try:
             return int(await method(stream_key))
-        except Exception as e:
+        except (RedisAdapterError, ConnectionError, OSError, TimeoutError) as e:
             logger.warning(
                 "incremental_world_store.queue_length.storage_error",
                 stream_key=stream_key,
@@ -339,7 +340,7 @@ class IncrementalWorldStore:
             return 0
         try:
             return int(await method(stream_key))
-        except Exception as e:
+        except (RedisAdapterError, ConnectionError, OSError, TimeoutError) as e:
             logger.warning(
                 "incremental_world_store.pending_count.storage_error",
                 stream_key=stream_key,

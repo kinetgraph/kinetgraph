@@ -105,7 +105,7 @@ class _BaseRoleSystem(ToolAwareSystem):
     def _parse_completion(self, text: str) -> Result[BaseModel, ToolError]:
         try:
             return Ok(parse_role_output(text, self.OUTPUT_MODEL))
-        except Exception as e:
+        except (ValueError, TypeError, KeyError) as e:
             return Err(ToolError(f"{self.GENERATED_EVENT_TYPE}_parse_error: {e}"))
 
     # -- WorldSystem --

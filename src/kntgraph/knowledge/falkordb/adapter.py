@@ -267,7 +267,7 @@ class FalkorDBProjector:
                 params={"dimension": self._embedding.dimension},
             )
             self._vector_index_created = True
-        except Exception as e:
+        except (ConnectionError, OSError, TimeoutError, ValueError, TypeError, RuntimeError) as e:
             logger.warning(
                 "falkordb.vector_index.create_failed",
                 error=str(e),

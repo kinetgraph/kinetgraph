@@ -120,7 +120,7 @@ def _sanitize_idempotency_key(raw: str | None) -> str:
     if raw is None:
         return ""
     if not isinstance(raw, str):
-        raise TypeError(f"Idempotency-Key must be a string, got {type(raw).__name__}")
+        raise ValueError(f"Idempotency-Key must be a string, got {type(raw).__name__}")
     if not raw or not raw.strip():
         return ""
     if len(raw) > _MAX_IDEMPOTENCY_KEY_LEN:

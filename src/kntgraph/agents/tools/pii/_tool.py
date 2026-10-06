@@ -127,7 +127,7 @@ class PiiRedactionTool(Tool):
         """
         try:
             result = await self.redact(payload)
-        except Exception as e:  # noqa: BLE001
+        except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as e:
             # Fail-closed: never raise, but surface the
             # error as `Err(ToolError)`. The caller
             # (SolutionPromoter) inspects the result

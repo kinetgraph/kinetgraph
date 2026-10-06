@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from kntgraph.core.lifecycle import (
     TERMINAL_OPERATIONAL,
     DomainPhase,
@@ -60,8 +62,5 @@ class TestDomainPhase:
     def test_immutable(self):
         ts = datetime.now(UTC)
         dp = DomainPhase(phase="x", updated_at=ts)
-        try:
+        with pytest.raises(AttributeError):
             dp.phase = "y"  # type: ignore[misc]
-            assert False, "should have raised"
-        except Exception:
-            pass
