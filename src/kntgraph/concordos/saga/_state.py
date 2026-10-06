@@ -127,9 +127,7 @@ def _init_state(config: SagaConfig) -> SagaState:
     return SagaState(saga_name=config.name)
 
 
-def _on_started(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_started(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.started``: begin the saga in ``forward``."""
     return replace(
         state,
@@ -142,9 +140,7 @@ def _on_started(
     # empty until ``step_started`` lands.
 
 
-def _on_step_started(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_step_started(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.step_started``: the named step is in flight."""
     step_name = str(e.data.get("step_name", ""))
     if not step_name:
@@ -167,9 +163,7 @@ def _on_step_started(
     )
 
 
-def _on_awaiting_approval(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_awaiting_approval(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.<step>.awaiting_approval``: a human step is
     waiting for external approval. Record the timestamp."""
     step_name = str(e.data.get("step_name", ""))
@@ -187,26 +181,20 @@ def _on_awaiting_approval(
     )
 
 
-def _on_step_completed(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_step_completed(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.step_completed``: carry the updated
     step_states / step_results (the saga system stamps them on
     the event)."""
     return _apply_step_snapshot(e, state)
 
 
-def _on_step_failed(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_step_failed(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.step_failed``: carry the updated
     step_states / step_results."""
     return _apply_step_snapshot(e, state)
 
 
-def _apply_step_snapshot(
-    e: Event, state: SagaState
-) -> SagaState:
+def _apply_step_snapshot(e: Event, state: SagaState) -> SagaState:
     """Merge the ``step_states`` / ``step_results`` snapshots the
     saga system stamps on ``step_completed`` / ``step_failed``."""
     states = e.data.get("step_states")
@@ -224,9 +212,7 @@ def _apply_step_snapshot(
     )
 
 
-def _on_compensating(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_compensating(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.compensating``: the saga is rolling back.
 
     Marks the direction as compensating and seeds the
@@ -283,9 +269,7 @@ def _on_compensation_started(
     )
 
 
-def _on_compensated(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_compensated(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.<step>.compensated`` (ADR-069 §11.18.2):
     the compensation tool for ``<step>`` completed.
 
@@ -306,16 +290,12 @@ def _on_compensated(
     )
 
 
-def _on_completed(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_completed(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.completed``: the saga finished forward."""
     return replace(state, direction="done")
 
 
-def _on_dlq(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_dlq(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.dlq``: compensation could not finish."""
     stuck = e.data.get("stuck_step")
     if not stuck:
@@ -327,9 +307,7 @@ def _on_dlq(
     )
 
 
-def _on_timed_out(
-    e: Event, state: SagaState, config: SagaConfig
-) -> SagaState:
+def _on_timed_out(e: Event, state: SagaState, config: SagaConfig) -> SagaState:
     """``saga.<name>.timed_out``: the saga exceeded its deadline."""
     stuck = e.data.get("stuck_at_step")
     if not stuck:
@@ -352,9 +330,7 @@ def _on_compensation_failed(
     )
 
 
-_HANDLERS: dict[
-    str, Callable[[Event, SagaState, SagaConfig], SagaState]
-] = {
+_HANDLERS: dict[str, Callable[[Event, SagaState, SagaConfig], SagaState]] = {
     "started": _on_started,
     "step_started": _on_step_started,
     "step_completed": _on_step_completed,
@@ -429,9 +405,7 @@ def _fold_agent(
     return _build_component(config, state)
 
 
-def _build_component(
-    config: SagaConfig, state: SagaState
-) -> SagaProgressComponent:
+def _build_component(config: SagaConfig, state: SagaState) -> SagaProgressComponent:
     """Materialise the ``SagaProgressComponent`` from the fold
     state."""
     return SagaProgressComponent(

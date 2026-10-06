@@ -95,9 +95,7 @@ def event_to_redis(event: Event) -> dict[str, JsonValue]:
     return payload
 
 
-def parse_event(
-    _stream_id: bytes, mdata: dict[MdataKey, JsonValue]
-) -> Event:
+def parse_event(_stream_id: bytes, mdata: dict[MdataKey, JsonValue]) -> Event:
     """
     Inverse of `event_to_redis`. Reads from a Redis Stream entry
     (bytes) and reconstructs an Event.

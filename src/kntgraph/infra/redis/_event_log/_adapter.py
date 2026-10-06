@@ -29,6 +29,7 @@ from typing import Protocol
 import structlog
 from redis import exceptions as redis_exceptions
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, PersistenceError, Result
 
@@ -45,7 +46,7 @@ from ._keys import (
 )
 
 
-def _event_to_redis(event: Event) -> dict[str, str]:
+def _event_to_redis(event: Event) -> dict[str, JsonValue]:
     """Local import wrapper — see module docstring."""
     from kntgraph.stream.event_log.codec import event_to_redis
 

@@ -62,8 +62,6 @@ objeto, ambos honram `idempotency_key` (caller decide).
 
 from __future__ import annotations
 
-from typing import cast
-
 import asyncio
 import os
 import time
