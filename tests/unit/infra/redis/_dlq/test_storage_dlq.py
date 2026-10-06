@@ -159,7 +159,9 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError
 
         redis = _fake_redis()
-        redis.hscan_iter = MagicMock(side_effect=redis_exceptions.RedisError("redis down"))
+        redis.hscan_iter = MagicMock(
+            side_effect=redis_exceptions.RedisError("redis down")
+        )
         storage = RedisDLQStorage(client=redis)
         result = await storage.find_by_event_id("abc")
         assert result.is_err()

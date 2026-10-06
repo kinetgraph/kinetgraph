@@ -110,6 +110,7 @@ class RedisProfileStorage:
                 MemorySerializationError(f"cannot serialize to hash: {exc}", key=key)
             )
         effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
+
         # The pipeline is built and executed inside a
         # small async closure so :func:`translate_redis_call`
         # can await it under the canonical catch list.
@@ -158,9 +159,7 @@ class RedisProfileStorage:
 
     # ------------------------------------------------------------ fold cursor (P4)
 
-    async def read_fold_cursor(
-        self, key: str
-    ) -> Result[str | None, MemoryError]:
+    async def read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor from a plain string key.
 

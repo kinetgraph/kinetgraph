@@ -154,9 +154,7 @@ class RedisSessionStorage:
 
     # ------------------------------------------------------------ fold cursor (P4)
 
-    async def read_fold_cursor(
-        self, key: str
-    ) -> Result[str | None, MemoryError]:
+    async def read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor from a plain string key.
 

@@ -27,18 +27,39 @@ The framework's Railway Pattern contract says mutating ops return `Result[T, *Er
 ```python
 # src/kntgraph/core/result/errors.py
 class RailwayError(Exception): ...
+
+
 class ValidationError(RailwayError): ...
+
+
 class PersistenceError(RailwayError): ...
+
+
 class BusinessError(RailwayError): ...
+
+
 class ToolError(RailwayError): ...
+
 
 # src/kntgraph/infra/redis/_errors.py
 class RedisAdapterError(Exception): ...
+
+
 class RedisUnavailableError(RedisAdapterError): ...
+
+
 class MemoryError(RedisAdapterError): ...
+
+
 class MemoryDecodeError(MemoryError): ...
+
+
 class MemorySerializationError(MemoryError): ...
+
+
 class MemoryMiss(MemoryError): ...
+
+
 class IdempotencyConflict(RedisAdapterError): ...
 ```
 
@@ -125,6 +146,7 @@ class RedisAdapterError(Exception):
     subclasses below.
     """
 
+
 class RedisUnavailableError(RedisAdapterError):
     """Connection lost, timeout, or pool exhausted.
 
@@ -133,17 +155,22 @@ class RedisUnavailableError(RedisAdapterError):
     adapter boundary (see §2.3).
     """
 
+
 class IdempotencyConflict(RedisAdapterError):
     """A concurrent writer holds the placeholder for this key."""
+
 
 class MemoryError(RedisAdapterError):
     """Base for short-memory cache errors."""
 
+
 class MemoryDecodeError(MemoryError):
     """The cached payload was malformed (corrupt JSON, etc.)."""
 
+
 class MemorySerializationError(MemoryError):
     """The record could not be serialised to the cache wire format."""
+
 
 class MemoryMiss(MemoryError):
     """The key was not present in the cache (clean miss)."""
@@ -173,7 +200,12 @@ The **shape** of the translation is always the same:
 async def get_record(self, key: str) -> Result[Mapping[str, JsonValue], MemoryError]:
     try:
         raw = await self.client.get(key)
-    except (redis_exceptions.RedisError, ConnectionError, asyncio.TimeoutError, OSError) as exc:
+    except (
+        redis_exceptions.RedisError,
+        ConnectionError,
+        asyncio.TimeoutError,
+        OSError,
+    ) as exc:
         return Err(RedisUnavailableError(f"redis get({key!r}): {exc}"))
     except (ValueError, TypeError) as exc:
         return Err(MemoryDecodeError(f"decode {key!r}: {exc}", key=key))
@@ -197,10 +229,9 @@ async def _read_fold_cursor(self, key: str) -> str | None:
         logger.warning("short_term.fold_cursor.read_failed", key=key, error=str(e))
         return None
 
+
 # after (typed + trust the Protocol):
-async def _read_fold_cursor(
-    self, key: str
-) -> Result[str | None, MemoryError]:
+async def _read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
     return await self._storage.read_fold_cursor(self._fold_cursor_key(key))
 ```
 
@@ -241,9 +272,7 @@ async def _write_fold_cursor(
 Becomes:
 
 ```python
-async def _write_fold_cursor(
-    self, key: str, cursor: str
-) -> Result[None, MemoryError]:
+async def _write_fold_cursor(self, key: str, cursor: str) -> Result[None, MemoryError]:
     cursor_key = self._fold_cursor_key(key)
     ttl = self._ttl if self._ttl and self._ttl > 0 else None
     return await self._storage.write_fold_cursor(cursor_key, cursor, ttl_seconds=ttl)
@@ -358,6 +387,7 @@ class BroadException(Exception):
     """Marker for catch sites that intentionally swallow
     transport errors. Lint-recognised; do NOT use outside
     the storage adapter layer."""
+
 
 try:
     ...

@@ -165,9 +165,7 @@ class RedisWorldCheckpointStorage:
             )
         else:
             result = await translate_redis_call(
-                self.client.set(
-                    self.storage_key(agent_id), payload, ex=ttl_seconds
-                ),
+                self.client.set(self.storage_key(agent_id), payload, ex=ttl_seconds),
                 op_name="world_checkpoint_storage.save",
                 error_cls=MemoryError,
                 key=self.storage_key(agent_id),
@@ -186,9 +184,7 @@ class RedisWorldCheckpointStorage:
         :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
         result = await translate_redis_call(
-            self.client.unlink(
-                self.storage_key(agent_id), self.cursor_key(agent_id)
-            ),
+            self.client.unlink(self.storage_key(agent_id), self.cursor_key(agent_id)),
             op_name="world_checkpoint_storage.discard",
             error_cls=MemoryError,
             key=self.storage_key(agent_id),

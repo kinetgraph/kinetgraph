@@ -62,6 +62,8 @@ objeto, ambos honram `idempotency_key` (caller decide).
 
 from __future__ import annotations
 
+from typing import cast
+
 import asyncio
 import os
 import time
@@ -109,7 +111,11 @@ class _StreamDone:
     def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-        return cls._instance
+        # The stored singleton widens ``cls._instance`` to
+        # ``_StreamDone | None``; the method's return type
+        # is the constructor-time ``Self``. ``cast`` bridges
+        # the two without a runtime check.
+        return cast("Self", cls._instance)
 
     def __repr__(self) -> str:
         return "_STREAM_DONE"
@@ -123,7 +129,7 @@ class _StreamTimeout:
     def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-        return cls._instance
+        return cast("Self", cls._instance)
 
     def __repr__(self) -> str:
         return "_STREAM_TIMEOUT"

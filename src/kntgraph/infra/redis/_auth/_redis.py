@@ -135,7 +135,9 @@ class RedisAPIKeyStorage:
             return Ok(bytes(payload))
         if isinstance(payload, str):
             return Ok(payload.encode("utf-8"))
-        return Err(MemoryError(f"unexpected redis return type: {type(payload).__name__}"))
+        return Err(
+            MemoryError(f"unexpected redis return type: {type(payload).__name__}")
+        )
 
     async def store(self, digest: str, payload: bytes) -> Result[None, MemoryError]:
         """Persist a key binding (raw bytes).

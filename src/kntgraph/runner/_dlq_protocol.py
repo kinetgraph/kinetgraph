@@ -265,9 +265,7 @@ class DLQAdapter(Protocol):
     surface).
     """
 
-    async def append(
-        self, dl_event: DeadLetterEvent
-    ) -> Result[str, PersistenceError]:
+    async def append(self, dl_event: DeadLetterEvent) -> Result[str, PersistenceError]:
         """Append a DLQ entry. Idempotent on
         ``(event_id, reason)``: a second call with the
         same pair returns the original stream id
@@ -286,8 +284,7 @@ class DLQAdapter(Protocol):
     async def list_by_reason(
         self, reason: DLQReason, count: int = 100
     ) -> Result[list[DeadLetterEvent], PersistenceError]:
-        """List DLQ entries with a given reason (full scan).
-        """
+        """List DLQ entries with a given reason (full scan)."""
         ...
 
     async def list_for_agent(
@@ -301,6 +298,5 @@ class DLQAdapter(Protocol):
     async def list_all(
         self, count: int = 100
     ) -> Result[list[DeadLetterEvent], PersistenceError]:
-        """List every DLQ entry (full scan).
-        """
+        """List every DLQ entry (full scan)."""
         ...

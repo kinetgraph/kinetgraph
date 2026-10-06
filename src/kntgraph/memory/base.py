@@ -360,11 +360,7 @@ class BaseShortTermMemory[StateT](ABC):
         cursor_result = await self._read_fold_cursor(key)
         if cursor_result.is_err():
             err = cursor_result.err_value()
-            return Err(
-                PersistenceError(
-                    f"Fold-cursor read for {key!r} failed: {err}"
-                )
-            )
+            return Err(PersistenceError(f"Fold-cursor read for {key!r} failed: {err}"))
         cursor = cursor_result.ok_value()
         if cursor is None:
             return await self.refresh_cache(*key_parts)
@@ -456,9 +452,7 @@ class BaseShortTermMemory[StateT](ABC):
         """
         return key + FOLD_CURSOR_SUFFIX
 
-    async def _read_fold_cursor(
-        self, key: str
-    ) -> Result[str | None, MemoryError]:
+    async def _read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor stored at the parallel key.
 

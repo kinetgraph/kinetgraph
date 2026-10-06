@@ -281,9 +281,7 @@ class RedisDLQStorage:
         :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
         result = await translate_redis_call(
-            self.client.hget(
-                self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)
-            ),
+            self.client.hget(self._k(DLQ_EVENT_INDEX), idem_key_for(event_id, reason)),
             op_name="dlq_storage.read_index",
             error_cls=MemoryError,
             key=self._k(DLQ_EVENT_INDEX),
@@ -306,6 +304,7 @@ class RedisDLQStorage:
         facade which already handles the Err and surfaces
         it through the public ``Result`` channel.
         """
+
         async def _scan() -> str | None:
             async for _, stream_id in self.client.hscan_iter(
                 self._k(DLQ_EVENT_INDEX), match=f"{event_id}:*"
@@ -444,6 +443,7 @@ class RedisDLQStorage:
         Per ADR-077: the catch is centralised in
         :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
+
         async def _do_drop() -> None:
             if stream_id and stream_id != PLACEHOLDER:
                 await self.client.xdel(self._k(DLQ_STREAM_KEY), stream_id)

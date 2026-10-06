@@ -160,7 +160,12 @@ class RedisEventLogAdapter:
                 agent_id=agent_id,
             )
             return Err(PersistenceError("Concurrent insert in flight"))
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
             logger.error(
                 "event_log.append.error",
                 event_id=str(event.event_id),
@@ -247,7 +252,12 @@ class RedisEventLogAdapter:
                 max="+",
                 count=1,
             )
-        except (redis_exceptions.RedisError, ConnectionError, TimeoutError, OSError) as exc:
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
             # Fail-open: a transport failure on
             # ``latest_stream_id`` must NOT crash the
             # EventLog append path. Log at ``debug`` (this

@@ -150,9 +150,7 @@ def _init_session_state(
     )
 
 
-def _on_session_started(
-    e: Event, state: SessionFoldState
-) -> SessionFoldState:
+def _on_session_started(e: Event, state: SessionFoldState) -> SessionFoldState:
     """``session.started`` handler: stamp the start
     time and capture the identity fields. ``user_id``
     / ``tenant_id`` / ``session_id`` default to the
@@ -174,9 +172,7 @@ def _on_session_started(
     )
 
 
-def _on_session_message(
-    e: Event, state: SessionFoldState
-) -> SessionFoldState:
+def _on_session_message(e: Event, state: SessionFoldState) -> SessionFoldState:
     """``session.message`` handler: append a single
     message. ``role`` defaults to ``"user"`` when the
     event payload omits it (the fold is permissive on
@@ -192,9 +188,7 @@ def _on_session_message(
     return replace(state, messages=new_messages)
 
 
-def _on_session_context(
-    e: Event, state: SessionFoldState
-) -> SessionFoldState:
+def _on_session_context(e: Event, state: SessionFoldState) -> SessionFoldState:
     """``session.context`` handler: write a key/value
     pair. Empty keys are dropped (the Redis schema
     disallows them; a defensive guard here keeps the
@@ -207,9 +201,7 @@ def _on_session_context(
     return replace(state, context=new_context)
 
 
-def _on_session_ended(
-    e: Event, state: SessionFoldState
-) -> SessionFoldState:
+def _on_session_ended(e: Event, state: SessionFoldState) -> SessionFoldState:
     """``session.ended`` handler: stamp the end time."""
     return replace(state, ended_at=e.timestamp.timestamp())
 
@@ -385,9 +377,7 @@ def _init_profile_state(
     )
 
 
-def _on_profile_created(
-    e: Event, state: ProfileFoldState
-) -> ProfileFoldState:
+def _on_profile_created(e: Event, state: ProfileFoldState) -> ProfileFoldState:
     """``profile.created`` handler: stamp the
     creation time, capture the identity, and seed
     preferences + tier from the event payload."""
@@ -406,9 +396,7 @@ def _on_profile_created(
     )
 
 
-def _on_profile_preference_set(
-    e: Event, state: ProfileFoldState
-) -> ProfileFoldState:
+def _on_profile_preference_set(e: Event, state: ProfileFoldState) -> ProfileFoldState:
     """``profile.preference_set`` handler: write a
     single preference. Empty keys are dropped
     (defensive; the canonical enforcer is upstream
@@ -423,9 +411,7 @@ def _on_profile_preference_set(
     )
 
 
-def _on_profile_preference_unset(
-    e: Event, state: ProfileFoldState
-) -> ProfileFoldState:
+def _on_profile_preference_unset(e: Event, state: ProfileFoldState) -> ProfileFoldState:
     """``profile.preference_unset`` handler: drop a
     single preference. Missing keys are silently
     ignored (Redis HDEL semantics)."""
@@ -439,9 +425,7 @@ def _on_profile_preference_unset(
     )
 
 
-def _on_profile_tier_changed(
-    e: Event, state: ProfileFoldState
-) -> ProfileFoldState:
+def _on_profile_tier_changed(e: Event, state: ProfileFoldState) -> ProfileFoldState:
     """``profile.tier_changed`` handler: update the
     tier scalar. The default tier (``"standard"``)
     is preserved when the event omits a target."""
@@ -581,9 +565,7 @@ def _init_continuity_state(
     )
 
 
-def _on_continuity_created(
-    e: Event, state: ContinuityFoldState
-) -> ContinuityFoldState:
+def _on_continuity_created(e: Event, state: ContinuityFoldState) -> ContinuityFoldState:
     """``continuity.created`` handler: stamp the
     creation time and capture the identity. The
     three ``last_*`` maps are seeded empty by the
@@ -609,9 +591,7 @@ def _on_continuity_tool_used(
     if not tool:
         return replace(state, updated_at=e.timestamp.timestamp())
     new_last_tools = dict(state.last_tools)
-    new_last_tools[tool] = (
-        f"{e.data.get('result_signature', '')}|{e.timestamp}"
-    )
+    new_last_tools[tool] = f"{e.data.get('result_signature', '')}|{e.timestamp}"
     return replace(
         state,
         last_tools=new_last_tools,
@@ -659,9 +639,7 @@ def _on_continuity_category_chosen(
     )
 
 
-def _on_continuity_cleared(
-    e: Event, state: ContinuityFoldState
-) -> ContinuityFoldState:
+def _on_continuity_cleared(e: Event, state: ContinuityFoldState) -> ContinuityFoldState:
     """``continuity.cleared`` handler: LGPD
     forget-me-now — stamp the ``cleared_at`` and
     drop the three last-* maps. The fold keeps the
@@ -677,7 +655,9 @@ def _on_continuity_cleared(
     )
 
 
-_CONTINUITY_HANDLERS: dict[str, Callable[[Event, ContinuityFoldState], ContinuityFoldState]] = {
+_CONTINUITY_HANDLERS: dict[
+    str, Callable[[Event, ContinuityFoldState], ContinuityFoldState]
+] = {
     CONTINUITY_CREATED: _on_continuity_created,
     CONTINUITY_TOOL_USED: _on_continuity_tool_used,
     CONTINUITY_ENTITY_SEEN: _on_continuity_entity_seen,

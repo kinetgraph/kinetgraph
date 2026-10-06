@@ -636,7 +636,7 @@ class WorkerManager:
                 loop = asyncio.get_running_loop()
                 result_dict = await loop.run_in_executor(
                     self._pool,
-                    _invoke_tool_sync,  # type: ignore[arg-type]
+                    _invoke_tool_sync,
                     tool_cls,
                     idempotency_key,
                     tool_params,

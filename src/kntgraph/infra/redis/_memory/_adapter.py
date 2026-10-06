@@ -150,9 +150,7 @@ class ShortMemoryStorage(Protocol):
 
     # ----------------------------------------------------------- fold cursor (P4)
 
-    async def read_fold_cursor(
-        self, key: str
-    ) -> Result[str | None, MemoryError]:
+    async def read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """Read the fold cursor stored at
         ``<key>:fold_cursor``.
 

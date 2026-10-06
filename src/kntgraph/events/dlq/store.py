@@ -128,8 +128,7 @@ class DeadLetterQueue:
             )
             return Err(
                 PersistenceError(
-                    f"Storage error in stream append: "
-                    f"{stream_result.err_value()}"
+                    f"Storage error in stream append: {stream_result.err_value()}"
                 )
             )
 
@@ -159,9 +158,7 @@ class DeadLetterQueue:
         # semantics as the counter — a transport
         # failure here is logged and swallowed.
         if stream_id is not None:
-            await self._set_agent_head(
-                dl_event.event.agent_id, stream_id, event_id
-            )
+            await self._set_agent_head(dl_event.event.agent_id, stream_id, event_id)
 
         logger.warning(
             "dlq.append.ok",
@@ -193,9 +190,7 @@ class DeadLetterQueue:
             )
         return result  # type: ignore[return-value]
 
-    async def _bump_reason_counter(
-        self, reason: str, event_id: str
-    ) -> None:
+    async def _bump_reason_counter(self, reason: str, event_id: str) -> None:
         """Step 2 of ``append``: bump the per-reason counter.
 
         ``DLQStorage.bump_reason_counter`` returns
