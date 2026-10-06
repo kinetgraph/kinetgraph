@@ -105,10 +105,14 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import structlog
+
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.core.world.view import AgentView
+
+logger = structlog.get_logger()
 
 if TYPE_CHECKING:
     from ._dlq_protocol import DLQAdapter as DeadLetterQueue
@@ -349,9 +353,29 @@ class ToolCallTTLSweeperSystem:
             # because the operator already sees the
             # ``tool.<name>.failed`` event in the log.
             del result
-        except Exception:
-            # Last-resort: don't crash the sweeper.
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Last-resort: do NOT crash the sweeper (the
+            # caller is the dispatch loop; a crash here
+            # would silently stop TTL-expired-request
+            # recovery for the whole process). Log at
+            # ``warning`` with the structured payload so
+            # the operator can correlate with the
+            # ``tool.<name>.failed`` event in the log.
+            #
+            # The catch is deliberately broad per
+            # the legacy contract (the inner
+            # ``loop.run_until_complete`` is a sync call
+            # that blocks; ``translate_redis_call``
+            # cannot wrap a sync invocation). The
+            # suppression is annotated rather than
+            # narrowed because the operator's last-resort
+            # guarantee ("the sweeper never crashes")
+            # trumps the lint preference.
+            logger.warning(
+                "tool_call_ttl_sweeper.route_to_dlq.failed",
+                event_id=str(request_id),
+                error=str(exc),
+            )
 
     def _build_failed_event(
         self,

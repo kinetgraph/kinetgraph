@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import pytest
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
@@ -69,13 +70,13 @@ class _FakePipeline:
 
 class FailingRedisClient(FakeRedisClient):
     async def get(self, key: str) -> bytes | None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
     async def set(self, key: str, value: bytes, *, ex: int | None = None) -> None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
     async def delete(self, key: str) -> None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
 
 @pytest.mark.asyncio
