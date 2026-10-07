@@ -63,12 +63,14 @@ from .components import ToolCallCompletion, ToolCallRequest, ToolCallTTL
 from .projection import Projection, project_default
 from .view import AgentView
 
+_DEFAULT_TOOL_CALL_TTL = ToolCallTTL(default_ttl_seconds=300.0)
+
 
 def project_tool_calls(
     events: Sequence[Event],
     *,
     base_projection: Projection = project_default,
-    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
+    ttl: ToolCallTTL = _DEFAULT_TOOL_CALL_TTL,
 ) -> dict[str, AgentView]:
     """
     Custom projection: materialise ToolCallRequest and
@@ -113,7 +115,7 @@ def overlay_tool_calls(
     events: Sequence[Event],
     base_views: Mapping[str, AgentView],
     *,
-    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
+    ttl: ToolCallTTL = _DEFAULT_TOOL_CALL_TTL,
     post_systems: bool = False,
 ) -> dict[str, AgentView]:
     """

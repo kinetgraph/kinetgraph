@@ -198,8 +198,7 @@ def _discover_artifacts(context_name: str) -> dict[str, list[str]]:
         "tools": [],
         "components": [],
     }
-    for kind in artifacts:
-        kind_dir = base / kind
+    for kind, kind_dir in ((k, base / k) for k in artifacts):
         if not kind_dir.is_dir():
             continue
         for f in kind_dir.iterdir():

@@ -115,6 +115,7 @@ class TestExtractionPackageNoLeak:
                 **os.environ,
                 "PYTHONPATH": pythonpath,
             },
+            check=False,
         )
         assert result.returncode == 0, (
             f"SLMArgumentExtractor leaked into "

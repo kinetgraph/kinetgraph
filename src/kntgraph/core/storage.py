@@ -29,7 +29,7 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any, Generic
+from typing import Any
 
 from immutables import Map
 
@@ -43,7 +43,7 @@ from .archetype import ArchetypeId
 Component = ComponentT
 
 
-class ArchetypeStorage(Generic[ComponentT]):
+class ArchetypeStorage[ComponentT]:
     """
     In-memory archetype-keyed storage. Pure Python, no native deps.
 

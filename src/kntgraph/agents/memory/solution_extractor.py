@@ -119,9 +119,11 @@ class SolutionExtractorSystem:
                     # eviction, ADR-044 §2.3) will
                     # change the policy.
                     continue
-                if self._tool_allowlist is not None:
-                    if req.tool_name not in self._tool_allowlist:
-                        continue
+                if (
+                    self._tool_allowlist is not None
+                    and req.tool_name not in self._tool_allowlist
+                ):
+                    continue
                 # Cross-agent threshold: count distinct
                 # agents that have a completion with the
                 # same tool_name AND same params

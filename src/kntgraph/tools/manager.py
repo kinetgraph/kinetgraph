@@ -373,12 +373,11 @@ class WorkerManager:
                 )
             except Exception as e:
                 if "BUSYGROUP" not in str(e):
-                    logger.error(
+                    logger.exception(
                         "worker.xgroup_create.failed",
                         tool=tool_name,
                         stream_key=stream_key,
                         error=str(e),
-                        exc_info=True,
                     )
 
             # Start consumer loop
@@ -456,16 +455,15 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # ``exc_info=True`` routes the full traceback to the
-                # log handler. Without it, an operator who sees the
-                # loop go silent cannot tell whether the consumer
+                # ``logger.exception`` routes the full traceback to
+                # the log handler. Without it, an operator who sees
+                # the loop go silent cannot tell whether the consumer
                 # is reconnecting to Redis, choking on a payload
                 # parser, or stuck inside ``_process_message``.
-                logger.error(
+                logger.exception(
                     "worker.consume_loop.error",
                     tool=tool_name,
                     error=str(e),
-                    exc_info=True,
                 )
                 self._last_error = repr(e)
                 if isinstance(e, RuntimeError):
@@ -536,12 +534,11 @@ class WorkerManager:
             request_event_dict = json.loads(payload_str)
             request_event = Event.from_dict(request_event_dict)
         except Exception as e:
-            logger.error(
+            logger.exception(
                 "worker.payload_parse.error",
                 tool=tool_name,
                 message_id=message_id,
                 error=str(e),
-                exc_info=True,
             )
             await self._redis.xack(stream_key, self._group_name, message_id)
             self._messages_failed_total += 1
@@ -703,12 +700,11 @@ class WorkerManager:
 
         except Exception as e:
             # A hard crash (e.g. process died, OOM, exception in invoke outside Result)
-            logger.error(
+            logger.exception(
                 "worker.tool.hard_crash",
                 tool=tool_name,
                 message_id=message_id,
                 error=str(e),
-                exc_info=True,
             )
             self._messages_failed_total += 1
             self._last_error = repr(e)
@@ -783,10 +779,9 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(
+                logger.exception(
                     "worker.reaper.error",
                     tool=tool_name,
                     error=str(e),
-                    exc_info=True,
                 )
                 self._last_error = repr(e)

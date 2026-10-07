@@ -145,7 +145,7 @@ def register_list_tools(
         response_model=list[ToolDescriptorSchema],
     )
     async def list_tools(
-        principal: Principal = Depends(auth),  # type: ignore[valid-type]
+        principal: Principal = Depends(auth),  # noqa: B008  # type: ignore[valid-type]
         agent_id: str = "",
     ) -> list[ToolDescriptorSchema]:
         """
@@ -204,7 +204,7 @@ def register_post_intent(
     async def post_intent(
         agent_id: str,
         body: IntentRequest,
-        principal: Principal = Depends(auth),  # type: ignore[valid-type]
+        principal: Principal = Depends(auth),  # noqa: B008  # type: ignore[valid-type]
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ) -> IntentResponse:
         """
@@ -448,7 +448,7 @@ def register_sse_events(
     @app.get("/agents/{agent_id}/events")
     async def sse_events(
         agent_id: str,
-        principal: Principal = Depends(auth),  # type: ignore[valid-type]
+        principal: Principal = Depends(auth),  # noqa: B008  # type: ignore[valid-type]
         from_: str = "0",
         causation_id: str | None = None,
         event_class: str | None = None,
@@ -485,79 +485,77 @@ def register_sse_events(
             last_heartbeat = asyncio.get_event_loop().time()
             heartbeat_interval_s = 15.0
             block_ms = 15_000
-            try:
-                while True:
-                    events: list[Event] = []
-                    try:
-                        if hasattr(log, "subscribe"):
-                            cursors = (
-                                {agent_id: cursor} if cursor and cursor != "0" else None
-                            )
-                            _new_cursors, events = await log.subscribe(
-                                [agent_id],
-                                cursors=cursors,
-                                block_ms=block_ms,
-                            )
-                        else:
-                            start = "-" if cursor == "0" else f"({cursor}"
-                            events = await log.read(  # type: ignore[union-attr]
-                                agent_id,
-                                start=start,
-                                end="+",
-                            )
-                    except asyncio.CancelledError:
-                        raise
-                    except (
-                        ConnectionError,
-                        OSError,
-                        TimeoutError,
-                        ValueError,
-                        TypeError,
-                        KeyError,
-                        AttributeError,
-                    ) as e:
-                        logger.warning(
-                            "intent_router.sse_read_failed",
-                            agent_id=agent_id,
-                            error=str(e),
+            while True:
+                events: list[Event] = []
+                try:
+                    if hasattr(log, "subscribe"):
+                        cursors = (
+                            {agent_id: cursor} if cursor and cursor != "0" else None
                         )
-                        await asyncio.sleep(DEFAULT_POLL_INTERVAL_S)
-                        continue
-                    if not events:
-                        # Test hook: when the
-                        # ``_sse_test_close_after_first_batch``
-                        # global is set, the generator
-                        # closes after the first batch
-                        # of events has been yielded.
-                        if _sse_test_close_after_first_batch:
-                            return
-                        now = asyncio.get_event_loop().time()
-                        if now - last_heartbeat >= heartbeat_interval_s:
-                            yield b":heartbeat\n\n"
-                            last_heartbeat = now
-                        continue
-                    for ev in events:
-                        if causation_filter is not None:
-                            if str(ev.causation_id or "") != causation_filter:
-                                continue
-                        if class_filter is not None:
-                            if ev.event_class != class_filter:
-                                continue
-                        payload = event_to_dict(ev)
-                        frame = (
-                            f"event: {ev.event_type}\n"
-                            f"id: {ev.event_id}\n"
-                            f"data: {json.dumps(payload, default=str)}\n\n"
-                        ).encode()
-                        yield frame
-                        cursor = str(ev.event_id)
-                        last_heartbeat = asyncio.get_event_loop().time()
-                    # Test hook: close after the first
-                    # batch of events has been yielded.
+                        _new_cursors, events = await log.subscribe(
+                            [agent_id],
+                            cursors=cursors,
+                            block_ms=block_ms,
+                        )
+                    else:
+                        start = "-" if cursor == "0" else f"({cursor}"
+                        events = await log.read(  # type: ignore[union-attr]
+                            agent_id,
+                            start=start,
+                            end="+",
+                        )
+                except asyncio.CancelledError:
+                    raise
+                except (
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                    ValueError,
+                    TypeError,
+                    KeyError,
+                    AttributeError,
+                ) as e:
+                    logger.warning(
+                        "intent_router.sse_read_failed",
+                        agent_id=agent_id,
+                        error=str(e),
+                    )
+                    await asyncio.sleep(DEFAULT_POLL_INTERVAL_S)
+                    continue
+                if not events:
+                    # Test hook: when the
+                    # ``_sse_test_close_after_first_batch``
+                    # global is set, the generator
+                    # closes after the first batch
+                    # of events has been yielded.
                     if _sse_test_close_after_first_batch:
                         return
-            except asyncio.CancelledError:
-                raise
+                    now = asyncio.get_event_loop().time()
+                    if now - last_heartbeat >= heartbeat_interval_s:
+                        yield b":heartbeat\n\n"
+                        last_heartbeat = now
+                    continue
+                for ev in events:
+                    if (
+                        causation_filter is not None
+                        and str(ev.causation_id or "") != causation_filter
+                    ):
+                        continue
+                    if class_filter is not None and ev.event_class != class_filter:
+                        continue
+                    payload = event_to_dict(ev)
+                    frame = (
+                        f"event: {ev.event_type}\n"
+                        f"id: {ev.event_id}\n"
+                        f"data: {json.dumps(payload, default=str)}\n\n"
+                    ).encode()
+                    yield frame
+                    cursor = str(ev.event_id)
+                    last_heartbeat = asyncio.get_event_loop().time()
+                # Test hook: close after the first
+                # batch of events has been yielded.
+                if _sse_test_close_after_first_batch:
+                    return
 
         return StreamingResponse(
             _stream(),
@@ -597,7 +595,7 @@ def register_get_status(
     async def get_status(
         agent_id: str,
         event_id: str,
-        principal: Principal = Depends(auth),  # type: ignore[valid-type]
+        principal: Principal = Depends(auth),  # noqa: B008  # type: ignore[valid-type]
         timeout_s: float = 5.0,
     ) -> StatusResponse:
         """

@@ -104,6 +104,17 @@ include = ["kntgraph*"]
 line-length = 88
 target-version = "py312"
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "Depends",
+    "fastapi.Depends",
+    "fastapi.params.Depends",
+    "fastapi.Header",
+    "fastapi.params.Header",
+    "typer.Option",
+    "typer.params.Option",
+]
+
 [tool.pyright]
 pythonVersion = "3.12"
 include = ["src", "tests"]

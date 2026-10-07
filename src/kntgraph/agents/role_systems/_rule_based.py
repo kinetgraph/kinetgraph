@@ -198,13 +198,13 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if not isinstance(data, dict) or "rules" not in data:
-            raise ValueError(f"rule file {path!r} must be a mapping with a 'rules' key")
+            raise TypeError(f"rule file {path!r} must be a mapping with a 'rules' key")
         raw_rules = data["rules"]
         if not isinstance(raw_rules, list):
-            raise ValueError(f"rule file {path!r}: 'rules' must be a list")
+            raise TypeError(f"rule file {path!r}: 'rules' must be a list")
         for raw in raw_rules:
             if not isinstance(raw, dict):
-                raise ValueError(f"rule file {path!r}: each rule must be a mapping")
+                raise TypeError(f"rule file {path!r}: each rule must be a mapping")
             rule = ChatRule(
                 tenant_id=str(raw.get("tenant_id", "*")),
                 persona_pattern=str(raw.get("persona_pattern", "*")),

@@ -89,6 +89,8 @@ from .signing import (
     verify_event,
 )
 
+DEFAULT_KEY_EPOCH = KeyEpoch(0)
+
 
 @runtime_checkable
 class KeyRegistry(Protocol):
@@ -111,7 +113,7 @@ class KeyRegistry(Protocol):
     def public_key(
         self,
         agent_id: str,
-        key_epoch: KeyEpoch = KeyEpoch(0),
+        key_epoch: KeyEpoch = DEFAULT_KEY_EPOCH,
     ) -> PublicKey:
         """Return the public key for ``agent_id`` at ``key_epoch``.
 

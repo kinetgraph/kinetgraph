@@ -44,8 +44,6 @@ application uses for any custom system (ADR-069 §11.11).
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
-from kntgraph.concordos._loader import LoadedBundle
-
 from ._loader import (
     ConcordoBundleError,
     LoadedBundle,

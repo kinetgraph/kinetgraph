@@ -57,9 +57,7 @@ class TestNoDirectRedisImportInWorldCheckpoint:
     ``WorldCheckpointStorage``.
     """
 
-    EXCLUDED = (
-        "infra/redis/",
-    )
+    EXCLUDED = ("infra/redis/",)
 
     async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re

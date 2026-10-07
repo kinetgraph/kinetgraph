@@ -244,7 +244,9 @@ async def _on_timeout[R](
     """
     _log_timeout_expired(timeout_seconds, operation_name)
     if fallback is None:
-        raise
+        raise TimeoutError(
+            f"operation {operation_name!r} exceeded the {timeout_seconds}s timeout"
+        ) from None
     _log_fallback_invoked(operation_name)
     return await fallback()
 

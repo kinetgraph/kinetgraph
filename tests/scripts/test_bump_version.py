@@ -160,6 +160,7 @@ def _run_bump(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
         env=_clean_git_env(),
         capture_output=True,
         text=True,
+        check=False,
     )
 
 

@@ -118,6 +118,7 @@ class TestToolsCacheImportChain:
             capture_output=True,
             text=True,
             env=env,
+            check=False,
         )
         assert result.returncode == 0, (
             f"kntgraph.agents.tools import failed "

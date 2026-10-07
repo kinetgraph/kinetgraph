@@ -92,6 +92,7 @@ def _run_script(*, fake_git_describe: str | None) -> subprocess.CompletedProcess
         text=True,
         env=env,
         cwd=str(SCRIPTS_DIR.parent),
+        check=False,
     )
 
 

@@ -573,19 +573,20 @@ class _Parser:
         # look at the original token positions.
         if lex in ("steps", "agent", "now"):
             return self._parse_path(lex)
-        if lex == "event" and self._peek_at(0) is not None:
+        if (
+            lex == "event"
+            and self._peek_at(0) is not None
+            and self._peek_at(0).kind == "DOT"
+            and self._peek_at(1) is not None
+            and self._peek_at(1).kind == "IDENT"
+            and self._peek_at(1).lexeme == "data"
+            and self._peek_at(2) is not None
+            and self._peek_at(2).kind == "DOT"
+        ):
             # We just consumed event (i advanced). peek(0)
             # is the next token (DOT); peek(1) is the one
             # after; peek(2) is the one after that.
-            if (
-                self._peek_at(0).kind == "DOT"
-                and self._peek_at(1) is not None
-                and self._peek_at(1).kind == "IDENT"
-                and self._peek_at(1).lexeme == "data"
-                and self._peek_at(2) is not None
-                and self._peek_at(2).kind == "DOT"
-            ):
-                return self._parse_path(lex)
+            return self._parse_path(lex)
         # 3. Name lookup: bare identifier
         return NameLookup(name=lex)
 
@@ -895,7 +896,6 @@ def _register_builtins() -> None:
     Imports the spec classes lazily to avoid a circular
     import (specs.py imports ``Composable`` from base.py
     which we are defining)."""
-    global BUILTIN_SPECS
     if BUILTIN_SPECS:
         return  # already populated
     from .specs import (
@@ -969,7 +969,6 @@ def _resolve_path(path: Path, ctx: StepContext) -> Any:
         # tail token; ``steps.<name>.<direct field>`` is also
         # supported for convenience.
         start = 2 if len(path.tail) >= 2 and path.tail[1] == "output" else 1
-        cur = cur
         for field in path.tail[start:]:
             if isinstance(cur, Mapping):
                 cur = cur.get(field)
@@ -1083,7 +1082,7 @@ def evaluate(expr: Expr, ctx: StepContext) -> bool:
         # NameLookup should not appear (the loader
         # converts it to the resolved spec). If it does,
         # we treat it as "no match" — fail safe.
-        raise RuntimeError(
+        raise TypeError(
             "NameLookup AST should be resolved by the "
             "loader before evaluation; got "
             f"{expr.name!r} unresolved"

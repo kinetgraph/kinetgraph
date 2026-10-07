@@ -759,7 +759,7 @@ class ReactiveDispatcher:
                 # ``error=str(e)`` and cannot distinguish a transient
                 # connection blip from a deterministic crash on the
                 # same code path.
-                logger.error("reactive.loop.error", error=str(e), exc_info=True)
+                logger.exception("reactive.loop.error", error=str(e))
                 self._last_loop_error = repr(e)
                 # Back off before the next attempt — a crash inside
                 # the wake path would otherwise spin on a broken

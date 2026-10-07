@@ -30,6 +30,8 @@ from kntgraph.security.keys._types import (
     PublicKey,
 )
 
+_DEFAULT_KEY_EPOCH = KeyEpoch(0)
+
 
 class InMemoryKeyRegistry:
     """Concrete ``KeyRegistry`` for development and tests.
@@ -69,7 +71,7 @@ class InMemoryKeyRegistry:
     def public_key(
         self,
         agent_id: str,
-        key_epoch: KeyEpoch = KeyEpoch(0),
+        key_epoch: KeyEpoch = _DEFAULT_KEY_EPOCH,
     ) -> PublicKey:
         if (agent_id, key_epoch) not in self._keys:
             raise KeyError(

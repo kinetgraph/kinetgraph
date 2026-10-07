@@ -293,9 +293,10 @@ class TestWakeUpLoop:
         seen: list[Event] = []
 
         def system(world: World) -> list[Event]:
+            empty: list[Event] = []
             for view in world.views.values():
-                for e in view.events if hasattr(view, "events") else []:
-                    seen.append(e)
+                for e in view.events if hasattr(view, "events") else empty:
+                    seen.append(e)  # noqa: PERF402
             return []
 
         return client, log, store, system, seen, agent_id
