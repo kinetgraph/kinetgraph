@@ -178,14 +178,11 @@ def _strip_cancelled(
     )
 
 
-class TimeoutError(Exception):
+class TimeoutError(builtins.TimeoutError):
     """Raised when an operation exceeds its timeout.
 
-    Note: this intentionally shadows the builtin
-    ``TimeoutError`` / ``asyncio.TimeoutError`` for
-    callers that prefer an explicit error class. Use the
-    builtin if you need to interoperate with stdlib
-    timeouts.
+    Inherits from builtin ``TimeoutError`` / ``asyncio.TimeoutError``
+    so stdlib timeout handlers and retry policies catch it.
     """
 
 
@@ -319,7 +316,7 @@ async def with_timeout_and_retry[R](
                 fallback=None,
                 operation_name=operation_name,
             )
-        except tuple(policy.retry_on) as e:
+        except (TimeoutError, *policy.retry_on) as e:
             last_error = e
             _log_attempt_failed(
                 operation_name, attempt + 1, policy.max_attempts, type(e).__name__

@@ -142,9 +142,7 @@ class Result[T, E: Exception]:
             result.map(lambda x: x * 2)
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return Ok(func(v))
+            return Ok(func(self.unwrap()))
         return self._as_same_err()
 
     def map_err(self, func: Callable[[E], F]) -> Result[T, F]:
@@ -155,9 +153,7 @@ class Result[T, E: Exception]:
             result.map_err(lambda e: CustomError(str(e)))
         """
         if self.is_err():
-            e = self.err_value()
-            if e is not None:
-                return Err(func(e))
+            return Err(func(self.err_value_or_raise()))
         return self._as_same_ok()
 
     def bind(self, func: Callable[[T], Result[U, E]]) -> Result[U, E]:
@@ -172,9 +168,7 @@ class Result[T, E: Exception]:
             )
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return func(v)
+            return func(self.unwrap())
         return self._as_same_err()
 
     def value_or(self, default: T) -> T:
@@ -185,9 +179,7 @@ class Result[T, E: Exception]:
             value = result.value_or(default_value)
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self.unwrap()
         return default
 
     def unwrap(self) -> T:
@@ -198,9 +190,7 @@ class Result[T, E: Exception]:
             value = result.unwrap()  # Raises if Err
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self._result.unwrap()
         raise UnwrapError("Called unwrap on an error")
 
     def unwrap_or(self, default: T) -> T:
@@ -215,13 +205,8 @@ class Result[T, E: Exception]:
             value = result.unwrap_or_else(lambda e: handle_error(e))
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
-        e = self.err_value()
-        if e is not None:
-            return func(e)
-        raise UnwrapError("Result has neither value nor error")
+            return self.unwrap()
+        return func(self.err_value_or_raise())
 
     def expect(self, message: str) -> T:
         """
@@ -231,9 +216,7 @@ class Result[T, E: Exception]:
             value = result.expect("Operation failed")
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self.unwrap()
         raise UnwrapError(f"{message}: no value")
 
     def match(
@@ -256,13 +239,9 @@ class Result[T, E: Exception]:
         ``is_ok()`` / ``is_err()`` check.
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return ok_func(v)
-            return None
-        e = self.err_value()
-        if e is not None:
-            return err_func(e)
+            return ok_func(self.unwrap())
+        if self.is_err():
+            return err_func(self.err_value_or_raise())
         return None
 
     # ------------------------------------------------------------------
@@ -282,7 +261,7 @@ class Result[T, E: Exception]:
 
     def _as_same_ok(self) -> Result[T, F]:
         if self.is_ok():
-            return Ok(self.ok_value())  # type: ignore[arg-type]
+            return Ok(self.unwrap())
         raise UnwrapError("_as_same_ok called on an Err Result")
 
 

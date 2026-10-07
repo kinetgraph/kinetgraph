@@ -3,21 +3,25 @@
   "tool": "coverage.py",
   "metric": "branch_coverage_percent",
   "overall": {
-    "covered_branches": 1958,
-    "num_branches": 2574
+    "covered_branches": 2698,
+    "num_branches": 3546
   },
   "target_paths": {
     "src/kntgraph/stream/": {
-      "covered_branches": 65,
-      "num_branches": 66
+      "covered_branches": 70,
+      "num_branches": 74
     },
     "src/kntgraph/runner/": {
-      "covered_branches": 123,
-      "num_branches": 126
+      "covered_branches": 241,
+      "num_branches": 272
     },
     "src/kntgraph/security/": {
-      "covered_branches": 116,
-      "num_branches": 116
+      "covered_branches": 117,
+      "num_branches": 118
+    },
+    "src/kntgraph/resilience/": {
+      "covered_branches": 128,
+      "num_branches": 186
     }
   }
 }
