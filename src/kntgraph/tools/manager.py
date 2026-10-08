@@ -60,6 +60,7 @@ import json
 import multiprocessing
 import time
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
@@ -67,6 +68,8 @@ if TYPE_CHECKING:
     from multiprocessing.context import BaseContext
 
     from kntgraph.infra.redis import RedisLike
+
+from collections.abc import Awaitable
 
 import structlog
 from redis import exceptions as redis_exceptions
@@ -95,6 +98,25 @@ logger = structlog.get_logger()
 # and uses this sentinel to detect the explicit opt
 # out).
 _UNSET: object = object()
+
+
+# ADR-069: pluggable executor factory. A tool registered with
+# ``executor_factory=`` (see ``WorkerManager.register``) gets
+# this callable invoked once per message in place of the
+# internal ``ProcessPoolExecutor``. The factory receives the
+# sync ``_invoke_tool_sync`` (or compatible), the message's
+# idempotency key (which is the event_id), and the parsed
+# tool params; it returns a coroutine that resolves with
+# the standard ``result_dict`` (status "ok" or "err"). The
+# Manager remains the owner of consumer loop / XACK / reaper
+# / ACL / observability; the factory is a black-box dispatch
+# hook that lets callers route heavy tools (ML models,
+# sidecars, GPU pins) to dedicated pools without forking
+# the framework.
+ExecutorFactory = Callable[
+    [Callable[[type, str, dict[str, Any]], dict[str, Any]], str, dict[str, Any]],
+    Awaitable[dict[str, Any]],
+]
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -133,6 +155,7 @@ class WorkerManager:
         heartbeat_interval_seconds: float = 30.0,
         *,
         key_prefix: str = "",
+        max_pool_workers: int | None = None,
     ):
         # ADR-076 / DEBT §2.35: namespace prefix for
         # every Redis key the manager writes or reads
@@ -156,6 +179,31 @@ class WorkerManager:
         # Cached in ``start()``; stored here so tests can
         # assert on it without re-deriving the default.
         self._mp_context: BaseContext | None = None
+
+        # Per-tool executor factory (ADR-069). When ``None`` for a
+        # given tool, the Manager falls back to its internal
+        # ``ProcessPoolExecutor``. When set, the factory is called
+        # once per message in place of ``run_in_executor`` and
+        # returns the standard ``result_dict`` shape. The Manager
+        # remains the owner of XACK / events / reaper / ACL /
+        # observability; the factory is a black-box dispatch hook.
+        self._executors: dict[str, Any] = {}
+        # ``max_pool_workers`` is the explicit cap on the internal
+        # ``ProcessPoolExecutor``. ``None`` (default) means "use
+        # the legacy formula ``max(1, sum(max_concurrency))``"; an
+        # integer means "use exactly N workers regardless of the
+        # number of tools". In Fargate-class environments with
+        # memory caps, this is the lever that prevents the OOM
+        # described in the post-mortem 2026-10-07.
+        self._max_pool_workers: int | None = max_pool_workers
+
+        # Per-tool ``asyncio.Semaphore`` (``max_concurrency``) — populated
+        # em ``_consume_loop`` e consumido pelo ``_reaper_loop`` para
+        # honrar o limite de tasks concorrentes por tool. Sem isso, o
+        # reaper bypassa o semáforo e dispara N processamentos em
+        # paralelo (um por mensagem no PEL) → OOM em ambiente com
+        # workers carregando modelos ML pesados. post-mortem 2026-10-07.
+        self._semaphores: dict[str, asyncio.Semaphore] = {}
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -187,6 +235,7 @@ class WorkerManager:
         tool_cls: type,
         *,
         acl: ToolACL | None = _UNSET,  # type: ignore[assignment]
+        executor_factory: ExecutorFactory | None = None,
     ) -> None:
         """Register a class decorated with @tool_worker.
 
@@ -237,6 +286,17 @@ class WorkerManager:
             self._acls[tool_cls.name] = _UNSET
         else:
             self._acls[tool_cls.name] = acl
+
+        # ADR-069: optional per-tool dispatch override. The
+        # factory replaces the internal ``ProcessPoolExecutor``
+        # path with a custom async callable that returns the
+        # standard ``result_dict`` shape. ``None`` keeps the
+        # legacy path (internal pool, ``run_in_executor``).
+        # Lifecycle of the underlying executor (process pool,
+        # thread pool, sidecar, GPU context, ...) is the
+        # caller's responsibility; the Manager only invokes
+        # the factory once per message.
+        self._executors[tool_cls.name] = executor_factory
 
     def acl_for(self, name: str) -> ToolACL | None:
         """Return the ``ToolACL`` for ``name`` (or
@@ -338,12 +398,24 @@ class WorkerManager:
 
         self._running = True
 
-        # Calculate max workers across all registered tools, minimum 2
-        max_workers = sum(
-            getattr(t, "__tool_worker_max_concurrency__", 1)
-            for t in self._tools.values()
-        )
-        max_workers = max(2, min(32, max_workers))
+        # Calculate max workers across all registered tools. The
+        # explicit ``max_pool_workers`` cap (set in ``__init__``)
+        # takes priority — useful in memory-capped environments
+        # (Fargate 4 GB) where multiple concurrent workers would
+        # load heavy ML models in parallel and OOM. The default
+        # formula ``max(1, min(32, sum(max_concurrency)))`` keeps
+        # one worker per tool at most, which is what most callers
+        # want. The post-mortem 2026-10-07 scenario in the
+        # backoffice is what motivated the ``max(1, ...)`` floor
+        # (was ``max(2, ...)``).
+        if self._max_pool_workers is not None:
+            max_workers = self._max_pool_workers
+        else:
+            max_workers = sum(
+                getattr(t, "__tool_worker_max_concurrency__", 1)
+                for t in self._tools.values()
+            )
+            max_workers = max(1, min(32, max_workers))
 
         # Always use ``spawn`` — container runtimes (and
         # any process that has imported ``threading`` +
@@ -406,6 +478,12 @@ class WorkerManager:
         tool_cls = self._tools[tool_name]
         max_concurrency = getattr(tool_cls, "__tool_worker_max_concurrency__", 16)
         sem = asyncio.Semaphore(max_concurrency)
+        # Publica para o ``_reaper_loop`` adquirir o mesmo semáforo quando
+        # reclaimer mensagens do PEL — sem isso, o reaper bypassa o
+        # limite de concorrência e dispara tasks em paralelo que
+        # multiplicam o uso de RAM (uma por worker do pool carregando
+        # modelos ML). post-mortem 2026-10-07.
+        self._semaphores[tool_name] = sem
         read_batch_size = max(1, min(max_concurrency, 32))
 
         async def _process_with_sem(msg_id: str, msg_data: dict) -> None:
@@ -640,7 +718,20 @@ class WorkerManager:
                 or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
             )
 
-            if is_cpu:
+            # ADR-069: a per-tool ``executor_factory`` overrides the
+            # internal ``ProcessPoolExecutor`` path. The Manager
+            # still owns the surrounding concerns (XACK, events,
+            # observability, ACL) — the factory is a black-box
+            # dispatch hook invoked once per message. ``None`` keeps
+            # the legacy CPU/async dispatch below; any callable
+            # (sync wrapping a thread pool, a sidecar proxy, a
+            # custom process pool, etc.) replaces it.
+            executor_factory = self._executors.get(tool_name)
+            if executor_factory is not None:
+                result_dict = await executor_factory(
+                    _invoke_tool_sync, idempotency_key, tool_params
+                )
+            elif is_cpu:
                 loop = asyncio.get_running_loop()
                 result_dict = await loop.run_in_executor(
                     self._pool,
@@ -743,6 +834,12 @@ class WorkerManager:
         stream_key = self._stream_key(tool_name)
         # Idle time is in milliseconds for redis
         idle_time_ms = int(self._reaper_idle_time * 1000)
+        # O semáforo é criado em ``_consume_loop`` quando o loop sobe.
+        # Antes do consume_loop estar pronto, o reaper acorda com sem=None
+        # — nesse caso pulamos o reclaimer (o consume vai drenar tudo de
+        # qualquer forma). Isso evita um TOCTOU entre start() e o loop
+        # efetivo. Quando o semáforo existir, o reaper o honra.
+        sem = self._semaphores.get(tool_name)
 
         while self._running:
             try:
@@ -761,6 +858,10 @@ class WorkerManager:
 
                 # claimed[1] contains the actual messages we claimed
                 messages = claimed[1]
+                # Re-resolve the semaphore aqui (não no topo do loop) porque
+                # o ``_consume_loop`` pode subir depois do reaper — nesse
+                # intervalo queremos usar None para skip.
+                sem = self._semaphores.get(tool_name)
                 for message_id, message_data in messages:
                     # By claiming, we become the owner. The delivery_count incremented.
                     # We process it immediately.
@@ -769,11 +870,29 @@ class WorkerManager:
                         tool=tool_name,
                         message_id=message_id.decode(),
                     )
+
+                    async def _process_with_reaper_sem(
+                        _msg_id: str,
+                        _msg_data: dict,
+                        _sem: asyncio.Semaphore | None = sem,
+                    ) -> None:
+                        if _sem is not None:
+                            async with _sem:
+                                await self._process_message(
+                                    tool_name, stream_key, _msg_id, _msg_data
+                                )
+                        else:
+                            # Fallback enquanto o consume_loop não está
+                            # ativo: processa direto. Aceita concorrência
+                            # momentânea acima do limite, mas só durante
+                            # o startup.
+                            await self._process_message(
+                                tool_name, stream_key, _msg_id, _msg_data
+                            )
+
                     # Process message concurrently so reaper isn't blocked
                     asyncio.create_task(
-                        self._process_message(
-                            tool_name, stream_key, message_id.decode(), message_data
-                        )
+                        _process_with_reaper_sem(message_id.decode(), message_data)
                     )
 
             except asyncio.CancelledError:

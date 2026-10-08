@@ -21,7 +21,19 @@ def tool_worker(
     *,
     name: str,
     description: str = "",
-    max_concurrency: int = 10,
+    # ``max_concurrency`` é a concorrência de execução por tool no
+    # ``ProcessPoolExecutor``. Cada worker do pool é um processo
+    # separado que importa o módulo do tool e carrega dependências
+    # pesadas (torch, docling, GLiNER, etc.) na primeira invocação.
+    #
+    # O default anterior (10) permitia que até 10 workers carregassem
+    # o mesmo modelo em paralelo, estourando o cgroup em ambiente de
+    # memória limitada (post-mortem 2026-10-07, OOM 137 no backoffice
+    # com cgroup de 4 GB). Para escalar horizontalmente, a solução
+    # correta é subir ``desired_count`` do ECS, não o pool local.
+    # Tools específicas que precisarem de mais (e.g. CPU-bound puro
+    # sem dependência ML) podem sobrescrever explicitamente.
+    max_concurrency: int = 1,
     retries: int = 3,
 ) -> Callable[[T], T]:
     """
