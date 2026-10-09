@@ -302,9 +302,7 @@ class WorkerManager:
         # only set the attrs they need — adding a new private
         # attr in the future does not require updating those
         # tests to seed a third dict.
-        self.__dict__.setdefault("_executors", {})[
-            tool_cls.name
-        ] = executor_factory
+        self.__dict__.setdefault("_executors", {})[tool_cls.name] = executor_factory
 
     def acl_for(self, name: str) -> ToolACL | None:
         """Return the ``ToolACL`` for ``name`` (or
