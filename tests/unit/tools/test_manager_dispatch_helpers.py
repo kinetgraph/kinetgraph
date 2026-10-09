@@ -21,6 +21,10 @@ from __future__ import annotations
 import unittest
 
 from kntgraph.core.result import Ok
+from kntgraph.tools._dispatch_helpers import (
+    compute_max_workers,
+    is_cpu_bound,
+)
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.worker import tool_worker
 
@@ -66,42 +70,48 @@ class TestComputeMaxWorkers(unittest.TestCase):
     def test_explicit_cap_wins(self) -> None:
         """``max_pool_workers=N`` returns N regardless of how many
         tools are registered or what their ``max_concurrency`` is."""
-        mgr = self._manager(max_pool_workers=2)
-        mgr._tools = {
+        tools = {
             "a": type("A", (), {"__tool_worker_max_concurrency__": 8}),
             "b": type("B", (), {"__tool_worker_max_concurrency__": 8}),
             "c": type("C", (), {"__tool_worker_max_concurrency__": 8}),
         }
-        self.assertEqual(mgr._compute_max_workers(), 2)
+        self.assertEqual(compute_max_workers(tools, explicit_cap=2), 2)
 
     def test_default_formula_is_sum_capped_32_floored_1(self) -> None:
         """Without ``max_pool_workers``, the default is
         ``max(1, min(32, sum(max_concurrency)))``. Three tools
         with ``max_concurrency=4`` each = 12; the ``min(32, 12)``
         keeps 12; the ``max(1, 12)`` keeps 12."""
-        mgr = self._manager(max_pool_workers=None)
-        mgr._tools = {
+        tools = {
             f"t{i}": type(f"T{i}", (), {"__tool_worker_max_concurrency__": 4})
             for i in range(3)
         }
-        self.assertEqual(mgr._compute_max_workers(), 12)
+        self.assertEqual(compute_max_workers(tools, explicit_cap=None), 12)
 
     def test_default_formula_floors_at_1(self) -> None:
         """Zero registered tools → ``sum=0`` → ``max(1, min(32, 0)) = 1``.
         The previous baseline used ``max(2, ...)``; the post-mortem
         2026-10-07 change moves the floor to 1 so the caller can
         reach a single-worker pool without overrides."""
-        mgr = self._manager(max_pool_workers=None)
-        self.assertEqual(mgr._compute_max_workers(), 1)
+        self.assertEqual(compute_max_workers({}, explicit_cap=None), 1)
 
     def test_default_formula_caps_at_32(self) -> None:
         """``sum=200`` → ``min(32, 200) = 32`` → ``max(1, 32) = 32``."""
-        mgr = self._manager(max_pool_workers=None)
-        mgr._tools = {
+        tools = {
             f"t{i}": type(f"T{i}", (), {"__tool_worker_max_concurrency__": 4})
             for i in range(50)  # 50 * 4 = 200
         }
-        self.assertEqual(mgr._compute_max_workers(), 32)
+        self.assertEqual(compute_max_workers(tools, explicit_cap=None), 32)
+
+    def test_method_delegate_keeps_call_shape(self) -> None:
+        """``WorkerManager._compute_max_workers`` is a thin
+        delegate to the helper. The method exists so the
+        ``start()`` call site stays ``self._compute_max_workers()``
+        without a kwargs dance; the helper is the tested surface.
+        """
+        mgr = self._manager(max_pool_workers=4)
+        mgr._tools = {"a": type("A", (), {"__tool_worker_max_concurrency__": 8})}
+        self.assertEqual(mgr._compute_max_workers(), 4)
 
 
 class TestIsCpuBound(unittest.TestCase):
@@ -113,11 +123,11 @@ class TestIsCpuBound(unittest.TestCase):
 
     def test_explicit_cpu_bound_flag(self) -> None:
         tool = CpuDoublerTool()
-        self.assertTrue(WorkerManager._is_cpu_bound(CpuDoublerTool, tool))
+        self.assertTrue(is_cpu_bound(CpuDoublerTool, tool))
 
     def test_async_tool_is_not_cpu_bound(self) -> None:
         tool = AsyncDoublerTool()
-        self.assertFalse(WorkerManager._is_cpu_bound(AsyncDoublerTool, tool))
+        self.assertFalse(is_cpu_bound(AsyncDoublerTool, tool))
 
     def test_sync_invoke_is_treated_as_cpu_bound(self) -> None:
         """A tool whose ``invoke`` is a plain ``def`` (not a
@@ -134,7 +144,7 @@ class TestIsCpuBound(unittest.TestCase):
         SyncDoubler.__tool_worker_max_concurrency__ = 1
         SyncDoubler.__tool_worker_retries__ = 0
         instance = SyncDoubler()
-        self.assertTrue(WorkerManager._is_cpu_bound(SyncDoubler, instance))
+        self.assertTrue(is_cpu_bound(SyncDoubler, instance))
 
     def test_class_without_invoke_attribute_is_treated_as_cpu_bound(self) -> None:
         """Edge case: a class without ``invoke`` (e.g. someone
@@ -154,7 +164,15 @@ class TestIsCpuBound(unittest.TestCase):
         NoInvoke.__tool_worker_max_concurrency__ = 1
         NoInvoke.__tool_worker_retries__ = 0
         instance = NoInvoke()
-        self.assertTrue(WorkerManager._is_cpu_bound(NoInvoke, instance))
+        self.assertTrue(is_cpu_bound(NoInvoke, instance))
+
+    def test_method_delegate_keeps_call_shape(self) -> None:
+        """``WorkerManager._is_cpu_bound`` is a thin delegate to
+        the free function. The method exists so the
+        ``_dispatch_to_tool`` call site stays ``self._is_cpu_bound(...)``
+        (preserves the existing call shape)."""
+        tool = CpuDoublerTool()
+        self.assertTrue(WorkerManager._is_cpu_bound(CpuDoublerTool, tool))
 
 
 class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):

@@ -55,7 +55,6 @@ input to ``acl.check``. Events that predate v0.16
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import multiprocessing
 import time
@@ -79,6 +78,7 @@ from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools._dispatch_helpers import compute_max_workers, is_cpu_bound
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
@@ -398,30 +398,61 @@ class WorkerManager:
         return len(self._tools)
 
     def _compute_max_workers(self) -> int:
-        """Size the internal ``ProcessPoolExecutor`` per the
-        configured cap and the per-tool ``max_concurrency``.
+        """Delegate to ``compute_max_workers`` in
+        ``_dispatch_helpers.py``. Kept as a method on the
+        Manager so the caller can stay ``self._compute_max_workers()``
+        in ``start()`` (preserves the existing call site)."""
+        return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
 
-        The explicit ``self._max_pool_workers`` cap takes priority
-        — useful in memory-capped environments (Fargate 4 GB) where
-        multiple concurrent workers would load heavy ML models in
-        parallel and OOM. The default formula
-        ``max(1, min(32, sum(max_concurrency)))`` keeps one worker
-        per tool at most, which is what most callers want. The
-        post-mortem 2026-10-07 scenario in the backoffice is what
-        motivated the ``max(1, ...)`` floor (was ``max(2, ...)``).
+    async def _reconnect_after_runtime_error(self) -> None:
+        """Tear down the current Redis client connection and
+        force a reconnect on the next ``xreadgroup``.
+
+        Background
+        ----------
+        A ``RuntimeError`` from ``xreadgroup`` is the asyncio-redis
+        signal that the connection is in a broken state (the
+        socket got into a bad spot, the response stream got out
+        of sync, or the connection pool got exhausted). Continuing
+        to read on the same client returns the same error in a
+        tight loop, so we close the client (best-effort) and
+        disconnect the underlying connection pool. The next
+        ``xreadgroup`` will reconnect transparently.
+
+        Extracted from ``_consume_loop`` to keep the parent's CC
+        under 10 (ADR-019); the inline cleanup with two
+        ``try/except`` blocks, ``isinstance`` checks, and
+        ``asyncio.iscoroutine`` branches was a 10+ complexity
+        hot spot.
         """
-        if self._max_pool_workers is not None:
-            return self._max_pool_workers
-        return max(
-            1,
-            min(
-                32,
-                sum(
-                    getattr(t, "__tool_worker_max_concurrency__", 1)
-                    for t in self._tools.values()
-                ),
-            ),
+        close_fn = getattr(self._redis, "aclose", None) or getattr(
+            self._redis, "close", None
         )
+        if close_fn:
+            try:
+                res = close_fn()
+                if asyncio.iscoroutine(res):
+                    await res
+            except (
+                redis_exceptions.RedisError,
+                AttributeError,
+                OSError,
+                TimeoutError,
+            ):
+                pass
+        pool = getattr(self._redis, "connection_pool", None)
+        if pool and hasattr(pool, "disconnect"):
+            try:
+                dis_res = pool.disconnect()
+                if asyncio.iscoroutine(dis_res):
+                    await dis_res
+            except (
+                redis_exceptions.RedisError,
+                AttributeError,
+                OSError,
+                TimeoutError,
+            ):
+                pass
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -571,34 +602,7 @@ class WorkerManager:
                 )
                 self._last_error = repr(e)
                 if isinstance(e, RuntimeError):
-                    close_fn = getattr(self._redis, "aclose", None) or getattr(
-                        self._redis, "close", None
-                    )
-                    if close_fn:
-                        try:
-                            res = close_fn()
-                            if asyncio.iscoroutine(res):
-                                await res
-                        except (
-                            redis_exceptions.RedisError,
-                            AttributeError,
-                            OSError,
-                            TimeoutError,
-                        ):
-                            pass
-                    pool = getattr(self._redis, "connection_pool", None)
-                    if pool and hasattr(pool, "disconnect"):
-                        try:
-                            dis_res = pool.disconnect()
-                            if asyncio.iscoroutine(dis_res):
-                                await dis_res
-                        except (
-                            redis_exceptions.RedisError,
-                            AttributeError,
-                            OSError,
-                            TimeoutError,
-                        ):
-                            pass
+                    await self._reconnect_after_runtime_error()
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
 
@@ -633,105 +637,36 @@ class WorkerManager:
         tool_cls = self._tools[tool_name]
         retries_allowed = getattr(tool_cls, "__tool_worker_retries__", 3)
 
-        try:
-            payload_str = message_data.get(b"payload", b"{}").decode()
-            request_event_dict = json.loads(payload_str)
-            request_event = Event.from_dict(request_event_dict)
-        except Exception as e:
-            logger.exception(
-                "worker.payload_parse.error",
-                tool=tool_name,
-                message_id=message_id,
-                error=str(e),
-            )
-            await self._redis.xack(stream_key, self._group_name, message_id)
-            self._messages_failed_total += 1
-            return
+        request_event = await self._parse_message_payload(
+            tool_name=tool_name,
+            message_id=message_id,
+            message_data=message_data,
+            stream_key=stream_key,
+        )
+        if request_event is None:
+            return  # payload parse already XACKed + counted
 
-        raw_params = (
-            request_event.data.get("params") or request_event.data.get("args") or {}
-        )
         tool_params = cast(
-            dict[str, Any], raw_params if isinstance(raw_params, dict) else {}
+            dict[str, Any],
+            request_event.data.get("params") or request_event.data.get("args") or {},
         )
+        if not isinstance(tool_params, dict):
+            tool_params = {}
         idempotency_key = str(request_event.event_id)
 
-        # Gate-1 ACL check (ADR-060 §3.0, ADR-061 §5,
-        # ADR-066 §4.1). The worker refuses the request
-        # before consuming a worker slot — the canonical
-        # "deny-by-construction" pattern. We use the
-        # ``producer_principal_id`` stamped on the event
-        # at the request boundary (the API layer in v0.16
-        # sets it from ``principal_ctx``; older events
-        # pass ``None`` and we deny with a clear
-        # ``reason`` so the operator can diagnose).
-        acl = self.acl_for(tool_name)
-        principal_id = request_event.producer_principal_id
-        denied_reason: str | None = None
-        if acl is None:
-            # Tool registered without ``acl=`` (legacy).
-            # Default-allow: the operator must opt in to
-            # the new ACL surface by re-registering with
-            # ``acl=default_acl()``. This matches the
-            # ADR-066 migration path: the v0.16 step
-            # ships the hook + default ACL; the v0.17
-            # step flips the default to deny (so the
-            # gap closes by construction in production).
-            pass
-        elif principal_id is None:
-            # Event predates v0.16 — no principal
-            # stamped. We deny with
-            # ``acl_denied_no_principal`` so the audit
-            # trail records why.
-            denied_reason = "acl_denied_no_principal"
-        else:
-            from kntgraph.security import Principal, PrincipalLevel
-
-            # ``producer_principal_id`` is the principal's
-            # ``agent_id`` (the format the API layer
-            # produces from ``principal_ctx``: per the
-            # same convention as ``Principal.agent_id``,
-            # it starts with the tenant, e.g.
-            # ``tenant-a.agent-1``). We extract the
-            # tenant prefix for the ``Principal``
-            # invariant (non-admin requires a
-            # non-empty tenant). If the format is
-            # ambiguous, fall back to the whole string
-            # as the tenant (single-segment legacy).
-            tenant_id = principal_id.partition(".")[0] or principal_id
-            principal = Principal(
-                agent_id=principal_id,
-                level=PrincipalLevel.agent,
-                tenant_id=tenant_id,
-                key_id="worker",
-            )
-            ok, reason = acl.check(principal)
-            if not ok:
-                denied_reason = f"acl_denied:{reason}"
-
+        denied_reason = self._evaluate_acl(
+            tool_name=tool_name,
+            request_event=request_event,
+        )
         if denied_reason is not None:
-            logger.warning(
-                "worker.acl_denied",
-                tool=tool_name,
+            await self._emit_acl_denied(
+                tool_name=tool_name,
+                stream_key=stream_key,
                 message_id=message_id,
-                reason=denied_reason,
-                producer_principal_id=principal_id,
+                idempotency_key=idempotency_key,
+                request_event=request_event,
+                denied_reason=denied_reason,
             )
-            denied_evt = Event.create(
-                event_type=f"tool.{tool_name}.failed",
-                agent_id=request_event.agent_id,
-                event_class="domain",
-                causation_id=uuid.UUID(idempotency_key),
-                data={
-                    "error": denied_reason,
-                    "request_id": idempotency_key,
-                },
-                correlation=request_event.correlation,
-                producer_principal_id=principal_id,
-            )
-            await self._event_log.append(denied_evt)
-            await self._redis.xack(stream_key, self._group_name, message_id)
-            self._messages_failed_total += 1
             return
 
         try:
@@ -742,39 +677,12 @@ class WorkerManager:
                 tool_params=tool_params,
             )
 
-            # Translate to Domain Events. ADR-037: pass
-            # ``correlation=request_event.correlation`` so
-            # the completion keeps the same flow id as
-            # the request. The WorkerManager runs in its
-            # own asyncio task (ContextVar is empty), so
-            # it MUST thread the correlation through the
-            # event object directly.
-            if result_dict["status"] == "ok":
-                val = result_dict["value"]
-                evt_data: dict[str, JsonValue] = (
-                    val if isinstance(val, dict) else {"result": val}
-                )
-                completed_evt = Event.create(
-                    event_type=f"tool.{tool_name}.completed",
-                    agent_id=request_event.agent_id,
-                    event_class="domain",
-                    causation_id=uuid.UUID(idempotency_key),
-                    data=evt_data,
-                    correlation=request_event.correlation,
-                )
-                await self._event_log.append(completed_evt)
-                self._messages_processed_total += 1
-            else:
-                failed_evt = Event.create(
-                    event_type=f"tool.{tool_name}.failed",
-                    agent_id=request_event.agent_id,
-                    event_class="domain",
-                    causation_id=uuid.UUID(idempotency_key),
-                    data={"error": result_dict["error"]},
-                    correlation=request_event.correlation,
-                )
-                await self._event_log.append(failed_evt)
-                self._messages_failed_total += 1
+            await self._translate_completion_to_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result_dict=result_dict,
+            )
 
             # Acknowledge the message since it was processed (success or explicit failure)
             await self._redis.xack(stream_key, self._group_name, message_id)
@@ -881,17 +789,185 @@ class WorkerManager:
 
     @staticmethod
     def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
-        """A tool is CPU-bound if it is explicitly marked,
-        is not a coroutine function, or wraps a non-original
-        sync helper. Same heuristic as the pre-refactor
-        inline check; extracted so each branch is a separate
-        expression and the parent's CC stays under 10.
+        """Delegate to ``is_cpu_bound`` in ``_dispatch_helpers.py``.
+        Kept as a static method on the Manager so the
+        ``_dispatch_to_tool`` call site stays
+        ``self._is_cpu_bound(...)`` (preserves the existing call
+        shape; the helper is a free function so it is testable
+        without instantiating a Manager).
         """
-        return (
-            getattr(tool_cls, "__tool_worker_cpu_bound__", False)
-            or not inspect.iscoroutinefunction(getattr(tool_instance, "invoke", None))
-            or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
+        return is_cpu_bound(tool_cls, tool_instance)
+
+    async def _parse_message_payload(
+        self,
+        *,
+        tool_name: str,
+        message_id: str,
+        message_data: dict,
+        stream_key: str,
+    ) -> Event | None:
+        """Decode the JSON ``payload`` field of a Redis Stream
+        entry into an ``Event``.
+
+        Returns ``None`` when the payload is malformed; in that
+        case the caller has already been XACK'd and counted
+        (``messages_failed_total += 1``) so the bad message
+        does not block the consumer. Extracted from
+        ``_process_message`` to keep the parent's CC under 10
+        (ADR-019); the inline ``try/except`` around the JSON
+        decode + the early-return on parse error was a
+        complexity hot spot.
+        """
+        try:
+            payload_str = message_data.get(b"payload", b"{}").decode()
+            request_event_dict = json.loads(payload_str)
+            return Event.from_dict(request_event_dict)
+        except Exception as e:
+            logger.exception(
+                "worker.payload_parse.error",
+                tool=tool_name,
+                message_id=message_id,
+                error=str(e),
+            )
+            await self._redis.xack(stream_key, self._group_name, message_id)
+            self._messages_failed_total += 1
+            return None
+
+    def _evaluate_acl(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+    ) -> str | None:
+        """Gate-1 ACL check (ADR-060 §3.0, ADR-066 §4.1).
+
+        Returns the ``denied_reason`` string when the request
+        is rejected (so the caller emits ``tool.<name>.failed``
+        with the reason and ACKs the message), or ``None`` when
+        the request is allowed to proceed. Extracted from
+        ``_process_message`` because the inline check had three
+        nested branches (legacy no-ACL, event without
+        principal, full ACL evaluation) and contributed most
+        of the parent's complexity.
+        """
+        acl = self.acl_for(tool_name)
+        if acl is None:
+            # Tool registered without ``acl=`` (legacy):
+            # default-allow. The v0.17 step flips the default
+            # to deny (see ADR-066 §4.4).
+            return None
+
+        principal_id = request_event.producer_principal_id
+        if principal_id is None:
+            return "acl_denied_no_principal"
+
+        from kntgraph.security import Principal, PrincipalLevel
+
+        # ``producer_principal_id`` is the principal's ``agent_id``
+        # (the API layer in v0.16 sets it from ``principal_ctx``).
+        # Extract the tenant prefix for the ``Principal`` invariant
+        # (non-admin requires a non-empty tenant); fall back to the
+        # whole string as the tenant when the format is ambiguous.
+        tenant_id = principal_id.partition(".")[0] or principal_id
+        principal = Principal(
+            agent_id=principal_id,
+            level=PrincipalLevel.agent,
+            tenant_id=tenant_id,
+            key_id="worker",
         )
+        ok, reason = acl.check(principal)
+        if not ok:
+            return f"acl_denied:{reason}"
+        return None
+
+    async def _emit_acl_denied(
+        self,
+        *,
+        tool_name: str,
+        stream_key: str,
+        message_id: str,
+        idempotency_key: str,
+        request_event: Event,
+        denied_reason: str,
+    ) -> None:
+        """Emit the ``tool.<name>.failed`` event for an ACL
+        denial, ACK the message, and update the failure counter.
+
+        Extracted from ``_process_message`` so the inline event
+        construction + ``append`` + ``xack`` block does not
+        inflate the parent's CC. The caller has already
+        determined the request is rejected; this method is the
+        side-effect half of the gate.
+        """
+        principal_id = request_event.producer_principal_id
+        logger.warning(
+            "worker.acl_denied",
+            tool=tool_name,
+            message_id=message_id,
+            reason=denied_reason,
+            producer_principal_id=principal_id,
+        )
+        denied_evt = Event.create(
+            event_type=f"tool.{tool_name}.failed",
+            agent_id=request_event.agent_id,
+            event_class="domain",
+            causation_id=uuid.UUID(idempotency_key),
+            data={
+                "error": denied_reason,
+                "request_id": idempotency_key,
+            },
+            correlation=request_event.correlation,
+            producer_principal_id=principal_id,
+        )
+        await self._event_log.append(denied_evt)
+        await self._redis.xack(stream_key, self._group_name, message_id)
+        self._messages_failed_total += 1
+
+    async def _translate_completion_to_event(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+        idempotency_key: str,
+        result_dict: dict[str, Any],
+    ) -> None:
+        """Map a tool's ``result_dict`` (``{"status": ..., "value"|"error": ...}``)
+        to the corresponding domain event (``.completed`` or
+        ``.failed``), append it to the eventlog, and update the
+        processed/failed counter.
+
+        Extracted from ``_process_message`` because the inline
+        shape (dict-or-not value, branch on status) was inflating
+        the parent's CC. The caller has already dispatched the
+        tool and is responsible for the XACK; this method is
+        the eventlog half of the result.
+        """
+        if result_dict["status"] == "ok":
+            val = result_dict["value"]
+            evt_data: dict[str, JsonValue] = (
+                val if isinstance(val, dict) else {"result": val}
+            )
+            completed_evt = Event.create(
+                event_type=f"tool.{tool_name}.completed",
+                agent_id=request_event.agent_id,
+                event_class="domain",
+                causation_id=uuid.UUID(idempotency_key),
+                data=evt_data,
+                correlation=request_event.correlation,
+            )
+            await self._event_log.append(completed_evt)
+            self._messages_processed_total += 1
+        else:
+            failed_evt = Event.create(
+                event_type=f"tool.{tool_name}.failed",
+                agent_id=request_event.agent_id,
+                event_class="domain",
+                causation_id=uuid.UUID(idempotency_key),
+                data={"error": result_dict["error"]},
+                correlation=request_event.correlation,
+            )
+            await self._event_log.append(failed_evt)
+            self._messages_failed_total += 1
 
     async def _reaper_loop(self, tool_name: str) -> None:
         """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
