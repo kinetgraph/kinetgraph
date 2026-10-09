@@ -397,6 +397,32 @@ class WorkerManager:
     def __len__(self) -> int:
         return len(self._tools)
 
+    def _compute_max_workers(self) -> int:
+        """Size the internal ``ProcessPoolExecutor`` per the
+        configured cap and the per-tool ``max_concurrency``.
+
+        The explicit ``self._max_pool_workers`` cap takes priority
+        — useful in memory-capped environments (Fargate 4 GB) where
+        multiple concurrent workers would load heavy ML models in
+        parallel and OOM. The default formula
+        ``max(1, min(32, sum(max_concurrency)))`` keeps one worker
+        per tool at most, which is what most callers want. The
+        post-mortem 2026-10-07 scenario in the backoffice is what
+        motivated the ``max(1, ...)`` floor (was ``max(2, ...)``).
+        """
+        if self._max_pool_workers is not None:
+            return self._max_pool_workers
+        return max(
+            1,
+            min(
+                32,
+                sum(
+                    getattr(t, "__tool_worker_max_concurrency__", 1)
+                    for t in self._tools.values()
+                ),
+            ),
+        )
+
     async def start(self) -> None:
         """Starts the worker manager."""
         if self._running:
@@ -413,15 +439,9 @@ class WorkerManager:
         # one worker per tool at most, which is what most callers
         # want. The post-mortem 2026-10-07 scenario in the
         # backoffice is what motivated the ``max(1, ...)`` floor
-        # (was ``max(2, ...)``).
-        if self._max_pool_workers is not None:
-            max_workers = self._max_pool_workers
-        else:
-            max_workers = sum(
-                getattr(t, "__tool_worker_max_concurrency__", 1)
-                for t in self._tools.values()
-            )
-            max_workers = max(1, min(32, max_workers))
+        # (was ``max(2, ...)``). Extracted to ``_compute_max_workers``
+        # so ``start()``'s CC stays under 10 (ADR-019).
+        max_workers = self._compute_max_workers()
 
         # Always use ``spawn`` — container runtimes (and
         # any process that has imported ``threading`` +
@@ -715,48 +735,12 @@ class WorkerManager:
             return
 
         try:
-            tool_instance = tool_cls()
-            invoke_fn = getattr(tool_instance, "invoke", None)
-            is_coro = inspect.iscoroutinefunction(invoke_fn)
-            is_cpu = (
-                getattr(tool_cls, "__tool_worker_cpu_bound__", False)
-                or not is_coro
-                or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
+            result_dict = await self._dispatch_to_tool(
+                tool_name=tool_name,
+                tool_cls=tool_cls,
+                idempotency_key=idempotency_key,
+                tool_params=tool_params,
             )
-
-            # ADR-069: a per-tool ``executor_factory`` overrides the
-            # internal ``ProcessPoolExecutor`` path. The Manager
-            # still owns the surrounding concerns (XACK, events,
-            # observability, ACL) — the factory is a black-box
-            # dispatch hook invoked once per message. ``None`` keeps
-            # the legacy CPU/async dispatch below; any callable
-            # (sync wrapping a thread pool, a sidecar proxy, a
-            # custom process pool, etc.) replaces it.
-            executor_factory = self._executors.get(tool_name)
-            if executor_factory is not None:
-                result_dict = await executor_factory(
-                    _invoke_tool_sync, idempotency_key, tool_params
-                )
-            elif is_cpu:
-                loop = asyncio.get_running_loop()
-                result_dict = await loop.run_in_executor(
-                    self._pool,
-                    _invoke_tool_sync,
-                    tool_cls,
-                    idempotency_key,
-                    tool_params,
-                )
-            else:
-                result = await tool_instance.invoke(
-                    idempotency_key=idempotency_key, **tool_params
-                )
-                if result.is_ok():
-                    result_dict = {"status": "ok", "value": result.unwrap()}
-                else:
-                    result_dict = {
-                        "status": "err",
-                        "error": str(result.err_value_or_raise()),
-                    }
 
             # Translate to Domain Events. ADR-037: pass
             # ``correlation=request_event.correlation`` so
@@ -834,6 +818,80 @@ class WorkerManager:
                     await self._event_log.append(failed_evt)
                     await self._redis.xack(stream_key, self._group_name, message_id)
                     # We could also write to a DLQ stream here if needed.
+
+    async def _dispatch_to_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_cls: type,
+        idempotency_key: str,
+        tool_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Run ``tool.<name>.invoke`` for one message and return
+        a ``result_dict`` (``{"status": "ok"|"err", "value"|"error": ...}``).
+
+        Three strategies, in order of preference (ADR-069):
+
+          1. Per-tool ``executor_factory`` registered via
+             ``register(executor_factory=...)``: opaque async
+             callable that receives the sync ``_invoke_tool_sync``
+             plus the idempotency key and tool params. Lets the
+             caller route heavy tools (ML models, sidecars, GPU
+             pins) to dedicated pools without forking the
+             framework.
+          2. CPU-bound tool (legacy): ``loop.run_in_executor`` into
+             the internal ``ProcessPoolExecutor``.
+          3. Async tool (default): direct ``await tool.invoke()``
+             in the Manager's event loop.
+
+        Extracted from ``_process_message`` to keep the parent's
+        cyclomatic complexity in check (ADR-019: CC ≤ 10 per
+        block); the dispatch is the single linear decision tree
+        of which strategy to use, no other branching happens here.
+        """
+        # ADR-069: per-tool factory override (preferred).
+        executor_factory = self._executors.get(tool_name)
+        if executor_factory is not None:
+            return await executor_factory(
+                _invoke_tool_sync, idempotency_key, tool_params
+            )
+
+        # CPU-bound: run the sync wrapper in the shared process pool.
+        tool_instance = tool_cls()
+        if self._is_cpu_bound(tool_cls, tool_instance):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._pool,
+                _invoke_tool_sync,
+                tool_cls,
+                idempotency_key,
+                tool_params,
+            )
+
+        # Async tool: invoke directly in the event loop.
+        result = await tool_instance.invoke(
+            idempotency_key=idempotency_key, **tool_params
+        )
+        if result.is_ok():
+            return {"status": "ok", "value": result.unwrap()}
+        return {
+            "status": "err",
+            "error": str(result.err_value_or_raise()),
+        }
+
+    @staticmethod
+    def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
+        """A tool is CPU-bound if it is explicitly marked,
+        is not a coroutine function, or wraps a non-original
+        sync helper. Same heuristic as the pre-refactor
+        inline check; extracted so each branch is a separate
+        expression and the parent's CC stays under 10.
+        """
+        return (
+            getattr(tool_cls, "__tool_worker_cpu_bound__", False)
+            or not inspect.iscoroutinefunction(getattr(tool_instance, "invoke", None))
+            or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
+        )
 
     async def _reaper_loop(self, tool_name: str) -> None:
         """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
