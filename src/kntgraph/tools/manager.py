@@ -296,7 +296,15 @@ class WorkerManager:
         # thread pool, sidecar, GPU context, ...) is the
         # caller's responsibility; the Manager only invokes
         # the factory once per message.
-        self._executors[tool_cls.name] = executor_factory
+        #
+        # ``__dict__.setdefault`` keeps ``register()`` robust to
+        # ``__new__``-based unit tests that skip ``__init__`` and
+        # only set the attrs they need — adding a new private
+        # attr in the future does not require updating those
+        # tests to seed a third dict.
+        self.__dict__.setdefault("_executors", {})[
+            tool_cls.name
+        ] = executor_factory
 
     def acl_for(self, name: str) -> ToolACL | None:
         """Return the ``ToolACL`` for ``name`` (or
