@@ -50,7 +50,6 @@ from kntgraph.core.event import (
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools import WorkerManager, tool_worker
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -303,7 +302,7 @@ class TestProcessMessageOk:
         manager.register(_EchoTool, acl=None)
 
         request = _make_request_event()
-        message_id, data = _stream_message(request)
+        _message_id, data = _stream_message(request)
 
         await manager._process_message("echo", "knt:tools:echo:queue", "1-0", data)
 
@@ -566,6 +565,30 @@ class TestConsumeLoop:
             assert redis_mock.xreadgroup.await_count >= 2
         finally:
             await manager.stop()
+
+    async def test_consume_loop_closes_dead_socket_on_runtime_error(
+        self, manager, redis_mock
+    ):
+        """Validates that when WorkerManager._consume_loop encounters a
+        RuntimeError (e.g. closed transport / dead socket), it invokes
+        aclose/close on the Redis client to release dead resources and
+        records the error state."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                RuntimeError("Transport is closed"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_called_once()
+        assert "RuntimeError" in manager._last_error
 
 
 class TestReaperLoop:

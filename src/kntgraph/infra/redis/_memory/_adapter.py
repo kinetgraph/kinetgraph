@@ -58,14 +58,12 @@ operations return ``Result[T, MemoryError]``:
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
-from typing import Optional, Protocol, Union, runtime_checkable
-
-from ....core._typing import JsonValue
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
+from ....core._typing import JsonValue
 from .._errors import MemoryError
-
 
 # ``CacheRecord`` is the wire shape accepted by ``put_record``.
 # Two flavours:
@@ -76,7 +74,7 @@ from .._errors import MemoryError
 #     string before ``SET``. The string IS the wire payload.
 # Modelling as ``Union`` keeps the two flavours in one
 # Protocol while preventing ``Any`` (AGENTS.md §1).
-CacheRecord = Union[str, Mapping[str, JsonValue]]
+CacheRecord = str | Mapping[str, JsonValue]
 
 
 @runtime_checkable
@@ -131,7 +129,7 @@ class ShortMemoryStorage(Protocol):
         key: str,
         record: CacheRecord,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a record. ``Ok(None)`` on success.
 
@@ -152,15 +150,22 @@ class ShortMemoryStorage(Protocol):
 
     # ----------------------------------------------------------- fold cursor (P4)
 
-    async def read_fold_cursor(self, key: str) -> str | None:
+    async def read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """Read the fold cursor stored at
         ``<key>:fold_cursor``.
 
         ADR-068 §3.4 P4: the cursor is the Redis Stream
         id of the last event consumed by the fold that
-        wrote the cache. Returns ``None`` on miss /
-        failure — the caller falls back to the cold
-        rebuild when the cursor is missing.
+        wrote the cache. Returns ``Ok(None)`` on a clean
+        miss; ``Err(MemoryError(...))`` on Redis-side
+        failure (per ADR-077: the Protocol documents the
+        failure surface, and ``asyncio.CancelledError``
+        propagates — the adapter does not catch it).
+
+        The caller falls back to the cold rebuild when
+        the cursor is missing (Ok(None) branch) or when
+        the transport is down (Err branch — the base
+        class propagates the Err up to its public API).
 
         Concrete impls choose the right Redis primitive
         (``GET`` for plain string keys — all three tiers
@@ -174,7 +179,7 @@ class ShortMemoryStorage(Protocol):
         key: str,
         cursor: str,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist the fold cursor at
         ``<key>:fold_cursor``.

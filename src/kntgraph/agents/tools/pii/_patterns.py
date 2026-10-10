@@ -13,8 +13,6 @@ rules does not touch the tool class.
 from __future__ import annotations
 
 import re
-from typing import Union
-
 
 # Framework-level recursive type for the payload
 # accepted by the PII redaction tool. The redactor
@@ -23,12 +21,8 @@ from typing import Union
 # or ``None``. Defining the type here (instead of in
 # ``_tool``) avoids an import cycle with ``_level1``
 # and ``_level2``.
-PiiScalar = Union[str, int, float, bool, None]
-PiiPayload = Union[
-    PiiScalar,
-    dict[str, "PiiPayload"],
-    list["PiiPayload"],
-]
+PiiScalar = str | int | float | bool | None
+PiiPayload = PiiScalar | dict[str, "PiiPayload"] | list["PiiPayload"]
 
 
 # Default label set for level 2/3. Same strings are used

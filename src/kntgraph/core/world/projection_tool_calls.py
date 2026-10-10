@@ -54,23 +54,23 @@ from __future__ import annotations
 
 import collections
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
-from typing import Mapping, Optional
 
 from .._typing import JsonValue
-
 from ..event.event import Event
 from .components import ToolCallCompletion, ToolCallRequest, ToolCallTTL
 from .projection import Projection, project_default
 from .view import AgentView
+
+_DEFAULT_TOOL_CALL_TTL = ToolCallTTL(default_ttl_seconds=300.0)
 
 
 def project_tool_calls(
     events: Sequence[Event],
     *,
     base_projection: Projection = project_default,
-    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
+    ttl: ToolCallTTL = _DEFAULT_TOOL_CALL_TTL,
 ) -> dict[str, AgentView]:
     """
     Custom projection: materialise ToolCallRequest and
@@ -115,7 +115,7 @@ def overlay_tool_calls(
     events: Sequence[Event],
     base_views: Mapping[str, AgentView],
     *,
-    ttl: ToolCallTTL = ToolCallTTL(default_ttl_seconds=300.0),
+    ttl: ToolCallTTL = _DEFAULT_TOOL_CALL_TTL,
     post_systems: bool = False,
 ) -> dict[str, AgentView]:
     """
@@ -224,8 +224,8 @@ def _collect_request(
     e: Event,
     *,
     tool_name: str,
-    ttl: "ToolCallTTL",
-    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
+    ttl: ToolCallTTL,
+    tool_requests: dict[str, dict[str, ToolCallRequest]],
     agents_to_merge: set[str],
 ) -> None:
     """Handle a single ``tool.<name>.requested`` event:
@@ -243,10 +243,10 @@ def _collect_request(
 def _collect_completion(
     e: Event,
     *,
-    base_views: Mapping[str, "AgentView"],
+    base_views: Mapping[str, AgentView],
     status: str,
-    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
-    tool_completions: dict[str, dict[str, "ToolCallCompletion"]],
+    tool_requests: dict[str, dict[str, ToolCallRequest]],
+    tool_completions: dict[str, dict[str, ToolCallCompletion]],
     agents_to_merge: set[str],
 ) -> None:
     """Handle a single ``tool.<name>.completed`` /
@@ -273,13 +273,13 @@ def _collect_completion(
 
 
 def _assemble_overlay(
-    base_views: Mapping[str, "AgentView"],
+    base_views: Mapping[str, AgentView],
     *,
-    tool_requests: dict[str, dict[str, "ToolCallRequest"]],
-    tool_completions: dict[str, dict[str, "ToolCallCompletion"]],
+    tool_requests: dict[str, dict[str, ToolCallRequest]],
+    tool_completions: dict[str, dict[str, ToolCallCompletion]],
     agents_to_merge: set[str],
     post_systems: bool,
-) -> dict[str, "AgentView"]:
+) -> dict[str, AgentView]:
     """Build the overlay map: every agent in
     ``base_views`` is in the output; agents without
     tool events get their original view unchanged.
@@ -309,12 +309,12 @@ def _assemble_overlay(
 
 
 def _build_overlay_view(
-    base_view: "AgentView",
-    new_requests: dict[str, "ToolCallRequest"],
-    new_completions: dict[str, "ToolCallCompletion"],
+    base_view: AgentView,
+    new_requests: dict[str, ToolCallRequest],
+    new_completions: dict[str, ToolCallCompletion],
     *,
     post_systems: bool,
-) -> "AgentView":
+) -> AgentView:
     """Install the (merged) tool slots on the base
     view. The merge is keyed by ``request_event_id``;
     the new batch wins (it is the most recent
@@ -338,12 +338,12 @@ def _build_overlay_view(
     merged_requests = {**existing_requests, **new_requests}
     merged_completions = {**existing_completions, **new_completions}
     for request_id in list(merged_requests.keys()):
-        if request_id in merged_completions:
-            if post_systems or (
-                request_id in existing_requests and request_id in existing_completions
-            ):
-                merged_requests.pop(request_id, None)
-                merged_completions.pop(request_id, None)
+        if request_id in merged_completions and (
+            post_systems
+            or (request_id in existing_requests and request_id in existing_completions)
+        ):
+            merged_requests.pop(request_id, None)
+            merged_completions.pop(request_id, None)
     return _overlay(
         base_view,
         requests=merged_requests,
@@ -390,7 +390,7 @@ def _build_request(
     )
 
 
-def _requested_tool_name(event_type: str) -> Optional[str]:
+def _requested_tool_name(event_type: str) -> str | None:
     """
     Resolve the tool name from a request event type.
 
@@ -406,7 +406,7 @@ def _requested_tool_name(event_type: str) -> Optional[str]:
     return None
 
 
-def _completion_status(event_type: str) -> Optional[str]:
+def _completion_status(event_type: str) -> str | None:
     """
     Resolve the completion status from an event type.
 
@@ -457,8 +457,8 @@ def _maybe_attach_completion(
     completed_at = event.timestamp
     latency_ms = (completed_at - req.requested_at).total_seconds() * 1000.0
     if status == "completed":
-        result: Optional[Mapping[str, JsonValue]] = dict(event.data)
-        error: Optional[str] = None
+        result: Mapping[str, JsonValue] | None = dict(event.data)
+        error: str | None = None
     else:
         result = None
         # Failures carry the error in `event.data["error"]`

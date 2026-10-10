@@ -38,11 +38,12 @@ when it needs it.
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping, Optional
+from typing import TYPE_CHECKING
+from uuid import UUID, uuid4
 
 from .._typing import JsonValue
-from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
     from .event import Event
@@ -59,18 +60,18 @@ class CorrelationContext:
     """
 
     correlation_id: UUID
-    causation_id: Optional[UUID] = None
-    span_id: Optional[UUID] = None
+    causation_id: UUID | None = None
+    span_id: UUID | None = None
     metadata: Mapping[str, JsonValue] = field(default_factory=dict)
 
     @classmethod
     def new(
         cls,
-        metadata: Optional[Mapping[str, JsonValue]] = None,
-        correlation_id: Optional[UUID] = None,
-        causation_id: Optional[UUID] = None,
-        span_id: Optional[UUID] = None,
-    ) -> "CorrelationContext":
+        metadata: Mapping[str, JsonValue] | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+        span_id: UUID | None = None,
+    ) -> CorrelationContext:
         return cls(
             correlation_id=correlation_id or uuid4(),
             causation_id=causation_id,
@@ -87,7 +88,7 @@ class CorrelationContext:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "CorrelationContext":
+    def from_dict(cls, data: dict) -> CorrelationContext:
         corr_id_raw = data.get("correlation_id")
         return cls(
             correlation_id=UUID(corr_id_raw) if corr_id_raw else uuid4(),
@@ -99,7 +100,7 @@ class CorrelationContext:
         )
 
 
-_correlation_context: contextvars.ContextVar[Optional[CorrelationContext]] = (
+_correlation_context: contextvars.ContextVar[CorrelationContext | None] = (
     contextvars.ContextVar("fmh_correlation", default=None)
 )
 
@@ -117,10 +118,10 @@ class CorrelationMiddleware:
 
     def start(
         self,
-        metadata: Optional[Mapping[str, JsonValue]] = None,
-        correlation_id: Optional[UUID] = None,
-        causation_id: Optional[UUID] = None,
-        span_id: Optional[UUID] = None,
+        metadata: Mapping[str, JsonValue] | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+        span_id: UUID | None = None,
     ) -> CorrelationContext:
         ctx = CorrelationContext.new(
             metadata=metadata,
@@ -133,8 +134,8 @@ class CorrelationMiddleware:
 
     def continue_from(
         self,
-        cause: "Event",
-        span_id: Optional[UUID] = None,
+        cause: Event,
+        span_id: UUID | None = None,
     ) -> CorrelationContext:
         ctx = CorrelationContext(
             correlation_id=cause.correlation.correlation_id,
@@ -145,7 +146,7 @@ class CorrelationMiddleware:
         _correlation_context.set(ctx)
         return ctx
 
-    def current(self) -> Optional[CorrelationContext]:
+    def current(self) -> CorrelationContext | None:
         return _correlation_context.get()
 
     def clear(self) -> None:
@@ -153,10 +154,10 @@ class CorrelationMiddleware:
 
     def scope(
         self,
-        metadata: Optional[Mapping[str, JsonValue]] = None,
+        metadata: Mapping[str, JsonValue] | None = None,
         *,
-        correlation_id: Optional[UUID] = None,
-    ) -> "CorrelationScope":
+        correlation_id: UUID | None = None,
+    ) -> CorrelationScope:
         """Bind a correlation scope for the duration of a
         ``with`` block.
 
@@ -180,13 +181,13 @@ class CorrelationScope:
     def __init__(
         self,
         middleware: CorrelationMiddleware,
-        metadata: Optional[Mapping[str, JsonValue]],
-        correlation_id: Optional[UUID] = None,
+        metadata: Mapping[str, JsonValue] | None,
+        correlation_id: UUID | None = None,
     ) -> None:
         self._mw = middleware
         self._metadata = metadata
         self._correlation_id = correlation_id
-        self._ctx: Optional[CorrelationContext] = None
+        self._ctx: CorrelationContext | None = None
 
     def __enter__(self) -> CorrelationContext:
         self._ctx = self._mw.start(

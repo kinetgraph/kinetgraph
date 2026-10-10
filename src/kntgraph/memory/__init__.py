@@ -84,27 +84,27 @@ from .session import (
 )
 
 __all__ = [
-    # session
-    "SESSION_KEY_PREFIX",
-    "SessionEventType",
-    "SessionManager",
-    "SessionState",
-    # profile
-    "PROFILE_KEY_PREFIX",
-    "ProfileEventType",
-    "ProfileManager",
-    "ProfileState",
     # continuity (ADR-014)
     "CONTINUITY_KEY_PREFIX",
-    "ContinuityEventType",
-    "ContinuityManager",
-    "ContinuityState",
-    # consolidation
-    "Consolidator",
-    "Projector",
+    # profile
+    "PROFILE_KEY_PREFIX",
+    # session
+    "SESSION_KEY_PREFIX",
     # cache warmer (bus + adapter)
     "CacheRefreshBus",
     "CacheRefreshKind",
     "CacheRefreshRequest",
     "CacheWarmer",
+    # consolidation
+    "Consolidator",
+    "ContinuityEventType",
+    "ContinuityManager",
+    "ContinuityState",
+    "ProfileEventType",
+    "ProfileManager",
+    "ProfileState",
+    "Projector",
+    "SessionEventType",
+    "SessionManager",
+    "SessionState",
 ]

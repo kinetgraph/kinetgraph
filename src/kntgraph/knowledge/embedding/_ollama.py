@@ -43,7 +43,6 @@ from ._protocol import (
     OllamaEmbeddingResponse,
 )
 
-
 if TYPE_CHECKING:
     # ``ollama`` is an optional dep (the ``[ollama]`` extra).
     # The runtime import is lazy in ``_get_client``; the
@@ -230,7 +229,7 @@ class OllamaEmbeddingAdapter:
                     asyncio.to_thread(_call),
                     timeout=self._timeout_s,
                 )
-            except asyncio.TimeoutError as e:
+            except TimeoutError as e:
                 raise EmbeddingTimeoutError(
                     text=text,
                     timeout_s=self._timeout_s,
@@ -264,7 +263,7 @@ class OllamaEmbeddingAdapter:
 
     @staticmethod
     def _extract_vector(
-        response: "dict[str, object] | _OllamaResponse | OllamaEmbeddingResponse",
+        response: dict[str, object] | _OllamaResponse | OllamaEmbeddingResponse,
     ) -> list[float]:
         """
         Pull the embedding vector out of the Ollama response.

@@ -46,6 +46,8 @@ class RedisSettingsMixin(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379")
     redis_max_connections: int = Field(default=50)
+    # Socket read timeout (seconds); must exceed block_ms to prevent socket timeout collisions
+    redis_socket_timeout: float = Field(default=15.0)
     # In-process fakeredis toggle for benchmarks / CI smoke
     # tests; never set in production.
     redis_fake: bool = Field(default=False)

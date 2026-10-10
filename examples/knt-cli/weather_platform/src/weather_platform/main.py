@@ -2,20 +2,20 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import uvicorn
 from contextlib import asynccontextmanager
+
+import uvicorn
 
 from kntgraph.api import create_app
 from kntgraph.api.auth import APIKeyVerifier, AuthError
-from kntgraph.security import Principal, Role
-from kntgraph.core.result import Ok, Err
-from kntgraph.stream.event_log import EventLog
+from kntgraph.core.result import Err, Ok
+from kntgraph.infra.config import Settings
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._pool import create_redis_pool
-from kntgraph.infra.config import Settings
-from kntgraph.tools.router import ToolRouter
+from kntgraph.security import Principal, Role
+from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.manager import WorkerManager
-
+from kntgraph.tools.router import ToolRouter
 from weather_platform.contexts.weather.dispatcher import (
     build_weather_dispatcher,
     get_weather_tools,

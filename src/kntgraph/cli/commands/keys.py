@@ -3,10 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from pathlib import Path
+
 import typer
-from rich.console import Console
-from kntgraph.security.keys._generate import generate_keypair
 from cryptography.hazmat.primitives import serialization
+from rich.console import Console
+
+from kntgraph.security.keys._generate import generate_keypair
 
 app = typer.Typer(help="Manage Level 1 cryptographic keys for Kinetgraph Agents.")
 console = Console()

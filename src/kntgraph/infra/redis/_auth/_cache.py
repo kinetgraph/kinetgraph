@@ -68,7 +68,6 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 from kntgraph.core.result import Ok, Result
 from kntgraph.infra.redis._errors import MemoryError
@@ -85,7 +84,7 @@ class _CacheEntry:
     clock via the ``time_fn`` argument.
     """
 
-    value: Optional[bytes]
+    value: bytes | None
     inserted_at: float
 
 
@@ -145,7 +144,7 @@ class APIKeyCacheAdapter(APIKeyStorage):
             return True
         return (now - entry.inserted_at) > self._ttl_s
 
-    async def lookup(self, digest: str) -> Result[Optional[bytes], MemoryError]:
+    async def lookup(self, digest: str) -> Result[bytes | None, MemoryError]:
         """Look up an API key binding, with TTL cache.
 
         Hit path: returns the cached value without

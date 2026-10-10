@@ -43,7 +43,7 @@ Result contract (AGENTS.md §6):
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
@@ -54,7 +54,7 @@ from .._errors import MemoryError
 class APIKeyStorage(Protocol):
     """Domain interface for API key bindings (auth layer)."""
 
-    async def lookup(self, digest: str) -> Result[Optional[bytes], MemoryError]:
+    async def lookup(self, digest: str) -> Result[bytes | None, MemoryError]:
         """Look up a key binding by sha256 digest.
 
         Returns ``Ok(raw_bytes)`` on hit, ``Ok(None)`` on

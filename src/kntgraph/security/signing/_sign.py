@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from kntgraph.security import Ed25519PrivateKeyWrapper
 
 
-def sign_event(event: "Event", private_key: "Ed25519PrivateKeyWrapper") -> "Event":
+def sign_event(event: Event, private_key: Ed25519PrivateKeyWrapper) -> Event:
     """Sign an event with the given private key.
 
     The input event is **not mutated** (it is a frozen

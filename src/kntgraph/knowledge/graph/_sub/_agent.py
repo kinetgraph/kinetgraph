@@ -24,8 +24,6 @@ Iter 11 (ADR-019 epílogo + Iter 11 do sharding).
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .._protocol import GraphAdapter
 
 
@@ -100,7 +98,7 @@ class GraphAgentAdapter:
             },
         )
 
-    async def find_by_id(self, agent_id: str) -> Optional[dict]:
+    async def find_by_id(self, agent_id: str) -> dict | None:
         """
         Look up an ``(:Agent)`` node by ``agent_id``.
 

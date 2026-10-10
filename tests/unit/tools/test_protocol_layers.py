@@ -24,7 +24,7 @@ sub-Protocol relationship (``Tool`` IS-A both
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -43,7 +43,7 @@ class _DescribableOnly:
 
     name = "meta.info"
     description = "A tool that only carries metadata."
-    input_schema: dict = {}
+    input_schema: ClassVar[dict] = {}
 
 
 class _CallableOnly:
@@ -60,7 +60,7 @@ class _FullTool:
 
     name = "math.multiply"
     description = "Multiplies a number by 2."
-    input_schema: dict = {
+    input_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {"x": {"type": "integer"}},
     }
@@ -95,7 +95,7 @@ class TestDescribable:
 
         class _NoName:
             description = "x"
-            input_schema: dict = {}
+            input_schema: ClassVar[dict] = {}
 
         assert not isinstance(_NoName(), Describable)
 

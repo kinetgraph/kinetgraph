@@ -48,6 +48,13 @@ Public surface
     exception classes are useful at the API edge.
 """
 
+from .bulkhead import (
+    BulkheadFullError,
+    BulkheadPool,
+    get_all_bulkheads,
+    get_bulkhead,
+    remove_bulkhead,
+)
 from .circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerError,
@@ -56,6 +63,11 @@ from .circuit_breaker import (
     get_circuit_breaker,
     remove_circuit_breaker,
 )
+from .fallback import (
+    with_default_on_failure,
+    with_fallback,
+    with_fallback_chain,
+)
 from .retry import (
     RetryConfig,
     retry_async,
@@ -63,13 +75,6 @@ from .retry import (
     retry_normal,
     retry_slow,
     retry_with_backoff,
-)
-from .bulkhead import (
-    BulkheadFullError,
-    BulkheadPool,
-    get_all_bulkheads,
-    get_bulkhead,
-    remove_bulkhead,
 )
 from .timeout import (
     BackoffPolicy,
@@ -80,43 +85,38 @@ from .timeout import (
     with_timeout,
     with_timeout_and_retry,
 )
-from .fallback import (
-    with_default_on_failure,
-    with_fallback,
-    with_fallback_chain,
-)
 
 __all__ = [
+    "BackoffPolicy",
+    "BulkheadFullError",
+    # Bulkhead
+    "BulkheadPool",
     # Circuit breaker
     "CircuitBreaker",
     "CircuitBreakerError",
     "CircuitState",
-    "get_circuit_breaker",
-    "get_all_breakers",
-    "remove_circuit_breaker",
-    # Retry
-    "retry_with_backoff",
-    "retry_async",
     "RetryConfig",
+    "TimeoutConfig",
+    "get_all_breakers",
+    "get_all_bulkheads",
+    "get_bulkhead",
+    "get_circuit_breaker",
+    "remove_bulkhead",
+    "remove_circuit_breaker",
+    "retry_async",
     "retry_fast",
     "retry_normal",
     "retry_slow",
-    # Bulkhead
-    "BulkheadPool",
-    "BulkheadFullError",
-    "get_bulkhead",
-    "get_all_bulkheads",
-    "remove_bulkhead",
-    # Timeout
-    "with_timeout",
-    "with_timeout_and_retry",
-    "BackoffPolicy",
-    "TimeoutConfig",
+    # Retry
+    "retry_with_backoff",
     "timeout_fast",
     "timeout_normal",
     "timeout_slow",
+    "with_default_on_failure",
     # Fallback
     "with_fallback",
-    "with_default_on_failure",
     "with_fallback_chain",
+    # Timeout
+    "with_timeout",
+    "with_timeout_and_retry",
 ]

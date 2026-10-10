@@ -9,7 +9,7 @@ Keypair generation and metadata construction.
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kntgraph.security.keys._crypto import (
     Ed25519PrivateKey,
@@ -21,8 +21,8 @@ from kntgraph.security.keys._metadata import KeyMetadata
 from kntgraph.security.keys._types import (
     Ed25519PrivateKeyWrapper,
     Ed25519PublicKeyWrapper,
-    Keypair,
     KeyEpoch,
+    Keypair,
     PublicKey,
 )
 
@@ -78,7 +78,7 @@ def _make_metadata(
     return KeyMetadata(
         agent_id=agent_id,
         key_epoch=key_epoch,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(UTC).isoformat(),
         algorithm=pub.algorithm,
         public_key_fingerprint=fingerprint,
     )

@@ -336,7 +336,7 @@ async def _run_benchmark_cli():
     )
     try:
         await client.ping()
-    except Exception as e:
+    except (aioredis.RedisError, ConnectionError, OSError, TimeoutError) as e:
         print(f"Error connecting to Redis: {e}")
         return
 

@@ -80,6 +80,7 @@ from kntgraph.memory.base import (
     FOLD_CURSOR_SUFFIX,
     BaseShortTermMemory,
 )
+from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.memory.profile import (
     ProfileEventType,
     ProfileManager,
@@ -88,9 +89,7 @@ from kntgraph.memory.session import (
     SessionEventType,
     SessionManager,
 )
-from kntgraph.memory.continuity.manager import ContinuityManager
 from kntgraph.stream.event_log import EventLog
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -236,20 +235,24 @@ class TestColdPathSeedsCursor:
 
     async def test_session_cold_refresh_stamps_cursor(self, event_log, session_manager):
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
-        cursor = await session_manager._read_fold_cursor(
+        (await session_manager.refresh_cache("sess-1")).is_ok()
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
         # Format: ``<ms>-<seq>`` (Redis stream id).
         assert "-" in cursor
 
     async def test_profile_cold_refresh_stamps_cursor(self, event_log, profile_manager):
         await event_log.append(_profile_created_event("t", "u"))
-        await profile_manager.refresh_cache("t", "u")
-        cursor = await profile_manager._read_fold_cursor(
+        (await profile_manager.refresh_cache("t", "u")).is_ok()
+        cursor_result = await profile_manager._read_fold_cursor(
             profile_manager.cache_key("t", "u")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
     async def test_cold_path_payload_keeps_legacy_shape(
@@ -259,7 +262,7 @@ class TestColdPathSeedsCursor:
         contain a ``__fold_cursor__`` field — the cursor
         lives on the parallel key, not in the payload."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
+        (await session_manager.refresh_cache("sess-1")).is_ok()
         raw = await session_manager._storage.get_record(
             session_manager.cache_key("sess-1")
         )
@@ -274,7 +277,7 @@ class TestColdPathSeedsCursor:
     ):
         """Same for Profile (Hash tier)."""
         await event_log.append(_profile_created_event("t", "u"))
-        await profile_manager.refresh_cache("t", "u")
+        (await profile_manager.refresh_cache("t", "u")).is_ok()
         raw = await profile_manager._storage.get_record(
             profile_manager.cache_key("t", "u")
         )
@@ -290,10 +293,12 @@ class TestColdPathSeedsCursor:
         """If the fold returns ``None`` (empty stream),
         the cold path leaves the cursor key untouched —
         no spurious cursor for non-existent identities."""
-        await session_manager.refresh_cache("sess-does-not-exist")
-        cursor = await session_manager._read_fold_cursor(
+        (await session_manager.refresh_cache("sess-does-not-exist")).is_ok()
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-does-not-exist")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is None
 
 
@@ -309,29 +314,35 @@ class TestIncrementalPath:
         """No cursor on the parallel key → cold rebuild,
         which seeds the cursor for the next call."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
     async def test_empty_delta_is_noop(self, event_log, session_manager):
         """Cursor present + no new events → no Redis write
         to the cache payload; cursor untouched."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
-        first_cursor = await session_manager._read_fold_cursor(
+        (await session_manager.refresh_cache("sess-1")).is_ok()
+        first_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert first_cursor_result.is_ok()
+        first_cursor = first_cursor_result.ok_value()
         assert first_cursor is not None
         # No new events; second incremental call must
         # leave the cache untouched.
-        await session_manager.refresh_cache_incremental("sess-1")
-        cursor_after = await session_manager._read_fold_cursor(
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cursor_after_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_after_result.is_ok()
+        cursor_after = cursor_after_result.ok_value()
         assert cursor_after == first_cursor
 
     async def test_non_empty_delta_falls_back_to_cold(self, event_log, session_manager):
@@ -339,21 +350,25 @@ class TestIncrementalPath:
         default ``_fold_incremental`` returns ``None``
         → cold rebuild, cursor advances."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
-        first_cursor = await session_manager._read_fold_cursor(
+        (await session_manager.refresh_cache("sess-1")).is_ok()
+        first_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert first_cursor_result.is_ok()
+        first_cursor = first_cursor_result.ok_value()
         msg = _session_message_event("sess-1", "user", "hi")
         await event_log.append(msg)
-        await session_manager.refresh_cache_incremental("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
         # Cold rebuild path: cursor must have advanced
         # past both events.
-        second_cursor = await session_manager._read_fold_cursor(
+        second_cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert second_cursor_result.is_ok()
+        second_cursor = second_cursor_result.ok_value()
         assert second_cursor is not None
         assert second_cursor != first_cursor
-        cached = await session_manager.read("sess-1")
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         # Cold rebuild surface the new MESSAGE event.
         assert cached.messages
@@ -374,15 +389,15 @@ class TestAutoCorrection:
         payload was deleted under us → cold rebuild
         (self-correct)."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
+        (await session_manager.refresh_cache("sess-1")).is_ok()
         # Wipe just the cache payload (cursor survives).
         await fake_redis.delete(session_manager.cache_key("sess-1"))
         # New event arrives; incremental call sees the
         # cursor but no cache → cold fallback rebuilds
         # the cache from scratch.
         await event_log.append(_session_message_event("sess-1", "user", "hello"))
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         assert cached.messages
 
@@ -394,20 +409,22 @@ class TestAutoCorrection:
         the next call. No migration needed for legacy
         caches."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
+        (await session_manager.refresh_cache("sess-1")).is_ok()
         # Wipe just the cursor; cache payload survives.
         await fake_redis.delete(
             session_manager._fold_cursor_key(session_manager.cache_key("sess-1"))
         )
         # New event arrives.
         await event_log.append(_session_message_event("sess-1", "user", "hi"))
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         # Cursor was re-seeded by the cold rebuild.
-        cursor = await session_manager._read_fold_cursor(
+        cursor_result = await session_manager._read_fold_cursor(
             session_manager.cache_key("sess-1")
         )
+        assert cursor_result.is_ok()
+        cursor = cursor_result.ok_value()
         assert cursor is not None
 
 
@@ -426,7 +443,7 @@ class TestTTLCoupling:
         expire together — fakeredis honours the ``EX``
         we passed. We assert via ``ttl`` directly."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache("sess-1")
+        (await session_manager.refresh_cache("sess-1")).is_ok()
         cache_key = session_manager.cache_key("sess-1")
         cursor_key = session_manager._fold_cursor_key(cache_key)
         cache_ttl = await fake_redis.ttl(cache_key)
@@ -453,18 +470,18 @@ class TestSmokeEndToEnd:
     ):
         """E2E: cold seed + incremental no-op + delta."""
         await event_log.append(_session_started_event("sess-1"))
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         # Second tick (no delta) — no-op.
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         # Third tick (with delta) — cold fallback
         # re-rebuilds; cursor advances.
         await event_log.append(_session_message_event("sess-1", "user", "ok"))
-        await session_manager.refresh_cache_incremental("sess-1")
-        cached = await session_manager.read("sess-1")
+        (await session_manager.refresh_cache_incremental("sess-1")).is_ok()
+        cached = (await session_manager.read("sess-1")).ok_value()
         assert cached is not None
         assert cached.messages
 
@@ -472,12 +489,12 @@ class TestSmokeEndToEnd:
         self, event_log, profile_manager
     ):
         await event_log.append(_profile_created_event("t", "u"))
-        await profile_manager.refresh_cache_incremental("t", "u")
-        cached = await profile_manager.read("t", "u")
+        (await profile_manager.refresh_cache_incremental("t", "u")).is_ok()
+        cached = (await profile_manager.read("t", "u")).ok_value()
         assert cached is not None
         # New preference.
         await event_log.append(_profile_preference_set_event("t", "u", "lang", "pt"))
-        await profile_manager.refresh_cache_incremental("t", "u")
-        cached = await profile_manager.read("t", "u")
+        (await profile_manager.refresh_cache_incremental("t", "u")).is_ok()
+        cached = (await profile_manager.read("t", "u")).ok_value()
         assert cached is not None
         assert cached.preferences.get("lang") == "pt"

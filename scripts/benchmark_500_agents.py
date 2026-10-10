@@ -41,9 +41,9 @@ from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._world_checkpoint import RedisWorldCheckpointStorage
 from kntgraph.infra.world_checkpoint import IncrementalWorldStore
 from kntgraph.runner.reactive import ReactiveDispatcher
-from kntgraph.tools.acl import default_acl
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools import tool_worker
+from kntgraph.tools.acl import default_acl
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
 
@@ -101,7 +101,7 @@ class SlowCPUTool:
     ) -> Ok[dict]:
         """Perform CPU-intensive hashing and return hex digest snippet."""
         # Initial byte string derived from agent identity and sequence number
-        val = f"{agent}:{seq}".encode("utf-8")
+        val = f"{agent}:{seq}".encode()
         # Perform SHA-256 hashing loop to simulate CPU load
         for _ in range(25_000):
             val = hashlib.sha256(val).digest()

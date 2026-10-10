@@ -78,8 +78,8 @@ import argparse
 import asyncio
 import dataclasses
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Iterable, Optional
 
 import redis.asyncio as aioredis
 import structlog
@@ -175,7 +175,7 @@ class UserReport:
 
 @dataclass
 class MigrationReport:
-    tenant_filter: Optional[str]
+    tenant_filter: str | None
     dry_run: bool
     user_reports: list[UserReport] = field(default_factory=list)
 
@@ -236,9 +236,7 @@ def current_preference_set_events(events: list[Event]) -> list[Event]:
                 latest[key] = e
         elif e.event_type == ProfileEventType.PREFERENCE_UNSET:
             key = e.data.get("key")
-            if key in latest:
-                # The unset wins, drop the latest set.
-                del latest[key]
+            latest.pop(key, None)
     return list(latest.values())
 
 
@@ -365,7 +363,7 @@ async def list_profile_agents(
 
 async def run(
     redis_url: str,
-    tenant_filter: Optional[str],
+    tenant_filter: str | None,
     dry_run: bool,
 ) -> MigrationReport:
     redis = aioredis.from_url(redis_url)

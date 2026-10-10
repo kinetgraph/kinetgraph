@@ -49,7 +49,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-
 from kntgraph.infra.config import fresh_settings
 
 

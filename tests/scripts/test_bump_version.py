@@ -40,7 +40,6 @@ from pathlib import Path
 import pytest
 from packaging.version import Version
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 SCRIPT_PATH = SCRIPTS_DIR / "bump_version.py"
 
@@ -161,6 +160,7 @@ def _run_bump(tmp_path: Path, *args: str) -> subprocess.CompletedProcess:
         env=_clean_git_env(),
         capture_output=True,
         text=True,
+        check=False,
     )
 
 

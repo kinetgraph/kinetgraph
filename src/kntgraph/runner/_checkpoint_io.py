@@ -28,13 +28,13 @@ if TYPE_CHECKING:
     from kntgraph.runner.reactive import ReactiveDispatcher
 
 
-__all__ = ["save_checkpoint", "bootstrap_agents", "fetch_new_events"]
+__all__ = ["bootstrap_agents", "fetch_new_events", "save_checkpoint"]
 
 
 async def save_checkpoint(
-    dispatcher: "ReactiveDispatcher",
+    dispatcher: ReactiveDispatcher,
     agent_id: str,
-    world: "World",
+    world: World,
     last_stream_id: str,
 ) -> None:
     """Persist the World checkpoint.
@@ -51,7 +51,7 @@ async def save_checkpoint(
     )
 
 
-async def bootstrap_agents(dispatcher: "ReactiveDispatcher") -> None:
+async def bootstrap_agents(dispatcher: ReactiveDispatcher) -> None:
     """Initial discovery of agents. Called on the first
     dispatch and again on the rediscovery cadence. After
     bootstrap, the dispatcher iterates only
@@ -69,7 +69,7 @@ async def bootstrap_agents(dispatcher: "ReactiveDispatcher") -> None:
 
 
 async def fetch_new_events(
-    dispatcher: "ReactiveDispatcher",
+    dispatcher: ReactiveDispatcher,
     agent_id: str,
     cursor: str,
 ) -> tuple[list[Event], str]:

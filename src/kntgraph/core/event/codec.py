@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -84,7 +84,7 @@ def event_from_dict(d: dict) -> Event:
     # import is local to avoid loading ``security``
     # when the caller only does JSON round-tripping
     # without a signature (the common path).
-    sig_obj: Optional["Signature"] = None  # noqa: F821
+    sig_obj: Signature | None = None
     if d.get("signature"):
         from kntgraph.security.signing import Signature
 
@@ -92,9 +92,7 @@ def event_from_dict(d: dict) -> Event:
     # ``producer_principal_id`` is optional (ADR-066
     # §4.1). Decoded as ``None`` when missing or empty.
     raw_principal_id = d.get("producer_principal_id")
-    producer_principal_id: Optional[str] = (
-        raw_principal_id if raw_principal_id else None
-    )
+    producer_principal_id: str | None = raw_principal_id if raw_principal_id else None
     # Local imports to avoid the cycle
     # `event` ↔ `correlation` at module load time.
     from .correlation import CorrelationContext

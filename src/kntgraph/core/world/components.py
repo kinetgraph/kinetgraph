@@ -36,9 +36,9 @@ Design contract (Iter 28 FU 8, ADR-034):
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Mapping, Optional
 from uuid import UUID
 
 from .._typing import JsonValue
@@ -153,7 +153,7 @@ class ToolCallRequest:
     # where ``ttl`` is configured per-tool on the
     # dispatcher.
     expires_at: datetime
-    correlation_id: Optional[UUID] = None
+    correlation_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,16 +192,16 @@ class ToolCallCompletion:
 
     request_event_id: str
     status: str
-    result: Optional[Mapping[str, JsonValue]] = None
-    error: Optional[str] = None
-    completed_at: Optional[datetime] = None
-    latency_ms: Optional[float] = None
+    result: Mapping[str, JsonValue] | None = None
+    error: str | None = None
+    completed_at: datetime | None = None
+    latency_ms: float | None = None
     # ADR-037: see ``ToolCallRequest.correlation_id``.
     # Inherited from the source completion event's
     # ``correlation.correlation_id`` and from the
     # originating request (both should be equal in
     # a well-behaved flow).
-    correlation_id: Optional[UUID] = None
+    correlation_id: UUID | None = None
 
 
 __all__ = [

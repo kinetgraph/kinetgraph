@@ -21,7 +21,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -133,10 +132,10 @@ class TestNoDirectRedisImportInMemory:
     consume ``ShortMemoryStorage``.
     """
 
-    EXCLUDED = {
+    EXCLUDED = (
         # The Redis adapter package itself.
         "infra/redis/",
-    }
+    )
 
     async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re

@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Optional
 
 import structlog
 
@@ -74,9 +73,9 @@ class Runner:
         self,
         log: EventLog,
         *,
-        cyclic_systems: Optional[list[CyclicSystem]] = None,
+        cyclic_systems: list[CyclicSystem] | None = None,
         tick_interval: float = 1.0,
-        fold: Optional[Callable[[], "asyncio.Future[World]"]] = None,
+        fold: Callable[[], asyncio.Future[World]] | None = None,
         incremental: bool = True,
     ) -> None:
         self._log = log
@@ -84,11 +83,11 @@ class Runner:
         self._interval = tick_interval
         self._custom_fold = fold
         self._incremental = incremental and (fold is None)
-        self._cached_world: Optional[World] = None
+        self._cached_world: World | None = None
         self._cursors: dict[str, str] = {}
         self._running = False
         self._tick = 0
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     @property
     def tick(self) -> int:
@@ -210,6 +209,8 @@ class Runner:
         while self._running:
             try:
                 await self.tick_once()
-            except Exception as e:
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001 - top-level runner loop isolates tick errors
                 logger.error("runner.loop.error", error=str(e))
             await asyncio.sleep(self._interval)

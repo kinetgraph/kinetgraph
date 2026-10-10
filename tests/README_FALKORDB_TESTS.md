@@ -189,9 +189,11 @@ agent1 = AgentState.create(
     tenant_id="tenant_123",
     unique_key="doc_001",
     components={
-        "document": DocumentComponent(document_id="doc_001", document_type="nota_fiscal"),
+        "document": DocumentComponent(
+            document_id="doc_001", document_type="nota_fiscal"
+        ),
         "client": ClientContextComponent(client_id="client_456"),
-    }
+    },
 )
 
 # agent2: DocumentComponent apenas
@@ -201,7 +203,7 @@ agent2 = AgentState.create(
     unique_key="doc_002",
     components={
         "document": DocumentComponent(document_id="doc_002", document_type="recibo"),
-    }
+    },
 )
 
 # agent3: TaskComponent apenas
@@ -211,7 +213,7 @@ agent3 = AgentState.create(
     unique_key="task_001",
     components={
         "task": TaskComponent(task_id="task_001", priority="high"),
-    }
+    },
 )
 ```
 
@@ -355,21 +357,18 @@ xdg-open htmlcov/index.html  # Linux
 @pytest.mark.integration
 class TestNewFeature:
     """Testes para nova feature."""
-    
+
     @pytest.mark.asyncio
-    async def test_new_feature(
-        self,
-        falkordb_repo_with_data: FalkorDBWorldRepository
-    ):
+    async def test_new_feature(self, falkordb_repo_with_data: FalkorDBWorldRepository):
         """Testa nova feature."""
         repo = falkordb_repo_with_data
-        
+
         # Arrange
         world = await repo.get_world()
-        
+
         # Act
         result = await repo.new_feature_method(...)
-        
+
         # Assert
         assert result == expected
 ```

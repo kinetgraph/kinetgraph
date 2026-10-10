@@ -48,7 +48,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import tarfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -108,7 +108,7 @@ def main() -> int:
         return 1
 
     DIST.mkdir(exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_path = DIST / f"kntgraph-export-{timestamp}.tar.gz"
 
     files = _iter_files()

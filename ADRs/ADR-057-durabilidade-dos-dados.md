@@ -286,8 +286,11 @@ evidence.
 @runtime_checkable
 class IcebergCheckpointStorage(Protocol):
     """Non-destructive maintenance operations on Iceberg/Delta tables."""
+
     async def rewrite_data_files(self) -> Result[RewriteSummary, StorageError]: ...
-    async def expire_snapshots(self, older_than_days: int) -> Result[int, StorageError]: ...
+    async def expire_snapshots(
+        self, older_than_days: int
+    ) -> Result[int, StorageError]: ...
     async def current_snapshot_bytes(self) -> Result[int, StorageError]: ...
 ```
 
@@ -331,13 +334,13 @@ import pyarrow as pa
 
 ICE_EVENTS_SCHEMA_V1 = pa.schema(
     [
-        pa.field("stream_id",       pa.large_string(), nullable=False),
-        pa.field("agent_id",        pa.string(),       nullable=False),
-        pa.field("correlation_id",  pa.string(),       nullable=False),
-        pa.field("event_type",      pa.string(),       nullable=False),
-        pa.field("payload",         pa.binary(),       nullable=False),
-        pa.field("schema_version",  pa.int32(),        nullable=False),
-        pa.field("committed_at_ms", pa.timestamp("ms"),nullable=False),
+        pa.field("stream_id", pa.large_string(), nullable=False),
+        pa.field("agent_id", pa.string(), nullable=False),
+        pa.field("correlation_id", pa.string(), nullable=False),
+        pa.field("event_type", pa.string(), nullable=False),
+        pa.field("payload", pa.binary(), nullable=False),
+        pa.field("schema_version", pa.int32(), nullable=False),
+        pa.field("committed_at_ms", pa.timestamp("ms"), nullable=False),
     ],
     metadata={
         "format_version": "1",
@@ -749,10 +752,12 @@ class IceOffloadTick:
             )
         redis.set(cursor_key + ":completed", "1")
 
-        return Ok(OffloadResult(
-            snapshot_id=snapshot_id,
-            events_committed=len(events),
-        ))
+        return Ok(
+            OffloadResult(
+                snapshot_id=snapshot_id,
+                events_committed=len(events),
+            )
+        )
 ```
 
 **Why `XTRIM` is the last step.** The Redis stream is
@@ -914,8 +919,8 @@ and commits snapshot `S1`:
 ```python
 last_committed_id["nf-001"] = {
     "lifecycle": "1714900005000-5",
-    "domain":    "1714900004000-4",
-    "tool":      "1714900003000-3",
+    "domain": "1714900004000-4",
+    "tool": "1714900003000-3",
 }
 ```
 
@@ -961,8 +966,8 @@ project sets `KNT_RETENTION_EVENT_CLASS_DOMAIN__TTL_S=0`
 ```python
 last_committed_id["audit-007"] = {
     "lifecycle": "1714900005000-5",
-    "domain":    "<never-trimmed>",
-    "tool":      "1714900003000-3",
+    "domain": "<never-trimmed>",
+    "tool": "1714900003000-3",
 }
 ```
 
@@ -989,11 +994,11 @@ alongside the World:
 # world_checkpoint.py (pseudocode)
 checkpoint = WorldCheckpoint(
     world=pickled_world,
-    last_stream_id=last_overall_stream_id,        # for the cold-start fallback
-    last_stream_id_per_class={                     # NEW: per §4.11.6
+    last_stream_id=last_overall_stream_id,  # for the cold-start fallback
+    last_stream_id_per_class={  # NEW: per §4.11.6
         "lifecycle": "1714900005000-5",
-        "domain":    "1714900004000-4",
-        "tool":      "1714900003000-3",
+        "domain": "1714900004000-4",
+        "tool": "1714900003000-3",
     },
 )
 ```

@@ -21,8 +21,7 @@ isolation:
 
 from __future__ import annotations
 
-from types import MappingProxyType
-from typing import Any, Optional
+from typing import Any
 from uuid import uuid4
 
 from kntgraph.core.event import CorrelationContext, Event
@@ -42,14 +41,14 @@ def _event(
     *,
     event_type: str,
     agent_id: str = "a-1",
-    data: Optional[dict] = None,
-    causation_id: Optional[Any] = None,
+    data: dict | None = None,
+    causation_id: Any | None = None,
 ) -> Event:
     return Event.create(
         event_type=event_type,
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(dict(data or {})),
+        data=dict(data or {}),
         correlation=_ctx(),
         causation_id=causation_id,
     )

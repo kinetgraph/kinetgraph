@@ -43,12 +43,14 @@ only place that constructs a
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
+
+import structlog
 
 from ...core.event import CorrelationContext, Event, correlation_middleware
 from ...core.result import Err, Ok, PersistenceError, Result
 from ...infra.hashing import short_hash
-from ...infra.redis._errors import MemoryDecodeError, MemoryMiss
+from ...infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
 from ...infra.redis._memory import ShortMemoryStorage
 from ...stream.event_log import EventLog
 from ..base import BaseShortTermMemory
@@ -65,6 +67,8 @@ from .state import (
     ContinuityEventType,
     ContinuityState,
 )
+
+logger = structlog.get_logger()
 
 
 class ContinuityManager(BaseShortTermMemory[ContinuityState]):
@@ -86,7 +90,7 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         event_log: EventLog,
         storage: ShortMemoryStorage,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         # ``None`` → operator-configured default from
         # ``Settings.continuity_ttl_seconds`` (90 days,
@@ -135,7 +139,7 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         tenant_id: str,
         user_id: str,
         state: ContinuityState,
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Write the given ``ContinuityState`` to the Redis Hash
         cache. Replaces any existing value; sets the TTL
@@ -143,24 +147,30 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
 
         Public API: the ``Projector`` calls this with a state
         it folded from the EventLog.
+
+        Errors propagate from the underlying storage write
+        (AGENTS.md §6).
         """
         key = self.cache_key(tenant_id, user_id)
-        await self._write_cache_for_key(key, state)
+        return await self._write_cache_for_key(key, state)
 
     async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Rebuild the cache for one continuity by folding the
         EventLog. Idempotent.
 
         Public API: the ``CacheWarmer`` adapter calls this.
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache(tenant_id, user_id)
+        return await super().refresh_cache(tenant_id, user_id)
 
     async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Incremental refresh for one continuity (ADR-068
         §3.4 P4). Continuity is the natural place to
@@ -172,15 +182,18 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         default behaviour (full refold over the cached
         state + delta) to ship P4 without per-tier
         overrides.
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache_incremental(tenant_id, user_id)
+        return await super().refresh_cache_incremental(tenant_id, user_id)
 
     async def recency_suggest(
         self,
         tenant_id: str,
         user_id: str,
         slot: str,
-    ) -> Optional[str]:
+    ) -> Result[str | None, PersistenceError]:
         """
         Return the last chosen value for a categorical slot
         (e.g. ``"cfop"``), or ``None`` if there is no record
@@ -189,11 +202,21 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         This is the primary read API for agents that want to
         pre-fill inputs with the user's most recent choice.
         Respects ``cleared_at`` (LGPD).
+
+        Errors propagate from the underlying ``read``
+        (AGENTS.md §6). ``Ok(None)`` is reserved for the
+        legitimate miss paths (no record / cleared);
+        callers must distinguish via ``is_ok()`` vs the
+        wrapped value.
         """
-        state = await self.read(tenant_id, user_id)
+        read_result = await self.read(tenant_id, user_id)
+        if read_result.is_err():
+            err = read_result.err_value() or PersistenceError("Unknown read error")
+            return Err(err)
+        state = read_result.ok_value()
         if state is None or state.is_cleared():
-            return None
-        return state.last_categories.get(slot)
+            return Ok(None)
+        return Ok(state.last_categories.get(slot))
 
     # ------------------------------------------------------------------ write (domain)
 
@@ -203,12 +226,20 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         tenant_id: str,
         user_id: str,
     ) -> Result[Event, PersistenceError]:
-        """Append an event and refresh the cache. Idempotent."""
+        """Append an event and refresh the cache. Idempotent.
+
+        Errors from the cache refresh propagate as
+        ``Err(PersistenceError)`` (AGENTS.md §6)."""
         result = await self._log.append(event)
         if result.is_err():
             err = result.err_value() or PersistenceError("Unknown persistence error")
             return Err(err)
-        await self.refresh_cache(tenant_id, user_id)
+        refresh_result = await self.refresh_cache(tenant_id, user_id)
+        if refresh_result.is_err():
+            err = refresh_result.err_value() or PersistenceError(
+                "Unknown refresh error"
+            )
+            return Err(err)
         return Ok(event)
 
     async def _build_and_emit(
@@ -216,7 +247,7 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
         *,
         tenant_id: str,
         user_id: str,
-        build: "Callable[[str, CorrelationContext], Result[Event, PersistenceError]]",
+        build: Callable[[str, CorrelationContext], Result[Event, PersistenceError]],
     ) -> Result[Event, PersistenceError]:
         """
         Build an event with the recorder and emit it.
@@ -398,16 +429,32 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
 
     async def read(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> Optional[ContinuityState]:
-        """Read the continuity state. Cache first, fold on miss."""
+    ) -> Result[ContinuityState | None, PersistenceError]:
+        """Read the continuity state. Cache first, fold on miss.
+
+        Returns ``Ok(state)`` on hit, ``Ok(None)`` when no
+        continuity record exists for ``(tenant_id, user_id)``,
+        or ``Err(PersistenceError)`` when the cache adapter or
+        EventLog fold reports a failure (AGENTS.md §6).
+        """
         return await super().read(tenant_id, user_id)
 
     async def list_for_tenant(
         self, tenant_id: str, limit: int = 100
-    ) -> list[ContinuityState]:
+    ) -> Result[list[ContinuityState], MemoryError]:
         """
-        Best-effort: scans the Redis cache for continuity
-        records belonging to a tenant.
+        Scan the Redis cache for continuity records
+        belonging to a tenant.
+
+        Per ADR-077: the storage Protocol's ``iter_keys``
+        returns ``AsyncIterator[str]`` and a transport
+        failure during the scan surfaces as
+        ``Err(MemoryError)`` from the storage layer. We
+        trust the Protocol and let the exception propagate
+        as an ``Err`` at the call site.
+
+        Per-entry decode failures are mapped to ``Ok([])``
+        — the entry is skipped and the scan continues.
         """
         out: list[ContinuityState] = []
         prefix = f"{CONTINUITY_KEY_PREFIX}{tenant_id}:"
@@ -425,13 +472,13 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
                 out.append(state)
             if len(out) >= limit:
                 break
-        return out
+        return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
         self, key: str, *key_parts: str
-    ) -> Result[Optional[ContinuityState], MemoryDecodeError]:
+    ) -> Result[ContinuityState | None, MemoryDecodeError]:
         """Decode the Hash cache entry at ``key``.
 
         Returns ``Ok(None)`` on miss (``MemoryMiss`` from
@@ -475,7 +522,7 @@ class ContinuityManager(BaseShortTermMemory[ContinuityState]):
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> Optional[ContinuityState]:
+    ) -> ContinuityState | None:
         agent_id = self.agent_id_for(tenant_id, user_id)
         events = await self._log.read(agent_id)
         return _fold_continuity_events(tenant_id, user_id, events)

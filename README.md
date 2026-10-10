@@ -79,7 +79,9 @@ from kntgraph.tools.worker import tool_worker
 # 1. A tool — runs in a worker pool, off the event loop.
 @tool_worker(name="weather_api")
 class WeatherTool:
-    async def invoke(self, city: str, *, idempotency_key: str) -> Result[dict, ToolError]:
+    async def invoke(
+        self, city: str, *, idempotency_key: str
+    ) -> Result[dict, ToolError]:
         return Ok({"city": city, "temp_c": 22, "condition": "sunny"})
 
 
@@ -92,19 +94,25 @@ class WeatherSystem(ToolAwareSystem):
         # Emit tool.requested only when a new city arrives.
         if "weather.requested" in view.components:
             return []
-        return [Event.domain_from(
-            agent_id="weather-bot",
-            event_type="weather.requested",
-            data={"city": "Rio"},
-            correlation=world.agents["weather-bot"].correlation_id,
-        )]
+        return [
+            Event.domain_from(
+                agent_id="weather-bot",
+                event_type="weather.requested",
+                data={"city": "Rio"},
+                correlation=world.agents["weather-bot"].correlation_id,
+            )
+        ]
 
 
 # 3. A pure fold — replayable, deterministic.
 events = [
     Event.create("agent.spawned", agent_id="weather-bot", event_class="lifecycle"),
-    Event.create("weather.requested", agent_id="weather-bot", event_class="domain",
-                 data={"city": "Rio"}),
+    Event.create(
+        "weather.requested",
+        agent_id="weather-bot",
+        event_class="domain",
+        data={"city": "Rio"},
+    ),
 ]
 world = World.fold(events, tick=2)
 print(world.agents["weather-bot"].components["weather.requested"])

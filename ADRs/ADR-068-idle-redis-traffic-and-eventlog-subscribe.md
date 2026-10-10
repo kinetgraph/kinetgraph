@@ -204,7 +204,9 @@ single point for this (ADR-019):
 
 ```python
 async def xread(
-    self, streams: dict[str, str], count: int | None = None,
+    self,
+    streams: dict[str, str],
+    count: int | None = None,
     block: int | None = None,
 ) -> list: ...
 ```

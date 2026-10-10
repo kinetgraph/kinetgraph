@@ -111,6 +111,7 @@ class RoutingMode(str, Enum):
     autonomous = "autonomous"
     collaborate = "collaborate"
 
+
 routing_mode: RoutingMode = typer.Option(
     RoutingMode.external,
     "--routing-mode",
@@ -143,6 +144,7 @@ _ENV = Environment(
     loader=FileSystemLoader(_TEMPLATES_DIR),
     autoescape=False,  # nosec B701
 )
+
 
 def render_template(name: str, ctx: dict) -> str:
     """Render a Jinja template from the CLI templates dir."""

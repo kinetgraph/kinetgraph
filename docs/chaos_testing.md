@@ -127,15 +127,11 @@ async def test_dispatcher_restart_preserves_compensating_world_state(
         {"step_a": "completed", "step_b": "failed"},
     )
     sut = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
-    await sut.save(
-        agent_id, WorldCheckpoint(world=world, last_stream_id="-")
-    )
+    await sut.save(agent_id, WorldCheckpoint(world=world, last_stream_id="-"))
 
     # Act.
     del sut  # "crash"
-    sut_after_restart = IncrementalWorldStore(
-        RedisWorldCheckpointStorage(clean_redis)
-    )
+    sut_after_restart = IncrementalWorldStore(RedisWorldCheckpointStorage(clean_redis))
     ckpt = await sut_after_restart.load(agent_id)
     view = ckpt.world.get_agent(agent_id)
     loaded_snapshot = _progress_snapshot(view)

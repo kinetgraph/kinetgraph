@@ -27,5 +27,4 @@ from __future__ import annotations
 
 from ._adapter import GraphSolutionAdapter
 
-
 __all__ = ["GraphSolutionAdapter"]

@@ -43,11 +43,12 @@ Result contract (AGENTS.md §6):
 
 from __future__ import annotations
 
-from typing import Mapping, Optional, Protocol, runtime_checkable
+from collections.abc import Mapping
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
-from .._errors import MemoryError, MemoryDecodeError
+from .._errors import MemoryDecodeError, MemoryError
 
 
 @runtime_checkable
@@ -56,7 +57,7 @@ class CheckpointStorage(Protocol):
 
     async def load(
         self, agent_id: str
-    ) -> Result[Optional[Mapping[str, str]], MemoryError | MemoryDecodeError]:
+    ) -> Result[Mapping[str, str] | None, MemoryError | MemoryDecodeError]:
         """Load the checkpoint payload for a single agent.
 
         Returns ``Ok(None)`` on miss; ``Ok(dict)`` on hit;

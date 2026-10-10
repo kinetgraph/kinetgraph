@@ -33,12 +33,11 @@ the EventLog's in-memory cache.
 
 from __future__ import annotations
 
-
 import uuid
+
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
-
 
 # ---------------------------------------------------------------------------
 # Helpers

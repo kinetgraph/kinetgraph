@@ -33,7 +33,6 @@ from pydantic import (
     field_validator,
 )
 
-
 # Pattern vocabulary (matches docs/concordos-bundle-spec.md §3.1).
 
 # Event names: ``domain.subdomain.name`` (e.g., ``invoice.submitted``).

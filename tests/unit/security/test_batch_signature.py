@@ -38,13 +38,13 @@ from kntgraph.core.event import (
     Event,
 )
 from kntgraph.security import (
+    SUPPORTED_ALGORITHMS,
+    SUPPORTED_BATCH_ALGORITHMS,
     BatchEntry,
     BatchSignature,
     InMemoryKeyRegistry,
     Signature,
     SignatureError,
-    SUPPORTED_ALGORITHMS,
-    SUPPORTED_BATCH_ALGORITHMS,
     UnknownAlgorithmError,
     aggregate_concat,
     generate_keypair,
@@ -255,7 +255,7 @@ class TestVerifyAggregateConcatFailures:
 
     def test_one_bad_signature_in_batch_fails_whole_batch(self, keys) -> None:
         priv_a, pub_a = keys
-        priv_b, pub_b = generate_keypair()
+        priv_b, _pub_b = generate_keypair()
         # First event signed correctly; second signed by ANOTHER
         # key but the public key field is from a different one.
         e1 = _make_event(event_type="x.1")

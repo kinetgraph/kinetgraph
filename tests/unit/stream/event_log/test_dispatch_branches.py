@@ -29,7 +29,6 @@ import pytest
 from kntgraph.core.result import Err, Ok
 from kntgraph.stream.event_log.dispatch import dispatch_redis_call
 
-
 pytestmark = pytest.mark.asyncio
 
 

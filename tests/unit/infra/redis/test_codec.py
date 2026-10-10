@@ -31,7 +31,6 @@ from kntgraph.infra.redis._codec import (
     decode_value,
 )
 
-
 # ---------------------------------------------------------------------------
 # decode_value
 # ---------------------------------------------------------------------------
@@ -54,7 +53,7 @@ class TestDecodeValue:
         assert decode_value("") == ""
 
     def test_unicode_bytes(self) -> None:
-        assert decode_value("olá".encode("utf-8")) == "olá"
+        assert decode_value("olá".encode()) == "olá"
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +88,7 @@ class TestDecodeDict:
         assert decode_dict({}) == {}
 
     def test_unicode_values(self) -> None:
-        assert decode_dict({"name": "João".encode("utf-8")}) == {"name": "João"}
+        assert decode_dict({"name": "João".encode()}) == {"name": "João"}
 
 
 # ---------------------------------------------------------------------------

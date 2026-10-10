@@ -43,8 +43,9 @@ the clock. Correlation is provided by wrapping the system call in
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from kntgraph.core.event.correlation import CorrelationContext, correlation_middleware
@@ -85,12 +86,12 @@ class AgentViewBuilder:
     agent_id: str
     _components: dict[Any, Any] = field(default_factory=dict)
     _trigger_type: str | None = None
-    _trigger_data: Mapping[str, "JsonValue"] = field(default_factory=dict)
-    _tool_completions: Mapping[str, "ToolCallCompletion"] = field(default_factory=dict)
-    _tool_requests: Mapping[str, "ToolCallRequest"] = field(default_factory=dict)
+    _trigger_data: Mapping[str, JsonValue] = field(default_factory=dict)
+    _tool_completions: Mapping[str, ToolCallCompletion] = field(default_factory=dict)
+    _tool_requests: Mapping[str, ToolCallRequest] = field(default_factory=dict)
     _last_event_id: str | None = None
 
-    def with_component(self, component: Any) -> "AgentViewBuilder":
+    def with_component(self, component: Any) -> AgentViewBuilder:
         """Attach a component keyed by its class (the typed ECS
         convention, ADR-042). Returns ``self`` for chaining."""
         self._components[type(component)] = component
@@ -100,8 +101,8 @@ class AgentViewBuilder:
         self,
         event_type: str,
         *,
-        data: Mapping[str, "JsonValue"] | None = None,
-    ) -> "AgentViewBuilder":
+        data: Mapping[str, JsonValue] | None = None,
+    ) -> AgentViewBuilder:
         """Declare the last domain event for the agent.
 
         Sets ``domain_phase`` (the trigger predicate) and
@@ -118,8 +119,8 @@ class AgentViewBuilder:
     def with_tool_completion(
         self,
         request_event_id: str,
-        completion: "ToolCallCompletion",
-    ) -> "AgentViewBuilder":
+        completion: ToolCallCompletion,
+    ) -> AgentViewBuilder:
         """Attach a ``ToolCallCompletion`` to the ``tool_completions``
         slot, keyed by ``request_event_id`` (ADR-034). Returns
         ``self`` for chaining."""
@@ -130,8 +131,8 @@ class AgentViewBuilder:
 
     def with_tool_request(
         self,
-        request: "ToolCallRequest",
-    ) -> "AgentViewBuilder":
+        request: ToolCallRequest,
+    ) -> AgentViewBuilder:
         """Attach a ``ToolCallRequest`` to the ``tool_requests``
         slot, keyed by ``request_event_id`` (ADR-034). The saga's
         ``_completion_for_step`` joins the request's ``tool_name``
@@ -142,7 +143,7 @@ class AgentViewBuilder:
         self._tool_requests = merged
         return self
 
-    def with_last_event_id(self, event_id: str) -> "AgentViewBuilder":
+    def with_last_event_id(self, event_id: str) -> AgentViewBuilder:
         """Override the ``last_event_id`` explicitly (e.g. to seed a
         cursor-aware system's delta-scan). Returns ``self`` for
         chaining."""
@@ -191,7 +192,7 @@ class WorldBuilder:
 
     _views: dict[str, AgentView] = field(default_factory=dict)
 
-    def with_agent(self, view: AgentView) -> "WorldBuilder":
+    def with_agent(self, view: AgentView) -> WorldBuilder:
         """Add an agent view. Returns ``self`` for chaining."""
         self._views[view.agent_id] = view
         return self
@@ -233,7 +234,7 @@ def run_system(
     system: Any,
     world: World,
     *,
-    correlation: "CorrelationContext",
+    correlation: CorrelationContext,
 ) -> list[Any]:
     """Invoke a ``WorldSystem`` against a ``World`` inside a
     correlation scope (ADR-037).
@@ -308,7 +309,7 @@ def run_system(
 
 def assert_correlation_id(
     event: Any,
-    expected: "CorrelationContext | UUID",
+    expected: CorrelationContext | UUID,
 ) -> None:
     """Assert ``event.correlation.correlation_id`` equals
     ``expected.correlation_id`` (or the UUID directly).
@@ -336,7 +337,7 @@ def assert_correlation_id(
 
 def assert_all_correlation_ids(
     events: list[Any],
-    expected: "CorrelationContext | UUID",
+    expected: CorrelationContext | UUID,
 ) -> None:
     """Batch form of :func:`assert_correlation_id`: assert
     EVERY event in ``events`` carries ``expected``'s

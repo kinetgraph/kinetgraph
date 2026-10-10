@@ -39,19 +39,18 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from kntgraph.infra.config import (
     BaseSettings,
-    load_dotenv_files,
     default_dotenv_candidates,
+    load_dotenv_files,
 )
 from kntgraph.resilience.rate_limit import (
     RateLimiter,
 )
 
 
-def load_env(dotenv_path: Optional[Path] = None) -> bool:
+def load_env(dotenv_path: Path | None = None) -> bool:
     """
     Load environment variables from a `.env` file. Returns
     True if a file was found and loaded, False otherwise.
@@ -116,10 +115,10 @@ class _LLMSettings(BaseSettings):
             )
         super().__init__(**data)
 
-    default_model: Optional[str] = None
+    default_model: str | None = None
     fallback_models: tuple[str, ...] = ()
-    rate_limit_rpm: Optional[int] = None
-    cost_budget_per_hour_usd: Optional[float] = None
+    rate_limit_rpm: int | None = None
+    cost_budget_per_hour_usd: float | None = None
     timeout_s: float = 30.0
 
 
@@ -137,8 +136,8 @@ class LLMConfig:
 
     default_model: str = "gpt-4o-mini"
     fallback_models: tuple[str, ...] = ()
-    rate_limit_rpm: Optional[int] = 60
-    cost_budget_per_hour_usd: Optional[float] = 2.0
+    rate_limit_rpm: int | None = 60
+    cost_budget_per_hour_usd: float | None = 2.0
     timeout_s: float = 30.0
     # LiteLLM drop_params=True: silently drop unsupported params
     # (e.g. response_format para modelos que não suportam). Útil
@@ -166,7 +165,7 @@ class LLMConfig:
             raise ValueError(f"timeout_s must be > 0, got {self.timeout_s}")
 
     @classmethod
-    def from_env(cls, prefix: str = "KNT_LLM_") -> "LLMConfig":
+    def from_env(cls, prefix: str = "KNT_LLM_") -> LLMConfig:
         """
         Carrega configuração de variáveis de ambiente.
 
@@ -215,12 +214,12 @@ class LLMConfig:
             timeout_s=env.timeout_s,
         )
 
-    def rate_limiter(self) -> Optional["RateLimiter"]:
+    def rate_limiter(self) -> RateLimiter | None:
         if self.rate_limit_rpm is None:
             return None
         return RateLimiter(rpm=self.rate_limit_rpm)
 
-    def cost_budget(self) -> Optional["CostBudget"]:
+    def cost_budget(self) -> CostBudget | None:
         if self.cost_budget_per_hour_usd is None:
             return None
         return CostBudget(per_hour_usd=self.cost_budget_per_hour_usd)

@@ -33,7 +33,6 @@ docstring for the full contract.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import structlog
 
@@ -42,7 +41,7 @@ from kntgraph.core.result import Err, Ok, Result
 from .._client import RedisLike
 from .._errors import MemoryError
 from .._prefix import namespaced, validate_prefix
-
+from .._translation import translate_redis_call
 
 logger = structlog.get_logger()
 
@@ -106,56 +105,69 @@ class RedisAPIKeyStorage:
         """
         return storage_key(self.key_prefix, digest)
 
-    async def lookup(self, digest: str) -> Result[Optional[bytes], MemoryError]:
+    async def lookup(self, digest: str) -> Result[bytes | None, MemoryError]:
         """Look up a key binding by digest.
 
         Returns ``Ok(None)`` on miss; ``Err(MemoryError)`` on
         Redis failure. The raw bytes are returned untouched
         — the verifier owns the wire format decode.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`;
+        ``asyncio.CancelledError`` propagates so
+        operator-driven shutdown works.
         """
-        try:
-            raw = await self.client.get(self.storage_key(digest))
-        except Exception as e:
-            logger.warning(
-                "api_key_storage.lookup.redis_error",
-                digest=digest,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
-        if raw is None:
+        raw = await translate_redis_call(
+            self.client.get(self.storage_key(digest)),
+            op_name="api_key_storage.lookup",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        if raw.is_err():
+            return Err(raw.err_value_or_raise())
+        payload: bytes | str | None = raw.ok_value()
+        if payload is None:
             return Ok(None)
         # ``decode_responses=False`` keeps raw bytes; if
         # the caller flipped it, accept str too.
-        if isinstance(raw, (bytes, bytearray)):
-            return Ok(bytes(raw))
-        if isinstance(raw, str):
-            return Ok(raw.encode("utf-8"))
-        return Err(MemoryError(f"unexpected redis return type: {type(raw).__name__}"))
+        if isinstance(payload, (bytes, bytearray)):
+            return Ok(bytes(payload))
+        if isinstance(payload, str):
+            return Ok(payload.encode("utf-8"))
+        return Err(
+            MemoryError(f"unexpected redis return type: {type(payload).__name__}")
+        )
 
     async def store(self, digest: str, payload: bytes) -> Result[None, MemoryError]:
-        """Persist a key binding (raw bytes)."""
-        try:
-            await self.client.set(self.storage_key(digest), payload)
-        except Exception as e:
-            logger.warning(
-                "api_key_storage.store.redis_error",
-                digest=digest,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
-        return Ok(None)
+        """Persist a key binding (raw bytes).
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.set(self.storage_key(digest), payload),
+            op_name="api_key_storage.store",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        return result.map(lambda _: None)
 
     async def delete(self, digest: str) -> Result[None, MemoryError]:
-        """Remove a key binding. Idempotent."""
-        try:
-            await self.client.delete(self.storage_key(digest))
-        except Exception as e:
-            logger.warning(
-                "api_key_storage.delete.redis_error",
-                digest=digest,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """Remove a key binding. Idempotent.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.delete(self.storage_key(digest)),
+            op_name="api_key_storage.delete",
+            error_cls=MemoryError,
+            key=self.storage_key(digest),
+            digest=digest,
+        )
+        return result.map(lambda _: None)
         return Ok(None)
 
 

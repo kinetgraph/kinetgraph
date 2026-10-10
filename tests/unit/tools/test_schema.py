@@ -131,7 +131,7 @@ class TestWalkSchema:
 class TestFieldSpec:
     def test_frozen(self):
         spec = FieldSpec(name="x", json_type="string", required=True)
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):
             spec.name = "y"  # type: ignore[misc]
 
     def test_format_optional(self):

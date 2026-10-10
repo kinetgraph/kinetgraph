@@ -66,9 +66,7 @@ for agent_id, agent in world.or_query.any_of(DocumentComponent, TaskComponent):
 ```python
 # Agentes com DocumentComponent OU ClientComponent OU TaskComponent
 for agent_id, agent in world.or_query.any_of(
-    DocumentComponent,
-    ClientContextComponent,
-    TaskComponent
+    DocumentComponent, ClientContextComponent, TaskComponent
 ):
     ...
 ```
@@ -91,13 +89,14 @@ for agent_id, agent in world.query_agents(DocumentComponent).filter(
 
 ```python
 # Documentos válidos de clientes VIP
-for agent_id, agent in world.query_agents(
-    DocumentComponent,
-    ClientContextComponent
-).filter(
-    lambda a: a.components["document"].status == "validated"
-).filter(
-    lambda a: "priority" in a.components and a.components["priority"].client_tier == "vip"
+for agent_id, agent in (
+    world.query_agents(DocumentComponent, ClientContextComponent)
+    .filter(lambda a: a.components["document"].status == "validated")
+    .filter(
+        lambda a: (
+            "priority" in a.components and a.components["priority"].client_tier == "vip"
+        )
+    )
 ):
     print(f"Documento válido de VIP: {agent.components['document'].document_id}")
 ```
@@ -221,28 +220,30 @@ async def priority_system(world: World) -> World:
     """Calcula prioridade baseada em SLA."""
     new_agents = {}
     now = datetime.utcnow()
-    
+
     # Apenas agentes com prioridade E cliente
-    for agent_id, agent in world.query_agents(PriorityComponent, ClientContextComponent):
+    for agent_id, agent in world.query_agents(
+        PriorityComponent, ClientContextComponent
+    ):
         priority = agent.components["priority"]
         client = agent.components["client"]
-        
+
         # Calcula urgência
         hours_remaining = (priority.sla_deadline - now).total_seconds() / 3600
-        
+
         if hours_remaining < 2:
             urgency = 1  # Crítico
         elif hours_remaining < 24:
             urgency = 2  # Alto
         else:
             urgency = 3  # Normal
-        
+
         # Ajusta por tier
         if client.client_tier == "vip":
             urgency = max(1, urgency - 1)
-        
+
         new_agents[agent_id] = agent
-    
+
     return world.with_agents(Map(new_agents))
 ```
 
@@ -256,14 +257,20 @@ def get_dashboard_stats(world: World) -> dict:
         "with_documents": world.query_agents(DocumentComponent).count(),
         "with_notifications": world.query_agents(NotificationComponent).count(),
         "with_workflows": world.query_agents(WorkflowComponent).count(),
-        "validated_docs": len([
-            a for _, a in world.query_agents(DocumentComponent)
-            if a.components["document"].status == "validated"
-        ]),
-        "pending_notifications": len([
-            a for _, a in world.query_agents(NotificationComponent)
-            if not a.components["notification"].sent
-        ])
+        "validated_docs": len(
+            [
+                a
+                for _, a in world.query_agents(DocumentComponent)
+                if a.components["document"].status == "validated"
+            ]
+        ),
+        "pending_notifications": len(
+            [
+                a
+                for _, a in world.query_agents(NotificationComponent)
+                if not a.components["notification"].sent
+            ]
+        ),
     }
 ```
 
@@ -313,18 +320,22 @@ for agent_id, agent in world.query_agents(DocumentComponent):
 
 ```python
 # Conta documentos pendentes de validação
-pending_count = world.query_agents(DocumentComponent).filter(
-    lambda a: a.components["document"].status == "received"
-).count()
+pending_count = (
+    world.query_agents(DocumentComponent)
+    .filter(lambda a: a.components["document"].status == "received")
+    .count()
+)
 ```
 
 ### Query + First + Process
 
 ```python
 # Processa primeiro documento pendente
-result = world.query_agents(DocumentComponent).filter(
-    lambda a: a.components["document"].status == "received"
-).first()
+result = (
+    world.query_agents(DocumentComponent)
+    .filter(lambda a: a.components["document"].status == "received")
+    .first()
+)
 
 if result:
     agent_id, agent = result

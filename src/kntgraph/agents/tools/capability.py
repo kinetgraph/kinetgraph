@@ -35,7 +35,6 @@ from typing import ParamSpec, Protocol, TypeVar, runtime_checkable
 
 from kntgraph.core.result import Result, ToolError
 
-
 # Reuse the Tool-level TypeVars: ``Capability`` is a
 # semantic alias for ``Tool``, so the success type
 # and the kwargs shape are the same.

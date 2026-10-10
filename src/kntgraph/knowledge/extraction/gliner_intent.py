@@ -60,7 +60,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, Iterable, Optional
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kntgraph.knowledge.extraction.gliner import GLiNERSpan
@@ -72,7 +73,7 @@ from .base import (
 )
 
 
-def _field(obj: "dict[str, object] | GLiNERSpan", name: str) -> "object | None":
+def _field(obj: dict[str, object] | GLiNERSpan, name: str) -> object | None:
     """
     Read `name` from `obj` whether it is a dict or has the
     attribute. Returns `None` if absent.
@@ -125,7 +126,7 @@ class GlinerIntentAdapter(IntentClassifier):
         self,
         model_name: str | None = None,
         *,
-        device: Optional[str] = None,
+        device: str | None = None,
         threshold: float = 0.5,
     ) -> None:
         """
@@ -168,7 +169,7 @@ class GlinerIntentAdapter(IntentClassifier):
         self._model_name = model_name
 
     @staticmethod
-    def _resolve_model_name(model_name: "str | None") -> str:
+    def _resolve_model_name(model_name: str | None) -> str:
         """
         Resolve the effective model name from explicit
         arg + Settings.
@@ -192,7 +193,7 @@ class GlinerIntentAdapter(IntentClassifier):
         self,
         text: str,
         labels: Iterable[str],
-        descriptions: Optional[Iterable[str]] = None,
+        descriptions: Iterable[str] | None = None,
     ) -> Classification:
         """
         Classify `text` against `labels`.
@@ -224,7 +225,7 @@ class GlinerIntentAdapter(IntentClassifier):
         if not all(isinstance(lbl, str) and lbl for lbl in labels_tuple):
             raise ValueError("labels must be non-empty strings")
 
-        descriptions_tuple: Optional[tuple[str, ...]] = None
+        descriptions_tuple: tuple[str, ...] | None = None
         if descriptions is not None:
             descriptions_tuple = tuple(descriptions)
             if len(descriptions_tuple) != len(labels_tuple):
@@ -255,8 +256,8 @@ class GlinerIntentAdapter(IntentClassifier):
         self,
         text: str,
         labels: tuple[str, ...],
-        descriptions: Optional[tuple[str, ...]] = None,
-    ) -> "dict[str, object]":
+        descriptions: tuple[str, ...] | None = None,
+    ) -> dict[str, object]:
         """
         Synchronous model call. Runs in a worker thread
         via `asyncio.to_thread`. Returns the raw GLiNER2
@@ -324,7 +325,7 @@ class GlinerIntentAdapter(IntentClassifier):
 
     def _parse_output(
         self,
-        raw: "dict[str, object]",
+        raw: dict[str, object],
         labels: tuple[str, ...],
     ) -> Classification:
         """
@@ -358,8 +359,8 @@ class GlinerIntentAdapter(IntentClassifier):
         return self._finalise_classification(scored)
 
     def _score_one_label(
-        self, label: str, index: int, raw: "dict[str, object]"
-    ) -> Optional[IntentScore]:
+        self, label: str, index: int, raw: dict[str, object]
+    ) -> IntentScore | None:
         """Score one candidate label against the model's
         binary decision (label vs. ``none_of_the_above``).
 
@@ -417,7 +418,7 @@ def _intent_score_for_winner(
     *,
     expected_label: str,
     confidence: float,
-) -> Optional[float]:
+) -> float | None:
     """Translate a model's binary decision into an
     intent score for ``expected_label``.
 

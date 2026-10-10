@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from kntgraph.tools.llm_transport import LLMRequest
@@ -35,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 # ``except LLMRateLimitError`` / ``except LLMAuthError`` catches
 # the fake's errors. (ADR-061 §4.1: the legacy
 # ``_RateLimitLike`` / ``_AuthLike`` shims were removed in v0.14.)
-from kntgraph.agents.tools.llm import (  # noqa: E402
+from kntgraph.agents.tools.llm import (
     LLMAuthError,
     LLMRateLimitError,
 )
@@ -115,7 +115,7 @@ class FakeLLMTransport:
 
     # ---- LLMTransport interface
 
-    async def __call__(self, request: "LLMRequest") -> dict:
+    async def __call__(self, request: LLMRequest) -> dict:
         """
         Iter 28 FU 3: the LLMTransport is now
         ``Callable[LLMRequest, dict]``. Tests that
@@ -141,7 +141,7 @@ class FakeLLMTransport:
         messages: list[dict],
         temperature: float,
         max_tokens: int,
-        response_format: Optional[dict] = None,
+        response_format: dict | None = None,
         drop_unsupported_params: bool = True,
         **kwargs: Any,
     ) -> dict:

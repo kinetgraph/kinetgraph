@@ -90,6 +90,7 @@ Memory exposure will be strictly divided by the network I/O barrier. Low-latency
 from dataclasses import dataclass, field
 from kntgraph.core.component import Component
 
+
 @dataclass(frozen=True, slots=True)
 class SessionComponent(Component):
     """Tier 'Per-conversation state' (ADR-004 §2.1).
@@ -97,6 +98,7 @@ class SessionComponent(Component):
     Projection of the *current* session — last ``messages`` tuple
     and the ``context`` KV. Historical messages live in the EventLog.
     """
+
     session_id: str
     user_id: str
     tenant_id: str
@@ -114,6 +116,7 @@ class ProfileComponent(Component):
     lives in the EventLog (``profile.tier_changed``,
     ``profile.preference_updated``, ...).
     """
+
     tenant_id: str
     user_id: str
     preferences: dict[str, str] = field(default_factory=dict)
@@ -129,6 +132,7 @@ class ContinuityComponent(Component):
     Projection of the *current* continuity — sliding-window
     aggregation over recent ``continuity.*`` events.
     """
+
     last_tools_used: dict[str, float] = field(default_factory=dict)
     recent_categories: dict[str, str] = field(default_factory=dict)
 ```

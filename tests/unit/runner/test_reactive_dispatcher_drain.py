@@ -66,7 +66,6 @@ from kntgraph.core.world import World
 from kntgraph.infra.world_checkpoint import WorldCheckpoint
 from kntgraph.runner.reactive import ReactiveDispatcher
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -239,7 +238,7 @@ class TestDispatcherDrainsPendingLookups:
             min_confidence=3,
         )
         request = _request_event()
-        disp, log = _dispatcher(
+        disp, _log = _dispatcher(
             cap=cap,
             lookup_system=lookup_system,
             pending_log=[request],

@@ -30,13 +30,13 @@ NOT inspect ``iscoroutinefunction`` at call time; the
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
-from kntgraph.knowledge.graph._protocol import GraphAdapter
-from ._adapter import FalkorDBGraphAdapter
+from kntgraph.infra.graph._protocol import GraphAdapter
 
+from ._adapter import FalkorDBGraphAdapter
 
 if TYPE_CHECKING:
     from falkordb.asyncio import FalkorDB
@@ -93,12 +93,12 @@ class GraphPool:
         host: str = "localhost",
         port: int = 16379,
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._password = password
-        self._db: Optional["FalkorDB"] = None
+        self._db: FalkorDB | None = None
 
     def connect(self) -> None:
         """
@@ -129,7 +129,7 @@ class GraphPool:
         else:
             self._db = FalkorDB(host=self._host, port=self._port)
 
-    def _resolve_password(self) -> Optional[str]:
+    def _resolve_password(self) -> str | None:
         """
         Resolve the password used at ``connect()`` time.
 

@@ -113,6 +113,7 @@ To create custom domain rules, inherit from `Specification` and implement `is_sa
 from dataclasses import dataclass
 from kntgraph.concordos.base import Specification, StepContext
 
+
 @dataclass(frozen=True, slots=True)
 class OrderAmountBelow(Specification):
     max_amount: float

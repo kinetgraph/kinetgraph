@@ -26,15 +26,13 @@ re-encoded); the new helper is explicit.
 from __future__ import annotations
 
 import hashlib
-from typing import Union
-
 
 # Default truncation length: 16 hex chars = 64 bits.
 DEFAULT_HASH_LEN: int = 16
 
 
 def short_hash(
-    data: Union[str, bytes],
+    data: str | bytes,
     *,
     length: int = DEFAULT_HASH_LEN,
 ) -> str:

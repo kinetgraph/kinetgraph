@@ -49,10 +49,9 @@ seen.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Mapping, Optional, Protocol, Union, runtime_checkable
-
+from typing import Protocol, runtime_checkable
 
 # ---------------------------------------------------------------------------
 # Value types
@@ -64,12 +63,8 @@ from typing import Mapping, Optional, Protocol, Union, runtime_checkable
 # floats, bools, ``None`` and dict / list compositions
 # are the common shapes — anything else is coerced to
 # ``str(v)`` (see ``coerce_to_json`` below).
-ExtractedScalar = Union[str, int, float, bool, None]
-ExtractedValue = Union[
-    ExtractedScalar,
-    dict[str, "ExtractedValue"],
-    list["ExtractedValue"],
-]
+ExtractedScalar = str | int | float | bool | None
+ExtractedValue = ExtractedScalar | dict[str, "ExtractedValue"] | list["ExtractedValue"]
 
 
 # ---------------------------------------------------------------------------
@@ -189,9 +184,7 @@ class EntityExtractorWithMentions(Protocol):
     entities in different shapes.
     """
 
-    async def extract_with_mentions(
-        self, text: str
-    ) -> list[tuple[Entity, Optional[int]]]:
+    async def extract_with_mentions(self, text: str) -> list[tuple[Entity, int | None]]:
         """Extract entities with their character offset in `text`."""
         ...
 
@@ -482,7 +475,7 @@ def dedup_entities(
 # ---------------------------------------------------------------------------
 
 
-def parse_payload(text: str) -> Optional[Mapping[str, ExtractedValue]]:
+def parse_payload(text: str) -> Mapping[str, ExtractedValue] | None:
     """
     If `text` is a JSON-encoded dict, return it; otherwise None.
 
@@ -509,28 +502,28 @@ def parse_payload(text: str) -> Optional[Mapping[str, ExtractedValue]]:
 
 
 __all__ = [
-    # Type constants
-    "ENTITY_TYPE_ORG",
-    "ENTITY_TYPE_PERSON",
-    "ENTITY_TYPE_PRODUCT",
-    "ENTITY_TYPE_MONEY",
     "ENTITY_TYPE_DATE",
     "ENTITY_TYPE_ID",
     "ENTITY_TYPE_LOCATION",
+    "ENTITY_TYPE_MONEY",
+    # Type constants
+    "ENTITY_TYPE_ORG",
     "ENTITY_TYPE_OTHER",
+    "ENTITY_TYPE_PERSON",
+    "ENTITY_TYPE_PRODUCT",
+    "ArgExtraction",
+    "ArgumentExtractor",
+    "Classification",
     # Value object
     "Entity",
     # Protocols
     "EntityExtractor",
     "EntityExtractorWithMentions",
-    "IntentClassifier",
-    "ArgumentExtractor",
-    # Value objects (intent classification — ADR-013)
-    "IntentScore",
-    "Classification",
     # Value objects (argument extraction — ADR-013 M2)
     "ExtractedArg",
-    "ArgExtraction",
+    "IntentClassifier",
+    # Value objects (intent classification — ADR-013)
+    "IntentScore",
     # Helpers
     "canonicalize",
     "dedup_entities",

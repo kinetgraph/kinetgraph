@@ -35,7 +35,6 @@ from __future__ import annotations
 
 from ...core.result import Err, Ok, PersistenceError, Result
 
-
 PII_HASH_PREFIX = "sha256:"
 
 

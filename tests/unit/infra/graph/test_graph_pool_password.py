@@ -147,13 +147,13 @@ class TestGraphPoolResolvePassword:
         assert c._resolve_password() is None
 
     def test_settings_import_failure_falls_back_to_env(self, monkeypatch) -> None:
-        from kntgraph.infra.graph._pool import GraphPool
-
         # Block the ``Settings`` import. The contract:
         # the password resolution falls through to the
         # env var when the settings module is not
         # available (e.g. an embed scenario).
         import builtins
+
+        from kntgraph.infra.graph._pool import GraphPool
 
         original_import = builtins.__import__
 
@@ -169,9 +169,9 @@ class TestGraphPoolResolvePassword:
         assert c._resolve_password() == "fallback"
 
     def test_settings_import_failure_no_env_returns_none(self, monkeypatch) -> None:
-        from kntgraph.infra.graph._pool import GraphPool
-
         import builtins
+
+        from kntgraph.infra.graph._pool import GraphPool
 
         original_import = builtins.__import__
 

@@ -3608,3 +3608,52 @@ If a dry-run is genuinely needed, restore the body to
 operator did in this incident (commit restored the
 release notes under `[Unreleased]`; the second dispatch
 succeeded).
+
+
+## 2.39 `DeadLetterQueue.append` 3-step split (ADR-077 §3.4 follow-up)
+
+**Status:** CLOSED (2026-10-05; refactor landed in this session)
+**Owner:** knetgraph architecture team
+
+The `DeadLetterQueue.append` method
+(`src/kntgraph/infra/redis/_dlq/_redis.py:115-184`) issues 4
+sequential Redis calls (``hget`` → ``xadd`` → ``hsetnx`` → ``hget`` /
+``hset``) inside a single ``try`` block. After the ADR-077
+translation table landed, the only remaining
+``except Exception:  # noqa: BLE001`` in the entire
+``infra/redis/`` package is the outer catch around
+those 4 calls (file:line 176).
+
+The clean refactor splits ``append`` into per-step
+helpers, each routing through
+:func:`kntgraph.infra.redis._translation.translate_redis_call`:
+
+  - ``_check_existing(idem_key) -> Result[bytes | None, MemoryError]``
+  - ``_xadd(stream_key, payload) -> Result[bytes, MemoryError]``
+  - ``_claim_placeholder(idem_key) -> Result[bool, MemoryError]``
+  - ``_read_winner_stream_id(idem_key) -> Result[bytes | None, MemoryError]``
+  - ``_finalise_id(idem_key, stream_id) -> Result[None, MemoryError]``
+
+The current body becomes a single ``.bind`` /
+``.map_err`` chain over the 5 helper ``Result``s; the
+nested ``if not success:`` (PLACEHOLDER race) becomes
+a ``.map`` on the placeholder's ``Ok(False)`` arm. The
+narrow catch in :func:`translate_redis_call` covers
+each helper individually, so the outer
+``except Exception`` disappears.
+
+Until the split lands, the site carries
+``# noqa: BLE001`` with the comment block at
+`_dlq/_redis.py:178-185` documenting the deferred
+refactor (the comment is the contract for the next
+contributor). ``ruff check`` passes (the suppression is
+explicit and annotated) and the
+21-test `tests/unit/infra/redis/test_translation.py`
+suite pins the new helper's contract, so the deferred
+catch cannot regress silently.
+
+**Acceptance for closing:**
+- ``except Exception`` is gone from the file.
+- The split is exercised by at least one test that
+  simulates a Redis failure on each of the 4 steps
+  individually.

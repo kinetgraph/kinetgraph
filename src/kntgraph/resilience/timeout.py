@@ -41,11 +41,13 @@ of remaining attempts.
 """
 
 import asyncio
+import builtins
 import inspect
 import random
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine, Optional, ParamSpec, Tuple, Type, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 import structlog
 
@@ -113,8 +115,8 @@ class BackoffPolicy:
     max_attempts: int = 3
     base_delay: float = 1.0
     max_delay: float = 30.0
-    max_total_seconds: Optional[float] = None
-    retry_on: Tuple[Type[BaseException], ...] = (asyncio.TimeoutError,)
+    max_total_seconds: float | None = None
+    retry_on: tuple[type[BaseException], ...] = (asyncio.TimeoutError,)
 
     def __post_init__(self) -> None:
         _validate_scalar_bounds(
@@ -139,8 +141,8 @@ def _validate_scalar_bounds(
     max_attempts: int,
     base_delay: float,
     max_delay: float,
-    max_total_seconds: Optional[float],
-    retry_on: Tuple[Type[BaseException], ...],
+    max_total_seconds: float | None,
+    retry_on: tuple[type[BaseException], ...],
 ) -> None:
     """Validate the scalar / collection bounds of a
     ``BackoffPolicy``. The function raises ``ValueError``
@@ -160,8 +162,8 @@ def _validate_scalar_bounds(
 
 
 def _strip_cancelled(
-    retry_on: Tuple[Type[BaseException], ...],
-) -> Tuple[Type[BaseException], ...]:
+    retry_on: tuple[type[BaseException], ...],
+) -> tuple[type[BaseException], ...]:
     """Drop ``asyncio.CancelledError`` from a ``retry_on``
     tuple. The retry path must never catch cancellation;
     explicit rejection is cheaper than the surprising
@@ -176,20 +178,15 @@ def _strip_cancelled(
     )
 
 
-class TimeoutError(Exception):
+class TimeoutError(builtins.TimeoutError):
     """Raised when an operation exceeds its timeout.
 
-    Note: this intentionally shadows the builtin
-    ``TimeoutError`` / ``asyncio.TimeoutError`` for
-    callers that prefer an explicit error class. Use the
-    builtin if you need to interoperate with stdlib
-    timeouts.
+    Inherits from builtin ``TimeoutError`` / ``asyncio.TimeoutError``
+    so stdlib timeout handlers and retry policies catch it.
     """
 
-    pass
 
-
-async def with_timeout(
+async def with_timeout[R](
     fn: Callable[[], Coroutine[Any, Any, R] | R],
     timeout_seconds: float,
     fallback: Callable[[], Coroutine[Any, Any, R] | R] | None = None,
@@ -227,11 +224,11 @@ async def with_timeout(
             # in the docstring.
             return result
         return await asyncio.wait_for(result, timeout=timeout_seconds)
-    except asyncio.TimeoutError:
+    except builtins.TimeoutError:
         return await _on_timeout(timeout_seconds, fallback, operation_name)
 
 
-async def _on_timeout(
+async def _on_timeout[R](
     timeout_seconds: float,
     fallback: Callable[[], Coroutine[Any, Any, R] | R] | None,
     operation_name: str | None,
@@ -244,7 +241,9 @@ async def _on_timeout(
     """
     _log_timeout_expired(timeout_seconds, operation_name)
     if fallback is None:
-        raise
+        raise TimeoutError(
+            f"operation {operation_name!r} exceeded the {timeout_seconds}s timeout"
+        ) from None
     _log_fallback_invoked(operation_name)
     return await fallback()
 
@@ -266,11 +265,11 @@ def _log_fallback_invoked(operation_name: str | None) -> None:
     )
 
 
-async def with_timeout_and_retry(
+async def with_timeout_and_retry[R](
     fn: Callable[[], R],
     timeout_seconds: float,
     *,
-    backoff: Optional[BackoffPolicy] = None,
+    backoff: BackoffPolicy | None = None,
     fallback: Callable[[], R] | None = None,
     operation_name: str | None = None,
 ) -> R:
@@ -317,7 +316,7 @@ async def with_timeout_and_retry(
                 fallback=None,
                 operation_name=operation_name,
             )
-        except tuple(policy.retry_on) as e:
+        except (TimeoutError, *policy.retry_on) as e:
             last_error = e
             _log_attempt_failed(
                 operation_name, attempt + 1, policy.max_attempts, type(e).__name__
@@ -334,7 +333,7 @@ async def with_timeout_and_retry(
     return await _resolve_exhausted(last_error, fallback, operation_name)
 
 
-def _validate_inputs(
+def _validate_inputs[R](
     fn: Callable[[], R],
     timeout_seconds: float,
     fallback: Callable[[], R] | None,
@@ -348,7 +347,7 @@ def _validate_inputs(
         raise TypeError("fallback must be callable or None")
 
 
-def _make_deadline(max_total_seconds: Optional[float]) -> Optional[float]:
+def _make_deadline(max_total_seconds: float | None) -> float | None:
     """Translate a max_total_seconds budget into a
     monotonic deadline (``None`` when the budget is
     unset).
@@ -391,7 +390,7 @@ async def _sleep_with_backoff(
     *,
     base_delay: float,
     max_delay: float,
-    deadline: Optional[float],
+    deadline: float | None,
 ) -> None:
     """Sleep ``base_delay * 2**attempt`` (capped at
     ``max_delay``) with uniform jitter in [0.5, 1.0].
@@ -416,7 +415,7 @@ async def _sleep_with_backoff(
     await asyncio.sleep(jittered)
 
 
-async def _resolve_exhausted(
+async def _resolve_exhausted[R](
     last_error: BaseException | None,
     fallback: Callable[[], R] | None,
     operation_name: str | None,
@@ -430,7 +429,7 @@ async def _resolve_exhausted(
         return await fallback()
     if last_error is not None:
         raise last_error
-    raise asyncio.TimeoutError(
+    raise builtins.TimeoutError(
         "Operation timed out after all retries (no last error captured)"
     )
 

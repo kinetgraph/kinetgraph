@@ -19,14 +19,19 @@ _records``).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from types import MappingProxyType
-from typing import TYPE_CHECKING, Mapping
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+
+import structlog
 
 if TYPE_CHECKING:
     from kntgraph.core.world.view import AgentView
-    from kntgraph.events.dlq.values import DeadLetterEvent
+
+    from ._dlq_protocol import DeadLetterEvent
+
+logger = structlog.get_logger()
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +84,7 @@ class InFlightTask:
         ``datetime.now(tz=timezone.utc)``. For deterministic tests
         use ``now=`` on the query and bypass this property.
         """
-        return datetime.now(tz=timezone.utc) > self.expires_at
+        return datetime.now(tz=UTC) > self.expires_at
 
 
 # ---------------------------------------------------------------------------
@@ -102,9 +107,7 @@ class RecoveryReport:
     stuck_in_queue_count: int = 0
     dead_lettered_count: int = 0
     dry_run: bool = False
-    inspected_at: datetime = field(
-        default_factory=lambda: datetime.now(tz=timezone.utc)
-    )
+    inspected_at: datetime = field(default_factory=lambda: datetime.now(tz=UTC))
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +116,7 @@ class RecoveryReport:
 
 
 def _extract_in_flight(
-    view: "AgentView",
+    view: AgentView,
     now: datetime,
 ) -> list[InFlightTask]:
     """Compute the in-flight task list for one agent view.
@@ -160,9 +163,7 @@ def _extract_in_flight(
                 tool_name=str(getattr(req, "tool_name", "")),
                 requested_at=getattr(req, "requested_at", now),
                 expires_at=getattr(req, "expires_at", now + timedelta(hours=1)),
-                parameters=MappingProxyType(dict(params))
-                if isinstance(params, Mapping)
-                else MappingProxyType({}),
+                parameters=dict(params) if isinstance(params, Mapping) else {},
                 correlation_id=str(corr) if corr else None,
                 acknowledged_at=None,
             )
@@ -177,7 +178,7 @@ def _extract_in_flight(
 
 def in_flight_tasks(
     *,
-    agents_to_views: Mapping[str, "AgentView"],
+    agents_to_views: Mapping[str, AgentView],
     agent_id: str | None = None,
     now: datetime | None = None,
 ) -> list[InFlightTask]:
@@ -191,7 +192,7 @@ def in_flight_tasks(
     ``agent_id=None`` ⇒ all tracked agents. With
     ``agent_id`` set, only that agent's view is scanned.
     """
-    now = now or datetime.now(tz=timezone.utc)
+    now = now or datetime.now(tz=UTC)
     out: list[InFlightTask] = []
     targets = [agent_id] if agent_id is not None else list(agents_to_views)
     for aid in targets:
@@ -204,7 +205,7 @@ def in_flight_tasks(
 
 def stale_tasks(
     *,
-    agents_to_views: Mapping[str, "AgentView"],
+    agents_to_views: Mapping[str, AgentView],
     threshold_seconds: float = 300.0,
     now: datetime | None = None,
     agent_id: str | None = None,
@@ -214,7 +215,7 @@ def stale_tasks(
     #11). The threshold is the recovery race window
     (``stale but not yet recovered``).
     """
-    now = now or datetime.now(tz=timezone.utc)
+    now = now or datetime.now(tz=UTC)
     threshold = timedelta(seconds=threshold_seconds)
     return [
         t
@@ -231,7 +232,7 @@ async def dead_lettered_tasks(
     reason=None,
     agent_id: str | None = None,
     count: int = 100,
-) -> list["DeadLetterEvent"]:
+) -> list[DeadLetterEvent]:
     """Read DLQ entries awaiting operator action
     (ADR-075 §2.4 row #10).
 
@@ -239,15 +240,33 @@ async def dead_lettered_tasks(
     no new storage path. Accepts ``dlq=None`` (returns [])
     so callers can conditionally wire the DLQ without
     branching at every call site.
+
+    Storage failures surface as an empty list with a
+    ``structlog`` warning (the metric sink reports zero
+    DLQ entries, not a Redis hiccup; AGENTS.md §6: the
+    underlying facade now returns ``Result`` — this
+    observer stays best-effort at the metric-collection
+    layer because the operator-facing recovery loop in
+    :mod:`tool_call_ttl_sweeper` is the canonical surfacing
+    point).
     """
     if dlq is None:
         return []
-    # Prefer reason-filtered list (cheaper); fall back to per-agent.
     if reason is not None:
-        return list(await dlq.list_by_reason(reason, count=count))
-    if agent_id is not None:
-        return list(await dlq.list_for_agent(agent_id, count=count))
-    return list(await dlq.list_all(count=count))
+        result = await dlq.list_by_reason(reason, count=count)
+    elif agent_id is not None:
+        result = await dlq.list_for_agent(agent_id, count=count)
+    else:
+        result = await dlq.list_all(count=count)
+    if result.is_err():
+        logger.warning(
+            "runner.dead_lettered_tasks.storage_error",
+            reason=getattr(reason, "value", None) if reason is not None else None,
+            agent_id=agent_id,
+            error=str(result.err_value()),
+        )
+        return []
+    return list(result.ok_value() or [])
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +283,7 @@ async def stuck_in_queue(
     *,
     stream_inspector,
     stream_prefix: str,
-    agents_to_views: Mapping[str, "AgentView"],
+    agents_to_views: Mapping[str, AgentView],
     threshold_seconds: float = 300.0,
     now: float | None = None,
 ) -> list[str]:
@@ -325,8 +344,8 @@ async def stuck_in_queue(
 __all__ = [
     "InFlightTask",
     "RecoveryReport",
+    "dead_lettered_tasks",
     "in_flight_tasks",
     "stale_tasks",
-    "dead_lettered_tasks",
     "stuck_in_queue",
 ]

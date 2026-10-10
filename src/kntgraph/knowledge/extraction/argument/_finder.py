@@ -28,15 +28,16 @@ third-party deps.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, Union, runtime_checkable
+from collections.abc import Mapping
+from types import MappingProxyType
+from typing import Protocol, runtime_checkable
 
 from kntgraph.tools.schema import FieldSpec
-
 
 # The value side of the ``(value, confidence)`` tuple.
 # JSON-typed scalars match the schema types (``string`` /
 # ``integer`` / ``number``).
-FieldValue = Union[str, int, float, None]
+FieldValue = str | int | float | None
 
 
 @runtime_checkable
@@ -56,7 +57,7 @@ class FieldFinder(Protocol):
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple[FieldValue, float]]: ...
+    ) -> tuple[FieldValue, float] | None: ...
 
 
 class RegexFieldFinder(FieldFinder):
@@ -71,32 +72,41 @@ class RegexFieldFinder(FieldFinder):
     confidence here).
     """
 
-    _PATTERNS: dict[str, str] = {
-        # CNPJ: 14 digits in `XX.XXX.XXX/XXXX-XX` form
-        # (note: 4 digits for the branch, not 3) or
-        # as a contiguous 14-digit run. Two alternatives
-        # avoid the backtracking mess of `\.?` / `/?`
-        # which made the engine skip the slash in older
-        # versions of the framework.
-        "cnpj": (
-            r"(?:\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})"
-            r"|(?:\d{14})"
-        ),
-        "cpf": (
-            r"(?:\d{3}\.\d{3}\.\d{3}-\d{2})"
-            r"|(?:\d{11})"
-        ),
-        "date": r"\d{4}-\d{2}-\d{2}",
-        "date-time": r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}",
-        "email": r"[\w.+-]+@[\w-]+\.[\w.-]+",
-        "money": r"R?\$?\s*\d+[\.,]?\d{0,2}",
-    }
+    # Immutable view over the regex table. The
+    # ``MappingProxyType`` wrap turns the literal dict
+    # into a read-only view (RUF012: class-level mutable
+    # defaults are a footgun; a frozen view eliminates
+    # the risk without paying for a copy at class
+    # creation time -- the proxy is a one-shot O(N)
+    # wrap, not a deep copy).
+    _PATTERNS: Mapping[str, str] = MappingProxyType(
+        {
+            # CNPJ: 14 digits in `XX.XXX.XXX/XXXX-XX` form
+            # (note: 4 digits for the branch, not 3) or
+            # as a contiguous 14-digit run. Two alternatives
+            # avoid the backtracking mess of `\.?` / `/?`
+            # which made the engine skip the slash in older
+            # versions of the framework.
+            "cnpj": (
+                r"(?:\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})"
+                r"|(?:\d{14})"
+            ),
+            "cpf": (
+                r"(?:\d{3}\.\d{3}\.\d{3}-\d{2})"
+                r"|(?:\d{11})"
+            ),
+            "date": r"\d{4}-\d{2}-\d{2}",
+            "date-time": r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}",
+            "email": r"[\w.+-]+@[\w-]+\.[\w.-]+",
+            "money": r"R?\$?\s*\d+[\.,]?\d{0,2}",
+        }
+    )
 
     async def find(
         self,
         text: str,
         field: FieldSpec,
-    ) -> Optional[tuple[FieldValue, float]]:
+    ) -> tuple[FieldValue, float] | None:
         import re
 
         if not text:

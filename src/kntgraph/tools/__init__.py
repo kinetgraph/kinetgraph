@@ -86,6 +86,10 @@ without any subclassing.
 from __future__ import annotations
 
 from .acl import ToolACL, default_acl
+
+# Imported after ``schema`` to avoid the partial-load
+# cycle (see the comment above).
+from .arg_validation import SchemaValidationError, validate_args
 from .descriptors import ToolDescriptor
 from .llm_transport import (
     LLMChunk,
@@ -120,11 +124,6 @@ from .router import ToolRouter
 from .schema import FieldSpec, compute_schema_version, walk_schema
 from .system import ToolAwareSystem
 from .worker import tool_worker
-
-# Imported after ``schema`` to avoid the partial-load
-# cycle (see the comment above).
-from .arg_validation import SchemaValidationError, validate_args
-
 
 __all__ = [
     "Callable",

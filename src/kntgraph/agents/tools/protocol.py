@@ -27,17 +27,12 @@ The canonical tool registration path is
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
 
-from kntgraph.tools.acl import ToolACL as ToolACL
-from kntgraph.tools.acl import default_acl as default_acl
-from kntgraph.tools.descriptors import ToolDescriptor as ToolDescriptor
-from kntgraph.tools.protocol import Callable as Callable
-from kntgraph.tools.protocol import Describable as Describable
-from kntgraph.tools.protocol import Tool as Tool
-from kntgraph.tools.protocol import ToolArgValue as ToolArgValue
-
+from kntgraph.tools.acl import ToolACL, default_acl
+from kntgraph.tools.descriptors import ToolDescriptor
+from kntgraph.tools.protocol import Callable, Describable, Tool, ToolArgValue
 
 __all__ = [
     "Callable",
@@ -108,8 +103,8 @@ class ToolCall:
     tool_call_id: str
     tool_name: str
     agent_id: str
-    arguments: "Mapping[str, ToolArgValue]"
-    result: "Optional[ToolArgValue]" = None
-    error: Optional[str] = None
+    arguments: Mapping[str, ToolArgValue]
+    result: ToolArgValue | None = None
+    error: str | None = None
     completed: bool = False
-    latency_ms: Optional[float] = None
+    latency_ms: float | None = None

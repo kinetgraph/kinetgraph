@@ -148,18 +148,20 @@ class TestTimeoutBackoff:
         async def slow_fn() -> None:
             raise ResilienceTimeoutError("nope")
 
-        with patch("kntgraph.resilience.timeout.asyncio.sleep", fake_sleep):
-            with pytest.raises(ResilienceTimeoutError):
-                await with_timeout_and_retry(
-                    slow_fn,
-                    timeout_seconds=0.001,
-                    backoff=BackoffPolicy(
-                        max_attempts=3,
-                        base_delay=0.5,
-                        max_delay=10.0,
-                        retry_on=(ResilienceTimeoutError,),
-                    ),
-                )
+        with (
+            patch("kntgraph.resilience.timeout.asyncio.sleep", fake_sleep),
+            pytest.raises(ResilienceTimeoutError),
+        ):
+            await with_timeout_and_retry(
+                slow_fn,
+                timeout_seconds=0.001,
+                backoff=BackoffPolicy(
+                    max_attempts=3,
+                    base_delay=0.5,
+                    max_delay=10.0,
+                    retry_on=(ResilienceTimeoutError,),
+                ),
+            )
 
         # Two sleeps (between attempts 1-2 and 2-3).
         assert len(sleeps) == 2
@@ -180,20 +182,22 @@ class TestTimeoutBackoff:
         async def slow_fn() -> None:
             raise ResilienceTimeoutError("nope")
 
-        with patch("kntgraph.resilience.timeout.asyncio.sleep", fake_sleep):
+        with (
+            patch("kntgraph.resilience.timeout.asyncio.sleep", fake_sleep),
+            pytest.raises(ResilienceTimeoutError),
+        ):
             # 10 attempts allowed but only 0.05s budget.
-            with pytest.raises(ResilienceTimeoutError):
-                await with_timeout_and_retry(
-                    slow_fn,
-                    timeout_seconds=0.001,
-                    backoff=BackoffPolicy(
-                        max_attempts=10,
-                        base_delay=10.0,
-                        max_delay=60.0,
-                        max_total_seconds=0.05,
-                        retry_on=(ResilienceTimeoutError,),
-                    ),
-                )
+            await with_timeout_and_retry(
+                slow_fn,
+                timeout_seconds=0.001,
+                backoff=BackoffPolicy(
+                    max_attempts=10,
+                    base_delay=10.0,
+                    max_delay=60.0,
+                    max_total_seconds=0.05,
+                    retry_on=(ResilienceTimeoutError,),
+                ),
+            )
 
         # The cap on `max_total_seconds` must prevent the
         # unbounded sleeps.
@@ -381,7 +385,7 @@ class TestFallbackPiiGuard:
         async def secondary() -> str:
             return "fallback"
 
-        result = await with_fallback(primary, secondary, operation_name="user.fetch")
+        result = await with_fallback(primary, secondary)
         assert result == "fallback"
 
         captured = capsys.readouterr().out + capsys.readouterr().err

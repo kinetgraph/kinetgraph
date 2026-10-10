@@ -166,15 +166,17 @@ de uma Capability intermediária.
 # Estrutura típica com LLM
 llm = LiteLLMTool(default_model="gpt-4o-mini", transport=cache)
 
+
 # Tipo C: Role que usa a LLM diretamente
 class SalesOrderAnalyzer:
     def __init__(self, llm: LiteLLMTool):
         self._llm = llm
-    
+
     async def analyze(self, deal: dict) -> Result[Analysis, ToolError]:
         prompt = SALES_ANALYZER_PROMPT.format(deal=deal)
         r = await self._llm.invoke(
-            system=SALES_SYSTEM, user=prompt,
+            system=SALES_SYSTEM,
+            user=prompt,
             response_format=Analysis.model_json_schema(),
         )
 ```

@@ -16,7 +16,8 @@ Example:
         company_size: str
 """
 
-from typing import Callable, ClassVar, TypeVar
+from collections.abc import Callable
+from typing import ClassVar, TypeVar
 
 
 class DomainComponent:

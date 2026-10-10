@@ -62,6 +62,7 @@ host application's structlog processor.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import ParamSpec, TypeVar
 
@@ -74,7 +75,7 @@ P = ParamSpec("P")
 Stage = tuple[Callable[[], Awaitable[T]], str]
 
 
-async def with_fallback(
+async def with_fallback[**P, T](
     primary: Callable[P, Awaitable[T]],
     secondary: Callable[P, Awaitable[T]],
     *args: P.args,
@@ -97,7 +98,9 @@ async def with_fallback(
         result = await primary(*args, **kwargs)
         logger.info("fallback.primary_ok", op=op)
         return result
-    except Exception as primary_err:
+    except asyncio.CancelledError:
+        raise
+    except Exception as primary_err:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
         logger.warning(
             "fallback.primary_failed",
             op=op,
@@ -106,7 +109,7 @@ async def with_fallback(
         return await secondary(*args, **kwargs)
 
 
-async def with_default_on_failure(
+async def with_default_on_failure[**P, T](
     primary: Callable[P, Awaitable[T]],
     default: T,
     *args: P.args,
@@ -129,7 +132,9 @@ async def with_default_on_failure(
         result = await primary(*args, **kwargs)
         logger.info("fallback.primary_ok", op=op)
         return result
-    except Exception as primary_err:
+    except asyncio.CancelledError:
+        raise
+    except Exception as primary_err:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
         logger.warning(
             "fallback.primary_failed_using_default",
             op=op,
@@ -138,7 +143,7 @@ async def with_default_on_failure(
         return default
 
 
-async def with_fallback_chain(
+async def with_fallback_chain[T](
     *stages: Stage,
     default: T | None = None,
 ) -> T | None:
@@ -158,7 +163,9 @@ async def with_fallback_chain(
             result: T = await fn()
             logger.info("fallback.chain.stage_ok", stage=name)
             return result
-        except Exception as stage_err:
+        except asyncio.CancelledError:
+            raise
+        except Exception as stage_err:  # noqa: BLE001 - policy wrapper isolates arbitrary stage execution
             logger.warning(
                 "fallback.chain.stage_failed",
                 stage=name,

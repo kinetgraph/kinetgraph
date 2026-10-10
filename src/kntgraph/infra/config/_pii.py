@@ -20,8 +20,6 @@ PII-specific env.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import Field
 
 from kntgraph.infra.config._base import BaseSettings
@@ -30,4 +28,4 @@ from kntgraph.infra.config._base import BaseSettings
 class PiiSettingsMixin(BaseSettings):
     """Default PII redaction level (1=regex, 2=NER, 3=audit)."""
 
-    pii_level: Optional[int] = Field(default=None, ge=1, le=3)
+    pii_level: int | None = Field(default=None, ge=1, le=3)

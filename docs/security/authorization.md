@@ -153,8 +153,9 @@ class CapabilityPolicy:
     Evaluated by EventLog.append AFTER signature verifies
     (L1) and BEFORE Stream append.
     """
+
     agent_id: str
-    allowed_event_types: frozenset[str]            # wildcard: {"*"}
+    allowed_event_types: frozenset[str]  # wildcard: {"*"}
     denied_event_types: frozenset[str] = frozenset()
     max_event_rate_per_sec: Optional[int] = None
     require_signature: bool = True
@@ -231,18 +232,20 @@ from kntgraph.security.authorization import (
 )
 
 policy_registry = InMemoryPolicyRegistry()
-policy_registry.set(CapabilityPolicy(
-    agent_id="session-42",
-    allowed_event_types=frozenset({"pedido.received", "estoque.check"}),
-    denied_event_types=frozenset({"process.cancelled"}),
-    max_event_rate_per_sec=10,
-    require_signature=True,
-))
+policy_registry.set(
+    CapabilityPolicy(
+        agent_id="session-42",
+        allowed_event_types=frozenset({"pedido.received", "estoque.check"}),
+        denied_event_types=frozenset({"process.cancelled"}),
+        max_event_rate_per_sec=10,
+        require_signature=True,
+    )
+)
 
 log = EventLog(
     redis,
-    key_registry=key_registry,        # L1
-    policy_registry=policy_registry,    # L2 (this)
+    key_registry=key_registry,  # L1
+    policy_registry=policy_registry,  # L2 (this)
     require_signatures=True,
 )
 ```
@@ -398,6 +401,7 @@ from kntgraph.security.authorization import (
     CapabilityPolicy,
 )
 
+
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
 
@@ -406,11 +410,13 @@ async def main():
     key_registry.register("session-42", priv=priv)
 
     policy_registry = InMemoryPolicyRegistry()
-    policy_registry.set(CapabilityPolicy(
-        agent_id="session-42",
-        allowed_event_types=frozenset({"pedido.received"}),
-        max_event_rate_per_sec=10,
-    ))
+    policy_registry.set(
+        CapabilityPolicy(
+            agent_id="session-42",
+            allowed_event_types=frozenset({"pedido.received"}),
+            max_event_rate_per_sec=10,
+        )
+    )
 
     log = EventLog(
         redis,
@@ -443,6 +449,7 @@ async def main():
         # REJECTED: SignatureVerificationFailed: key_epoch=0 revoked
 
     await redis.aclose()
+
 
 asyncio.run(main())
 ```
@@ -537,17 +544,22 @@ defeats the purpose of L2. Document and review.
 def test_policy_rejects_unauthorized_event_type():
     """EventTypeForbidden raised when event_type not in allowed."""
 
+
 def test_policy_allows_wildcard_with_deny():
     """allowed={'*'}, denied={'process.cancelled'} → others OK."""
+
 
 def test_rate_limit_rejects_overflow():
     """11th event in 1s rejected with RateLimitExceeded."""
 
+
 def test_revoked_key_rejected():
     """After revoke, sign_event produces a sig that fails verify."""
 
+
 def test_old_events_still_verify_after_revoke():
     """Pre-revocation signed events continue to verify."""
+
 
 def test_signature_required_when_policy_says_so():
     """policy.require_signature=True + event.signature=None → reject."""

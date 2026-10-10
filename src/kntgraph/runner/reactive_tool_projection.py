@@ -36,7 +36,7 @@ the §3.1 500-L guideline. The helpers depend on
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Optional, cast, Any
+from typing import Any, cast
 
 from kntgraph.core.event import Event
 from kntgraph.core.world import World
@@ -71,12 +71,12 @@ def _has_tool_events(events: list[Event]) -> bool:
 
 
 def _overlay_tool_projection(
-    world: "World",
+    world: World,
     new_events: list[Event],
     *,
-    tool_ttls: Optional[ToolCallTTL] = None,
+    tool_ttls: ToolCallTTL | None = None,
     post_systems: bool = False,
-) -> "World":
+) -> World:
     """Run ``overlay_tool_calls`` on the batch and absorb
     the result into the post-fold World.
 

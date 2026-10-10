@@ -115,6 +115,7 @@ class TestExtractionPackageNoLeak:
                 **os.environ,
                 "PYTHONPATH": pythonpath,
             },
+            check=False,
         )
         assert result.returncode == 0, (
             f"SLMArgumentExtractor leaked into "
@@ -165,10 +166,10 @@ class TestGlinerArgumentAdapterFromFramework:
         """The static ``_resolve_model_name`` helper
         returns the explicit arg when given, or the
         Settings default when ``None``."""
+        from kntgraph.infra.config import fresh_settings
         from kntgraph.knowledge.extraction import (
             GlinerArgumentAdapter,
         )
-        from kntgraph.infra.config import fresh_settings
 
         # Explicit arg wins.
         assert (

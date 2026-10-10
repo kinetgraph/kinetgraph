@@ -38,10 +38,8 @@ import asyncio
 
 import fakeredis
 import fakeredis.aioredis
+import migrate_redis_keys  # pyright: ignore[reportMissingImports]
 import pytest
-
-import migrate_redis_keys  # noqa: E402  # pyright: ignore[reportMissingImports]
-
 
 SEED_KEYS = (
     "knt:agents:agent-1:events",
@@ -471,8 +469,8 @@ class TestRename:
         ``except ResponseError`` branch fires and we
         verify ``_rename`` returns ``False``.
         """
-        from redis.exceptions import ResponseError
         import migrate_redis_keys as mrk_module
+        from redis.exceptions import ResponseError
 
         async def _run():
             await fake_redis.set("knt:a", b"x")

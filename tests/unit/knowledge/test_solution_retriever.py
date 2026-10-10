@@ -32,14 +32,12 @@ import asyncio
 import json
 from typing import Any
 
-
 from kntgraph.knowledge.graphrag.retriever import (
     GraphRAGRetriever,
     RetrievalResult,
     SolutionResult,
 )
 from kntgraph.testing import FakeEmbeddingProvider
-
 
 # ---------------------------------------------------------------------------
 # Mocks

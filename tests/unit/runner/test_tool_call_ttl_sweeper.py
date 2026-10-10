@@ -20,20 +20,18 @@ sweeper; the emitted events are asserted).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallTTL
-from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.projection_tool_calls import (
     project_tool_calls,
 )
+from kntgraph.core.world.view import AgentView
 from kntgraph.runner.tool_call_ttl_sweeper import (
     ToolCallTTLSweeperSystem,
 )
-
 
 AGENT_ID = "agent-ttl-test"
 
@@ -43,7 +41,7 @@ def _ctx() -> CorrelationContext:
 
 
 def _ts(offset_s: int = 0) -> datetime:
-    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     from datetime import timedelta
 
     return base + timedelta(seconds=offset_s)
@@ -62,7 +60,7 @@ def _request_event(*, tool_name: str, ts: datetime | None = None) -> Event:
 
 def _world_with_request(
     request: Event, ttl_seconds: float = 300.0
-) -> "dict[str, AgentView]":
+) -> dict[str, AgentView]:
     """Build the post-projection views dict whose
     ``tool_requests`` slot contains the given request
     (with the given TTL).

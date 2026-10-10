@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+
 import redis.asyncio as aioredis
 
 from kntgraph.core.event import Event, correlation_middleware
-from kntgraph.stream.event_log import EventLog
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.security.keys import InMemoryKeyRegistry, generate_keypair
 from kntgraph.security.signing import sign_event, verify_event
+from kntgraph.stream.event_log import EventLog
 
 
 def _banner(msg: str) -> None:
@@ -36,7 +37,7 @@ async def main() -> None:
 
         # Build key registry and generate a keypair for our agent
         producer_registry = InMemoryKeyRegistry()
-        priv, pub = generate_keypair()
+        priv, _pub = generate_keypair()
         producer_registry.register("session-42", priv=priv)
 
         # EventLog enforcing signatures

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from kntgraph.core.event import Event
 
 
-def canonical_event_bytes(event: "Event") -> bytes:
+def canonical_event_bytes(event: Event) -> bytes:
     """Produce the bytes that are signed: JCS canonical form.
 
     Specifically:

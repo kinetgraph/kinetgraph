@@ -31,7 +31,7 @@ event alone, then merged the previous view's derived components
 with `dict.update(preserved)`:
 
 ```python
-new_components.update(preserved)   # preserved OVERWRITES the new
+new_components.update(preserved)  # preserved OVERWRITES the new
 ```
 
 Because **every** subclass of `DomainComponent` passes

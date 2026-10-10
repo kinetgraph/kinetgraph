@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from kntgraph.core.result import Result, Ok
+from kntgraph.core.result import Ok, Result
 from kntgraph.tools.protocol import Describable
 
 # We will implement this in kntgraph/tools/worker.py

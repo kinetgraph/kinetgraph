@@ -12,11 +12,13 @@ Two axes:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+import pytest
 
 from kntgraph.core.lifecycle import (
-    DomainPhase,
     TERMINAL_OPERATIONAL,
+    DomainPhase,
     is_terminal_operational,
 )
 
@@ -37,14 +39,14 @@ class TestOperationalPhases:
 
 class TestDomainPhase:
     def test_construct(self):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         dp = DomainPhase(phase="validated", updated_at=ts)
         assert dp.phase == "validated"
         assert dp.updated_at == ts
         assert dp.reason is None
 
     def test_with_reason(self):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         dp = DomainPhase(
             phase="rejected",
             updated_at=ts,
@@ -53,15 +55,12 @@ class TestDomainPhase:
         assert dp.reason == "missing CNPJ"
 
     def test_str_returns_phase(self):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         dp = DomainPhase(phase="paid", updated_at=ts)
         assert str(dp) == "paid"
 
     def test_immutable(self):
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         dp = DomainPhase(phase="x", updated_at=ts)
-        try:
+        with pytest.raises(AttributeError):
             dp.phase = "y"  # type: ignore[misc]
-            assert False, "should have raised"
-        except Exception:
-            pass

@@ -82,7 +82,7 @@ class TestChangeTierIdempotency:
         for _ in range(10):
             await pm.change_tier("t", "u", "vip")
 
-        state = await pm.read("t", "u")
+        state = (await pm.read("t", "u")).ok_value()
         assert state is not None
         assert state.tier == "vip"
 

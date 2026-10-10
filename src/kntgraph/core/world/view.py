@@ -30,9 +30,10 @@ expose the most common operational-state checks.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Mapping, Optional, TypeVar, Type
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..lifecycle import OperationalPhase
 
@@ -95,11 +96,11 @@ class AgentView:
     agent_id: str
     components: Mapping[str | type[Any], Any] = field(default_factory=dict)
     operational_phase: OperationalPhase = "spawned"
-    operational_at: Optional[datetime] = None
-    domain_phase: Optional[str] = None
-    domain_at: Optional[datetime] = None
-    last_event_id: Optional[str] = None
-    last_event_at: Optional[datetime] = None
+    operational_at: datetime | None = None
+    domain_phase: str | None = None
+    domain_at: datetime | None = None
+    last_event_id: str | None = None
+    last_event_at: datetime | None = None
     # The ``producer_principal_id`` of the agent's most recent
     # domain event (ADR-066 §4.1). Populated by the default
     # projection so a system that emits a downstream
@@ -107,7 +108,7 @@ class AgentView:
     # principal to the WorkerManager's gate-1 ACL check.
     # ``None`` when the last event carried no principal (e.g.
     # events written before v0.16, or hand-built views).
-    last_event_principal_id: Optional[str] = None
+    last_event_principal_id: str | None = None
     # Correlation of the agent's most recent folded event
     # (ADR-037). Populated by the default projection on
     # every event (both lifecycle and domain) so the
@@ -117,7 +118,7 @@ class AgentView:
     # EventLog, so a checkpoint round-trip preserves the
     # correlation. ``None`` when the agent has no folded
     # events yet (fresh checkpoint).
-    last_event_correlation: Optional["CorrelationContext"] = None
+    last_event_correlation: CorrelationContext | None = None
     # Per-system cursor (ADR-074). Maps the system's name
     # (default: ``type(system).__name__``; override via
     # ``__cursor_key__`` ClassVar) to the ``event_id``
@@ -147,7 +148,7 @@ class AgentView:
     def is_running(self) -> bool:
         return self.operational_phase == "running"
 
-    def get_component(self, component_type: Type[T]) -> Optional[T]:
+    def get_component(self, component_type: type[T]) -> T | None:
         """
         Type-safe accessor for ECS Components.
         Returns the component if it exists and matches the requested type,

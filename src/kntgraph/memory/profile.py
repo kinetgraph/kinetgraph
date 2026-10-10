@@ -43,18 +43,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
 from ..core.result import Err, Ok, PersistenceError, Result
-from ..infra.redis._errors import MemoryDecodeError, MemoryMiss
+from ..infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
 from ..infra.redis._memory import ShortMemoryStorage
 from ..stream.event_log import EventLog
 from .base import BaseShortTermMemory
-
 
 logger = structlog.get_logger()
 
@@ -65,7 +64,7 @@ PROFILE_KEY_PREFIX = "knt:profile:"
 # in ``Settings.profile_ttl_seconds`` (None = no TTL);
 # this constant is kept for downstream code that
 # imported it.
-DEFAULT_TTL_SECONDS: Optional[int] = None
+DEFAULT_TTL_SECONDS: int | None = None
 
 
 class ProfileEventType:
@@ -108,7 +107,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         event_log: EventLog,
         storage: ShortMemoryStorage,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> None:
         # ``None`` → operator-configured default from
         # ``Settings.profile_ttl_seconds`` (None = no TTL
@@ -142,7 +141,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         tenant_id: str,
         user_id: str,
         state: ProfileState,
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Write the given ``ProfileState`` to the Redis Hash
         cache. Replaces any existing value; sets the TTL
@@ -150,32 +149,41 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
 
         Public API: the ``Projector`` calls this with a state
         it folded from the EventLog.
+
+        Errors propagate from the underlying storage write
+        (AGENTS.md §6).
         """
         key = self.cache_key(tenant_id, user_id)
-        await self._write_cache_for_key(key, state)
+        return await self._write_cache_for_key(key, state)
 
     async def refresh_cache(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Rebuild the cache for one profile by folding the
         EventLog. Idempotent.
 
         Public API: the ``CacheWarmer`` adapter calls this.
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache(tenant_id, user_id)
+        return await super().refresh_cache(tenant_id, user_id)
 
     async def refresh_cache_incremental(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> None:
+    ) -> Result[None, PersistenceError]:
         """
         Incremental refresh for one profile (ADR-068
         §3.4 P4). See
         :meth:`SessionManager.refresh_cache_incremental`
         for the general contract; same caveats apply
         here.
+
+        Errors propagate from the base implementation
+        (AGENTS.md §6).
         """
-        await super().refresh_cache_incremental(tenant_id, user_id)
+        return await super().refresh_cache_incremental(tenant_id, user_id)
 
     # ------------------------------------------------------------------ write (domain)
 
@@ -190,14 +198,19 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         if result.is_err():
             err = result.err_value() or PersistenceError("Unknown persistence error")
             return Err(err)
-        await self.refresh_cache(tenant_id, user_id)
+        refresh_result = await self.refresh_cache(tenant_id, user_id)
+        if refresh_result.is_err():
+            err = refresh_result.err_value() or PersistenceError(
+                "Unknown refresh error"
+            )
+            return Err(err)
         return Ok(event)
 
     async def create(
         self,
         tenant_id: str,
         user_id: str,
-        preferences: Optional[dict[str, str]] = None,
+        preferences: dict[str, str] | None = None,
         tier: str = "standard",
     ) -> Result[Event, PersistenceError]:
         """
@@ -293,25 +306,41 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
 
     async def read(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> Optional[ProfileState]:
-        """Read the profile. Cache first, fold on miss."""
+    ) -> Result[ProfileState | None, PersistenceError]:
+        """Read the profile. Cache first, fold on miss.
+
+        Returns ``Ok(state)`` on hit, ``Ok(None)`` when no
+        profile has been created for ``(tenant_id, user_id)``,
+        or ``Err(PersistenceError)`` when the cache adapter or
+        EventLog fold reports a failure (AGENTS.md §6).
+        """
         return await super().read(tenant_id, user_id)
 
     async def list_for_tenant(
         self, tenant_id: str, limit: int = 100
-    ) -> list[ProfileState]:
+    ) -> Result[list[ProfileState], MemoryError]:
         """
-        Best-effort: scans the Redis cache for profiles
-        belonging to a tenant.
+        Scan the Redis cache for profile records belonging
+        to a tenant.
+
+        Per ADR-077: the storage Protocol's ``iter_keys``
+        returns ``AsyncIterator[str]`` and a transport
+        failure during the scan surfaces as
+        ``Err(MemoryError)`` from the storage layer. We
+        trust the Protocol and let the exception propagate
+        as an ``Err`` at the call site.
+
+        Per-entry decode failures are mapped to ``Ok([])``
+        — the entry is skipped and the scan continues.
         """
         out: list[ProfileState] = []
         prefix = f"{PROFILE_KEY_PREFIX}{tenant_id}:"
         async for key in self._storage.iter_keys(prefix):
-            decoded_user_id = key[len(prefix) :]
+            user_id = key[len(prefix) :]
             cache_result = await self._read_cache(
-                self.cache_key(tenant_id, decoded_user_id),
+                self.cache_key(tenant_id, user_id),
                 tenant_id,
-                decoded_user_id,
+                user_id,
             )
             if cache_result.is_err():
                 continue
@@ -320,13 +349,14 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
                 out.append(state)
             if len(out) >= limit:
                 break
-        return out
+        return Ok(out)
+        return Ok(out)
 
     # ------------------------------------------------------------------ base hooks (cache)
 
     async def _read_cache(
         self, key: str, *key_parts: str
-    ) -> Result[Optional[ProfileState], MemoryDecodeError]:
+    ) -> Result[ProfileState | None, MemoryDecodeError]:
         """Decode the Hash cache entry at ``key``.
 
         Returns ``Ok(None)`` on miss (``MemoryMiss`` from
@@ -383,7 +413,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str
-    ) -> Optional[ProfileState]:
+    ) -> ProfileState | None:
         agent_id = self.agent_id_for(tenant_id, user_id)
         events = await self._log.read(agent_id)
         return _fold_profile_events(tenant_id, user_id, events)
@@ -393,7 +423,7 @@ def _fold_profile_events(
     tenant_id: str,
     user_id: str,
     events: Iterable[Event],
-) -> Optional[ProfileState]:
+) -> ProfileState | None:
     """
     Pure fold of profile events.
 
@@ -533,7 +563,7 @@ _PROFILE_HANDLERS: dict[str, _ProfileHandler] = {
 
 
 def _coerce_profile_scalar(
-    decoded: "Mapping[str, JsonValue]",
+    decoded: Mapping[str, JsonValue],
     key: str,
     default: str,
 ) -> str:
@@ -567,7 +597,7 @@ def _coerce_profile_float(value: JsonValue) -> float:
 
 
 def _build_profile_state(
-    decoded: "Mapping[str, JsonValue]",
+    decoded: Mapping[str, JsonValue],
     *,
     tenant_id: str = "",
     user_id: str = "",

@@ -18,13 +18,13 @@ This package provides the building blocks for the framework:
   - Result     : railway-pattern error wrapper.
 """
 
-from .archetype import ArchetypeId, archetype_of
 from .agent_id import (
     AGENT_ID_RE,
     MAX_AGENT_ID_LEN,
     assert_valid_agent_id,
     validate_agent_id,
 )
+from .archetype import ArchetypeId, archetype_of
 from .component import (
     ComponentInstance,
     ComponentMeta,
@@ -42,26 +42,23 @@ from .event import (
     generate_deterministic_event_id,
 )
 from .lifecycle import (
+    TERMINAL_OPERATIONAL,
     DomainPhase,
     OperationalPhase,
-    TERMINAL_OPERATIONAL,
     is_terminal_operational,
 )
-from .world import (
-    WorldQuery,
-)
 from .result import (
+    BusinessError,
     Err,
+    Failure,
     Ok,
+    PersistenceError,
+    RailwayError,
     Result,
     Success,
-    Failure,
-    UnwrapError,
-    RailwayError,
-    ValidationError,
-    PersistenceError,
-    BusinessError,
     ToolError,
+    UnwrapError,
+    ValidationError,
 )
 from .storage import ArchetypeStorage
 from .system import (
@@ -72,63 +69,68 @@ from .system import (
     System,
     WorldSystem,
 )
-from .world import AgentView, Projection, World, project_default
+from .world import (
+    AgentView,
+    Projection,
+    World,
+    WorldQuery,
+    project_default,
+)
 
 __all__ = [
-    # archetype
-    "ArchetypeId",
-    "archetype_of",
     # agent_id
     "AGENT_ID_RE",
     "MAX_AGENT_ID_LEN",
-    "assert_valid_agent_id",
-    "validate_agent_id",
+    # event
+    "OPERATIONAL_EVENT_TO_PHASE",
+    "TERMINAL_OPERATIONAL",
+    # world
+    "AgentView",
+    # archetype
+    "ArchetypeId",
+    # storage
+    "ArchetypeStorage",
+    "BusinessError",
     # component
     "ComponentInstance",
     "ComponentMeta",
-    "component_meta",
-    # event
-    "OPERATIONAL_EVENT_TO_PHASE",
     "CorrelationContext",
     "CorrelationMiddleware",
     "CorrelationScope",
-    "Event",
-    "EventClass",
-    "OperationalEventType",
-    "correlation_middleware",
-    "generate_deterministic_event_id",
-    # lifecycle
-    "DomainPhase",
-    "OperationalPhase",
-    "TERMINAL_OPERATIONAL",
-    "is_terminal_operational",
-    # query
-    "WorldQuery",
-    # result
-    "Err",
-    "Ok",
-    "Result",
-    "Success",
-    "Failure",
-    "UnwrapError",
-    "RailwayError",
-    "ValidationError",
-    "PersistenceError",
-    "BusinessError",
-    "ToolError",
-    # storage
-    "ArchetypeStorage",
     # system
     "Cyclic",
     "CyclicSystem",
+    # lifecycle
+    "DomainPhase",
+    # result
+    "Err",
+    "Event",
+    "EventClass",
+    "Failure",
+    "Ok",
+    "OperationalEventType",
+    "OperationalPhase",
+    "PersistenceError",
+    "Projection",
+    "RailwayError",
     "Reactive",
     "ReactiveSystem",
+    "Result",
+    "Success",
     "System",
-    "WorldSystem",
-    # world
-    "AgentView",
-    "Projection",
+    "ToolError",
+    "UnwrapError",
+    "ValidationError",
     "World",
+    # query
     "WorldQuery",
+    "WorldSystem",
+    "archetype_of",
+    "assert_valid_agent_id",
+    "component_meta",
+    "correlation_middleware",
+    "generate_deterministic_event_id",
+    "is_terminal_operational",
     "project_default",
+    "validate_agent_id",
 ]

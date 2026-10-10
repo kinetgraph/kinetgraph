@@ -31,7 +31,6 @@ framework relies on.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional
 
 from ._ollama import OllamaEmbeddingAdapter
 from ._protocol import (
@@ -39,7 +38,6 @@ from ._protocol import (
     DEFAULT_PARAPHRASE_MULTILINGUAL_MODEL,
     EmbeddingProvider,
 )
-
 
 __all__ = ["EmbeddingClient"]
 
@@ -93,7 +91,7 @@ class EmbeddingClient(EmbeddingProvider):
         model: str = DEFAULT_PARAPHRASE_MULTILINGUAL_MODEL,
         host: str | None = None,
         dimension: int = DEFAULT_PARAPHRASE_MULTILINGUAL_DIM,
-        adapter: Optional[EmbeddingProvider] = None,
+        adapter: EmbeddingProvider | None = None,
     ) -> None:
         self._dimension = dimension
         self._adapter = adapter or OllamaEmbeddingAdapter(

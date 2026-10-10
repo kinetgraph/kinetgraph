@@ -47,8 +47,8 @@ chamada de tool, permitindo dedup de side effects externos.
 @dataclass(frozen=True, slots=True)
 class ReactiveCheckpoint:
     agent_id: str
-    last_event_id: UUID         # lógico
-    last_stream_id: str         # físico, âncora p/ XRANGE exclusivo
+    last_event_id: UUID  # lógico
+    last_stream_id: str  # físico, âncora p/ XRANGE exclusivo
     confirmed_at: datetime
     state_hash: Optional[str] = None
 ```

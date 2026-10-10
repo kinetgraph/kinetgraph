@@ -161,6 +161,7 @@ from kntgraph.knowledge.falkordb.adapter import (
     FalkorDBProjector,
 )
 
+
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
     log = EventLog(redis)
@@ -168,13 +169,16 @@ async def main():
     embedding = EmbeddingClient()  # 768d
     fdb = GraphPool(host="localhost", port=16379)
     projector = FalkorDBProjector(
-        log=log, client=fdb, embedding=embedding,
+        log=log,
+        client=fdb,
+        embedding=embedding,
         tenant_id="12.345.678/0001-90",
     )
     stats = await projector.project_all()
     print(stats)
     # {"agents": 12, "documents": 87, "tool_calls": 23, "edges": 122}
     await redis.aclose()
+
 
 asyncio.run(main())
 ```
@@ -268,6 +272,7 @@ from kntgraph.agents.knowledge.solution_projector import (
     SolutionProjector,
 )
 
+
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
     log = EventLog(redis)
@@ -278,7 +283,8 @@ async def main():
     # (it does NOT go through the Tool Protocol here).
     pii = PiiRedactionTool(level=1)  # regex only
     projector = SolutionProjector(
-        client=fdb, embedding=embedding,
+        client=fdb,
+        embedding=embedding,
         tenant_id="12.345.678/0001-90",
     )
     promoter = SolutionPromoter(
@@ -301,6 +307,7 @@ async def main():
             await asyncio.sleep(10.0)
 
     await pump_loop()
+
 
 asyncio.run(main())
 ```
@@ -338,8 +345,13 @@ Default labels:
 
 ```python
 DEFAULT_PII_LABELS = (
-    "cpf", "cnpj", "email", "telefone",
-    "endereco", "nome_pessoa", "chave_pix",
+    "cpf",
+    "cnpj",
+    "email",
+    "telefone",
+    "endereco",
+    "nome_pessoa",
+    "chave_pix",
     "cartao_credito",
 )
 ```
@@ -395,15 +407,15 @@ from kntgraph.knowledge.graphrag.retriever import (
 )
 
 retriever = GraphRAGRetriever(
-    client=fdb, embedding=embedding,
+    client=fdb,
+    embedding=embedding,
     tenant_id="12.345.678/0001-90",
 )
 
 results: list[RetrievalResult] = retriever.vector_search(emb, k=5)
 for r in results:
     print(
-        f"doc={r.doc_id}  agent={r.agent_id}  "
-        f"type={r.event_type}  score={r.score:.4f}"
+        f"doc={r.doc_id}  agent={r.agent_id}  type={r.event_type}  score={r.score:.4f}"
     )
     print(f"  data={r.data}")
 ```
@@ -464,12 +476,15 @@ results: list[SolutionResult] = retriever.find_solutions_by_tool(
 
 # Failures too: `status="failed"`.
 failures = retriever.find_solutions_by_tool(
-    "bank.transfer", status="failed", k=10,
+    "bank.transfer",
+    status="failed",
+    k=10,
 )
 
 # All: completed + failed.
 all_hits = retriever.find_solutions_by_tool(
-    "invoice.issue", status="all",
+    "invoice.issue",
+    status="all",
 )
 ```
 
@@ -487,11 +502,11 @@ class SolutionResult:
     problem_fingerprint: str
     action_params_example: dict
     tool_name: str
-    outcome_status: str       # "completed" | "failed"
+    outcome_status: str  # "completed" | "failed"
     latency_ms: float | None
     confidence: int
     last_validated_at: str | None  # ISO timestamp
-    score: float              # cosine or 1.0 (structural)
+    score: float  # cosine or 1.0 (structural)
 ```
 
 ### 7.5 Executed Cypher (summary)

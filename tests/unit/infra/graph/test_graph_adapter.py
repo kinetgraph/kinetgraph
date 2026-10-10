@@ -30,7 +30,6 @@ from kntgraph.knowledge.graph._protocol import (
     GraphError,
 )
 
-
 # ---------------------------------------------------------------------------
 # Mock AsyncGraph — mimics falkordb.asyncio.AsyncGraph
 # ---------------------------------------------------------------------------

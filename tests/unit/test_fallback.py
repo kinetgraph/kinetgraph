@@ -21,7 +21,6 @@ from kntgraph.resilience.fallback import (
     with_fallback_chain,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

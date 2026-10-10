@@ -51,7 +51,9 @@ if TYPE_CHECKING:
     # guarded by ``pytest.importorskip``; the TYPE_CHECKING
     # block keeps pyright happy with the symbols the
     # final test uses.
-    from prometheus_client import CollectorRegistry  # type: ignore[reportUnknownVariableType]
+    from prometheus_client import (
+        CollectorRegistry,  # type: ignore[reportUnknownVariableType]
+    )
 
 
 pytestmark = pytest.mark.asyncio
@@ -354,7 +356,9 @@ async def test_prometheus_sink_records_values_through_dispatch_once(
     """
     pytest.importorskip("prometheus_client")
 
-    from prometheus_client import CollectorRegistry  # type: ignore[reportUnknownVariableType]
+    from prometheus_client import (
+        CollectorRegistry,  # type: ignore[reportUnknownVariableType]
+    )
 
     from kntgraph.runner.metrics.prometheus import PrometheusMetricsSink
 

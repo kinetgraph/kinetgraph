@@ -19,8 +19,6 @@ Iter 12 (ADR-019 epílogo + Iter 12 do sharding).
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .._protocol import GraphAdapter
 
 
@@ -69,7 +67,7 @@ class GraphToolCallAdapter:
         tool: str,
         request_id: str,
         status: str,
-        latency_ms: Optional[float],
+        latency_ms: float | None,
         agent_id: str,
     ) -> None:
         """
@@ -107,7 +105,7 @@ class GraphToolCallAdapter:
             },
         )
 
-    async def find_by_id(self, tool_call_id: str) -> Optional[dict]:
+    async def find_by_id(self, tool_call_id: str) -> dict | None:
         """
         Look up a ``(:ToolCall)`` node by id.
         """

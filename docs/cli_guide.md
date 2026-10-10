@@ -77,6 +77,7 @@ uv run knt new component weather.LocationIntent
 ```python
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True, slots=True)
 class LocationIntent:
     city: str
@@ -94,18 +95,22 @@ uv run knt new event weather.WeatherResolved
 from typing import TypedDict
 from kntgraph.core.event import Event, correlation_middleware
 
+
 class WeatherResolvedPayload(TypedDict):
     city: str
     temperature_celsius: float
     condition: str
 
-def weather_resolved(agent_id: str, payload: WeatherResolvedPayload, causation_id: str) -> Event:
+
+def weather_resolved(
+    agent_id: str, payload: WeatherResolvedPayload, causation_id: str
+) -> Event:
     return Event.domain_from(
         agent_id=agent_id,
         type="weather.resolved",
         data=payload,
         causation_id=causation_id,
-        correlation=correlation_middleware.current()
+        correlation=correlation_middleware.current(),
     )
 ```
 
@@ -122,9 +127,12 @@ from typing import Any
 from kntgraph.core.result import Result, Ok, Err
 from kntgraph.agents.tools.protocol import tool_worker
 
+
 @tool_worker(name="open_meteo_api", description="Fetches weather for coordinates.")
 class OpenMeteoApi:
-    async def invoke(self, latitude: float, longitude: float, *, idempotency_key: str) -> Result[dict[str, Any], Exception]:
+    async def invoke(
+        self, latitude: float, longitude: float, *, idempotency_key: str
+    ) -> Result[dict[str, Any], Exception]:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true"
         try:
             async with httpx.AsyncClient() as client:
@@ -156,6 +164,7 @@ from kntgraph.core.world import World
 from kntgraph.core.event import Event, CorrelationContext, correlation_middleware
 from kntgraph.tools.system import ToolAwareSystem
 from ..events.weather_resolved import weather_resolved
+
 
 def weather_router_system(world: World) -> list[Event]:
     events = []
@@ -210,17 +219,23 @@ def weather_router_system(world: World) -> list[Event]:
             tool_completions = view.components.get("tool_completions", {})
             for req_id, completion in tool_completions.items():
                 req = helper.get_request(view, req_id)
-                if req and req.tool_name == "open_meteo_api" and completion.status == "completed":
+                if (
+                    req
+                    and req.tool_name == "open_meteo_api"
+                    and completion.status == "completed"
+                ):
                     # Retrieve the parameters (like city name) from the request
                     city = req.params.get("params", {}).get("city") or "Unknown"
-                    
+
                     # Extract the raw weather data returned by the tool
                     weather_data = completion.result or {}
                     temp = weather_data.get("temperature", 0.0)
                     wind = weather_data.get("windspeed", 0.0)
 
                     # Propagate the correlation context of the tool completion
-                    correlation_middleware.start(correlation_id=completion.correlation_id)
+                    correlation_middleware.start(
+                        correlation_id=completion.correlation_id
+                    )
 
                     # Emit the clean domain event representing the resolved weather.
                     # This updates `domain_phase` to `weather.weather_resolved`, stopping the loop.
@@ -251,14 +266,17 @@ from ..systems.weather_router import weather_router
 from ..tools.open_meteo_api import OpenMeteoApi
 from kntgraph.security.authorization import CapabilityPolicy
 
+
 def build_weather_agent_policy() -> CapabilityPolicy:
     return CapabilityPolicy(
         allowed_events=["weather.*", "tool.*"],
         denied_events=[],
     )
 
+
 def get_weather_agent_systems() -> list:
     return [weather_router]
+
 
 def get_weather_agent_tools() -> list:
     return [OpenMeteoApi()]

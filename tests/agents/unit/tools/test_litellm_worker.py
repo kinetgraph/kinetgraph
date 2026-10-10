@@ -35,9 +35,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from kntgraph.agents.tools.llm import (
+    LiteLLMToolWorker,
     LLMAuthError,
     LLMRateLimitError,
-    LiteLLMToolWorker,
 )
 from kntgraph.core.result import ToolError
 
@@ -144,7 +144,7 @@ async def test_invoke_returns_err_on_transport_timeout():
     ``tool.chat_llm.failed`` event with a clear
     error and the operator can introspect the
     cause)."""
-    fake_transport = AsyncMock(side_effect=asyncio.TimeoutError("provider hung"))
+    fake_transport = AsyncMock(side_effect=TimeoutError("provider hung"))
     with patch(
         "kntgraph.agents.tools.llm.LiteLLMTransportAdapter",
         return_value=fake_transport,
@@ -426,7 +426,7 @@ class TestInvokeRetryPolicy:
         ``asyncio.TimeoutError`` (per-attempt timeout
         fires; the worker waits and retries)."""
         worker, fake_transport = self._patched_worker(
-            [asyncio.TimeoutError(), _ok_completion(text="ok")]
+            [TimeoutError(), _ok_completion(text="ok")]
         )
 
         async def go():

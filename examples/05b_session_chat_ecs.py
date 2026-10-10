@@ -87,6 +87,8 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.agents.tools.llm import LiteLLMToolWorker
 from kntgraph.core.components.memory import SessionComponent
 from kntgraph.core.event import (
@@ -105,9 +107,6 @@ from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
-
-from _lib.redis_or_fake import make_redis_client
-
 
 # ---------------------------------------------------------------------------
 # 1. Reactive extensions

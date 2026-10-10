@@ -56,7 +56,6 @@ from kntgraph.core.world import World
 from kntgraph.infra.world_checkpoint import WorldCheckpoint
 from kntgraph.runner.reactive import ReactiveDispatcher
 
-
 pytestmark = pytest.mark.asyncio
 
 

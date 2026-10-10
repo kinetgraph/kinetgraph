@@ -3,8 +3,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import TypedDict
-from kntgraph.core.event import Event
+
 from kntgraph.core.correlation import correlation_middleware
+
+from kntgraph.core.event import Event
 
 
 class WeatherResolvedPayload(TypedDict):

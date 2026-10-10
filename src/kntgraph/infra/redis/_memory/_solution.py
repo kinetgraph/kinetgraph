@@ -77,16 +77,20 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
-from kntgraph.agents.memory.solution_lookup import CachedSolution
+from kntgraph.core.components.solution import CachedSolution
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._client import RedisLike
-from kntgraph.infra.redis._prefix import namespaced
 from kntgraph.infra.redis._codec import decode_dict, decode_value
-
+from kntgraph.infra.redis._errors import RedisAdapterError
+from kntgraph.infra.redis._prefix import namespaced
+from kntgraph.infra.redis._translation import (
+    translate_redis_call,
+    translate_redis_call_fall_back,
+)
 
 logger = structlog.get_logger()
 
@@ -94,7 +98,7 @@ logger = structlog.get_logger()
 SOLUTION_KEY_PREFIX = "knt:solution:"
 
 
-class SolutionStoreError(Exception):
+class SolutionStoreError(RedisAdapterError):
     """Base for Redis Solution store errors.
 
     Mapped to ``Err(SolutionStoreError(...))`` at the
@@ -102,6 +106,14 @@ class SolutionStoreError(Exception):
     fail-closed). The read-side ``SolutionLookupSystem``
     treats the error as a miss so the LLM fallback takes
     over -- a Redis outage MUST NOT stall the chat loop.
+
+    Inherits from :class:`RedisAdapterError` (the
+    framework's catch list base) so the storage layer's
+    :func:`translate_redis_call` can construct
+    ``SolutionStoreError`` instances without an
+    ``except TypeError`` retry — the helper inspects
+    the constructor signature and forwards only the
+    kwargs the concrete class accepts.
     """
 
     def __init__(
@@ -143,7 +155,7 @@ class RedisSolutionStore:
     """
 
     client: RedisLike
-    ttl_seconds: Optional[int] = None
+    ttl_seconds: int | None = None
     key_prefix: str = ""
 
     def _key(self, tool_name: str) -> str:
@@ -215,7 +227,7 @@ class RedisSolutionStore:
         tool_name: str,
         params_fingerprint: str,
         min_confidence: int,
-    ) -> Optional[CachedSolution]:
+    ) -> CachedSolution | None:
         """Read-side API (the ``SolutionStoreLike`` contract).
 
         On hit: returns the cached Solution when
@@ -225,17 +237,22 @@ class RedisSolutionStore:
         so the dispatcher's LLM fallback can take over
         (the read-side is fail-open by design -- see
         ADR-049 §2.1.3).
+
+        Per ADR-077: the Redis catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call_fall_back`;
+        ``asyncio.CancelledError`` propagates so
+        operator-driven shutdown works.
         """
         key = self._key(tool_name)
-        try:
-            raw = await self.client.hget(key, params_fingerprint)
-        except Exception as e:
-            logger.warning(
-                "solution_store.find_match.redis_error",
-                tool_name=tool_name,
-                params_fingerprint=params_fingerprint,
-                error=str(e),
-            )
+        raw = await translate_redis_call_fall_back(
+            self.client.hget(key, params_fingerprint),
+            op_name="solution_store.find_match",
+            fallback=None,
+            key=key,
+            tool_name=tool_name,
+            params_fingerprint=params_fingerprint,
+        )
+        if raw is None:
             return None
         text = decode_value(raw)
         if text is None:
@@ -284,40 +301,37 @@ class RedisSolutionStore:
                 separators=(",", ":"),
                 default=str,
             )
-        except (TypeError, ValueError, RuntimeError) as e:
+        except (TypeError, ValueError, RuntimeError) as exc:
             logger.warning(
                 "solution_store.put.serialization_error",
                 tool_name=solution.tool_name,
                 params_fingerprint=solution.params_fingerprint,
-                error=str(e),
+                error=str(exc),
             )
             return Err(
                 SolutionStoreSerializationError(
-                    f"cannot serialize: {e}",
+                    f"cannot serialize: {exc}",
                     tool_name=solution.tool_name,
                     params_fingerprint=solution.params_fingerprint,
                 )
             )
-        try:
+
+        async def _run_pipeline() -> None:
             pipe = self.client.pipeline(transaction=True)
             pipe.hset(key, solution.params_fingerprint, payload)
             if self.ttl_seconds is not None and self.ttl_seconds > 0:
                 pipe.expire(key, self.ttl_seconds)
             await pipe.execute()
-        except Exception as e:
-            logger.warning(
-                "solution_store.put.redis_error",
-                tool_name=solution.tool_name,
-                params_fingerprint=solution.params_fingerprint,
-                error=str(e),
-            )
-            return Err(
-                SolutionStoreError(
-                    f"redis error: {e}",
-                    tool_name=solution.tool_name,
-                    params_fingerprint=solution.params_fingerprint,
-                )
-            )
+
+        result = await translate_redis_call(
+            _run_pipeline(),
+            op_name="solution_store.put",
+            error_cls=SolutionStoreError,
+            tool_name=solution.tool_name,
+            params_fingerprint=solution.params_fingerprint,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def delete(
@@ -328,22 +342,15 @@ class RedisSolutionStore:
         """Remove a single Solution. Idempotent: missing
         keys return ``Ok(None)``."""
         key = self._key(tool_name)
-        try:
-            await self.client.hdel(key, params_fingerprint)
-        except Exception as e:
-            logger.warning(
-                "solution_store.delete.redis_error",
-                tool_name=tool_name,
-                params_fingerprint=params_fingerprint,
-                error=str(e),
-            )
-            return Err(
-                SolutionStoreError(
-                    f"redis error: {e}",
-                    tool_name=tool_name,
-                    params_fingerprint=params_fingerprint,
-                )
-            )
+        result = await translate_redis_call(
+            self.client.hdel(key, params_fingerprint),
+            op_name="solution_store.delete",
+            error_cls=SolutionStoreError,
+            tool_name=tool_name,
+            params_fingerprint=params_fingerprint,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def iter_keys(self, tool_name: str) -> AsyncIterator[str]:
@@ -379,15 +386,17 @@ class RedisSolutionStore:
         operator can decide whether to ``delete`` them).
         """
         key = self._key(tool_name)
-        try:
-            raw = await self.client.hgetall(key)
-        except Exception as e:
-            logger.warning(
-                "solution_store.read_all.redis_error",
-                tool_name=tool_name,
-                error=str(e),
-            )
-            return {}
+        # Fail-open: per ADR-049 §2.1.3 the read-side
+        # returns ``{}`` on Redis error so the operator
+        # can re-run ``delete`` on the corrupt entries
+        # without the chat loop stalling.
+        raw = await translate_redis_call_fall_back(
+            self.client.hgetall(key),
+            op_name="solution_store.read_all",
+            fallback={},
+            key=key,
+            tool_name=tool_name,
+        )
         decoded = decode_dict(raw)
         out: dict[str, CachedSolution] = {}
         for fp, text in decoded.items():
@@ -407,8 +416,8 @@ class RedisSolutionStore:
 
 
 __all__ = [
-    "RedisSolutionStore",
     "SOLUTION_KEY_PREFIX",
+    "RedisSolutionStore",
     "SolutionStoreDecodeError",
     "SolutionStoreError",
     "SolutionStoreSerializationError",

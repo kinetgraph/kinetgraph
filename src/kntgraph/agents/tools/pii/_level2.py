@@ -79,7 +79,7 @@ async def ner_redact(
     payload: PiiPayload,
     counts: dict[str, int],
     *,
-    entity_extractor: "EntityExtractor",
+    entity_extractor: EntityExtractor,
     labels: tuple[str, ...],
 ) -> None:
     """

@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Optional
 
 import structlog
 
@@ -34,7 +33,7 @@ from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
 from .._errors import MemoryDecodeError, MemoryError
-
+from .._translation import translate_redis_call
 
 logger = structlog.get_logger()
 
@@ -51,22 +50,28 @@ class RedisCheckpointStorage:
 
     async def load(
         self, agent_id: str
-    ) -> Result[Optional[Mapping[str, str]], MemoryError | MemoryDecodeError]:
+    ) -> Result[Mapping[str, str] | None, MemoryError | MemoryDecodeError]:
         """Load a checkpoint by agent_id.
 
         Returns ``Ok(None)`` on miss; ``Ok(dict)`` on hit;
         ``Err(MemoryDecodeError)`` on corrupt JSON;
         ``Err(MemoryError)`` on Redis failure.
+
+        Per ADR-077: the Redis catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`;
+        the JSON decode catch is narrow
+        (``json.JSONDecodeError``, ``TypeError``).
         """
-        try:
-            raw = await self.client.hget(CHECKPOINT_KEY, agent_id)
-        except Exception as e:
-            logger.warning(
-                "checkpoint_storage.load.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        result = await translate_redis_call(
+            self.client.hget(CHECKPOINT_KEY, agent_id),
+            op_name="checkpoint_storage.load",
+            error_cls=MemoryError,
+            key=CHECKPOINT_KEY,
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
             return Ok(None)
         try:
@@ -85,31 +90,47 @@ class RedisCheckpointStorage:
     async def save(
         self, agent_id: str, payload: Mapping[str, str]
     ) -> Result[None, MemoryError]:
-        """Persist a checkpoint (JSON-encoded)."""
+        """Persist a checkpoint (JSON-encoded).
+
+        Per ADR-077: the JSON serialisation catch is
+        narrow (``TypeError``, ``ValueError``); the
+        Redis catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
         try:
             encoded = json.dumps(dict(payload), default=str)
-            await self.client.hset(CHECKPOINT_KEY, agent_id, encoded)
-        except Exception as e:
-            logger.warning(
-                "checkpoint_storage.save.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        except (TypeError, ValueError) as exc:
+            return Err(MemoryError(f"json encoding failed: {exc}"))
+        result = await translate_redis_call(
+            self.client.hset(CHECKPOINT_KEY, agent_id, encoded),
+            op_name="checkpoint_storage.save",
+            error_cls=MemoryError,
+            key=CHECKPOINT_KEY,
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def load_all(
         self,
     ) -> Result[Mapping[str, Mapping[str, str]], MemoryError]:
-        """Load every checkpoint. Malformed entries are skipped."""
-        try:
-            raw = await self.client.hgetall(CHECKPOINT_KEY)
-        except Exception as e:
-            logger.warning(
-                "checkpoint_storage.load_all.redis_error",
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """Load every checkpoint. Malformed entries are skipped.
+
+        Per ADR-077: the Redis catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`;
+        the per-entry JSON decode catch is narrow
+        (``json.JSONDecodeError``, ``TypeError``).
+        """
+        result = await translate_redis_call(
+            self.client.hgetall(CHECKPOINT_KEY),
+            op_name="checkpoint_storage.load_all",
+            error_cls=MemoryError,
+            key=CHECKPOINT_KEY,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         out: dict[str, Mapping[str, str]] = {}
         for k, v in raw.items():
             agent_id = (
@@ -129,26 +150,36 @@ class RedisCheckpointStorage:
         return Ok(out)
 
     async def clear(self, agent_id: str) -> Result[None, MemoryError]:
-        try:
-            await self.client.hdel(CHECKPOINT_KEY, agent_id)
-        except Exception as e:
-            logger.warning(
-                "checkpoint_storage.clear.redis_error",
-                agent_id=agent_id,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """Remove a single checkpoint. Idempotent.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.hdel(CHECKPOINT_KEY, agent_id),
+            op_name="checkpoint_storage.clear",
+            error_cls=MemoryError,
+            key=CHECKPOINT_KEY,
+            agent_id=agent_id,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def clear_all(self) -> Result[None, MemoryError]:
-        try:
-            await self.client.delete(CHECKPOINT_KEY)
-        except Exception as e:
-            logger.warning(
-                "checkpoint_storage.clear_all.redis_error",
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}"))
+        """Remove every checkpoint. Idempotent.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.delete(CHECKPOINT_KEY),
+            op_name="checkpoint_storage.clear_all",
+            error_cls=MemoryError,
+            key=CHECKPOINT_KEY,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
 

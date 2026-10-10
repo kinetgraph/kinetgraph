@@ -47,10 +47,14 @@ O `Tool` Protocol era **monolítico** — uma única classe misturava três resp
 ```python
 @runtime_checkable
 class Tool(Protocol[R]):
-    name: str                           # ① Identidade
+    name: str  # ① Identidade
     description: str
     input_schema: dict
-    async def invoke(self, *, idempotency_key: str, **kwargs) -> Result[R, ToolError]: ...
+
+    async def invoke(
+        self, *, idempotency_key: str, **kwargs
+    ) -> Result[R, ToolError]: ...
+
     # ② Orquestração (idempotency_key é framework concern)
     # ③ Railway envelope (Result + ToolError é framework concern)
 ```
@@ -120,7 +124,10 @@ class Tool(Describable, Protocol[R]):
     name: str
     description: str
     input_schema: dict
-    async def invoke(self, *, idempotency_key: str, **kwargs) -> Result[R, ToolError]: ...
+
+    async def invoke(
+        self, *, idempotency_key: str, **kwargs
+    ) -> Result[R, ToolError]: ...
 ```
 
 **O que é:** `Describable` + `invoke` keyword-only com `idempotency_key` + `Result[R, ToolError]` envelope. **Quem usa:** apenas o `ToolInvoker` (consome `tool.{name}.requested` events do EventLog). **Quem implementa:** os Tools completos — `PiiRedactionTool`, `LiteLLMTool`, `BrasilApiTool`, etc.

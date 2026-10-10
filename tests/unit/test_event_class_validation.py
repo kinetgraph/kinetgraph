@@ -25,7 +25,7 @@ path used by the EventLog.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -34,7 +34,6 @@ from kntgraph.core.event import (
     Event,
     OperationalEventType,
 )
-
 
 # ---------------------------------------------------------------------------
 # Event.create — runtime validation of event_class
@@ -131,7 +130,7 @@ class TestEventFromDictValidation:
             "agent_id": "a-1",
             "event_type": "document.received",
             "event_class": event_class,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "data": {},
             "correlation": {
                 "correlation_id": str(uuid.uuid4()),

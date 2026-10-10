@@ -148,7 +148,7 @@ The `AgentView` separates the two:
 ```python
 view = world.agents["a-1"]
 view.operational_phase  # from lifecycle events
-view.domain_phase       # from domain events
+view.domain_phase  # from domain events
 ```
 
 The same `World` carries both views because

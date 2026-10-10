@@ -31,7 +31,8 @@ projection; no second fold.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 
 from kntgraph.core.event import Event
 from kntgraph.core.world import World
@@ -49,9 +50,9 @@ __all__ = ["fold_with_filter", "fold_with_systems"]
 
 
 def _project_memory_into_world(
-    world: "World",
+    world: World,
     new_events: list[Event],
-) -> "World":
+) -> World:
     """Compose the memory-hydration projection onto the
     World (ADR-042 §6.1, ADR-059 §2.2).
 
@@ -99,10 +100,10 @@ def _project_memory_into_world(
 
 
 def fold_with_filter(
-    dispatcher: "ReactiveDispatcher",
-    world: "World",
+    dispatcher: ReactiveDispatcher,
+    world: World,
     new_events: list[Event],
-) -> tuple["World", int]:
+) -> tuple[World, int]:
     """Fold every new event into the World and count
     the ones that survive ``dispatcher._filter`` (i.e.
     should be surfaced to systems).
@@ -176,10 +177,10 @@ def fold_with_filter(
 
 
 def fold_with_systems(
-    dispatcher: "ReactiveDispatcher",
-    world: "World",
+    dispatcher: ReactiveDispatcher,
+    world: World,
     system_events: list[Event],
-) -> "World":
+) -> World:
     """Re-fold the World with the events emitted by the
     systems in the same tick (ADR-045 Slot GC; DEBT
     §2.21 follow-up).

@@ -19,8 +19,7 @@ All read-only. Composed on existing primitives (``view.tool_requests`` /
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from types import MappingProxyType
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -28,11 +27,11 @@ from uuid import UUID
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.result import Ok
 from kntgraph.core.world import World
 from kntgraph.core.world.projection_tool_calls import project_tool_calls
 from kntgraph.infra.world_checkpoint import IncrementalWorldStore
 from kntgraph.runner.reactive import ReactiveDispatcher
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -55,8 +54,8 @@ def _make_tool_request_event(
         agent_id=agent_id,
         event_class="domain",
         correlation=CorrelationContext.new(),
-        data=MappingProxyType({"tool": tool_name}),
-        timestamp=timestamp or datetime.now(tz=timezone.utc),
+        data={"tool": tool_name},
+        timestamp=timestamp or datetime.now(tz=UTC),
     )
 
 
@@ -76,9 +75,9 @@ def _make_tool_completion_event(
         agent_id=agent_id,
         event_class="domain",
         correlation=CorrelationContext.new(),
-        data=MappingProxyType({}),
+        data={},
         causation_id=causation_id,
-        timestamp=timestamp or datetime.now(tz=timezone.utc),
+        timestamp=timestamp or datetime.now(tz=UTC),
     )
 
 
@@ -113,8 +112,8 @@ class _FakeStorage:
         self,
         world: World,
         *,
-        queue_length: "AsyncMock | None" = None,
-        pending_count: "AsyncMock | None" = None,
+        queue_length: AsyncMock | None = None,
+        pending_count: AsyncMock | None = None,
     ) -> None:
         self._world = world
         self._queue_length = queue_length or AsyncMock(return_value=0)
@@ -175,9 +174,9 @@ class _FakeStorage:
 def _build_world_store(
     world: World,
     *,
-    queue_length: "AsyncMock | None" = None,
-    pending_count: "AsyncMock | None" = None,
-) -> "IncrementalWorldStore":
+    queue_length: AsyncMock | None = None,
+    pending_count: AsyncMock | None = None,
+) -> IncrementalWorldStore:
     """Build an ``IncrementalWorldStore`` whose underlying
     storage is a ``_FakeStorage`` seeded with the test world.
 
@@ -215,9 +214,9 @@ def _dispatcher(
     world: World,
     *,
     dlq: Any = None,
-    queue_length: "AsyncMock | None" = None,
-    pending_count: "AsyncMock | None" = None,
-    world_store: "IncrementalWorldStore | None" = None,
+    queue_length: AsyncMock | None = None,
+    pending_count: AsyncMock | None = None,
+    world_store: IncrementalWorldStore | None = None,
 ) -> ReactiveDispatcher:
     """Build a dispatcher with the given world seeded.
 
@@ -326,7 +325,7 @@ class TestStaleTasks:
         (default TTL); a request emitted at ``utcnow()`` therefore
         expires well after the query's ``now``.
         """
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
         req = _make_tool_request_event(
             agent_id="a-1",
             tool_name="weather_api",
@@ -345,7 +344,7 @@ class TestStaleTasks:
         ``expires_at`` ~700s in the past. The query's ``now``
         is comfortably past ``expires_at + threshold``.
         """
-        old = datetime.now(tz=timezone.utc) - timedelta(seconds=1000)
+        old = datetime.now(tz=UTC) - timedelta(seconds=1000)
         req = _make_tool_request_event(
             agent_id="a-1",
             tool_name="weather_api",
@@ -450,7 +449,7 @@ class TestDeadLetteredTasks:
     async def test_delegates_to_dlq_list_all(self) -> None:
         """No filter ⇒ ``DeadLetterQueue.list_all``."""
         dlq = AsyncMock()
-        dlq.list_all = AsyncMock(return_value=["entry-1", "entry-2"])
+        dlq.list_all = AsyncMock(return_value=Ok(["entry-1", "entry-2"]))
         dispatcher = _dispatcher(World.empty(), dlq=dlq)
         result = await dispatcher.dead_lettered_tasks()
         assert result == ["entry-1", "entry-2"]
@@ -461,7 +460,7 @@ class TestDeadLetteredTasks:
         from kntgraph.events.dlq.values import DLQReason
 
         dlq = AsyncMock()
-        dlq.list_by_reason = AsyncMock(return_value=["entry-1"])
+        dlq.list_by_reason = AsyncMock(return_value=Ok(["entry-1"]))
         dispatcher = _dispatcher(World.empty(), dlq=dlq)
         result = await dispatcher.dead_lettered_tasks(
             reason=DLQReason.TOOL_STALE_UNACKNOWLEDGED, count=10
@@ -474,7 +473,7 @@ class TestDeadLetteredTasks:
     async def test_delegates_to_dlq_list_for_agent(self) -> None:
         """``agent_id=`` (no ``reason=``) ⇒ ``list_for_agent``."""
         dlq = AsyncMock()
-        dlq.list_for_agent = AsyncMock(return_value=["entry-1"])
+        dlq.list_for_agent = AsyncMock(return_value=Ok(["entry-1"]))
         dispatcher = _dispatcher(World.empty(), dlq=dlq)
         result = await dispatcher.dead_lettered_tasks(agent_id="a-1", count=5)
         assert result == ["entry-1"]

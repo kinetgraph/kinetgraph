@@ -122,9 +122,9 @@ assert len(v) == 768
 
 ```python
 client = EmbeddingClient(
-    model="nomic-embed-text",     # outro modelo Ollama
-    host="http://10.0.0.5:11434", # servidor remoto
-    dimension=768,                # ajuste se o modelo exigir
+    model="nomic-embed-text",  # outro modelo Ollama
+    host="http://10.0.0.5:11434",  # servidor remoto
+    dimension=768,  # ajuste se o modelo exigir
 )
 ```
 
@@ -136,13 +136,18 @@ from kntgraph.knowledge.embedding import (
     EmbeddingProvider,
 )
 
+
 class FakeAdapter(EmbeddingProvider):
     dimension = 768
+
     async def embed(self, text: str) -> list[float]:
         return [0.1] * 768
+
     async def embed_batch(self, texts):
         return [[0.1] * 768 for _ in texts]
+
     async def close(self) -> None: ...
+
 
 client = EmbeddingClient(adapter=FakeAdapter())
 ```
@@ -177,9 +182,7 @@ retriever = GraphRAGRetriever(
     tenant_id="12.345.678/0001-90",
 )
 
-results = await retriever.retrieve(
-    "notas fiscais de saída do último trimestre", k=5
-)
+results = await retriever.retrieve("notas fiscais de saída do último trimestre", k=5)
 for r in results:
     print(r.doc_id, r.score, r.data)
 ```

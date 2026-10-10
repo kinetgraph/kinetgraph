@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import pytest
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
@@ -43,7 +44,7 @@ class FakeRedisClient:
         for key in keys:
             self.data[key] = None
 
-    def pipeline(self, transaction: bool = True) -> "_FakePipeline":
+    def pipeline(self, transaction: bool = True) -> _FakePipeline:
         self.ops.append(("pipeline", transaction))
         return _FakePipeline(self)
 
@@ -57,7 +58,7 @@ class _FakePipeline:
         self._client = client
         self._queued: list[tuple[str, bytes, int | None]] = []
 
-    def set(self, key: str, value: bytes, *, ex: int | None = None) -> "_FakePipeline":
+    def set(self, key: str, value: bytes, *, ex: int | None = None) -> _FakePipeline:
         self._queued.append((key, value, ex))
         return self
 
@@ -69,13 +70,13 @@ class _FakePipeline:
 
 class FailingRedisClient(FakeRedisClient):
     async def get(self, key: str) -> bytes | None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
     async def set(self, key: str, value: bytes, *, ex: int | None = None) -> None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
     async def delete(self, key: str) -> None:
-        raise RuntimeError("boom")
+        raise redis_exceptions.RedisError("boom")
 
 
 @pytest.mark.asyncio
@@ -335,7 +336,7 @@ class TestIncrementalWorldStoreQueueInspection:
         The dispatcher's stuck-in-queue query is best-effort:
         a Redis hiccup must not escalate into a recovery loop.
         """
-        stub = _StubStorage(raise_queue_length=RuntimeError("redis down"))
+        stub = _StubStorage(raise_queue_length=ConnectionError("redis down"))
         store = IncrementalWorldStore(stub)  # type: ignore[arg-type]
         result = await store.queue_length("any:key")
         assert result == 0

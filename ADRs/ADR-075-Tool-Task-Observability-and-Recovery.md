@@ -384,24 +384,21 @@ side effects. Read by the TTL sweeper via
 class ReactiveDispatcher:
     async def in_flight_tasks(
         self, agent_id: str | None = None
-    ) -> list[InFlightTask]:
-        ...
+    ) -> list[InFlightTask]: ...
 
     async def stale_tasks(
         self, threshold_seconds: float = 300.0
-    ) -> list[InFlightTask]:
-        ...
+    ) -> list[InFlightTask]: ...
 
     async def stuck_in_queue(
         self, threshold_seconds: float = 300.0
-    ) -> list[InFlightTask]:
-        ...
+    ) -> list[InFlightTask]: ...
 
     async def dead_lettered_tasks(
-        self, reason: DLQReason | None = None,
+        self,
+        reason: DLQReason | None = None,
         agent_id: str | None = None,
-    ) -> list[DeadLetterEvent]:
-        ...
+    ) -> list[DeadLetterEvent]: ...
 
     async def detect_and_recover(
         self,

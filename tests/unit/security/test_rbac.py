@@ -32,13 +32,13 @@ fakeredis + FastAPI TestClient.
 from __future__ import annotations
 
 import json
-from typing import Any
 import uuid
+from typing import Any, ClassVar
 
 import fakeredis.aioredis
 import pytest
 
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.security import (
     Action,
     AlwaysAllowPolicy,
@@ -326,7 +326,7 @@ class TestToolACL:
 class _EchoTool:
     name = "echo"
     description = "echo"
-    input_schema: dict = {}
+    input_schema: ClassVar[dict] = {}
 
     async def invoke(self, *, idempotency_key: str, **kwargs: Any) -> Any:
         return {"echo": kwargs}
@@ -444,12 +444,13 @@ class TestEventLogTenantViolation:
     """
 
     async def test_cross_tenant_event_refused(self):
-        from unittest.mock import MagicMock, patch as _patch
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
 
+        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.infra.redis._event_log import (
             _idempotency as idem_mod,
         )
-        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.stream.event_log import EventLog
 
         reached_redis = {"hit": False}
@@ -490,12 +491,13 @@ class TestEventLogTenantViolation:
         only testing ordering, not the happy Redis
         path.
         """
-        from unittest.mock import MagicMock, patch as _patch
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
 
+        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.infra.redis._event_log import (
             _idempotency as idem_mod,
         )
-        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.stream.event_log import EventLog
 
         reached_redis = {"hit": False}
@@ -541,12 +543,13 @@ class TestEventLogTenantViolation:
         we recover the sentinel's signature from
         the error detail.
         """
-        from unittest.mock import MagicMock, patch as _patch
+        from unittest.mock import MagicMock
+        from unittest.mock import patch as _patch
 
+        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.infra.redis._event_log import (
             _idempotency as idem_mod,
         )
-        from kntgraph.infra.redis._event_log import RedisEventLogAdapter
         from kntgraph.stream.event_log import EventLog
 
         reached_redis = {"hit": False}

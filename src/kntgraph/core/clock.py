@@ -37,7 +37,7 @@ injection).
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import monotonic
 
 Clock = Callable[[], datetime]
@@ -49,7 +49,7 @@ def utcnow() -> datetime:
     """Timezone-aware UTC ``datetime`` — the framework's
     canonical wall-clock source. The single definition;
     ``infra.checkpoint.utcnow`` re-exports this."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def injectable_clock(now: Clock | None) -> Clock:

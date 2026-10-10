@@ -40,7 +40,7 @@ the convention documented in ADR-013 §2.2.
 from __future__ import annotations
 
 from enum import Enum
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 
 class ToolEventKind(str, Enum):
@@ -80,7 +80,7 @@ _KIND_SUFFIXES: dict[str, ToolEventKind] = {
 }
 
 
-def parse_tool_event(event_type: str) -> Optional[ToolEvent]:
+def parse_tool_event(event_type: str) -> ToolEvent | None:
     """
     Parse ``tool.<name>.<kind>`` into a ``ToolEvent``.
 
@@ -107,7 +107,7 @@ def parse_tool_event(event_type: str) -> Optional[ToolEvent]:
     return None
 
 
-def tool_name_of(event_type: str) -> Optional[str]:
+def tool_name_of(event_type: str) -> str | None:
     """
     Return the tool name from a tool event-type string,
     or ``None`` if the string is not a tool event.

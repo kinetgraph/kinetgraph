@@ -32,7 +32,7 @@ from ._client import (
 )
 
 __all__ = [
-    "HttpxHttpClientAdapter",
     "HttpClientLike",
     "HttpResponseLike",
+    "HttpxHttpClientAdapter",
 ]

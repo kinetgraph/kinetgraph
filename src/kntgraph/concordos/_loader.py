@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, cast
 
 from kntgraph.concordos.schemas import (
     BundleSchema,
@@ -36,6 +37,7 @@ from kntgraph.concordos.schemas import (
     FSMConfigSchema,
     SagaConfigSchema,
 )
+from kntgraph.core._typing import JsonValue
 
 if TYPE_CHECKING:
     from kntgraph.concordos.fsm import FSMConfig
@@ -117,8 +119,8 @@ class LoadedBundle:
     bundle_id: str
     events: tuple[EventSchema, ...]
     specifications: dict[str, str]  # id -> mini-language expression
-    fsm: "FSMConfig | None"
-    sagas: tuple["SagaConfig", ...] = field(default_factory=tuple)
+    fsm: FSMConfig | None
+    sagas: tuple[SagaConfig, ...] = field(default_factory=tuple)
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +223,7 @@ def _is_valid_identifier(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> Any:
+def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> object:
     """Resolve a dotted Python path (e.g.,
     ``acme.invoice.events.InvoiceSubmitted``) to the
     referenced object via importlib.
@@ -262,7 +264,7 @@ def _resolve_dotted_path(dotted: str, kind: str, bundle_id: str | None) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig":
+def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> FSMConfig:
     """Build a runtime ``FSMConfig`` from a schema.
 
     The runtime ``FSMConfig`` lives in ``concordos.fsm._config``
@@ -271,9 +273,16 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig
     """
     from kntgraph.concordos.fsm import FSMConfig, FSMTransition
 
-    component_class = _resolve_dotted_path(
+    component_class_raw = _resolve_dotted_path(
         fsm.component, "business_fsm.component", bundle_id
     )
+    if not isinstance(component_class_raw, type):
+        raise ConcordoBundleError(
+            bundle_id=bundle_id,
+            path=fsm.component,
+            message=f"resolved object is not a class: {type(component_class_raw).__name__}",
+        )
+    component_class = component_class_raw
 
     transitions: dict[str, dict[str, FSMTransition]] = {}
     for t in fsm.transitions:
@@ -291,7 +300,7 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> "FSMConfig
     )
 
 
-def _build_saga_config(saga: SagaConfigSchema, bundle_id: str | None) -> "SagaConfig":
+def _build_saga_config(saga: SagaConfigSchema, bundle_id: str | None) -> SagaConfig:
     """Build a runtime ``SagaConfig`` from a schema."""
     from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 
@@ -332,22 +341,38 @@ def load_bundle_dict(d: dict) -> LoadedBundle:
     except Exception as exc:
         # Pydantic ValidationError has a ``.errors()`` method
         # that returns a list of error dicts. Call it.
-        errors_callable: Callable[[], Any] | None = getattr(exc, "errors", None)
-        errors: list[dict[str, Any]] = []
+        errors_callable: Callable[[], object] | None = getattr(exc, "errors", None)
+        errors: list[dict[str, JsonValue]] = []
         if callable(errors_callable):
             try:
-                errors = list(errors_callable())
-            except Exception:
+                errors_iter = errors_callable()
+                errors = [
+                    cast("dict[str, JsonValue]", e)
+                    for e in errors_iter
+                    if isinstance(e, dict)
+                ]
+            except (TypeError, ValueError, AttributeError):
+                # ``errors_callable`` is the result of
+                # ``getattr(exc, "errors", None)``; on a
+                # well-behaved Pydantic ``ValidationError``
+                # the call does not raise, but a custom
+                # exception class may. We fall back to an
+                # empty error list -- the next branch
+                # raises a generic ``ConcordoBundleError``
+                # with the original exception's string.
                 errors = []
         if errors:
             e = errors[0]
-            loc = ".".join(str(p) for p in e.get("loc", ()))
-            msg = e.get("msg", str(exc))
+            loc_items = e.get("loc", ())
+            loc = ".".join(str(p) for p in loc_items) if loc_items else ""
+            raw_msg = e.get("msg", str(exc))
+            msg = str(raw_msg) if raw_msg is not None else str(exc)
+            hint_value = e.get("type")
             raise ConcordoBundleError(
                 bundle_id=d.get("bundle_id") if isinstance(d, dict) else None,
                 path=loc or "<root>",
-                message=msg,
-                hint=e.get("type"),
+                message=str(msg) if msg is not None else str(exc),
+                hint=str(hint_value) if hint_value is not None else None,
             ) from exc
         raise ConcordoBundleError(
             bundle_id=d.get("bundle_id") if isinstance(d, dict) else None,

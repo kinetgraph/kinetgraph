@@ -26,13 +26,12 @@ import asyncio
 import json
 
 import fakeredis.aioredis
-import pytest
 
 # The repo root is on ``sys.path`` via this directory's
 # ``conftest.py`` (``tests/unit/scripts/conftest.py``); the
 # script is importable as a top-level module from there.
-import migrate_principals  # noqa: E402  # pyright: ignore[reportMissingImports]
-
+import migrate_principals  # pyright: ignore[reportMissingImports]
+import pytest
 
 KEY_PREFIX = "knt:api:keys:"
 

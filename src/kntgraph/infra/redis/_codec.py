@@ -30,14 +30,14 @@ and safe to use as the boundary of any Redis read.
 
 from __future__ import annotations
 
-from typing import Optional, TypeVar, Union
+from typing import TypeVar
 
 T = TypeVar("T")
 
-BytesOrStr = Union[bytes, str, None]
+BytesOrStr = bytes | str | None
 
 
-def decode_value(v: BytesOrStr) -> Optional[str]:
+def decode_value(v: BytesOrStr) -> str | None:
     """Coerce a single value to ``str``. ``None`` unchanged; ``bytes`` via UTF-8."""
     if v is None:
         return None

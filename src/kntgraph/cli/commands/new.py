@@ -4,9 +4,10 @@
 
 import re
 from pathlib import Path
+
 import typer
-from rich.console import Console
 from jinja2 import Environment, FileSystemLoader
+from rich.console import Console
 
 app = typer.Typer(
     help="Generate Kinetgraph artifacts (systems, events, tools, agents)."

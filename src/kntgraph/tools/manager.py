@@ -55,15 +55,12 @@ input to ``acl.check``. Events that predate v0.16
 from __future__ import annotations
 
 import asyncio
-import inspect
-import json
 import multiprocessing
 import time
-from concurrent.futures import ProcessPoolExecutor
-from typing import Any, Optional, Type, cast
-
 import uuid
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import ProcessPoolExecutor
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from multiprocessing.context import BaseContext
@@ -77,6 +74,18 @@ from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools._dispatch_helpers import compute_max_workers, is_cpu_bound
+from kntgraph.tools._message_handlers import (
+    build_acl_denied_event,
+    build_completion_event,
+    build_failure_event,
+    coerce_tool_params,
+    evaluate_acl,
+    log_acl_denial,
+    parse_request_payload,
+    reconnect_redis_after_runtime_error,
+)
+from kntgraph.tools._result import ToolResult
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
@@ -95,7 +104,41 @@ logger = structlog.get_logger()
 # v0.17 step flips the default to ``default_acl()``
 # and uses this sentinel to detect the explicit opt
 # out).
-_UNSET: "object" = object()
+_UNSET: object = object()
+
+
+# ADR-078: pluggable executor factory. A tool registered with
+# ``executor_factory=`` (see ``WorkerManager.register``) gets
+# this callable invoked once per message in place of the
+# internal ``ProcessPoolExecutor``. The factory receives the
+# sync ``_invoke_tool_sync`` (or compatible), the message's
+# idempotency key (which is the event_id), and the parsed
+# tool params; it returns a coroutine that resolves with
+# the standard ``result_dict`` (status "ok" or "err"). The
+# Manager remains the owner of consumer loop / XACK / reaper
+# / ACL / observability; the factory is a black-box dispatch
+# hook that lets callers route heavy tools (ML models,
+# sidecars, GPU pins) to dedicated pools without forking
+# the framework. The original design draft (proposed 2026-10-08)
+# lives at ``docs/adr-069-pluggable-executor-factory.md``;
+# it was promoted to a formal ADR when the criterion of
+# ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s")
+# was met by the backoffice post-mortem of 2026-10-07.
+#
+# Parameter and result shapes: ``tool_params`` is the value of
+# ``Event.data`` typed as ``Mapping[str, JsonValue]`` (ADR-067
+# §1.1). The result shape is the frozen ``ToolResult`` dataclass
+# (ADR-079); callers that need the wire dict call
+# ``result.to_wire()`` at the EventLog boundary
+# (ADR-079 §3.3).
+type ToolSyncInvoke = Callable[
+    [type, str, Mapping[str, JsonValue]],
+    ToolResult,
+]
+ExecutorFactory = Callable[
+    [ToolSyncInvoke, str, Mapping[str, JsonValue]],
+    Awaitable[ToolResult],
+]
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -125,7 +168,7 @@ class WorkerManager:
 
     def __init__(
         self,
-        redis: "RedisLike",
+        redis: RedisLike,
         event_log: EventLog,
         group_name: str = "fmh_tool_workers",
         consumer_name: str = "worker-1",
@@ -134,6 +177,7 @@ class WorkerManager:
         heartbeat_interval_seconds: float = 30.0,
         *,
         key_prefix: str = "",
+        max_pool_workers: int | None = None,
     ):
         # ADR-076 / DEBT §2.35: namespace prefix for
         # every Redis key the manager writes or reads
@@ -152,11 +196,36 @@ class WorkerManager:
 
         self._reaper_interval = reaper_interval
         self._reaper_idle_time = reaper_idle_time
-        self._tools: dict[str, Type] = {}
+        self._tools: dict[str, type] = {}
         self._pool: ProcessPoolExecutor | None = None
         # Cached in ``start()``; stored here so tests can
         # assert on it without re-deriving the default.
-        self._mp_context: "BaseContext | None" = None
+        self._mp_context: BaseContext | None = None
+
+        # Per-tool executor factory (ADR-069). When ``None`` for a
+        # given tool, the Manager falls back to its internal
+        # ``ProcessPoolExecutor``. When set, the factory is called
+        # once per message in place of ``run_in_executor`` and
+        # returns the standard ``result_dict`` shape. The Manager
+        # remains the owner of XACK / events / reaper / ACL /
+        # observability; the factory is a black-box dispatch hook.
+        self._executors: dict[str, Any] = {}
+        # ``max_pool_workers`` is the explicit cap on the internal
+        # ``ProcessPoolExecutor``. ``None`` (default) means "use
+        # the legacy formula ``max(1, sum(max_concurrency))``"; an
+        # integer means "use exactly N workers regardless of the
+        # number of tools". In Fargate-class environments with
+        # memory caps, this is the lever that prevents the OOM
+        # described in the post-mortem 2026-10-07.
+        self._max_pool_workers: int | None = max_pool_workers
+
+        # Per-tool ``asyncio.Semaphore`` (``max_concurrency``) — populated
+        # em ``_consume_loop`` e consumido pelo ``_reaper_loop`` para
+        # honrar o limite de tasks concorrentes por tool. Sem isso, o
+        # reaper bypassa o semáforo e dispara N processamentos em
+        # paralelo (um por mensagem no PEL) → OOM em ambiente com
+        # workers carregando modelos ML pesados. post-mortem 2026-10-07.
+        self._semaphores: dict[str, asyncio.Semaphore] = {}
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -169,7 +238,7 @@ class WorkerManager:
         # caller passes ``acl=...``, the value is the
         # ``ToolACL`` they passed (or ``default_acl()``
         # for ``acl=None`` explicitly).
-        self._acls: dict[str, "ToolACL | object"] = {}
+        self._acls: dict[str, ToolACL | object] = {}
         # Observability surface: the consume loop updates the
         # counters and timestamps on every message; the heartbeat
         # log line is emitted by ``_consume_loop`` itself.
@@ -185,9 +254,10 @@ class WorkerManager:
 
     def register(
         self,
-        tool_cls: Type,
+        tool_cls: type,
         *,
-        acl: Optional[ToolACL] = _UNSET,  # type: ignore[assignment]
+        acl: ToolACL | None = _UNSET,  # type: ignore[assignment]
+        executor_factory: ExecutorFactory | None = None,
     ) -> None:
         """Register a class decorated with @tool_worker.
 
@@ -239,7 +309,24 @@ class WorkerManager:
         else:
             self._acls[tool_cls.name] = acl
 
-    def acl_for(self, name: str) -> Optional[ToolACL]:
+        # ADR-069: optional per-tool dispatch override. The
+        # factory replaces the internal ``ProcessPoolExecutor``
+        # path with a custom async callable that returns the
+        # standard ``result_dict`` shape. ``None`` keeps the
+        # legacy path (internal pool, ``run_in_executor``).
+        # Lifecycle of the underlying executor (process pool,
+        # thread pool, sidecar, GPU context, ...) is the
+        # caller's responsibility; the Manager only invokes
+        # the factory once per message.
+        #
+        # ``__dict__.setdefault`` keeps ``register()`` robust to
+        # ``__new__``-based unit tests that skip ``__init__`` and
+        # only set the attrs they need — adding a new private
+        # attr in the future does not require updating those
+        # tests to seed a third dict.
+        self.__dict__.setdefault("_executors", {})[tool_cls.name] = executor_factory
+
+    def acl_for(self, name: str) -> ToolACL | None:
         """Return the ``ToolACL`` for ``name`` (or
         ``None`` if the tool is not registered, or
         was registered without an explicit
@@ -257,7 +344,7 @@ class WorkerManager:
             return None
         return stored  # type: ignore[return-value]
 
-    def get(self, name: str) -> "Type | None":
+    def get(self, name: str) -> type | None:
         """Return the registered ``@tool_worker`` class
         for ``name`` (or ``None`` if not registered).
 
@@ -332,6 +419,20 @@ class WorkerManager:
     def __len__(self) -> int:
         return len(self._tools)
 
+    def _compute_max_workers(self) -> int:
+        """Delegate to ``compute_max_workers`` in
+        ``_dispatch_helpers.py``. Kept as a method on the
+        Manager so the caller can stay ``self._compute_max_workers()``
+        in ``start()`` (preserves the existing call site)."""
+        return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
+
+    async def _reconnect_after_runtime_error(self) -> None:
+        """Delegate to ``reconnect_redis_after_runtime_error``
+        in ``_message_handlers``. Kept as a method so the
+        ``_consume_loop`` call site stays
+        ``await self._reconnect_after_runtime_error()``."""
+        await reconnect_redis_after_runtime_error(self._redis)
+
     async def start(self) -> None:
         """Starts the worker manager."""
         if self._running:
@@ -339,12 +440,18 @@ class WorkerManager:
 
         self._running = True
 
-        # Calculate max workers across all registered tools, minimum 2
-        max_workers = sum(
-            getattr(t, "__tool_worker_max_concurrency__", 1)
-            for t in self._tools.values()
-        )
-        max_workers = max(2, min(32, max_workers))
+        # Calculate max workers across all registered tools. The
+        # explicit ``max_pool_workers`` cap (set in ``__init__``)
+        # takes priority — useful in memory-capped environments
+        # (Fargate 4 GB) where multiple concurrent workers would
+        # load heavy ML models in parallel and OOM. The default
+        # formula ``max(1, min(32, sum(max_concurrency)))`` keeps
+        # one worker per tool at most, which is what most callers
+        # want. The post-mortem 2026-10-07 scenario in the
+        # backoffice is what motivated the ``max(1, ...)`` floor
+        # (was ``max(2, ...)``). Extracted to ``_compute_max_workers``
+        # so ``start()``'s CC stays under 10 (ADR-019).
+        max_workers = self._compute_max_workers()
 
         # Always use ``spawn`` — container runtimes (and
         # any process that has imported ``threading`` +
@@ -374,12 +481,11 @@ class WorkerManager:
                 )
             except Exception as e:
                 if "BUSYGROUP" not in str(e):
-                    logger.error(
+                    logger.exception(
                         "worker.xgroup_create.failed",
                         tool=tool_name,
                         stream_key=stream_key,
                         error=str(e),
-                        exc_info=True,
                     )
 
             # Start consumer loop
@@ -408,6 +514,12 @@ class WorkerManager:
         tool_cls = self._tools[tool_name]
         max_concurrency = getattr(tool_cls, "__tool_worker_max_concurrency__", 16)
         sem = asyncio.Semaphore(max_concurrency)
+        # Publica para o ``_reaper_loop`` adquirir o mesmo semáforo quando
+        # reclaimer mensagens do PEL — sem isso, o reaper bypassa o
+        # limite de concorrência e dispara tasks em paralelo que
+        # multiplicam o uso de RAM (uma por worker do pool carregando
+        # modelos ML). post-mortem 2026-10-07.
+        self._semaphores[tool_name] = sem
         read_batch_size = max(1, min(max_concurrency, 32))
 
         async def _process_with_sem(msg_id: str, msg_data: dict) -> None:
@@ -457,18 +569,19 @@ class WorkerManager:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # ``exc_info=True`` routes the full traceback to the
-                # log handler. Without it, an operator who sees the
-                # loop go silent cannot tell whether the consumer
+                # ``logger.exception`` routes the full traceback to
+                # the log handler. Without it, an operator who sees
+                # the loop go silent cannot tell whether the consumer
                 # is reconnecting to Redis, choking on a payload
                 # parser, or stuck inside ``_process_message``.
-                logger.error(
+                logger.exception(
                     "worker.consume_loop.error",
                     tool=tool_name,
                     error=str(e),
-                    exc_info=True,
                 )
                 self._last_error = repr(e)
+                if isinstance(e, RuntimeError):
+                    await self._reconnect_after_runtime_error()
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
 
@@ -503,184 +616,56 @@ class WorkerManager:
         tool_cls = self._tools[tool_name]
         retries_allowed = getattr(tool_cls, "__tool_worker_retries__", 3)
 
-        try:
-            payload_str = message_data.get(b"payload", b"{}").decode()
-            request_event_dict = json.loads(payload_str)
-            request_event = Event.from_dict(request_event_dict)
-        except Exception as e:
-            logger.error(
-                "worker.payload_parse.error",
-                tool=tool_name,
-                message_id=message_id,
-                error=str(e),
-                exc_info=True,
-            )
-            await self._redis.xack(stream_key, self._group_name, message_id)
-            self._messages_failed_total += 1
-            return
-
-        raw_params = (
-            request_event.data.get("params") or request_event.data.get("args") or {}
+        request_event = await self._parse_message_payload(
+            tool_name=tool_name,
+            message_id=message_id,
+            message_data=message_data,
+            stream_key=stream_key,
         )
-        tool_params = cast(
-            dict[str, Any], raw_params if isinstance(raw_params, dict) else {}
-        )
+        if request_event is None:
+            return  # payload parse already XACKed + counted
+        tool_params = coerce_tool_params(request_event)
         idempotency_key = str(request_event.event_id)
-
-        # Gate-1 ACL check (ADR-060 §3.0, ADR-061 §5,
-        # ADR-066 §4.1). The worker refuses the request
-        # before consuming a worker slot — the canonical
-        # "deny-by-construction" pattern. We use the
-        # ``producer_principal_id`` stamped on the event
-        # at the request boundary (the API layer in v0.16
-        # sets it from ``principal_ctx``; older events
-        # pass ``None`` and we deny with a clear
-        # ``reason`` so the operator can diagnose).
-        acl = self.acl_for(tool_name)
-        principal_id = request_event.producer_principal_id
-        denied_reason: Optional[str] = None
-        if acl is None:
-            # Tool registered without ``acl=`` (legacy).
-            # Default-allow: the operator must opt in to
-            # the new ACL surface by re-registering with
-            # ``acl=default_acl()``. This matches the
-            # ADR-066 migration path: the v0.16 step
-            # ships the hook + default ACL; the v0.17
-            # step flips the default to deny (so the
-            # gap closes by construction in production).
-            pass
-        elif principal_id is None:
-            # Event predates v0.16 — no principal
-            # stamped. We deny with
-            # ``acl_denied_no_principal`` so the audit
-            # trail records why.
-            denied_reason = "acl_denied_no_principal"
-        else:
-            from kntgraph.security import Principal, PrincipalLevel
-
-            # ``producer_principal_id`` is the principal's
-            # ``agent_id`` (the format the API layer
-            # produces from ``principal_ctx``: per the
-            # same convention as ``Principal.agent_id``,
-            # it starts with the tenant, e.g.
-            # ``tenant-a.agent-1``). We extract the
-            # tenant prefix for the ``Principal``
-            # invariant (non-admin requires a
-            # non-empty tenant). If the format is
-            # ambiguous, fall back to the whole string
-            # as the tenant (single-segment legacy).
-            tenant_id = principal_id.partition(".")[0] or principal_id
-            principal = Principal(
-                agent_id=principal_id,
-                level=PrincipalLevel.agent,
-                tenant_id=tenant_id,
-                key_id="worker",
-            )
-            ok, reason = acl.check(principal)
-            if not ok:
-                denied_reason = f"acl_denied:{reason}"
-
+        denied_reason = self._evaluate_acl(
+            tool_name=tool_name,
+            request_event=request_event,
+        )
         if denied_reason is not None:
-            logger.warning(
-                "worker.acl_denied",
-                tool=tool_name,
+            await self._emit_acl_denied(
+                tool_name=tool_name,
+                stream_key=stream_key,
                 message_id=message_id,
-                reason=denied_reason,
-                producer_principal_id=principal_id,
+                idempotency_key=idempotency_key,
+                request_event=request_event,
+                denied_reason=denied_reason,
             )
-            denied_evt = Event.create(
-                event_type=f"tool.{tool_name}.failed",
-                agent_id=request_event.agent_id,
-                event_class="domain",
-                causation_id=uuid.UUID(idempotency_key),
-                data={
-                    "error": denied_reason,
-                    "request_id": idempotency_key,
-                },
-                correlation=request_event.correlation,
-                producer_principal_id=principal_id,
-            )
-            await self._event_log.append(denied_evt)
-            await self._redis.xack(stream_key, self._group_name, message_id)
-            self._messages_failed_total += 1
             return
 
         try:
-            tool_instance = tool_cls()
-            invoke_fn = getattr(tool_instance, "invoke", None)
-            is_coro = inspect.iscoroutinefunction(invoke_fn)
-            is_cpu = (
-                getattr(tool_cls, "__tool_worker_cpu_bound__", False)
-                or not is_coro
-                or (_invoke_tool_sync is not _ORIGINAL_INVOKE_TOOL_SYNC)
+            result = await self._dispatch_to_tool(
+                tool_name=tool_name,
+                tool_cls=tool_cls,
+                idempotency_key=idempotency_key,
+                tool_params=tool_params,
             )
 
-            if is_cpu:
-                loop = asyncio.get_running_loop()
-                result_dict = await loop.run_in_executor(
-                    self._pool,
-                    _invoke_tool_sync,  # type: ignore[arg-type]
-                    tool_cls,
-                    idempotency_key,
-                    tool_params,
-                )
-            else:
-                result = await tool_instance.invoke(
-                    idempotency_key=idempotency_key, **tool_params
-                )
-                if result.is_ok():
-                    result_dict = {"status": "ok", "value": result.unwrap()}
-                else:
-                    result_dict = {
-                        "status": "err",
-                        "error": str(result.err_value_or_raise()),
-                    }
-
-            # Translate to Domain Events. ADR-037: pass
-            # ``correlation=request_event.correlation`` so
-            # the completion keeps the same flow id as
-            # the request. The WorkerManager runs in its
-            # own asyncio task (ContextVar is empty), so
-            # it MUST thread the correlation through the
-            # event object directly.
-            if result_dict["status"] == "ok":
-                val = result_dict["value"]
-                evt_data: dict[str, JsonValue] = (
-                    val if isinstance(val, dict) else {"result": val}
-                )
-                completed_evt = Event.create(
-                    event_type=f"tool.{tool_name}.completed",
-                    agent_id=request_event.agent_id,
-                    event_class="domain",
-                    causation_id=uuid.UUID(idempotency_key),
-                    data=evt_data,
-                    correlation=request_event.correlation,
-                )
-                await self._event_log.append(completed_evt)
-                self._messages_processed_total += 1
-            else:
-                failed_evt = Event.create(
-                    event_type=f"tool.{tool_name}.failed",
-                    agent_id=request_event.agent_id,
-                    event_class="domain",
-                    causation_id=uuid.UUID(idempotency_key),
-                    data={"error": result_dict["error"]},
-                    correlation=request_event.correlation,
-                )
-                await self._event_log.append(failed_evt)
-                self._messages_failed_total += 1
+            await self._translate_completion_to_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result=result,
+            )
 
             # Acknowledge the message since it was processed (success or explicit failure)
             await self._redis.xack(stream_key, self._group_name, message_id)
 
         except Exception as e:
             # A hard crash (e.g. process died, OOM, exception in invoke outside Result)
-            logger.error(
+            logger.exception(
                 "worker.tool.hard_crash",
                 tool=tool_name,
                 message_id=message_id,
                 error=str(e),
-                exc_info=True,
             )
             self._messages_failed_total += 1
             self._last_error = repr(e)
@@ -707,20 +692,215 @@ class WorkerManager:
                         agent_id=request_event.agent_id,
                         event_class="domain",
                         causation_id=uuid.UUID(idempotency_key),
-                        data={
-                            "error": f"Max retries exceeded / Worker crash: {str(e)}"
-                        },
+                        data={"error": f"Max retries exceeded / Worker crash: {e!s}"},
                         correlation=request_event.correlation,
                     )
                     await self._event_log.append(failed_evt)
                     await self._redis.xack(stream_key, self._group_name, message_id)
                     # We could also write to a DLQ stream here if needed.
 
+    async def _dispatch_to_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_cls: type,
+        idempotency_key: str,
+        tool_params: Mapping[str, JsonValue],
+    ) -> ToolResult:
+        """Run ``tool.<name>.invoke`` for one message and return
+        a ``ToolResult`` (ADR-079 frozen dataclass — the
+        discriminated-union replacement for the legacy
+        ``result_dict``).
+
+        Three strategies, in order of preference (ADR-069):
+
+          1. Per-tool ``executor_factory`` registered via
+             ``register(executor_factory=...)``: opaque async
+             callable that receives the sync ``_invoke_tool_sync``
+             plus the idempotency key and tool params. Lets the
+             caller route heavy tools (ML models, sidecars, GPU
+             pins) to dedicated pools without forking the
+             framework.
+          2. CPU-bound tool (legacy): ``loop.run_in_executor`` into
+             the internal ``ProcessPoolExecutor``.
+          3. Async tool (default): direct ``await tool.invoke()``
+             in the Manager's event loop.
+
+        Extracted from ``_process_message`` to keep the parent's
+        cyclomatic complexity in check (ADR-019: CC ≤ 10 per
+        block); the dispatch is the single linear decision tree
+        of which strategy to use, no other branching happens here.
+        """
+        # ADR-069: per-tool factory override (preferred).
+        executor_factory = self._executors.get(tool_name)
+        if executor_factory is not None:
+            return await executor_factory(
+                _invoke_tool_sync, idempotency_key, tool_params
+            )
+
+        # CPU-bound: run the sync wrapper in the shared process pool.
+        tool_instance = tool_cls()
+        if self._is_cpu_bound(tool_cls, tool_instance):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(
+                self._pool,
+                _invoke_tool_sync,
+                tool_cls,
+                idempotency_key,
+                tool_params,
+            )
+
+        # Async tool: invoke directly in the event loop.
+        result = await tool_instance.invoke(
+            idempotency_key=idempotency_key, **tool_params
+        )
+        if result.is_ok():
+            # ``result.unwrap()`` is ``T``; the framework
+            # treats it as ``JsonValue`` at the wire boundary
+            # (ADR-067 + ADR-079 §7.2 — slight type-erasure at
+            # the wire).
+            return ToolResult.ok(cast("JsonValue", result.unwrap()))
+        return ToolResult.err(str(result.err_value_or_raise()))
+
+    @staticmethod
+    def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
+        """Delegate to ``is_cpu_bound`` in ``_dispatch_helpers.py``.
+        Kept as a static method on the Manager so the
+        ``_dispatch_to_tool`` call site stays
+        ``self._is_cpu_bound(...)`` (preserves the existing call
+        shape; the helper is a free function so it is testable
+        without instantiating a Manager).
+        """
+        return is_cpu_bound(tool_cls, tool_instance)
+
+    async def _parse_message_payload(
+        self,
+        *,
+        tool_name: str,
+        message_id: str,
+        message_data: dict,
+        stream_key: str,
+    ) -> Event | None:
+        """Delegate to ``parse_request_payload`` in
+        ``_message_handlers``. Kept as a method on the Manager
+        so the call site reads ``self._parse_message_payload(...)``.
+        On ``None`` the caller has already been told to XACK + count
+        the failure.
+        """
+        request_event = parse_request_payload(message_data)
+        if request_event is None:
+            # Match the prior inline behaviour: log + XACK + count.
+            logger.exception(
+                "worker.payload_parse.error",
+                tool=tool_name,
+                message_id=message_id,
+                error="see _message_handlers._log_payload_parse_error",
+            )
+            await self._redis.xack(stream_key, self._group_name, message_id)
+            self._messages_failed_total += 1
+            return None
+        return request_event
+
+    def _evaluate_acl(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+    ) -> str | None:
+        """Delegate to ``evaluate_acl`` in ``_message_handlers``.
+        ``self.acl_for`` is passed in so the helper does not need
+        a reference to the Manager.
+        """
+        return evaluate_acl(
+            tool_name=tool_name,
+            request_event=request_event,
+            acl_for=self.acl_for,
+        )
+
+    async def _emit_acl_denied(
+        self,
+        *,
+        tool_name: str,
+        stream_key: str,
+        message_id: str,
+        idempotency_key: str,
+        request_event: Event,
+        denied_reason: str,
+    ) -> None:
+        """Emit the ``worker.acl_denied`` log + ``tool.<name>.failed``
+        event for an ACL denial, ACK the message, and update the
+        failure counter. Delegates to three pure helpers in
+        ``_message_handlers``; the only side effects that
+        remain here are the ``xack`` and the counter increment
+        (the manager owns those).
+        """
+        principal_id = request_event.producer_principal_id
+        log_acl_denial(
+            tool_name=tool_name,
+            message_id=message_id,
+            denied_reason=denied_reason,
+            principal_id=principal_id,
+        )
+        denied_evt = build_acl_denied_event(
+            tool_name=tool_name,
+            request_event=request_event,
+            idempotency_key=idempotency_key,
+            denied_reason=denied_reason,
+            principal_id=principal_id,
+        )
+        await self._event_log.append(denied_evt)
+        await self._redis.xack(stream_key, self._group_name, message_id)
+        self._messages_failed_total += 1
+
+    async def _translate_completion_to_event(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+        idempotency_key: str,
+        result: ToolResult,
+    ) -> None:
+        """Map a tool's ``ToolResult`` (ADR-079) to the
+        corresponding domain event (``.completed`` or ``.failed``),
+        append it to the eventlog, and update the counter.
+        Delegates the event construction to ``_message_handlers``;
+        the manager keeps the I/O side effects (append, counter).
+
+        The discriminated ``status`` enables mypy/pyright to
+        narrow ``result.value`` (success) vs ``result.error``
+        (failure) inside the branch — the legacy ``result_dict``
+        form was cego.
+        """
+        if result.status == "ok":
+            event = build_completion_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result=result,
+            )
+            await self._event_log.append(event)
+            self._messages_processed_total += 1
+        else:
+            event = build_failure_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result=result,
+            )
+            await self._event_log.append(event)
+            self._messages_failed_total += 1
+
     async def _reaper_loop(self, tool_name: str) -> None:
         """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
         stream_key = self._stream_key(tool_name)
         # Idle time is in milliseconds for redis
         idle_time_ms = int(self._reaper_idle_time * 1000)
+        # O semáforo é criado em ``_consume_loop`` quando o loop sobe.
+        # Antes do consume_loop estar pronto, o reaper acorda com sem=None
+        # — nesse caso pulamos o reclaimer (o consume vai drenar tudo de
+        # qualquer forma). Isso evita um TOCTOU entre start() e o loop
+        # efetivo. Quando o semáforo existir, o reaper o honra.
+        sem = self._semaphores.get(tool_name)
 
         while self._running:
             try:
@@ -739,6 +919,10 @@ class WorkerManager:
 
                 # claimed[1] contains the actual messages we claimed
                 messages = claimed[1]
+                # Re-resolve the semaphore aqui (não no topo do loop) porque
+                # o ``_consume_loop`` pode subir depois do reaper — nesse
+                # intervalo queremos usar None para skip.
+                sem = self._semaphores.get(tool_name)
                 for message_id, message_data in messages:
                     # By claiming, we become the owner. The delivery_count incremented.
                     # We process it immediately.
@@ -747,20 +931,37 @@ class WorkerManager:
                         tool=tool_name,
                         message_id=message_id.decode(),
                     )
+
+                    async def _process_with_reaper_sem(
+                        _msg_id: str,
+                        _msg_data: dict,
+                        _sem: asyncio.Semaphore | None = sem,
+                    ) -> None:
+                        if _sem is not None:
+                            async with _sem:
+                                await self._process_message(
+                                    tool_name, stream_key, _msg_id, _msg_data
+                                )
+                        else:
+                            # Fallback enquanto o consume_loop não está
+                            # ativo: processa direto. Aceita concorrência
+                            # momentânea acima do limite, mas só durante
+                            # o startup.
+                            await self._process_message(
+                                tool_name, stream_key, _msg_id, _msg_data
+                            )
+
                     # Process message concurrently so reaper isn't blocked
                     asyncio.create_task(
-                        self._process_message(
-                            tool_name, stream_key, message_id.decode(), message_data
-                        )
+                        _process_with_reaper_sem(message_id.decode(), message_data)
                     )
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(
+                logger.exception(
                     "worker.reaper.error",
                     tool=tool_name,
                     error=str(e),
-                    exc_info=True,
                 )
                 self._last_error = repr(e)

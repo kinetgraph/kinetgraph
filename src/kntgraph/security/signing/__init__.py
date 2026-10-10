@@ -91,13 +91,13 @@ from kntgraph.security.signing._types import (
 from kntgraph.security.signing._verify import verify_event
 
 __all__ = [
+    "SUPPORTED_ALGORITHMS",
+    "SUPPORTED_BATCH_ALGORITHMS",
     "BatchEntry",
     "BatchSignature",
     "CryptoUnavailableError",
     "Signature",
     "SignatureError",
-    "SUPPORTED_ALGORITHMS",
-    "SUPPORTED_BATCH_ALGORITHMS",
     "UnknownAlgorithmError",
     "aggregate_concat",
     "canonical_event_bytes",
@@ -110,4 +110,4 @@ __all__ = [
 # remains part of the public API surface (it is used by
 # callers that want to inspect the bytes without
 # round-tripping through sign/verify).
-from kntgraph.security.signing._canonical import canonical_event_bytes  # noqa: E402
+from kntgraph.security.signing._canonical import canonical_event_bytes

@@ -53,14 +53,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.core.event import correlation_middleware
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import RedisContinuityStorage
 from kntgraph.memory.continuity import ContinuityManager
 from kntgraph.stream.event_log import EventLog
-
-from _lib.redis_or_fake import make_redis_client
-
 
 TENANT_ID = "t-acme"
 USER_ID = "u-accountant"

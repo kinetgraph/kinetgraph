@@ -29,7 +29,7 @@ is exercised in
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,7 +40,6 @@ from kntgraph.infra.checkpoint import (
     utcnow,
 )
 from kntgraph.infra.redis._errors import MemoryError
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -94,7 +93,7 @@ def checkpoint() -> ReactiveCheckpoint:
         agent_id="agent-1",
         last_event_id=uuid.uuid4(),
         last_stream_id="1234567890-0",
-        confirmed_at=datetime(2026, 7, 29, 12, 0, 0, tzinfo=timezone.utc),
+        confirmed_at=datetime(2026, 7, 29, 12, 0, 0, tzinfo=UTC),
         state_hash="sha256:abc",
     )
 
@@ -126,7 +125,7 @@ class TestReactiveCheckpoint:
             agent_id="agent-1",
             last_event_id=uuid.uuid4(),
             last_stream_id="1-0",
-            confirmed_at=datetime.now(timezone.utc),
+            confirmed_at=datetime.now(UTC),
             state_hash=None,
         )
         assert ck.state_hash is None
@@ -134,7 +133,7 @@ class TestReactiveCheckpoint:
         assert restored.state_hash is None
 
     async def test_is_frozen(self, checkpoint: ReactiveCheckpoint) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(AttributeError):
             checkpoint.agent_id = "other"  # type: ignore[misc]
 
 
@@ -308,4 +307,4 @@ class TestClearAll:
 class TestUtcnow:
     async def test_returns_aware_utc(self) -> None:
         now = utcnow()
-        assert now.tzinfo is timezone.utc
+        assert now.tzinfo is UTC

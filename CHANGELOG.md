@@ -111,6 +111,315 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     deploys (`key_prefix=""` default is
     byte-for-byte identical to pre-v0.16.0).
 
+### Added
+- **ADR-077 -- Centralised Redis exception translation.**
+  Every storage adapter in `src/kntgraph/infra/redis/`
+  now routes its third-party Redis surface through
+  two helpers in the new module
+  `src/kntgraph/infra/redis/_translation.py`:
+
+  - ``translate_redis_call(op, *, op_name, error_cls,
+    key=None, **log_ctx) -> Result[T, E]`` — the
+    main entry; awaits the Redis operation, logs
+    failures, returns ``Err(error_cls(...))`` on the
+    third-party transport surface.
+  - ``translate_redis_call_fall_back(op, *,
+    op_name, fallback, key=None, **log_ctx) -> T |
+    fallback`` — the fail-open variant; returns the
+    ``fallback`` instead of ``Err``. The Solution
+    tier's read-side uses this (per ADR-049 §2.1.3
+    "read fails open, write fails closed").
+
+  The catch list lives in **one** place
+  (``_translation.py`` lines 73-79). The 13 ``except
+  Exception`` blocks that were scattered across the
+  memory tiers, checkpoint, world-checkpoint, and
+  DLQ adapters are gone -- each ``try/except`` is
+  replaced with a single ``result = await
+  translate_redis_call(...)`` followed by an
+  ``is_err()`` check. New exception categories
+  (e.g. when ``redis-py`` releases) are added in
+  one place, not 13. ``asyncio.CancelledError`` is
+  documented as guaranteed to propagate (per
+  ADR-077 §2.5); the helper does not catch
+  ``BaseException``. 21 unit tests pin the contract
+  in ``tests/unit/infra/redis/test_translation.py``:
+  the catch list, the fail-open variant, the
+  ``CancelledError`` propagation guarantee, the
+  constructor-introspection path
+  (``SolutionStoreError`` does not accept ``key=``;
+  the helper drops it), and the structured log
+  payload.
+
+- **Framework-canonical homes for the audit's
+  "framework→vertical leak" findings.** The
+  three types that the runner / infra-graph layers
+  imported from the verticals (Audit Prioridade 1)
+  were relocated to the framework; the verticals
+  re-export for back-compat:
+
+  - ``CachedSolution`` is now in
+    ``src/kntgraph/core/components/solution.py`` (a
+    new module). The Redis Solution store
+    (``infra/redis/_memory/_solution.py``) imports
+    from the canonical home; the vertical
+    (``agents/memory/solution_lookup.py``)
+    re-exports. The wire-format docstring on the
+    new class documents the ``result`` field as the
+    framework's ``Mapping[str, JsonValue]`` shape
+    (AGENTS.md §1.1).
+  - ``DLQAdapter`` Protocol + ``DLQReason`` enum +
+    ``DeadLetterEvent`` dataclass (with the wire
+    codec) are now in
+    ``src/kntgraph/runner/_dlq_protocol.py`` (a
+    new module). The runner's ``tool_call_ttl_sweeper``
+    and ``_observability`` import from the canonical
+    home; the vertical
+    (``events/dlq/values.py``) re-exports for the
+    existing ``from kntgraph.events.dlq.values
+    import DeadLetterEvent`` callers.
+  - ``GraphAdapter`` Protocol + ``GraphError`` class
+    + ``GraphQueryResult`` dataclass are now in
+    ``src/kntgraph/infra/graph/_protocol.py`` (a
+    new module). The graph adapter, pool, and
+    lite-pool import from the canonical home; the
+    vertical (``knowledge/graph/_protocol.py``)
+    re-exports.
+
+- **Typed fold states for the memory projection.**
+  ``src/kntgraph/core/world/_fold_state.py`` (a
+  new module) defines three frozen dataclasses
+  that replace the 9 ``dict[str, Any]`` fold-state
+  sites in
+  ``src/kntgraph/core/world/projection_memory.py``
+  (Audit Prioridade 4):
+
+  - ``SessionFoldState`` (8 fields: ``session_id``,
+    ``messages``, ``context``, ``started_at``,
+    ``ended_at``, ``user_id``, ``tenant_id``,
+    ``intent_event_id``).
+  - ``ProfileFoldState`` (6 fields: ``preferences``,
+    ``tier``, ``created_at``, ``updated_at``,
+    ``tenant_id``, ``user_id``).
+  - ``ContinuityFoldState`` (8 fields: ``last_tools``,
+    ``last_entities``, ``last_categories``,
+    ``created_at``, ``updated_at``, ``cleared_at``,
+    ``tenant_id``, ``user_id``).
+
+  Each handler returns a *new* fold state via
+  ``dataclasses.replace``; the fold is a chain of
+  ``replace`` calls (immutable, frozen). The
+  ``_build_*_component`` builders accept the typed
+  state directly, and the per-event handler tables
+  (``_SESSION_HANDLERS`` etc.) are typed
+  ``dict[str, Callable[[Event, FoldState],
+  FoldState]]``. Tests: 30 new scenarios in
+  ``tests/unit/core/test_projection_memory.py``
+  (the existing suite was extended; no test was
+  removed). ``projection.py`` keeps the
+  ``dict[Any, Any]`` for the ECS components bag
+  (the audit's intentional exception -- per
+  ``core/components/memory.py`` §78 the components
+  bag is heterogeneous and ``Mapping[str, Any]`` is
+  the correct shape).
+
+- **SagaState typed fold.** The same pattern
+  applied to the Concordos saga fold:
+  ``src/kntgraph/concordos/saga/_state.py`` now
+  has a ``SagaState`` frozen dataclass (9 fields)
+  replacing the previous bare ``dict[str, Any]``.
+  The 17 ``dict[str, Any]`` references in the
+  per-event handlers and the ``_HANDLERS`` table
+  are now typed. The fold's ``_init_state``,
+  ``_apply_step_snapshot``, and the per-event
+  handlers (``_on_started``, ``_on_step_started``
+  etc.) all use ``replace(state, ...)``; the
+  ``_build_component`` builder accepts the typed
+  state. Tests: 0 changes (the existing 253
+  ``tests/unit/concordos/`` tests pass unchanged --
+  the fold's wire shape is preserved).
+
+- **JsonValue discipline in the wire codec.**
+  ``src/kntgraph/stream/event_log/codec.py`` now
+  uses ``Mapping[str, JsonValue]`` (instead of
+  ``dict[str, Any]``) for both
+  ``event_to_redis`` (return type) and
+  ``parse_event`` (the ``mdata`` parameter). The
+  internal ``s()`` helper accepts both ``str`` and
+  ``bytes`` keys (the codec supports both
+  ``decode_responses=True`` and ``False``); the
+  runtime ``isinstance`` check makes the dispatch
+  type-safe. 43 existing
+  ``tests/unit/stream/`` tests pass unchanged --
+  the wire format is preserved.
+
+### Changed
+- **Memory Result contract.** ``BaseShortTermMemory``
+  and the three concrete managers
+  (``SessionManager``, ``ProfileManager``,
+  ``ContinuityManager``) now return ``Result`` from
+  every mutating op:
+
+  - ``read``, ``write_cache``, ``refresh_cache``,
+    ``refresh_cache_incremental``, ``invalidate_cache``,
+    ``list_active``, ``list_for_tenant``,
+    ``recency_suggest``, ``fold_from_log`` all return
+    ``Result[T, MemoryError]`` (or the appropriate
+    per-tier exception family).
+  - ``read`` returns ``Ok(None)`` on clean miss and
+    ``Ok(state)`` on hit; ``Err(MemoryError(...))`` on
+    transport failure (per Audit P2 / AGENTS.md §6:
+    "wrap-in-result, no fail-soft").
+  - The fold's per-tier inner ``try/except Exception``
+    blocks in the BASE class are gone (the
+    per-step ``translate_redis_call`` covers the
+    catch list; the BASE class trusts the Protocol).
+  - ``_build_session_component`` (the public-facing
+    reader) returns ``Result[Component | None,
+    MemoryError]``; the existing
+    ``ComponentNotFoundError`` semantics collapse
+    into ``Ok(None)`` (clean miss) +
+    ``Err(MemoryError(...))`` (storage failure).
+  - ``MemoryMiss`` (the framework's "no such key"
+    exception) is NOT used as a raised exception --
+    it was a clean miss, which is a success with
+    ``Ok(None)``, not an error. The class stays in
+    the hierarchy (back-compat) but the API
+    surface has migrated to the Result channel.
+
+- **DLQ Result contract.** ``DeadLetterQueue.append``
+  + ``reprocess`` + ``discard`` return
+  ``Result[str|Event|bool, PersistenceError]`` (per
+  AGENTS.md §6); the per-op errors propagate to the
+  caller instead of being swallowed. The internal
+  ``_find_entry`` and ``_drop_entry`` are typed
+  ``Result[..., PersistenceError]`` and route through
+  the same narrow catch list as the memory tiers.
+
+- **DeadLetterQueue.append 3-step split (DEBT
+  §2.39, closed).** The 80-line ``append`` method
+  that issued 4 sequential Redis calls inside one
+  ``try/except Exception: # noqa: BLE001`` was
+  refactored into 3 per-step helpers:
+  ``_do_stream_append`` (writes the stream entry +
+  claims the idempotency placeholder),
+  ``_bump_reason_counter`` (operator-dashboard
+  hint, fail-soft), ``_set_agent_head`` (HSETNX,
+  fail-soft). Each helper does ONE Redis call and
+  routes through ``translate_redis_call``. The
+  ``PLACEHOLDER`` early-return is preserved. The
+  external ``except: pass`` in the legacy sync
+  helper at ``_route_to_dlq`` is replaced with a
+  structured log warning (the operator sees the
+  failure, the sweeper doesn't crash). The
+  ``_find_entry`` path is split into
+  ``_find_via_queue`` (the legacy storage scan)
+  and ``_find_via_index`` (the new per-event_id
+  index) so the two storage shapes are explicit.
+
+- **Catch list ADR-077 §2.3 lives in one place.**
+  Before the refactor, the same ``except
+  (redis_exceptions.RedisError, ConnectionError,
+  TimeoutError, OSError) as exc: ...`` block was
+  duplicated in 13 methods across the memory tiers,
+  checkpoint, world-checkpoint, and DLQ adapters.
+  After the refactor, the catch list is defined
+  once in
+  ``src/kntgraph/infra/redis/_translation.py``
+  (lines 73-79) and every adapter call site reads
+  ``translate_redis_call(...)``. New third-party
+  exception categories (e.g. when ``redis-py``
+  releases) are added in one place, not 13.
+
+- **RedisProtocol tightening in tests.** 2 test
+  files used ``RuntimeError("redis down")`` to
+  simulate a Redis transport failure; both now use
+  ``redis_exceptions.RedisError("redis down")``
+  (the test mock contract now matches the actual
+  third-party surface). Affected:
+  ``tests/unit/infra/test_world_checkpoint.py``
+  and the corresponding DLQ storage test. The
+  pre-existing 1 test failure
+  (``test_world_checkpoint_store_returns_empty_checkpoint_on_storage_error``)
+  is now fixed as a side-effect of this alignment.
+
+- **Mutable default fix in RegexFieldFinder.**
+  The class-level ``_PATTERNS: dict[str, str] = {...}``
+  in
+  ``src/kntgraph/knowledge/extraction/argument/_finder.py``
+  (RUF012: mutable defaults are a footgun) is now
+  wrapped in ``MappingProxyType`` -- an immutable
+  view over the same literal dict. The dict is
+  no longer mutable through the class, and
+  ``ruft`` no longer flags the 4 RUF012 sites.
+
+- **SagaState datetime init.** The
+  ``started_at or datetime.min`` default in
+  ``_build_component`` is replaced with
+  ``started_at or utcnow()`` (the framework's
+  canonical clock source from
+  ``core.clock.utcnow``). The previous default
+  triggered ``DTZ901`` ("datetime.min without
+  timezone") in ruff; the new default is a
+  timezone-aware UTC ``datetime``. The wire shape
+  is preserved (the
+  ``SagaProgressComponent.started_at`` field is
+  always populated).
+
+### Fixed
+- **TypeError -> TypeError at session._build_session_state.**
+  The two ``raise TypeError("messages is not a
+  list")`` /
+  ``raise TypeError("context is not a dict")`` sites
+  in
+  ``src/kntgraph/memory/session.py`` (renamed in
+  this session from ``src/kntgraph/memory/``) are
+  now ``raise TypeError(...)`` -- the convention
+  for ``isinstance`` checks is ``TypeError`` (the
+  value is of the wrong type), not ``ValueError``
+  (the value is malformed). Matches the
+  project-wide convention. The two tests in
+  ``tests/unit/memory/test_managers_unit.py``
+  that pinned the old
+  ``pytest.raises(TypeError, ...)`` are unchanged
+  (the assertion was already correct; the production
+  code was the one that diverged).
+
+- **4-value cleanup at KNt test framework.** The
+  pre-existing
+  ``tests/unit/infra/redis/_auth/test_protocol_auth.py``
+  and
+  ``tests/unit/infra/redis/_checkpoint/test_protocol_check.py``
+  had 7 RUF012 ("Mutable default value for class
+  attribute") errors from the ``EXCLUDED: dict[str,
+  str] = {...}`` block-attribute. The
+  ``RegexFieldFinder`` fix (above) brings the total
+  RUF012 count in ``src/`` and ``tests/`` to 0.
+
+- **Unused ``# type: ignore`` in
+  ``src/kntgraph/tools/manager.py:639``.** Ruff's
+  ``reportUnnecessaryTypeIgnoreComment: "error"``
+  gate flagged an unused suppression; the comment
+  was removed (the call site does not need a
+  suppression -- ``_invoke_tool_sync`` is properly
+  typed for ``run_in_executor``). The
+  ``_invoke_tool_sync`` is now passed as a bare
+  callable argument.
+
+- **3 ``Self`` covariant-return errors in
+  ``src/kntgraph/agents/tools/llm.py``** (the
+  ``_StreamDone`` and ``_StreamTimeout``
+  singletons' ``__new__`` methods). Pyright's
+  invariant return-type checker rejected
+  ``cls._instance`` (typed as
+  ``Self | <SentinelType>``) as the return value
+  of a method declared to return ``Self``. The
+  fix is an explicit ``cast("Self", cls._instance)``
+  after the singleton branch; the docstring
+  documents why the cast is safe (the singleton
+  is a stable instance across the process
+  lifetime).
+
 ## [0.16.1] — 2026-09-25
 - **ADR-076 tools-layer prefix plumbing (closes DEBT §2.35):**
   `WorkerManager`, `ToolRouter`, and `ReactiveDispatcher`

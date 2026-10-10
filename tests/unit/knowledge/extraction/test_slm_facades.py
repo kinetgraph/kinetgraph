@@ -33,7 +33,7 @@ network call; we only verify the wiring.
 
 from __future__ import annotations
 
-
+from typing import ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -51,7 +51,6 @@ from kntgraph.knowledge.extraction import (
 from kntgraph.knowledge.extraction.base import (
     ArgumentExtractor,
 )
-
 
 # ---------------------------------------------------------------------------
 # Shared mocks
@@ -101,7 +100,7 @@ def _make_worker_manager():
     class _StubTool:
         name = "dummy"
         description = "dummy tool for tests"
-        input_schema = {
+        input_schema: ClassVar[dict] = {
             "type": "object",
             "properties": {"x": {"type": "string"}},
             "required": ["x"],

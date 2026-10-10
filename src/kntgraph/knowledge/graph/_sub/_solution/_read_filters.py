@@ -32,10 +32,8 @@ from __future__ import annotations
 
 import json
 from string import Template
-from typing import Optional
 
 from ._row_helpers import _float_at, _obj_at, _str_at
-
 
 # ---------------------------------------------------------------------------
 # Base read-path Cypher templates.
@@ -108,7 +106,7 @@ def edge_match_for_status(status: str) -> str:
 
 
 def build_tags_clause(
-    tags: Optional[dict[str, str]],
+    tags: dict[str, str] | None,
 ) -> tuple[str, list[str]]:
     """
     Build a ``tags_json CONTAINS`` filter.
@@ -133,7 +131,7 @@ def build_tags_clause(
 
 
 def build_tool_name_clause(
-    tool_name: Optional[str],
+    tool_name: str | None,
 ) -> tuple[str, dict[str, str]]:
     """
     Build the ``t.name = $tool_name`` filter (parametrised).

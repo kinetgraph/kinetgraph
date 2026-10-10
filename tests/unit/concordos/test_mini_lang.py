@@ -11,8 +11,7 @@ Pins the contract for the parser and evaluator against
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from types import MappingProxyType
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,8 +25,7 @@ from kntgraph.concordos._mini_lang import (
 )
 from kntgraph.concordos.base import StepContext
 
-
-FIXED_NOW = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
@@ -54,16 +52,14 @@ def make_ctx(
     profile=None,
 ) -> StepContext:
     return StepContext(
-        step_results=MappingProxyType(step_results or {}),
-        step_states=MappingProxyType(step_states or {}),
+        step_results=step_results or {},
+        step_states=step_states or {},
         domain=domain,
         continuity=continuity,
         profile=profile,
         agent_id="a-1",
         now=FIXED_NOW,
-        trigger_data=MappingProxyType(trigger_data)
-        if trigger_data is not None
-        else None,
+        trigger_data=trigger_data if trigger_data is not None else None,
         cross_agent_resolver=None,
     )
 
@@ -153,7 +149,6 @@ def test_parser_accepts(expression: str) -> None:
         ("foo(,)", "expected"),
         ("agent..tier", "trailing tokens"),
         ("a == b and", "expected"),
-        ("(", "expected"),
         ("(a", "expected"),
         ("a and (b", "expected"),
     ],

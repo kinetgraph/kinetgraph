@@ -15,5 +15,4 @@ is a vertical product choice.
 
 from kntgraph.agents.knowledge.solution_projector import SolutionProjector
 
-
 __all__ = ["SolutionProjector"]

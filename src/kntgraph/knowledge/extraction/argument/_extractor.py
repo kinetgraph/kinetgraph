@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from kntgraph.core.result import ToolError
 from kntgraph.infra.config import fresh_settings
@@ -81,10 +81,10 @@ class SchemaArgumentExtractor(ArgumentExtractor):
 
     def __init__(
         self,
-        worker_manager: "WorkerManager",
+        worker_manager: WorkerManager,
         finder: FieldFinder,
         *,
-        field_threshold: Optional[float] = None,
+        field_threshold: float | None = None,
     ) -> None:
         if worker_manager is None:
             raise ValueError("worker_manager is required")

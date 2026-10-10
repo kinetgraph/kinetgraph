@@ -88,7 +88,7 @@ vertical ``argument_extractor`` package entirely.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from kntgraph.knowledge.extraction.argument._extractor import (
     SchemaArgumentExtractor,
@@ -100,7 +100,6 @@ from kntgraph.knowledge.extraction.base import (
     ArgExtraction,
     ArgumentExtractor,
 )
-
 
 if TYPE_CHECKING:
     from kntgraph.tools.manager import WorkerManager
@@ -143,10 +142,10 @@ class GlinerArgumentAdapter(ArgumentExtractor):
 
     def __init__(
         self,
-        worker_manager: "WorkerManager",
+        worker_manager: WorkerManager,
         *,
         model_name: str | None = None,
-        device: Optional[str] = None,
+        device: str | None = None,
         field_threshold: float = 0.5,
     ) -> None:
         # Iter 28: eager imports. The two pieces we
@@ -166,7 +165,7 @@ class GlinerArgumentAdapter(ArgumentExtractor):
         )
 
     @staticmethod
-    def _resolve_model_name(model_name: "str | None") -> str:
+    def _resolve_model_name(model_name: str | None) -> str:
         """
         Resolve the effective model name from explicit
         arg + Settings.

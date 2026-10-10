@@ -456,8 +456,8 @@ class TestOllamaEmbeddingAdapterTimeout:
         class _StubOllama:
             Client = _SlowClient
 
-        import sys
         import asyncio
+        import sys
 
         monkeypatch.setitem(sys.modules, "ollama", _StubOllama)
         adapter = OllamaEmbeddingAdapter(host="http://localhost:11434", timeout_s=0.05)

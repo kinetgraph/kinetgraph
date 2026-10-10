@@ -17,10 +17,10 @@ from .dlq import (
     DLQ_EVENT_INDEX,
     DLQ_REASON_INDEX,
     DLQ_STREAM_KEY,
-    DLQReason,
     DeadLetterActions,
     DeadLetterEvent,
     DeadLetterQueue,
+    DLQReason,
 )
 
 __all__ = [

@@ -23,8 +23,8 @@ a future refactor removes them, this test fails.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from types import MappingProxyType
+import dataclasses
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -41,8 +41,8 @@ class TestToolCallRequest:
         flight is immutable (the event created it; the
         component is a cache of the event)."""
         request_event_id = str(uuid4())
-        ts = datetime.now(timezone.utc)
-        params = MappingProxyType({"tool": "llm.complete", "n": 1})
+        ts = datetime.now(UTC)
+        params = {"tool": "llm.complete", "n": 1}
         req = ToolCallRequest(
             request_event_id=request_event_id,
             tool_name="llm.complete",
@@ -58,8 +58,8 @@ class TestToolCallRequest:
         """The request event_id, agent_id, and tool_name
         are the canonical fields the SolutionExtractor
         joins on. They MUST be present (no defaults)."""
-        ts = datetime.now(timezone.utc)
-        params = MappingProxyType({"tool": "x"})
+        ts = datetime.now(UTC)
+        params = {"tool": "x"}
         req = ToolCallRequest(
             request_event_id="req-1",
             tool_name="x",
@@ -84,11 +84,19 @@ class TestToolCallRequest:
             ToolCallRequest()  # type: ignore[call-arg]
 
     def test_request_params_is_immutable(self) -> None:
-        """`params` is a MappingProxyType (read-only).
-        The component cannot be mutated post-construction
-        to change the request parameters."""
-        ts = datetime.now(timezone.utc)
-        params = MappingProxyType({"x": 1})
+        """`params` is typed ``Mapping[str, JsonValue]``
+        (ADR-079); the ``frozen=True`` dataclass enforces
+        structural immutability -- assigning a new dict to
+        the field raises ``FrozenInstanceError`` rather than
+        passing through.
+
+        The legacy assertion expected ``TypeError`` from a
+        ``MappingProxyType.setitem`` call; the runtime
+        wrapper was removed (ADR-079 §3.2). The
+        ``frozen=True`` guarantee is the only one we keep.
+        """
+        ts = datetime.now(UTC)
+        params = {"x": 1}
         req = ToolCallRequest(
             request_event_id="r1",
             tool_name="t",
@@ -97,8 +105,9 @@ class TestToolCallRequest:
             requested_at=ts,
             expires_at=ts + timedelta(seconds=300),
         )
-        with pytest.raises(TypeError):
-            req.params["x"] = 2  # type: ignore[index]
+
+        with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
+            req.params = {"x": 2}  # type: ignore[misc]
 
 
 class TestToolCallCompletion:
@@ -113,8 +122,8 @@ class TestToolCallCompletion:
     def test_completion_completed_has_result(self) -> None:
         """A `status="completed"` completion carries
         `result` and `completed_at`."""
-        ts = datetime.now(timezone.utc)
-        result = MappingProxyType({"text": "ok"})
+        ts = datetime.now(UTC)
+        result = {"text": "ok"}
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="completed",
@@ -131,7 +140,7 @@ class TestToolCallCompletion:
     def test_completion_failed_has_error(self) -> None:
         """A `status="failed"` completion carries
         `error` and `completed_at`. `result` is None."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="failed",
@@ -149,7 +158,7 @@ class TestToolCallCompletion:
         """`ToolCallCompletion` is frozen: the
         completion is a cache of a `tool.completed`/
         `tool.failed` event. It cannot be mutated."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="completed",
@@ -159,17 +168,26 @@ class TestToolCallCompletion:
             comp.status = "failed"  # type: ignore[misc]
 
     def test_completion_result_is_immutable(self) -> None:
-        """`result` is a MappingProxyType when present."""
-        ts = datetime.now(timezone.utc)
-        result = MappingProxyType({"text": "ok"})
+        """`result` is typed ``Mapping[str, JsonValue] | None``
+        (ADR-079); the ``frozen=True`` dataclass enforces
+        structural immutability (ADR-079 §3.1 + skill §1.4).
+
+        The legacy assertion expected ``TypeError`` from the
+        ``MappingProxyType.setitem`` call; the runtime
+        wrapper was removed (ADR-079 §3.2). Assigning to the
+        field raises ``FrozenInstanceError`` now.
+        """
+        ts = datetime.now(UTC)
+        result = {"text": "ok"}
         comp = ToolCallCompletion(
             request_event_id="req-1",
             status="completed",
             result=result,
             completed_at=ts,
         )
-        with pytest.raises(TypeError):
-            comp.result["new"] = "value"  # type: ignore[index]
+
+        with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
+            comp.result = {"new": "value"}  # type: ignore[misc]
 
 
 class TestToolCallPairing:
@@ -180,8 +198,8 @@ class TestToolCallPairing:
         ``request_event_id`` are a single logical
         tool call. The SolutionExtractor joins on this.
         """
-        ts = datetime.now(timezone.utc)
-        params = MappingProxyType({"tool": "x"})
+        ts = datetime.now(UTC)
+        params = {"tool": "x"}
         req = ToolCallRequest(
             request_event_id="req-42",
             tool_name="x",

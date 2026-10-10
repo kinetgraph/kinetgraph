@@ -104,7 +104,7 @@ async def main() -> None:
     )
     world = World.fold([e1, e2], tick=2)
     print(world.agents["a-1"].operational_phase)  # "spawned"
-    print(world.agents["a-1"].domain_phase)       # "document.received"
+    print(world.agents["a-1"].domain_phase)  # "document.received"
 
 
 asyncio.run(main())
@@ -245,9 +245,9 @@ All settings are loaded from env vars with the
 ```python
 from kntgraph.infra.config import settings
 
-print(settings.redis_url)        # redis://localhost:6379
-print(settings.falkordb_port)    # 16379
-print(settings.stream_maxlen)    # 100_000
+print(settings.redis_url)  # redis://localhost:6379
+print(settings.falkordb_port)  # 16379
+print(settings.stream_maxlen)  # 100_000
 ```
 
 See [Configuration](../README.md#configuration)

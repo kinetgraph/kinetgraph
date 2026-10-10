@@ -24,7 +24,6 @@ replayed log re-evaluates guards with the same timestamp.
 
 from __future__ import annotations
 
-from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
@@ -124,19 +123,19 @@ class FSMSystem:
     everything; the cursor reflects that.
     """
 
-    __slots__ = ("config", "_now")
+    __slots__ = ("_now", "config")
     __cursor_key__: ClassVar[str] = _FSM_CURSOR_KEY
 
     def __init__(
         self,
         config: FSMConfig,
         *,
-        now: "Clock | None" = None,
+        now: Clock | None = None,
     ) -> None:
         self.config = config
         self._now = injectable_clock(now)
 
-    def __call__(self, world: "World") -> list["Event"]:
+    def __call__(self, world: World) -> list[Event]:
         out: list[Event] = []
         for _agent_id, view in world.query_agents(self.config.component_type):
             out.extend(self._events_for_agent(view, world))
@@ -144,9 +143,9 @@ class FSMSystem:
 
     def _events_for_agent(
         self,
-        view: "AgentView",
-        world: "World",
-    ) -> list["Event"]:
+        view: AgentView,
+        world: World,
+    ) -> list[Event]:
         # ADR-074: replay-safety / idle-tick fast path. The
         # dispatcher advances ``view.cursors["FSMSystem"]``
         # to ``view.last_event_id`` after every tick the FSM
@@ -191,9 +190,7 @@ class FSMSystem:
             event_id=UUID(str(view.last_event_id))
             if view.last_event_id is not None
             else None,
-            data=MappingProxyType(dict(payload))
-            if isinstance(payload, dict)
-            else MappingProxyType({}),
+            data=dict(payload) if isinstance(payload, dict) else {},
             correlation=correlation_middleware.current(),
         )
 
@@ -213,12 +210,12 @@ class FSMSystem:
 
     def _process_trigger(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         current_state: str,
-        component: "DomainComponent | None",
-        view: "AgentView",
-        world: "World",
-    ) -> tuple[list["Event"], str | None]:
+        component: DomainComponent | None,
+        view: AgentView,
+        world: World,
+    ) -> tuple[list[Event], str | None]:
         """
         Process a single trigger against the FSM's current
         state. Returns ``(emitted_events, new_state)``:
@@ -250,14 +247,14 @@ class FSMSystem:
             # closure over the post-fold World; specs
             # that don't need it receive ``None``.
             ctx = StepContext(
-                step_results=MappingProxyType({}),
-                step_states=MappingProxyType({}),
+                step_results={},
+                step_states={},
                 domain=component,
                 continuity=view.get_component(ContinuityComponent),
                 profile=view.get_component(ProfileComponent),
                 agent_id=view.agent_id,
                 now=self._now(),
-                trigger_data=MappingProxyType(dict(trigger.data))
+                trigger_data=dict(trigger.data)
                 if isinstance(getattr(trigger, "data", None), dict)
                 else None,
                 cross_agent_resolver=lambda aid: world.views.get(aid),
@@ -280,10 +277,10 @@ class FSMSystem:
 
     def _transitioned(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         from_state: str,
         to_state: str,
-    ) -> "Event":
+    ) -> Event:
         return self._emit(
             trigger,
             event_type="fsm.transitioned",
@@ -297,10 +294,10 @@ class FSMSystem:
 
     def _rejected(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         current_state: str,
         reason: str,
-    ) -> "Event":
+    ) -> Event:
         return self._emit(
             trigger,
             event_type="fsm.transition_rejected",
@@ -313,10 +310,10 @@ class FSMSystem:
 
     def _entry_event(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         state: str,
         entry_type: str,
-    ) -> "Event":
+    ) -> Event:
         return self._emit(
             trigger,
             event_type=entry_type,
@@ -325,11 +322,11 @@ class FSMSystem:
 
     def _emit(
         self,
-        trigger: "ViewTrigger",
+        trigger: ViewTrigger,
         *,
         event_type: str,
-        data: dict[str, "JsonValue"],
-    ) -> "Event":
+        data: dict[str, JsonValue],
+    ) -> Event:
         from kntgraph.core.event.event import Event
 
         return Event.create(

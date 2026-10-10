@@ -24,7 +24,8 @@ authorised endpoints still get the principal bound.
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -97,7 +98,9 @@ class PrincipalBindingMiddleware(BaseHTTPMiddleware):
             return await call_next(request)  # type: ignore[no-any-return]
         try:
             principal = await self._verifier_for(api_key)
-        except Exception as e:
+        except asyncio.CancelledError:
+            raise
+        except (ValueError, TypeError, KeyError, AttributeError, RuntimeError) as e:
             # Verifier failure is logged at WARN with
             # the sha256 prefix only — never the raw
             # key. The route's Depends surfaces the

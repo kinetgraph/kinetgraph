@@ -9,12 +9,13 @@ Router for the Tool Worker Pattern (ADR-036).
 from __future__ import annotations
 
 import logging
-from typing import Iterable
-
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kntgraph.infra.redis import RedisLike
+
+from redis import exceptions as redis_exceptions
 
 from kntgraph.core.event import Event
 from kntgraph.core.tool_event import ToolEventKind, parse_tool_event
@@ -39,7 +40,7 @@ class ToolRouter:
     byte-for-byte.
     """
 
-    def __init__(self, redis: "RedisLike", *, key_prefix: str = ""):
+    def __init__(self, redis: RedisLike, *, key_prefix: str = ""):
         # Validated once at construction (same pattern as
         # ``RedisPool.__init__`` in
         # ``infra/redis/_pool.py``); the per-call path
@@ -77,7 +78,14 @@ class ToolRouter:
                     payload = event.to_json()
                     await self._redis.xadd(stream_key, {"payload": payload})
                     logger.debug(f"Routed tool.{tool_name}.requested to {stream_key}")
-                except Exception as e:
+                except (
+                    redis_exceptions.RedisError,
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                    TypeError,
+                    ValueError,
+                ) as e:
                     logger.error(
                         f"Failed to route tool.{tool_name}.requested {event.event_id} to {stream_key}: {e}"
                     )

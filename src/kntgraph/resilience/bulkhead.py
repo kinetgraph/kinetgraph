@@ -10,13 +10,14 @@ Uses the Railway Pattern for error handling.
 
 import asyncio
 from collections import OrderedDict
+from collections.abc import Callable, Coroutine
 from types import TracebackType
-from typing import Any, Callable, Coroutine, ParamSpec, TypeVar
+from typing import Any, ParamSpec, Self, TypeVar
 
 import structlog
 
 from ..core.agent_id import AGENT_ID_RE
-from ..core.result import Result, Ok, Err, BusinessError
+from ..core.result import BusinessError, Err, Ok, Result
 
 # ``R`` is the return type of the wrapped function;
 # ``P`` captures its parameter shape. The wrapper is
@@ -36,8 +37,6 @@ class BulkheadFullError(Exception):
     the class is exported for callers that want to
     ``raise`` it explicitly.
     """
-
-    pass
 
 
 # Reject new acquisitions after this many seconds. Keeps the
@@ -117,7 +116,7 @@ class BulkheadPool:
                 self.semaphore.acquire(),
                 timeout=self.acquire_timeout,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.total_rejected += 1
             logger.warning(
                 "Bulkhead full - request rejected",
@@ -186,7 +185,7 @@ class BulkheadPool:
             # the task ends properly. The ``finally`` block
             # still releases the slot.
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - policy wrapper isolates arbitrary user function execution
             self.total_failed += 1
             logger.warning(
                 "Bulkhead execution failed",
@@ -199,7 +198,7 @@ class BulkheadPool:
 
     # ------------------------------------------------------------------ context manager
 
-    async def __aenter__(self) -> "BulkheadPool":
+    async def __aenter__(self) -> Self:
         """
         Acquire one slot for the duration of the ``async with``
         block. If the pool is full, ``BusinessError`` is

@@ -15,7 +15,7 @@ add them when ``cryptography`` is wired).
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kntgraph.security.keys._crypto import (
     _StubPrivateKey,
@@ -29,6 +29,8 @@ from kntgraph.security.keys._types import (
     PrivateKey,
     PublicKey,
 )
+
+_DEFAULT_KEY_EPOCH = KeyEpoch(0)
 
 
 class InMemoryKeyRegistry:
@@ -55,13 +57,13 @@ class InMemoryKeyRegistry:
     (PR 1 will add them when ``cryptography`` is wired).
     """
 
-    __slots__ = ("_keys", "_current", "_revoked", "_metadata", "_revoked_seq")
+    __slots__ = ("_current", "_keys", "_metadata", "_revoked", "_revoked_seq")
 
     def __init__(self) -> None:
         self._keys: dict[tuple[str, KeyEpoch], tuple[PrivateKey, PublicKey]] = {}
         self._current: dict[str, KeyEpoch] = {}
         self._revoked: dict[tuple[str, KeyEpoch], RevocationRecord] = {}
-        self._metadata: dict[tuple[str, KeyEpoch], "object"] = {}
+        self._metadata: dict[tuple[str, KeyEpoch], object] = {}
         self._revoked_seq: int = 0
 
     # -- read ------------------------------------------------------------
@@ -69,7 +71,7 @@ class InMemoryKeyRegistry:
     def public_key(
         self,
         agent_id: str,
-        key_epoch: KeyEpoch = KeyEpoch(0),
+        key_epoch: KeyEpoch = _DEFAULT_KEY_EPOCH,
     ) -> PublicKey:
         if (agent_id, key_epoch) not in self._keys:
             raise KeyError(
@@ -92,7 +94,7 @@ class InMemoryKeyRegistry:
     def is_revoked(self, agent_id: str, key_epoch: KeyEpoch) -> bool:
         return (agent_id, key_epoch) in self._revoked
 
-    def metadata(self, agent_id: str, key_epoch: KeyEpoch) -> "object":
+    def metadata(self, agent_id: str, key_epoch: KeyEpoch) -> object:
         meta = self._metadata.get((agent_id, key_epoch))
         if meta is None:
             raise KeyError(
@@ -138,7 +140,7 @@ class InMemoryKeyRegistry:
             pub = priv.public_key()
         elif isinstance(priv, _StubPrivateKey):
             pub = _StubPublicKey(
-                bytes=hashlib.sha256(priv.bytes).digest(),  # noqa: S324 - non-crypto use
+                bytes=hashlib.sha256(priv.bytes).digest(),
                 algorithm=priv.algorithm,
             )
         else:  # pragma: no cover - defensive
@@ -180,7 +182,7 @@ class InMemoryKeyRegistry:
             agent_id=agent_id,
             key_epoch=key_epoch,
             reason=reason,
-            revoked_at=datetime.now(timezone.utc).isoformat(),
+            revoked_at=datetime.now(UTC).isoformat(),
             revoked_by=revoked_by,
         )
         self._revoked[(agent_id, key_epoch)] = rec

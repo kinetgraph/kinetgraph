@@ -98,6 +98,8 @@ import asyncio
 import logging
 from typing import Any
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.agents.role_systems import ChatRoleSystem
 from kntgraph.agents.tools.llm import LiteLLMToolWorker
 from kntgraph.core.event import (
@@ -116,9 +118,6 @@ from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
-
-from _lib.redis_or_fake import make_redis_client
-
 
 # ---------------------------------------------------------------------------
 # 1. Reactive extensions (the "shim") — same as 05b.

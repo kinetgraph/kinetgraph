@@ -53,14 +53,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import typer
+from jinja2 import Environment, FileSystemLoader
 from rich.console import Console
 from rich.table import Table
-from jinja2 import Environment, FileSystemLoader
-
 
 app = typer.Typer(
     help="Regenerate boilerplate files against the current templates.",
@@ -199,8 +198,7 @@ def _discover_artifacts(context_name: str) -> dict[str, list[str]]:
         "tools": [],
         "components": [],
     }
-    for kind in artifacts:
-        kind_dir = base / kind
+    for kind, kind_dir in ((k, base / k) for k in artifacts):
         if not kind_dir.is_dir():
             continue
         for f in kind_dir.iterdir():
@@ -660,4 +658,4 @@ def apply_all(
     )
 
 
-__all__ = ["app", "list_templates", "check", "apply", "apply_all"]
+__all__ = ["app", "apply", "apply_all", "check", "list_templates"]

@@ -160,5 +160,5 @@ class TestBaseSharedOrchestration:
         from kntgraph.memory.base import BaseShortTermMemory
 
         assert hasattr(BaseShortTermMemory, "_write_cache_for_key")
-        method = getattr(BaseShortTermMemory, "_write_cache_for_key")
+        method = BaseShortTermMemory._write_cache_for_key
         assert inspect.iscoroutinefunction(method)

@@ -69,15 +69,14 @@ from .event import Event
 from .id_helpers import generate_deterministic_event_id
 from .operational import OPERATIONAL_EVENT_TO_PHASE, OperationalEventType
 
-
 __all__ = [
     "ALLOWED_EVENT_CLASSES",
+    "OPERATIONAL_EVENT_TO_PHASE",
     "CorrelationContext",
     "CorrelationMiddleware",
     "CorrelationScope",
     "Event",
     "EventClass",
-    "OPERATIONAL_EVENT_TO_PHASE",
     "OperationalEventType",
     "correlation_middleware",
     "generate_deterministic_event_id",

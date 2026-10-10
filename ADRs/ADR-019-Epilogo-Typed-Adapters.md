@@ -482,14 +482,17 @@ do framework, violando o mesmo princípio aplicado a
 ```python
 # Antes
 from fmh_backend.knowledge.embedding.provider import OllamaEmbeddingProvider
+
 provider = OllamaEmbeddingProvider()  # nome vaza backend
 
 # Depois
 from fmh_backend.knowledge.embedding.provider import EmbeddingClient
+
 provider = EmbeddingClient()  # default facade, sem nome de backend
 
 # Low-level (avançado)
 from fmh_backend.knowledge.embedding.provider import OllamaEmbeddingAdapter
+
 adapter = OllamaEmbeddingAdapter(host="http://localhost:11434")
 ```
 
@@ -546,6 +549,7 @@ encapsulamento.
 # Antes (Iter 16)
 class RedisCacheStorage:
     def __init__(self, client: redis.asyncio.Redis): ...
+
 
 # Depois (Iter 17a)
 class RedisCacheAdapter:
@@ -645,14 +649,17 @@ exposição do backend ("Gliner") na API pública violavam a AGENTS.md §1.
 ```python
 # Antes (Iter 20)
 from fmh_backend.knowledge.extraction import GlinerIntentClassifier
+
 clf = GlinerIntentClassifier()  # nome vaza backend
 
 # Depois (Iter 21)
 from fmh_backend.knowledge.extraction import SLMIntentClassifier
+
 clf = SLMIntentClassifier()  # facade neutra, default = GlinerIntentAdapter
 
 # Low-level (avançado)
 from fmh_backend.knowledge.extraction import GlinerIntentAdapter
+
 adapter = GlinerIntentAdapter(model_name="custom/local/checkpoint")
 ```
 
@@ -801,12 +808,14 @@ qualquer call site que fizesse `client(request)` receberia
 ```python
 # Antes (Iter 28 FU 3)
 from fmh_agents.tools import LLMClient  # facade
+
 client = LLMClient(adapter=my_adapter)
 # ^ 0 callers production; declarava `complete` (legacy)
 #   mas Protocol agora é `__call__` (current)
 
 # Depois (Iter 28 FU 6)
 from fmh_agents.tools.llm import LiteLLMTransportAdapter
+
 transport = LiteLLMTransportAdapter()
 # ou qualquer LLMTransport concreto
 # (LiteLLMTool aceita via `transport=` kwarg)

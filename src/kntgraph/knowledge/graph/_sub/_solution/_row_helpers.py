@@ -44,4 +44,4 @@ def _obj_at(row: list, idx: int, default: object) -> object:
     return row[idx]
 
 
-__all__ = ["_str_at", "_float_at", "_obj_at"]
+__all__ = ["_float_at", "_obj_at", "_str_at"]

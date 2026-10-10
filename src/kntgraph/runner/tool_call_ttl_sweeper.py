@@ -102,16 +102,20 @@ is the mitigation (out of scope for ADR-045).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+import structlog
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.core.world.view import AgentView
 
+logger = structlog.get_logger()
+
 if TYPE_CHECKING:
-    from kntgraph.events.dlq.store import DeadLetterQueue
+    from ._dlq_protocol import DLQAdapter as DeadLetterQueue
 
 
 # The error string emitted on a TTL-expired request.
@@ -162,9 +166,9 @@ class ToolCallTTLSweeperSystem:
     def __init__(
         self,
         *,
-        now: Optional[datetime] = None,
+        now: datetime | None = None,
         error_message: str = _TTL_EXPIRED_ERROR,
-        dlq: Optional["DeadLetterQueue"] = None,
+        dlq: DeadLetterQueue | None = None,
     ) -> None:
         """
         ``now``: optional wall-clock injection. Defaults
@@ -193,7 +197,7 @@ class ToolCallTTLSweeperSystem:
 
     def __call__(
         self,
-        world: "World | Mapping[str, AgentView]",
+        world: World | Mapping[str, AgentView],
     ) -> list[Event]:
         """Walk ``tool_requests``; emit ``tool.<name>.failed``
         for stale entries; optionally route to the DLQ.
@@ -215,7 +219,7 @@ class ToolCallTTLSweeperSystem:
         only re-emits when the compensation chain stalls).
         """
         events: list[Event] = []
-        now = self._now or datetime.now(tz=timezone.utc)
+        now = self._now or datetime.now(tz=UTC)
         # Accept either a ``World`` (production
         # path: the dispatcher passes the post-fold
         # World) or a ``Mapping[str, AgentView]`` (test
@@ -298,7 +302,7 @@ class ToolCallTTLSweeperSystem:
 
     def _route_to_dlq(
         self,
-        failed_event: "Event",
+        failed_event: Event,
         agent_id: str,
         request_id: str,
     ) -> None:
@@ -310,17 +314,18 @@ class ToolCallTTLSweeperSystem:
         here — that's ``WorkerManager``'s concern); callers
         that have richer info can override the reason.
         """
-        from kntgraph.events.dlq.values import (
-            DLQReason,
+        from ._dlq_protocol import (
             DeadLetterEvent,
+            DLQReason,
         )
 
         dl_event = DeadLetterEvent(
             event=failed_event,
             reason=DLQReason.TOOL_STALE_UNACKNOWLEDGED,
             error_message=self._error_message,
+            retry_count=0,
             original_timestamp=failed_event.timestamp,
-            dlq_timestamp=datetime.now(tz=timezone.utc),
+            dlq_timestamp=datetime.now(tz=UTC),
             metadata={"request_event_id": request_id, "agent_id": agent_id},
         )
         # The sweeper is synchronous; the dispatcher's
@@ -348,9 +353,29 @@ class ToolCallTTLSweeperSystem:
             # because the operator already sees the
             # ``tool.<name>.failed`` event in the log.
             del result
-        except Exception:
-            # Last-resort: don't crash the sweeper.
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Last-resort: do NOT crash the sweeper (the
+            # caller is the dispatch loop; a crash here
+            # would silently stop TTL-expired-request
+            # recovery for the whole process). Log at
+            # ``warning`` with the structured payload so
+            # the operator can correlate with the
+            # ``tool.<name>.failed`` event in the log.
+            #
+            # The catch is deliberately broad per
+            # the legacy contract (the inner
+            # ``loop.run_until_complete`` is a sync call
+            # that blocks; ``translate_redis_call``
+            # cannot wrap a sync invocation). The
+            # suppression is annotated rather than
+            # narrowed because the operator's last-resort
+            # guarantee ("the sweeper never crashes")
+            # trumps the lint preference.
+            logger.warning(
+                "tool_call_ttl_sweeper.route_to_dlq.failed",
+                event_id=str(request_id),
+                error=str(exc),
+            )
 
     def _build_failed_event(
         self,

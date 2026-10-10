@@ -20,21 +20,20 @@ from ._continuity import RedisContinuityStorage
 from ._profile import RedisProfileStorage
 from ._session import RedisSessionStorage
 from ._solution import (
-    RedisSolutionStore,
     SOLUTION_KEY_PREFIX,
+    RedisSolutionStore,
     SolutionStoreDecodeError,
     SolutionStoreError,
     SolutionStoreSerializationError,
 )
 
-
 __all__ = [
-    "RedisSolutionStore",
     "SOLUTION_KEY_PREFIX",
-    "ShortMemoryStorage",
     "RedisContinuityStorage",
     "RedisProfileStorage",
     "RedisSessionStorage",
+    "RedisSolutionStore",
+    "ShortMemoryStorage",
     "SolutionStoreDecodeError",
     "SolutionStoreError",
     "SolutionStoreSerializationError",

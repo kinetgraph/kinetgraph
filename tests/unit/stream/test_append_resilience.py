@@ -19,7 +19,6 @@ import uuid
 
 import pytest
 
-
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Err, Ok, PersistenceError, Result
 from kntgraph.resilience import CircuitBreaker
@@ -86,8 +85,7 @@ def _make_log(storage: _FakeStorage, **kwargs) -> EventLog:
     """Construct an EventLog with the fake storage."""
     timeout = kwargs.pop("append_timeout_seconds", 0.05)
     max_attempts = kwargs.pop("append_retry_attempts", 2)
-    if max_attempts < 1:
-        max_attempts = 1
+    max_attempts = max(max_attempts, 1)
     policy = BackoffPolicy(
         max_attempts=max_attempts,
         base_delay=kwargs.pop("append_retry_base_delay", 0.001),

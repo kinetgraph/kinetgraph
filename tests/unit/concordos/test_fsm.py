@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
-from kntgraph.concordos.fsm import FSMConfig, FSMTransition, FSMSystem
+from kntgraph.concordos.fsm import FSMConfig, FSMSystem, FSMTransition
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
 from kntgraph.core.event import CorrelationContext

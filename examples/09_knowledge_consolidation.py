@@ -34,18 +34,17 @@ import json
 
 import redis.asyncio as aioredis
 
-from kntgraph.core.event import Event, correlation_middleware
-from kntgraph.knowledge.embedding.provider import EmbeddingClient
-from kntgraph.infra.graph import GraphPool
 from kntgraph.agents.knowledge.solution_projector import (
     SolutionProjector,
 )
-from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.agents.memory.solution_extractor import SolutionExtractorSystem
 from kntgraph.agents.memory.solution_promoter import SolutionPromoterSystem
+from kntgraph.core.event import Event, correlation_middleware
+from kntgraph.infra.graph import GraphPool
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.knowledge.embedding.provider import EmbeddingClient
+from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
 from kntgraph.stream.event_log import EventLog
-
 
 TENANT = "demo-cnpj-12.345.678/0001-99"
 

@@ -17,7 +17,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 SCRIPT_PATH = SCRIPTS_DIR / "quality_report.py"
 

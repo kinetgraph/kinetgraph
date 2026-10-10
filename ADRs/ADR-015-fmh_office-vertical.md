@@ -346,10 +346,10 @@ O desenvolvedor instancia:
 team = Team(
     process=ProcessModel.from_yaml("pedido.yml"),
     roles={
-        "atendente":   AtendenteRole(inference=llm_tool),
-        "estoquista":  EstoquistaRole(io=estoque_tool, inference=llm_tool),
-        "financeiro":  FinanceiroRole(io=financeiro_tool, inference=llm_tool),
-        "gerente":     GerenteRole(inference=llm_tool),
+        "atendente": AtendenteRole(inference=llm_tool),
+        "estoquista": EstoquistaRole(io=estoque_tool, inference=llm_tool),
+        "financeiro": FinanceiroRole(io=financeiro_tool, inference=llm_tool),
+        "gerente": GerenteRole(inference=llm_tool),
     },
 )
 ```

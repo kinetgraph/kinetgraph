@@ -14,32 +14,12 @@ from the EventLog and carried as a cache for system reads.
 
 from __future__ import annotations
 
-import copyreg
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from kntgraph.core.world.component import DomainComponent
-
-
-def _reconstruct_mapping_proxy(d: dict) -> MappingProxyType:
-    return MappingProxyType(d)
-
-
-# Register pickle reducer for MappingProxyType so WorldCheckpoint
-# serialization works with ``pickle.dumps``. The
-# ``SagaProgressComponent`` exposes ``step_states`` /
-# ``step_results`` / ``awaiting_approval_at`` as
-# ``MappingProxyType`` (read-only view); pickle.dumps on a
-# frozen dataclass with a MappingProxyType slot raises
-# ``TypeError: cannot pickle 'mappingproxy' object`` without
-# this reducer (the framework's WorldCheckpoint is the
-# canonical persistence — see ``core.world.checkpoint``).
-copyreg.pickle(
-    MappingProxyType,
-    lambda m: (_reconstruct_mapping_proxy, (dict(m),)),
-)
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
@@ -50,7 +30,7 @@ __all__ = ["SagaProgressComponent"]
 @dataclass(frozen=True, slots=True)
 class SagaProgressComponent(DomainComponent):
     """
-    C-02: WorkflowSaga — saga execution state.
+    C-02: WorkflowSaga -- saga execution state.
 
     Source of truth for the *execution* fields
     (``saga_id``, ``saga_name``, ``current_step``,
@@ -69,7 +49,14 @@ class SagaProgressComponent(DomainComponent):
 
     Tool call state (in-flight, completed, failed) lives in
     ``ToolCallRequest`` / ``ToolCallCompletion`` (ADR-034) and
-    is read from the agent's view — NOT duplicated here.
+    is read from the agent's view -- NOT duplicated here.
+
+    The ``Mapping[K, V]`` fields are typed as the read-only
+    ``Mapping`` ABC (ADR-079): the framework has no
+    ``MappingProxyType`` runtime wrapper. Immutability is
+    carried by the surrounding frozen dataclass and the
+    never-mutate convention of fold code (each handler
+    returns a fresh ``SagaState`` via ``dataclasses.replace``).
     """
 
     saga_id: str
@@ -79,11 +66,11 @@ class SagaProgressComponent(DomainComponent):
     # "forward" | "compensating" | "done" | "compensated" |
     # "compensation_failed"
     step_order: tuple[str, ...]  # declared order (immutable)
-    step_states: MappingProxyType[str, str]
+    step_states: Mapping[str, str]
     # step_name -> "pending" | "skipped" | "in_flight"
     #              "completed" | "failed" | "timed_out"
     #              "compensated" | "compensation_failed"
-    step_results: MappingProxyType[str, "JsonValue"]
+    step_results: Mapping[str, JsonValue]
     # step_name -> result dict from ToolCallCompletion.result
     compensate_stack: tuple[str, ...]  # LIFO; steps pending compensation
     started_at: datetime
@@ -92,4 +79,4 @@ class SagaProgressComponent(DomainComponent):
     # (``tool_name is None``). Used by the per-step approval
     # timeout (ADR-069 §9.2 item 3). Empty when no human step is
     # pending.
-    awaiting_approval_at: MappingProxyType[str, datetime] = MappingProxyType({})
+    awaiting_approval_at: Mapping[str, datetime] = field(default_factory=dict)

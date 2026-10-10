@@ -26,7 +26,7 @@ Run with:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import MappingProxyType
 
 from kntgraph.concordos.base import (
@@ -48,7 +48,7 @@ from kntgraph.core.components.memory import (
 from kntgraph.core.world import DomainComponent
 from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
 
-FIXED_NOW = datetime(2026, 9, 10, 15, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 10, 15, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

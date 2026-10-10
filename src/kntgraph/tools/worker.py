@@ -9,7 +9,8 @@ Tools worker - primitives for the Tool Worker Pattern (ADR-036).
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, TypeVar, get_type_hints
+from collections.abc import Callable
+from typing import Any, TypeVar, get_type_hints
 
 from pydantic import create_model
 
@@ -20,7 +21,19 @@ def tool_worker(
     *,
     name: str,
     description: str = "",
-    max_concurrency: int = 10,
+    # ``max_concurrency`` é a concorrência de execução por tool no
+    # ``ProcessPoolExecutor``. Cada worker do pool é um processo
+    # separado que importa o módulo do tool e carrega dependências
+    # pesadas (torch, docling, GLiNER, etc.) na primeira invocação.
+    #
+    # O default anterior (10) permitia que até 10 workers carregassem
+    # o mesmo modelo em paralelo, estourando o cgroup em ambiente de
+    # memória limitada (post-mortem 2026-10-07, OOM 137 no backoffice
+    # com cgroup de 4 GB). Para escalar horizontalmente, a solução
+    # correta é subir ``desired_count`` do ECS, não o pool local.
+    # Tools específicas que precisarem de mais (e.g. CPU-bound puro
+    # sem dependência ML) podem sobrescrever explicitamente.
+    max_concurrency: int = 1,
     retries: int = 3,
 ) -> Callable[[T], T]:
     """
@@ -33,10 +46,10 @@ def tool_worker(
     """
 
     def decorator(cls: T) -> T:
-        if not hasattr(cls, "invoke") or not callable(getattr(cls, "invoke")):
+        if not hasattr(cls, "invoke") or not callable(cls.invoke):
             raise TypeError(f"Tool {cls.__name__} must implement an 'invoke' method.")
 
-        invoke_method = getattr(cls, "invoke")
+        invoke_method = cls.invoke
         sig = inspect.signature(invoke_method)
 
         # Validate idempotency_key
@@ -87,7 +100,14 @@ def tool_worker(
                     ns = {**vars(_typing), **vars(mod)}
                     hints = get_type_hints(invoke_method, globalns=ns, localns=ns)
                     param_type = hints.get(param_name, Any)
-                except Exception:
+                except (
+                    NameError,
+                    TypeError,
+                    AttributeError,
+                    ImportError,
+                    KeyError,
+                    ValueError,
+                ):
                     param_type = Any
 
             if param.default is inspect.Parameter.empty:
@@ -110,11 +130,11 @@ def tool_worker(
             del schema["title"]
 
         # Inject metadata into the class
-        setattr(cls, "name", name)
-        setattr(cls, "description", description)
-        setattr(cls, "input_schema", schema)
-        setattr(cls, "__tool_worker_max_concurrency__", max_concurrency)
-        setattr(cls, "__tool_worker_retries__", retries)
+        cls.name = name
+        cls.description = description
+        cls.input_schema = schema
+        cls.__tool_worker_max_concurrency__ = max_concurrency
+        cls.__tool_worker_retries__ = retries
 
         return cls
 

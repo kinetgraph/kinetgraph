@@ -116,7 +116,7 @@ talvez idempotency_keys estão mal-formadas).
 
 ```python
 await cache.invalidate("k1")  # drop entries for k1
-await cache.clear()            # drop all
+await cache.clear()  # drop all
 ```
 
 Para invalidar **por modelo** (ex: depois de um

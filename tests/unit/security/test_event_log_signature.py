@@ -51,7 +51,6 @@ from kntgraph.stream.event_log.codec import (
     parse_event,
 )
 
-
 pytestmark_async = pytest.mark.asyncio
 
 

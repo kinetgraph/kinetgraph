@@ -45,8 +45,7 @@ What is NOT in the World (v1.x → v2.0):
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Mapping, Optional, Type
+from collections.abc import Mapping, Sequence
 
 from ..event import Event
 from ..storage import ArchetypeStorage
@@ -73,7 +72,7 @@ class World:
     runner shards by tenant.
     """
 
-    __slots__ = ("tick", "storage", "views")
+    __slots__ = ("storage", "tick", "views")
 
     def __init__(
         self,
@@ -88,7 +87,7 @@ class World:
     # ------------------------------------------------------------------ build
 
     @classmethod
-    def empty(cls, tick: int = 0) -> "World":
+    def empty(cls, tick: int = 0) -> World:
         return cls(tick=tick, storage=ArchetypeStorage(), views={})
 
     @classmethod
@@ -96,10 +95,10 @@ class World:
         cls,
         events: Sequence[Event],
         *,
-        up_to_tick: Optional[int] = None,
-        projection: Optional[Projection] = None,
-        tick: Optional[int] = None,
-    ) -> "World":
+        up_to_tick: int | None = None,
+        projection: Projection | None = None,
+        tick: int | None = None,
+    ) -> World:
         """
         Pure fold: events -> World.
 
@@ -132,15 +131,15 @@ class World:
         """
         return self.views
 
-    def get_agent(self, agent_id: str) -> Optional[AgentView]:
+    def get_agent(self, agent_id: str) -> AgentView | None:
         return self.views.get(agent_id)
 
-    def query_agents(self, *component_types: Type) -> WorldQuery:
+    def query_agents(self, *component_types: type) -> WorldQuery:
         return WorldQuery(self, *component_types)
 
     # ------------------------------------------------------------------ ops
 
-    def with_event(self, event: Event) -> "World":
+    def with_event(self, event: Event) -> World:
         """
         Returns a NEW world with the given event applied via the
         default projection. Used by tests and by the runner in
@@ -157,7 +156,7 @@ class World:
         new_views[event.agent_id] = view
         return World(tick=self.tick + 1, storage=new_storage, views=new_views)
 
-    def with_tick(self, tick: int) -> "World":
+    def with_tick(self, tick: int) -> World:
         return World(tick=tick, storage=self.storage, views=self.views)
 
     # ------------------------------------------------------------------ repr

@@ -59,7 +59,6 @@ from .base import (
     parse_payload,
 )
 
-
 # ---------------------------------------------------------------------------
 # Regex patterns
 # ---------------------------------------------------------------------------
@@ -256,6 +255,6 @@ def _mk(surface: str, etype: str) -> Entity:
 
 
 __all__ = [
-    "HeuristicEntityExtractor",
     "KEY_TYPE_HINTS",
+    "HeuristicEntityExtractor",
 ]

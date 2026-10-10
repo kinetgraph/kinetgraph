@@ -10,11 +10,10 @@ cover the append/read cycle, idempotency, and the per-agent layout.
 """
 
 from __future__ import annotations
-from kntgraph.core.event import CorrelationContext
 
 import pytest
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.infra.redis._event_log._adapter import RedisEventLogAdapter
 from kntgraph.stream.event_log import (
     AGENT_STREAM_KEY,

@@ -49,8 +49,8 @@ class TestLiteGraphPool:
         )
 
         client = LiteGraphPool()
-        assert client._db_path.startswith("/tmp")  # noqa: SLF001
-        assert client._db_path.endswith(".db")  # noqa: SLF001
+        assert client._db_path.startswith("/tmp")
+        assert client._db_path.endswith(".db")
 
     def test_explicit_db_path_preserved(self) -> None:
         """``db_path`` is forwarded to the underlying
@@ -60,7 +60,7 @@ class TestLiteGraphPool:
         )
 
         client = LiteGraphPool(db_path="/tmp/explicit.db")
-        assert client._db_path == "/tmp/explicit.db"  # noqa: SLF001
+        assert client._db_path == "/tmp/explicit.db"
 
     def test_connect_is_lazy(self) -> None:
         """Construction does NOT start the embedded
@@ -147,7 +147,7 @@ class TestLiteGraphPool:
             mock_falkordb,
         ):
             client = LiteGraphPool()
-            assert client._db is None  # noqa: SLF001
+            assert client._db is None
             _ = client.graph("t")
             mock_falkordb.assert_called_once()
 
@@ -173,7 +173,7 @@ class TestLiteGraphPool:
             a2 = client.graph("t")
         # Same wrapped graph (the mock's return
         # value is the same object).
-        assert a1._graph is a2._graph  # noqa: SLF001
+        assert a1._graph is a2._graph
 
     def test_close_idempotent(self) -> None:
         """``close()`` is a no-op when not connected."""
@@ -184,7 +184,7 @@ class TestLiteGraphPool:
         client = LiteGraphPool()
         # Should not raise.
         client.close()
-        assert client._db is None  # noqa: SLF001
+        assert client._db is None
 
     def test_close_terminates_embedded_server(self) -> None:
         """``close()`` calls ``FalkorDB.close()``."""
@@ -202,7 +202,7 @@ class TestLiteGraphPool:
             client.connect()
             client.close()
         mock_falkordb.return_value.close.assert_called_once()
-        assert client._db is None  # noqa: SLF001
+        assert client._db is None
 
 
 class TestLiteGraphAdapterQuery:
@@ -333,6 +333,7 @@ class TestLiteGraphPoolPublicSurface:
         """``__init__`` accepts only ``db_path`` (no
         host/port/password — those are Docker-only)."""
         import inspect
+
         from kntgraph.infra.graph._lite_pool import (
             LiteGraphPool,
         )

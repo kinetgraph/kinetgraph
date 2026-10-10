@@ -4,12 +4,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
+
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.core.world import World, DomainComponent, domain_component
+from kntgraph.core.world import DomainComponent, World, domain_component
 from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.world import _apply_event
-from dataclasses import dataclass
 
 
 @domain_component("test.component.loaded")

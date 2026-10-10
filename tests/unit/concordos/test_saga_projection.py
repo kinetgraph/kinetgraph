@@ -13,7 +13,7 @@ same progress without an in-memory cache. These tests build a real
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kntgraph.concordos.saga import (
     SagaConfig,
@@ -25,7 +25,7 @@ from kntgraph.core.event import Event
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.testing import AgentViewBuilder, WorldBuilder
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 def _saga_config() -> SagaConfig:
@@ -224,10 +224,8 @@ def test_projection_preserves_base_without_saga_events() -> None:
         current_step="validate_fiscal",
         direction="forward",
         step_order=("validate_fiscal", "emit_nfe", "register_receivable"),
-        step_states=__import__("types").MappingProxyType(
-            {"validate_fiscal": "in_flight"}
-        ),
-        step_results=__import__("types").MappingProxyType({}),
+        step_states={"validate_fiscal": "in_flight"},
+        step_results={},
         compensate_stack=(),
         started_at=FIXED_NOW,
     )

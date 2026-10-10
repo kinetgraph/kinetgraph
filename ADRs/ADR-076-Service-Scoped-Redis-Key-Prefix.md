@@ -102,6 +102,7 @@ import re
 
 _PREFIX_PATTERN = re.compile(r"^[a-zA-Z0-9_.\-:]*$")
 
+
 def validate_prefix(prefix: str) -> None:
     """Raise ``ValueError`` if ``prefix`` is not a valid Redis
     key prefix. Empty string is always valid.
@@ -123,9 +124,7 @@ def validate_prefix(prefix: str) -> None:
     if prefix == ":":
         raise ValueError("redis_key_prefix must not be just ':'.")
     if "*" in prefix or "{" in prefix or "}" in prefix:
-        raise ValueError(
-            f"redis_key_prefix contains glob/template syntax: {prefix!r}."
-        )
+        raise ValueError(f"redis_key_prefix contains glob/template syntax: {prefix!r}.")
 
 
 def namespaced(prefix: str, key: str) -> str:
@@ -176,14 +175,14 @@ def create_event_log_storage(
     settings: Settings | None = None,
     *,
     client: RedisLike | None = None,
-    key_prefix: str = "",   # NEW
+    key_prefix: str = "",  # NEW
 ) -> EventLogStorage:
     if key_prefix == "" and settings is not None:
         key_prefix = settings.redis_key_prefix
     return RedisEventLogAdapter(
         client=_resolve_client(settings, client),
         maxlen=_resolve_stream_maxlen(settings, default=MAXLEN_DEFAULT),
-        key_prefix=key_prefix,   # NEW
+        key_prefix=key_prefix,  # NEW
     )
 ```
 
@@ -213,6 +212,7 @@ class RedisEventLogAdapter:
 
     def stream_key_for_agent(self, agent_id: str) -> str:
         return self._k(AGENT_STREAM_KEY.format(agent_id=agent_id))
+
     # ... etc
 ```
 
@@ -232,6 +232,7 @@ The default-empty `prefix` keeps existing call sites compiling without change; t
 ```python
 # src/kntgraph/infra/config/_redis.py
 from pydantic import field_validator
+
 
 class RedisSettingsMixin(BaseSettings):
     redis_key_prefix: str = Field(default="")

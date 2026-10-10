@@ -31,11 +31,14 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from _lib.redis_or_fake import make_redis_client
+
 from kntgraph.core.event import (
     CorrelationContext,
     Event,
     correlation_middleware,
 )
+from kntgraph.core.result import Ok, Result, ToolError
 from kntgraph.core.world import World
 from kntgraph.infra.redis import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
@@ -44,10 +47,6 @@ from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
-
-from _lib.redis_or_fake import make_redis_client
-
-from kntgraph.core.result import Ok, Result, ToolError
 
 
 # 1. Define a tool using the @tool_worker decorator

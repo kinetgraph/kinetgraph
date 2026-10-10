@@ -46,7 +46,6 @@ from pathlib import Path
 
 from packaging.version import InvalidVersion, Version
 
-
 # Tag scheme. Must match the ``tag_regex`` in
 # ``[tool.setuptools_scm]`` (``pyproject.toml``).
 _TAG_PREFIX = "v"
@@ -134,7 +133,7 @@ def _next_version(current: Version, level: str) -> Version:
     return Version(raw)
 
 
-def _tag_exists(tag: str, *, cwd: "Path | None" = None) -> bool:
+def _tag_exists(tag: str, *, cwd: Path | None = None) -> bool:
     """True when ``tag`` already exists locally.
 
     ``cwd`` is the directory to run ``git`` in; it
@@ -152,7 +151,7 @@ def _tag_exists(tag: str, *, cwd: "Path | None" = None) -> bool:
     return tag in result.stdout.splitlines()
 
 
-def _create_tag(tag: str, *, cwd: "Path | None" = None) -> None:
+def _create_tag(tag: str, *, cwd: Path | None = None) -> None:
     """Create an annotated tag. Raises ``SystemExit``
     if the tag already exists locally (the operator
     must decide whether to delete the existing

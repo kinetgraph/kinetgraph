@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 def verify_aggregate_concat(
     batch: BatchSignature,
     *,
-    key_registry: "KeyRegistry | None" = None,
+    key_registry: KeyRegistry | None = None,
 ) -> bool:
     """Verify a concat-v1 batch of per-event signatures.
 
@@ -68,7 +68,7 @@ def verify_aggregate_concat(
 def _verify_entry(
     entry: BatchEntry,
     *,
-    key_registry: "KeyRegistry | None",
+    key_registry: KeyRegistry | None,
 ) -> bool:
     """Verify a single ``BatchEntry``.
 
@@ -86,30 +86,24 @@ def _verify_entry(
         return False
     try:
         bytes_to_verify = canonical_event_bytes(entry.event)
-    except Exception:
-        return False
-    try:
         sig_bytes = base64.urlsafe_b64decode(sig.sig + "=" * (-len(sig.sig) % 4))
-    except Exception:
-        return False
-    raw_pub = cast(
-        Ed25519PublicKey,
-        getattr(entry.public_key, "_key", entry.public_key),
-    )
-    if not hasattr(raw_pub, "verify"):
-        return False
-    try:
+        raw_pub = cast(
+            Ed25519PublicKey,
+            getattr(entry.public_key, "_key", entry.public_key),
+        )
+        if not hasattr(raw_pub, "verify"):
+            return False
         raw_pub.verify(sig_bytes, bytes_to_verify)
-    except Exception:  # noqa: BLE001 - intentional
+        return True
+    except Exception:  # noqa: BLE001 — cryptographic boundary fail-closed safety
         return False
-    return True
 
 
 def _is_revoked(
     sig: Signature,
     *,
-    event: "Event",
-    key_registry: "KeyRegistry",
+    event: Event,
+    key_registry: KeyRegistry,
 ) -> bool:
     """True iff ``(agent_id, key_epoch)`` is revoked. Any
     exception from the registry is treated as "revoked"
@@ -119,12 +113,12 @@ def _is_revoked(
         from kntgraph.security.signing._verify import _epoch
 
         return key_registry.is_revoked(event.agent_id, _epoch(sig.key_epoch))
-    except Exception:
+    except Exception:  # noqa: BLE001 — security boundary fail-closed on any error
         return True
 
 
 def aggregate_concat(
-    signatures_and_events: list[tuple[Signature, "Event", "Ed25519PublicKeyWrapper"]],
+    signatures_and_events: list[tuple[Signature, Event, Ed25519PublicKeyWrapper]],
 ) -> BatchSignature:
     """Build a ``BatchSignature`` (concat-v1) from per-event triples.
 

@@ -20,16 +20,12 @@ testability.
 
 from __future__ import annotations
 
-from types import MappingProxyType
-
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
-
 from kntgraph.agents.memory.solution_review_publisher import (
     ReviewPublisherStats,
     SolutionReviewPublisherSystem,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 
 
 def _candidate_event(
@@ -43,17 +39,15 @@ def _candidate_event(
         event_type="solution.candidate_extracted",
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(
-            {
-                "request_event_id": request_event_id,
-                "tool_name": tool_name,
-                "params": {"tool": tool_name},
-                "requested_at": "2026-06-30T12:00:00+00:00",
-                "completion_status": "completed",
-                "latency_ms": 100.0,
-                "cross_agent_count": cross_agent_count,
-            }
-        ),
+        data={
+            "request_event_id": request_event_id,
+            "tool_name": tool_name,
+            "params": {"tool": tool_name},
+            "requested_at": "2026-06-30T12:00:00+00:00",
+            "completion_status": "completed",
+            "latency_ms": 100.0,
+            "cross_agent_count": cross_agent_count,
+        },
         correlation=CorrelationContext.new(),
     )
 

@@ -47,10 +47,11 @@ After enabling L3:
 @dataclass(frozen=True, slots=True)
 class CacheEntry:
     event_id: UUID
-    pubkey_fingerprint: str   # sha256(pk)[:16]
-    policy_hash: str          # sha256(policy)[:16]
-    verified_at: float        # unix_ms
+    pubkey_fingerprint: str  # sha256(pk)[:16]
+    policy_hash: str  # sha256(policy)[:16]
+    verified_at: float  # unix_ms
     verdict: bool
+
 
 class VerificationCache(Protocol):
     def get(self, event_id: UUID) -> Optional[CacheEntry]: ...
@@ -77,11 +78,11 @@ authoritative source — it is a perf optimisation.
 @dataclass(frozen=True, slots=True)
 class Anchor:
     agent_id: str
-    epoch: int                # monotonic per agent_id
-    range_start: int          # stream index of first event in this anchor
-    range_end: int            # stream index of last event in this anchor
-    chain_hash: str           # sha256(prev_chain || canonical_event_bytes(e_i))
-    signature: Signature      # signed by long_term_key
+    epoch: int  # monotonic per agent_id
+    range_start: int  # stream index of first event in this anchor
+    range_end: int  # stream index of last event in this anchor
+    chain_hash: str  # sha256(prev_chain || canonical_event_bytes(e_i))
+    signature: Signature  # signed by long_term_key
     created_at: datetime
 ```
 
@@ -120,8 +121,7 @@ class RetroEditingDetector:
         self,
         agent_id: str,
         from_epoch: int = 0,
-    ) -> list[Divergence]:
-        ...
+    ) -> list[Divergence]: ...
 ```
 
 A `Divergence` carries:
@@ -259,12 +259,14 @@ from kntgraph.security.anchor import (
 )
 from kntgraph.security.detector import RetroEditingDetector
 
+
 async def main():
     redis = aioredis.from_url("redis://localhost:6379")
     long_term_registry = InMemoryKeyRegistry()
     long_term_priv, _ = generate_keypair()
     long_term_registry.register(
-        agent_id="anchor:session-42", priv=long_term_priv,
+        agent_id="anchor:session-42",
+        priv=long_term_priv,
     )
 
     anchor = HashChainAnchor(long_term_registry)
@@ -293,6 +295,7 @@ async def main():
         print(f"  actual:   {d.actual_canonical_bytes[:80]}")
 
     await redis.aclose()
+
 
 asyncio.run(main())
 ```
@@ -453,9 +456,7 @@ def verify_chain(anchors, stream_entries, pubkey):
             return False, f"signature failed at epoch {anchor.epoch}"
 
         # Recompute chain hash
-        events_in_range = stream_entries[
-            anchor.range_start : anchor.range_end + 1
-        ]
+        events_in_range = stream_entries[anchor.range_start : anchor.range_end + 1]
         chain_hash = prev_chain
         for entry in events_in_range:
             event = parse_event(entry)
@@ -512,17 +513,22 @@ run it daily (cron), alert on any non-empty result.
 def test_cache_hit_returns_cached_verdict():
     """Second verify with same event_id is fast (< 5µs)."""
 
+
 def test_cache_ttl_expiry_reverifies():
     """After TTL, entry is re-verified (fresh verdict)."""
+
 
 def test_anchor_chain_verifies_end_to_end():
     """10 events → 1 anchor → verify chain_hash from events."""
 
+
 def test_retroactive_edit_detected():
     """Mutate event in Stream after anchor; detector flags it."""
 
+
 def test_long_term_key_rotation_preserves_history():
     """Old anchor signed under rotated key still verifies."""
+
 
 def test_audit_api_returns_canonical_chain():
     """GET /agents/{id}/anchors returns JCS-canonical JSON."""

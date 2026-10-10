@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import uuid4
 
 import fakeredis.aioredis
 import pytest
 
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Err
 from kntgraph.core.world import World
 from kntgraph.infra.redis import RedisEventLogAdapter
@@ -33,7 +33,7 @@ def _dummy_event() -> Event:
         agent_id="test.agent",
         event_class="domain",
         data={},
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
         correlation=CorrelationContext(causation_id=uuid4(), correlation_id=uuid4()),
     )
 
@@ -131,7 +131,7 @@ class TestRunnerIncrementalFold:
             agent_id="test.agent",
             event_class="domain",
             data={"counter": 2},
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             correlation=CorrelationContext(
                 causation_id=uuid4(), correlation_id=uuid4()
             ),

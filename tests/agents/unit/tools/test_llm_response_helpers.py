@@ -17,14 +17,12 @@ extraction steps out of the constructor.
 
 from __future__ import annotations
 
-
 from kntgraph.agents.tools.llm import (
+    LLMUsage,
     _convert_to_raw_dict,
     _parse_message,
     _parse_usage,
-    LLMUsage,
 )
-
 
 # ---------------------------------------------------------------------------
 # _parse_message

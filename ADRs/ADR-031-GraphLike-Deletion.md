@@ -42,7 +42,9 @@ A partir desta migração, `GraphLike` ficou sem consumidores:
 class GraphLike(Protocol):
     """Shape of a FalkorDB Graph handle (sync only)."""
 
-    def query(self, cypher: str, params: Mapping[str, ValidatorInput] | None = None): ...
+    def query(
+        self, cypher: str, params: Mapping[str, ValidatorInput] | None = None
+    ): ...
 ```
 
 Diferenças em relação a `GraphAdapter`:

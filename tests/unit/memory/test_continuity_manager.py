@@ -41,7 +41,6 @@ from kntgraph.memory.continuity.manager import (
 )
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -298,7 +297,7 @@ class TestClear:
     async def test_clear_sets_cleared_at(self, manager, correlation_ctx):
         await manager.create("t-1", "u-1")
         await manager.clear("t-1", "u-1")
-        state = await manager.read("t-1", "u-1")
+        state = (await manager.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.is_cleared() is True
 
@@ -317,11 +316,11 @@ class TestClear:
 
 class TestRead:
     async def test_read_none_for_unknown(self, manager):
-        assert await manager.read("t-1", "u-1") is None
+        assert (await manager.read("t-1", "u-1")).ok_value() is None
 
     async def test_read_returns_state_after_create(self, manager, correlation_ctx):
         await manager.create("t-1", "u-1")
-        state = await manager.read("t-1", "u-1")
+        state = (await manager.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.tenant_id == "t-1"
         assert state.user_id == "u-1"
@@ -335,7 +334,7 @@ class TestRead:
 
 class TestListForTenant:
     async def test_list_empty_for_unknown_tenant(self, manager):
-        result = await manager.list_for_tenant("no-such-tenant")
+        result = (await manager.list_for_tenant("no-such-tenant")).ok_value()
         assert result == []
 
     async def test_list_returns_states_for_tenant(self, manager, correlation_ctx):
@@ -343,7 +342,7 @@ class TestListForTenant:
         await manager.create("t-1", "u-2")
         await manager.create("t-2", "u-1")
 
-        result = await manager.list_for_tenant("t-1")
+        result = (await manager.list_for_tenant("t-1")).ok_value()
 
         assert len(result) == 2
         user_ids = {s.user_id for s in result}
@@ -353,7 +352,7 @@ class TestListForTenant:
         for i in range(5):
             await manager.create("t-1", f"u-{i}")
 
-        result = await manager.list_for_tenant("t-1", limit=2)
+        result = (await manager.list_for_tenant("t-1", limit=2)).ok_value()
         assert len(result) == 2
 
 
@@ -364,12 +363,12 @@ class TestListForTenant:
 
 class TestRecencySuggest:
     async def test_suggest_none_for_unknown(self, manager):
-        assert await manager.recency_suggest("t-1", "u-1", "cfop") is None
+        assert (await manager.recency_suggest("t-1", "u-1", "cfop")).ok_value() is None
 
     async def test_suggest_returns_last_category(self, manager, correlation_ctx):
         await manager.create("t-1", "u-1")
         await manager.record_category_chosen("t-1", "u-1", slot="cfop", value="6.102")
-        result = await manager.recency_suggest("t-1", "u-1", "cfop")
+        result = (await manager.recency_suggest("t-1", "u-1", "cfop")).ok_value()
         assert result is not None
         assert result.startswith("6.102")
 
@@ -377,12 +376,12 @@ class TestRecencySuggest:
         await manager.create("t-1", "u-1")
         await manager.record_category_chosen("t-1", "u-1", slot="cfop", value="6.102")
         await manager.clear("t-1", "u-1")
-        assert await manager.recency_suggest("t-1", "u-1", "cfop") is None
+        assert (await manager.recency_suggest("t-1", "u-1", "cfop")).ok_value() is None
 
     async def test_suggest_none_for_unknown_slot(self, manager, correlation_ctx):
         await manager.create("t-1", "u-1")
         await manager.record_category_chosen("t-1", "u-1", slot="cfop", value="6.102")
-        assert await manager.recency_suggest("t-1", "u-1", "cst") is None
+        assert (await manager.recency_suggest("t-1", "u-1", "cst")).ok_value() is None
 
 
 # ---------------------------------------------------------------------------
@@ -400,15 +399,15 @@ class TestWriteCacheAndRefresh:
             created_at=100.0,
             updated_at=200.0,
         )
-        await manager.write_cache("t-1", "u-1", state)
-        read_back = await manager.read("t-1", "u-1")
+        (await manager.write_cache("t-1", "u-1", state)).is_ok()
+        read_back = (await manager.read("t-1", "u-1")).ok_value()
         assert read_back is not None
         assert read_back.created_at == 100.0
 
     async def test_refresh_cache_rebuilds_from_log(self, manager, correlation_ctx):
         await manager.create("t-1", "u-1")
-        await manager.refresh_cache("t-1", "u-1")
-        state = await manager.read("t-1", "u-1")
+        (await manager.refresh_cache("t-1", "u-1")).is_ok()
+        state = (await manager.read("t-1", "u-1")).ok_value()
         assert state is not None
         assert state.tenant_id == "t-1"
         assert state.user_id == "u-1"
@@ -450,5 +449,5 @@ class TestErrorPaths:
                 return getattr(self._real, name)
 
         manager._storage = FakeStorage(manager._storage)  # type: ignore[assignment]
-        state = await manager.read("t-1", "u-1")
+        state = (await manager.read("t-1", "u-1")).ok_value()
         assert state is None  # base.read falls back to fold, which returns None

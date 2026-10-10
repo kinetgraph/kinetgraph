@@ -56,14 +56,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING
 
 import structlog
 
 from ..embedding.provider import EmbeddingProvider
 from ..graph._sub._document import GraphDocumentAdapter
 from ..graph._sub._solution import GraphSolutionAdapter
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kntgraph.infra.graph import GraphPool
@@ -109,9 +108,9 @@ class SolutionResult:
     action_params_example: dict
     tool_name: str
     outcome_status: str
-    latency_ms: Optional[float]
+    latency_ms: float | None
     confidence: int
-    last_validated_at: Optional[str]
+    last_validated_at: str | None
     score: float
 
 
@@ -153,7 +152,15 @@ class GraphRAGRetriever:
         doc_adapter = GraphDocumentAdapter(graph)
         try:
             rows = await doc_adapter.vector_search(query_embedding=query_embedding, k=k)
-        except Exception as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.vector_search.failed",
                 error=str(e),
@@ -190,8 +197,8 @@ class GraphRAGRetriever:
         self,
         query_embedding: list[float],
         *,
-        tags: Optional[dict[str, str]] = None,
-        tool_name: Optional[str] = None,
+        tags: dict[str, str] | None = None,
+        tool_name: str | None = None,
         k: int = 5,
         status: str = "completed",
     ) -> list[SolutionResult]:
@@ -236,7 +243,15 @@ class GraphRAGRetriever:
                 tool_name=tool_name,
                 status=status,
             )
-        except Exception as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.find_solutions_by_problem.failed",
                 error=str(e),
@@ -270,7 +285,7 @@ class GraphRAGRetriever:
         self,
         tool_name: str,
         *,
-        tags: Optional[dict[str, str]] = None,
+        tags: dict[str, str] | None = None,
         k: int = 5,
         status: str = "completed",
     ) -> list[SolutionResult]:
@@ -298,7 +313,15 @@ class GraphRAGRetriever:
                 tags=tags,
                 status=status,
             )
-        except Exception as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "graphrag.find_solutions_by_tool.failed",
                 error=str(e),

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # production value); tests can pass mocks and the
 # runtime check is satisfied via attribute access.
 def _entities_to_tags(
-    entities: Iterable["_EntityT"],
+    entities: Iterable[_EntityT],
 ) -> dict[str, str]:
     """
     Convert a list of `Entity` to the framework's

@@ -6,8 +6,9 @@
 Unit tests for ArchetypeStorage.
 """
 
-import pytest
 from dataclasses import dataclass
+
+import pytest
 
 from kntgraph.core.archetype import ArchetypeId
 from kntgraph.core.storage import ArchetypeStorage

@@ -293,6 +293,7 @@ imports the function from here and uses it.
 # Defined in this ADR's module; exported.
 RESTORE_POINT_TAG_PREFIX = "restore_point_snap_"
 
+
 def make_restore_point_tag(snapshot_id: int) -> str:
     """Return the canonical restore-point tag name for a
     given Iceberg snapshot ID. The 057 `ice_offload_tick`

@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.memory.profile import (
     ProfileEventType,
     _fold_profile_events,

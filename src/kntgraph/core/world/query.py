@@ -39,7 +39,7 @@ are convenience consumers over the lazy iterator.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from typing import TYPE_CHECKING, Optional, Type, Union
+from typing import TYPE_CHECKING, Union
 
 from .view import AgentView
 
@@ -63,13 +63,13 @@ class WorldQuery:
     present) and supports an arbitrary predicate over the AgentView.
     """
 
-    __slots__ = ("_views", "_predicate")
+    __slots__ = ("_predicate", "_views")
 
     def __init__(
         self,
         world_or_views: WorldOrViews,
-        *component_types: Type,
-        predicate: Optional[Callable[[AgentView], bool]] = None,
+        *component_types: type,
+        predicate: Callable[[AgentView], bool] | None = None,
     ) -> None:
         """
         Build a WorldQuery.
@@ -113,7 +113,7 @@ class WorldQuery:
 
     @staticmethod
     def _make_type_filter(
-        types: tuple[Type, ...],
+        types: tuple[type, ...],
     ) -> Callable[[AgentView], bool]:
         def _filter(view: AgentView) -> bool:
             for t in types:
@@ -134,7 +134,7 @@ class WorldQuery:
     def filter(
         self,
         predicate: Callable[[AgentView], bool],
-    ) -> "WorldQuery":
+    ) -> WorldQuery:
         """Return a new WorldQuery with the predicate
         AND-composed with the existing one."""
         old = self._predicate
@@ -143,7 +143,7 @@ class WorldQuery:
             predicate=lambda v: old(v) and predicate(v),
         )
 
-    def first(self) -> Optional[tuple[str, AgentView]]:
+    def first(self) -> tuple[str, AgentView] | None:
         return next(iter(self), None)
 
     def count(self) -> int:

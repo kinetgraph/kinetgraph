@@ -60,14 +60,14 @@ class SagaTimeoutSystem:
 
     def __init__(
         self,
-        configs: "Mapping[str, SagaConfig]",
+        configs: Mapping[str, SagaConfig],
         *,
-        now: "Clock | None" = None,
+        now: Clock | None = None,
     ) -> None:
         self._configs = configs
         self._now = injectable_clock(now)
 
-    def __call__(self, world: "World") -> list["Event"]:
+    def __call__(self, world: World) -> list[Event]:
         now = self._now()
         out: list[Event] = []
         for _agent_id, view in world.query_agents(SagaProgressComponent):
@@ -91,13 +91,13 @@ class SagaTimeoutSystem:
 
     def _saga_timeout_event(
         self,
-        view: "AgentView",
+        view: AgentView,
         saga: SagaProgressComponent,
         config: SagaConfig,
         elapsed_ms: float,
-    ) -> "Event":
+    ) -> Event:
         """Build the saga-level ``saga.<name>.timed_out`` event."""
-        data: dict[str, "JsonValue"] = {
+        data: dict[str, JsonValue] = {
             "saga_id": saga.saga_id,
             "elapsed_ms": elapsed_ms,
             "stuck_at_step": saga.current_step,
@@ -124,11 +124,11 @@ class SagaTimeoutSystem:
 
     def _approval_timeout_events(
         self,
-        view: "AgentView",
+        view: AgentView,
         saga: SagaProgressComponent,
         config: SagaConfig,
-        now: "datetime",
-    ) -> list["Event"]:
+        now: datetime,
+    ) -> list[Event]:
         """Build the per-step approval-timeout events for human
         steps that exceeded their ``approval_timeout_ms``."""
         out: list[Event] = []
@@ -143,7 +143,7 @@ class SagaTimeoutSystem:
             step_elapsed_ms = (now - awaiting_at).total_seconds() * 1000
             if step_elapsed_ms <= step_cfg.approval_timeout_ms:
                 continue
-            data: dict[str, "JsonValue"] = {
+            data: dict[str, JsonValue] = {
                 "saga_id": saga.saga_id,
                 "step_name": step_cfg.name,
                 "elapsed_ms": step_elapsed_ms,

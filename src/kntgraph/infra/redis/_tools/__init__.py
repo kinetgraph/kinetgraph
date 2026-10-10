@@ -15,7 +15,6 @@ Public API
 
 from ._keys import TOOL_QUEUE_KEY_TEMPLATE, tool_queue_key
 
-
 __all__ = [
     "TOOL_QUEUE_KEY_TEMPLATE",
     "tool_queue_key",

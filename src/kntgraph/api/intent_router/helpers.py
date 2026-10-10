@@ -49,8 +49,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from typing import Any, Optional
-
+from typing import Any
 
 # UUID5 namespace for intent event_ids. Stable across
 # processes; clients can recompute it for verification.
@@ -83,7 +82,7 @@ _MAX_IDEMPOTENCY_KEY_LEN = 128
 _IDEMPOTENCY_KEY_BAD_CHARS = re.compile(r"[\x00-\x1f\x7f\u200b-\u200f\u2028-\u202f]")
 
 
-def _sanitize_idempotency_key(raw: Optional[str]) -> str:
+def _sanitize_idempotency_key(raw: str | None) -> str:
     """
     Validate and normalise the ``Idempotency-Key``
     header value before it flows into the event_id
@@ -121,7 +120,7 @@ def _sanitize_idempotency_key(raw: Optional[str]) -> str:
     if raw is None:
         return ""
     if not isinstance(raw, str):
-        raise ValueError(f"Idempotency-Key must be a string, got {type(raw).__name__}")
+        raise ValueError(f"Idempotency-Key must be a string, got {type(raw).__name__}")  # noqa: TRY004
     if not raw or not raw.strip():
         return ""
     if len(raw) > _MAX_IDEMPOTENCY_KEY_LEN:

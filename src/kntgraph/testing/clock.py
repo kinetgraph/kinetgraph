@@ -19,7 +19,7 @@ canonical date is consistent across the test suite.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 __all__ = ["fixed_now"]
 
@@ -28,7 +28,7 @@ __all__ = ["fixed_now"]
 # only its stability across a test run matters. Tests that
 # need to assert on a relative timestamp (e.g. "expired 6
 # minutes ago") compute ``fixed_now() - timedelta(...)``.
-_FIXED_NOW: datetime = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+_FIXED_NOW: datetime = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 def fixed_now() -> datetime:

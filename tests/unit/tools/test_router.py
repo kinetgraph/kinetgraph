@@ -36,7 +36,6 @@ import pytest_asyncio
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.tools.router import ToolRouter
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -137,7 +136,7 @@ class TestRouteBatch:
         redis_mock.xadd.assert_not_awaited()
 
     async def test_continues_after_xadd_error(self, router, redis_mock, caplog):
-        redis_mock.xadd = AsyncMock(side_effect=Exception("redis down"))
+        redis_mock.xadd = AsyncMock(side_effect=ConnectionError("redis down"))
         e1 = _make_canonical_requested("agent-1", "echo")
         e2 = _make_canonical_requested("agent-1", "ocr")
 

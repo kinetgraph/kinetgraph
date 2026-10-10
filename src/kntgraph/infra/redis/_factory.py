@@ -33,10 +33,11 @@ from __future__ import annotations
 
 from kntgraph.infra.config import Settings, fresh_settings
 
+from ._auth import APIKeyStorage, RedisAPIKeyStorage
 from ._client import RedisLike
 from ._dlq import MAXLEN_DEFAULT as DLQ_MAXLEN_DEFAULT
 from ._dlq import RedisDLQStorage
-from ._event_log import EventLogStorage, MAXLEN_DEFAULT, RedisEventLogAdapter
+from ._event_log import MAXLEN_DEFAULT, EventLogStorage, RedisEventLogAdapter
 from ._memory import (
     RedisContinuityStorage,
     RedisProfileStorage,
@@ -45,7 +46,6 @@ from ._memory import (
     ShortMemoryStorage,
 )
 from ._pool import RedisPool
-from ._auth import APIKeyStorage, RedisAPIKeyStorage
 
 
 def _resolve_client(
@@ -289,12 +289,11 @@ def create_api_key_storage(
 
 
 __all__ = [
+    "create_api_key_storage",
     "create_continuity_storage",
     "create_dlq_storage",
     "create_event_log_storage",
     "create_profile_storage",
     "create_session_storage",
     "create_solution_storage",
-    "create_api_key_storage",
-    "create_dlq_storage",
 ]

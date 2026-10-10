@@ -178,7 +178,7 @@ async with self._redis.pipeline(transaction=True) as pipe:
     pipe.delete(key)
     pipe.hset(key, mapping=payload)
     if ttl:
-        pipe.expire(key, ttl)         # sliding: renova a cada write
+        pipe.expire(key, ttl)  # sliding: renova a cada write
     await pipe.execute()
 ```
 

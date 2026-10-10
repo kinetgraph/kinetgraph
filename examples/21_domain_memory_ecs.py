@@ -17,11 +17,9 @@ framework how to hydrate it.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import DomainComponent, World, domain_component
-
 
 # =====================================================================
 # 1. Define the Domain Component (ECS Auto-Registered)
@@ -86,7 +84,7 @@ def main() -> None:
         return
 
     # Extract the component with perfect type-safety
-    comp: Optional[CompanySizeProjection] = view.get_component(CompanySizeProjection)
+    comp: CompanySizeProjection | None = view.get_component(CompanySizeProjection)
 
     if comp:
         print(f"Success! The agent's company size is permanently: {comp.company_size}")

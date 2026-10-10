@@ -21,12 +21,11 @@ See: ADR-018 — WorldIncremental + WorldSystem.
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
-from kntgraph.core.event import CorrelationContext
 
 import pytest
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.runner.runner import Runner
 from kntgraph.stream.event_log import EventLog

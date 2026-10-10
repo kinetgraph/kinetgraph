@@ -100,7 +100,7 @@ class Describable(Protocol):
 
     name: str
     description: str
-    input_schema: dict[str, "JsonValue"]
+    input_schema: dict[str, JsonValue]
 
 
 # ---------------------------------------------------------------------------
@@ -113,12 +113,12 @@ class Describable(Protocol):
 # ``Callable[Dog, ...]`` caller (wider input = safe).
 # ``T_out`` is covariant: a ``Callable[..., Dog]``
 # is a ``Callable[..., Animal]`` (narrower output = safe).
-T_in = TypeVar("T_in", contravariant=True)
-T_out = TypeVar("T_out", covariant=True)
+T_in_contra = TypeVar("T_in_contra", contravariant=True)
+T_out_co = TypeVar("T_out_co", covariant=True)
 
 
 @runtime_checkable
-class Callable(Protocol[T_in, T_out]):
+class Callable(Protocol[T_in_contra, T_out_co]):
     """
     An object that can be called asynchronously with a
     payload.
@@ -142,7 +142,7 @@ class Callable(Protocol[T_in, T_out]):
     (Python's ``@runtime_checkable`` constraint).
     """
 
-    async def __call__(self, payload: T_in) -> T_out: ...
+    async def __call__(self, payload: T_in_contra) -> T_out_co: ...
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ class Tool(Describable, Protocol[R]):
 
     name: str
     description: str
-    input_schema: dict[str, "JsonValue"]
+    input_schema: dict[str, JsonValue]
 
     async def invoke(
         self,

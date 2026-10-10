@@ -132,6 +132,7 @@ class FSMAuditComponent:
     EventLog between the cursor and the new
     ``last_event_id`` (§3.4).
     """
+
     from_state: str
     to_state: str
     trigger_event_type: str
@@ -277,9 +278,7 @@ def __call__(self, world: "World") -> list[Event]:
 
         # Delta-scan: re-derive triggers between
         # cursor_id+1 and last_id from the EventLog.
-        triggers = self._resolve_triggers(
-            view, cursor_id, last_id, world.event_log
-        )
+        triggers = self._resolve_triggers(view, cursor_id, last_id, world.event_log)
         for trigger in triggers:
             out.extend(self._emit_transition(view, trigger))
     return out
@@ -329,8 +328,12 @@ operational namespace events. The four event types:
 Event.domain_from(
     agent_id=trigger.agent_id,
     type="fsm.transitioned",
-    data={"from": from_state, "to": to_state,
-          "trigger": trigger.event_type, "trigger_event_id": str(trigger.event_id)},
+    data={
+        "from": from_state,
+        "to": to_state,
+        "trigger": trigger.event_type,
+        "trigger_event_id": str(trigger.event_id),
+    },
     causation_id=trigger.event_id,
     correlation=trigger.correlation,
 )
@@ -365,64 +368,61 @@ class BusinessFSMConcordo:
     projections: tuple["WorldProjection", ...] = field(init=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "name",
-            f"fsm:{self.config.component_type.__name__}"
-        )
+        object.__setattr__(self, "name", f"fsm:{self.config.component_type.__name__}")
         object.__setattr__(self, "systems", (FSMSystem(self.config),))
-        object.__setattr__(
-            self, "projections", (FSMProjection(self.config),)
-        )
+        object.__setattr__(self, "projections", (FSMProjection(self.config),))
 ```
 
 ### 3.6 Example — invoice lifecycle
 
 ```python
 from kntgraph.concordos.fsm import (
-    BusinessFSMConcordo, FSMConfig, FSMTransition,
+    BusinessFSMConcordo,
+    FSMConfig,
+    FSMTransition,
 )
 from kntgraph.concordos.specs import ContinuityToolUsed
 from fmh_office.concordos.specs import NfeRequired
 from fmh_office.components import InvoiceDomainComponent
 
 
-invoice_fsm = BusinessFSMConcordo(FSMConfig(
-    component_type=InvoiceDomainComponent,
-    state_field="status",
-    transitions={
-        "draft": {
-            "invoice.submitted": FSMTransition(to="validating"),
-        },
-        "validating": {
-            "invoice.approved": FSMTransition(
-                to="issued",
-                guard=NfeRequired().and_(
-                    ContinuityToolUsed("nfe_emitter").not_()
+invoice_fsm = BusinessFSMConcordo(
+    FSMConfig(
+        component_type=InvoiceDomainComponent,
+        state_field="status",
+        transitions={
+            "draft": {
+                "invoice.submitted": FSMTransition(to="validating"),
+            },
+            "validating": {
+                "invoice.approved": FSMTransition(
+                    to="issued",
+                    guard=NfeRequired().and_(ContinuityToolUsed("nfe_emitter").not_()),
                 ),
-            ),
-            "invoice.approved_bypass": FSMTransition(
-                to="issued",
-                guard=NfeRequired().not_(),
-            ),
-            "invoice.rejected": FSMTransition(to="draft"),
+                "invoice.approved_bypass": FSMTransition(
+                    to="issued",
+                    guard=NfeRequired().not_(),
+                ),
+                "invoice.rejected": FSMTransition(to="draft"),
+            },
+            "issued": {
+                "payment.received": FSMTransition(to="paid"),
+                "invoice.cancelled": FSMTransition(to="cancelled"),
+                "invoice.overdue": FSMTransition(to="overdue"),
+            },
+            "overdue": {
+                "payment.received": FSMTransition(to="paid"),
+                "invoice.cancelled": FSMTransition(to="cancelled"),
+            },
         },
-        "issued": {
-            "payment.received":   FSMTransition(to="paid"),
-            "invoice.cancelled":  FSMTransition(to="cancelled"),
-            "invoice.overdue":    FSMTransition(to="overdue"),
+        on_entry={
+            "issued": "invoice.issuance_confirmed",
+            "paid": "invoice.payment_confirmed",
+            "cancelled": "invoice.cancellation_confirmed",
         },
-        "overdue": {
-            "payment.received":   FSMTransition(to="paid"),
-            "invoice.cancelled":  FSMTransition(to="cancelled"),
-        },
-    },
-    on_entry={
-        "issued":    "invoice.issuance_confirmed",
-        "paid":      "invoice.payment_confirmed",
-        "cancelled": "invoice.cancellation_confirmed",
-    },
-    terminal=frozenset({"paid", "cancelled"}),
-))
+        terminal=frozenset({"paid", "cancelled"}),
+    )
+)
 ```
 
 The guard reads: "approve the issuance iff NF-e is
@@ -466,9 +466,7 @@ def test_fsm_allows_valid_transition() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world
-    )
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     types = [e.event_type for e in out]
     assert "fsm.transitioned" in types
     assert "invoice.issuance_confirmed" in types
@@ -483,9 +481,7 @@ def test_fsm_rejects_terminal_state() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world
-    )
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     assert len(out) == 1
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "terminal_state"
@@ -509,9 +505,7 @@ def test_fsm_guard_blocks_when_nfe_emitter_was_last() -> None:
         .build()
     )
     world = WorldBuilder().with_agent(view).build()
-    out = run_system(
-        FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world
-    )
+    out = run_system(FSMSystem(invoice_fsm.config, now=lambda: FIXED_NOW), world)
     assert out[0].event_type == "fsm.transition_rejected"
     assert out[0].data["reason"] == "guard_failed"
 

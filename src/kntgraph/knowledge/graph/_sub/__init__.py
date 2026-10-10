@@ -99,7 +99,6 @@ from ._document import GraphDocumentAdapter
 from ._solution import GraphSolutionAdapter
 from ._tool_call import GraphToolCallAdapter
 
-
 __all__ = [
     "GraphAgentAdapter",
     "GraphDocumentAdapter",

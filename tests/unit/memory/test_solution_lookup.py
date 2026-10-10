@@ -21,8 +21,7 @@ Covers:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -37,7 +36,6 @@ from kntgraph.agents.memory.solution_lookup import (
 from kntgraph.core.world import AgentView, World
 from kntgraph.core.world.components import ToolCallRequest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -46,14 +44,14 @@ from kntgraph.core.world.components import ToolCallRequest
 def _make_request(
     *,
     tool_name: str = "weather_api",
-    params: Optional[dict] = None,
+    params: dict | None = None,
     correlation_id=None,
 ) -> ToolCallRequest:
     if params is None:
         params = {"city": "São Paulo", "country": "BR"}
     if correlation_id is None:
         correlation_id = uuid4()
-    now = datetime.now(tz=timezone.utc)
+    now = datetime.now(tz=UTC)
     return ToolCallRequest(
         request_event_id=str(uuid4()),
         tool_name=tool_name,
@@ -449,7 +447,7 @@ class _BrokenStore:
         tool_name: str,
         params_fingerprint: str,
         min_confidence: int,
-    ) -> Optional[CachedSolution]:
+    ) -> CachedSolution | None:
         raise ConnectionError("store down")
 
 

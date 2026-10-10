@@ -9,7 +9,7 @@ Tests for ToolAwareSystem.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.core.world.view import AgentView
@@ -48,16 +48,15 @@ def test_tool_aware_system_getters():
         tool_name="math_doubler",
         agent_id="a-1",
         params={"x": 2},
-        requested_at=datetime.now(timezone.utc),
-        expires_at=datetime.now(timezone.utc)
-        + __import__("datetime").timedelta(seconds=300),
+        requested_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + __import__("datetime").timedelta(seconds=300),
     )
 
     comp = ToolCallCompletion(
         request_event_id=req_id,
         status="completed",
         result={"value": 4},
-        completed_at=datetime.now(timezone.utc),
+        completed_at=datetime.now(UTC),
         latency_ms=100.0,
     )
 
@@ -91,9 +90,8 @@ def test_tool_aware_system_pending_state():
         tool_name="pii_redactor",
         agent_id="a-1",
         params={"text": "John"},
-        requested_at=datetime.now(timezone.utc),
-        expires_at=datetime.now(timezone.utc)
-        + __import__("datetime").timedelta(seconds=300),
+        requested_at=datetime.now(UTC),
+        expires_at=datetime.now(UTC) + __import__("datetime").timedelta(seconds=300),
     )
 
     view = AgentView(

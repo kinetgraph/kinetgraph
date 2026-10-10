@@ -54,7 +54,6 @@ from kntgraph.core.result import Err, Ok, Result
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.worker import tool_worker
 
-
 # ---------------------------------------------------------------------------
 # A minimal in-process EventLog. Production code uses
 # the framework's `EventLog` (Redis Streams); for the

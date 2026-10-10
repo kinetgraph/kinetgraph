@@ -33,8 +33,6 @@ modules that touch Redis or build events.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
-
 
 CONTINUITY_KEY_PREFIX = "knt:continuity:"
 
@@ -42,7 +40,7 @@ CONTINUITY_KEY_PREFIX = "knt:continuity:"
 # in ``Settings.continuity_ttl_seconds`` (90 days,
 # sliding); this constant is kept for downstream code
 # that imported it.
-DEFAULT_TTL_SECONDS: Optional[int] = 90 * 24 * 3600
+DEFAULT_TTL_SECONDS: int | None = 90 * 24 * 3600
 
 # Maximum length of the stored value component (result_signature,
 # tool name, etc.) before truncation in the cache. Defensive
@@ -76,7 +74,7 @@ class ContinuityState:
     last_categories: dict[str, str] = field(default_factory=dict)
     created_at: float = 0.0
     updated_at: float = 0.0
-    cleared_at: Optional[float] = None
+    cleared_at: float | None = None
 
     def is_cleared(self) -> bool:
         return self.cleared_at is not None
@@ -84,8 +82,8 @@ class ContinuityState:
 
 __all__ = [
     "CONTINUITY_KEY_PREFIX",
-    "ContinuityEventType",
-    "ContinuityState",
     "DEFAULT_TTL_SECONDS",
     "MAX_FIELD_VALUE_LEN",
+    "ContinuityEventType",
+    "ContinuityState",
 ]

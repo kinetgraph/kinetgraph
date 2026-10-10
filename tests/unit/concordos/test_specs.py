@@ -14,8 +14,7 @@ They verify purity (no I/O, no mutation), composability
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from types import MappingProxyType
+from datetime import UTC, datetime
 
 import pytest
 
@@ -36,7 +35,7 @@ from kntgraph.concordos import (
 from kntgraph.core.components.memory import ContinuityComponent, ProfileComponent
 from kntgraph.core.world import DomainComponent, World
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +61,8 @@ def _ctx(
     ``None``); tests can pass an explicit resolver.
     """
     return StepContext(
-        step_results=MappingProxyType(step_results or {}),
-        step_states=MappingProxyType(step_states or {}),
+        step_results=step_results or {},
+        step_states=step_states or {},
         domain=domain,
         continuity=continuity,
         profile=profile,
@@ -357,8 +356,8 @@ class TestCrossAgentResolver:
         """
         with pytest.raises(TypeError):
             StepContext(  # type: ignore[call-arg]
-                step_results=MappingProxyType({}),
-                step_states=MappingProxyType({}),
+                step_results={},
+                step_states={},
                 domain=None,
                 continuity=None,
                 profile=None,

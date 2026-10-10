@@ -7,18 +7,19 @@ Testes unitários para Railway Pattern e Result.
 """
 
 import uuid
+from typing import cast
 
 import pytest
-from typing import cast
 
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.core.result import (
-    Result,
-    Ok,
-    Err,
-    ValidationError,
     BusinessError,
+    Err,
+    Ok,
     PersistenceError,
+    Result,
+    UnwrapError,
+    ValidationError,
 )
 
 
@@ -187,7 +188,7 @@ class TestResultUnwrap:
     def test_unwrap_error(self):
         """Deve levantar exceção se erro."""
         result = Err(ValueError("error"))
-        with pytest.raises(Exception):  # UnwrapError
+        with pytest.raises(UnwrapError):
             result.unwrap()
 
     def test_err_value_or_raise_returns_error(self):
@@ -201,7 +202,7 @@ class TestResultUnwrap:
         """On Ok, raises UnwrapError."""
         result: Result[int, ValueError] = Ok(42)
         assert result.is_ok()
-        with pytest.raises(Exception):  # UnwrapError
+        with pytest.raises(UnwrapError):
             result.err_value_or_raise()
 
     def test_err_value_or_raise_with_tool_error(self):

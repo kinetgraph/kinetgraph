@@ -60,11 +60,10 @@ and the dispatcher is woken when the gate clears
 ```python
 @tool_worker(
     name="nfe_emitter",
-    max_in_flight=5,           # new knob
+    max_in_flight=5,  # new knob
 )
 class NfeEmitterToolWorker:
-    async def invoke(self, request):
-        ...
+    async def invoke(self, request): ...
 ```
 
 The `WorkerManager` keeps a per-tool counter in

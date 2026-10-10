@@ -69,6 +69,8 @@ format (pickle encode/decode).
 
 from __future__ import annotations
 
+import inspect
+
 # ``pickle`` is used here to serialise the World checkpoint
 # into Redis. The data is **internal to the framework**
 # (same process writes + reads), not untrusted network input;
@@ -77,18 +79,16 @@ from __future__ import annotations
 # don't apply to this use case.
 import pickle  # nosec B403 - internal-to-framework serialisation
 import zlib
-import inspect
 from dataclasses import dataclass
-from typing import Optional
 
 import structlog
 
 from kntgraph.core.world import World
+from kntgraph.infra.redis._errors import RedisAdapterError
 from kntgraph.infra.redis._world_checkpoint import (
-    WorldCheckpointStorage,
     WORLD_CHECKPOINT_KEY_TEMPLATE,
+    WorldCheckpointStorage,
 )
-
 
 # 7 days matches the continuity default (ADR-014).
 DEFAULT_WORLD_CHECKPOINT_TTL_S = 7 * 24 * 60 * 60
@@ -159,7 +159,7 @@ class IncrementalWorldStore:
         """The Redis key for an agent's checkpoint."""
         return WORLD_CHECKPOINT_KEY_TEMPLATE.format(agent_id=agent_id)
 
-    async def load_cursor(self, agent_id: str) -> Optional[str]:
+    async def load_cursor(self, agent_id: str) -> str | None:
         """
         Read the agent's stream cursor WITHOUT the World
         payload (ADR-068 §3.5 P5b).
@@ -319,7 +319,7 @@ class IncrementalWorldStore:
             return 0
         try:
             return int(await method(stream_key))
-        except Exception as e:
+        except (RedisAdapterError, ConnectionError, OSError, TimeoutError) as e:
             logger.warning(
                 "incremental_world_store.queue_length.storage_error",
                 stream_key=stream_key,
@@ -340,7 +340,7 @@ class IncrementalWorldStore:
             return 0
         try:
             return int(await method(stream_key))
-        except Exception as e:
+        except (RedisAdapterError, ConnectionError, OSError, TimeoutError) as e:
             logger.warning(
                 "incremental_world_store.pending_count.storage_error",
                 stream_key=stream_key,
@@ -351,7 +351,7 @@ class IncrementalWorldStore:
 
 __all__ = [
     "DEFAULT_WORLD_CHECKPOINT_TTL_S",
-    "IncrementalWorldStore",
     "WORLD_CHECKPOINT_KEY_TEMPLATE",
+    "IncrementalWorldStore",
     "WorldCheckpoint",
 ]

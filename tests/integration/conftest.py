@@ -10,12 +10,12 @@ removed in F4; tests for it will be re-added in a future F8
 (GraphRAG) phase.
 """
 
-import pytest
-import pytest_asyncio
-
 import os
 import sys
 from pathlib import Path
+
+import pytest
+import pytest_asyncio
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -42,7 +42,7 @@ async def redis_client():
     try:
         await client.ping()
         print("✓ Connected to Redis")
-    except Exception as e:
+    except (aioredis.RedisError, ConnectionError, OSError, TimeoutError) as e:
         pytest.skip(f"Redis not available: {e}")
         return
 

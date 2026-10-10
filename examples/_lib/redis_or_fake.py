@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     import redis.asyncio as aioredis
 
 
-def make_redis_client() -> "aioredis.Redis":
+def make_redis_client() -> aioredis.Redis:
     """
     Build an async Redis client.
 

@@ -198,12 +198,12 @@ it raises `ConcordoSyntaxError` carrying:
 ```python
 @dataclass(frozen=True, slots=True)
 class ConcordoSyntaxError(ValueError):
-    expression: str       # the full expression that failed
-    line: int            # 1-indexed
-    column: int          # 1-indexed
-    expected: str        # what the parser expected (e.g. "comparison operator")
-    found: str           # what it actually found (e.g. "identifier 'foo'")
-    hint: str | None     # optional remediation
+    expression: str  # the full expression that failed
+    line: int  # 1-indexed
+    column: int  # 1-indexed
+    expected: str  # what the parser expected (e.g. "comparison operator")
+    found: str  # what it actually found (e.g. "identifier 'foo'")
+    hint: str | None  # optional remediation
 ```
 
 The CLI's `validate` command (§5.5) prints the error
@@ -275,11 +275,13 @@ class _StrictModel(BaseModel):
     — a typo in ``compensate_tool`` (e.g. ``compesate_tool``)
     fails loudly with the dotted path, not silently.
     """
+
     model_config = ConfigDict(extra="forbid")
 
 
 class EventSchema(_StrictModel):
     """One event in the bundle's vocabulary."""
+
     name: str = Field(pattern=_EVENT_NAME.pattern)
     schema_ref: str = Field(
         alias="schema",
@@ -293,6 +295,7 @@ class EventSchema(_StrictModel):
 
 class SpecificationSchema(_StrictModel):
     """A named predicate (§2 of the bundle-format ADR)."""
+
     id: str = Field(pattern=_IDENT.pattern)
     expression: str = Field(min_length=1, max_length=2048)
 
@@ -388,16 +391,13 @@ class BundleSchema(_StrictModel):
 
     @field_validator("workflow_sagas")
     @classmethod
-    def _unique_step_names(
-        cls, v: list[SagaConfigSchema]
-    ) -> list[SagaConfigSchema]:
+    def _unique_step_names(cls, v: list[SagaConfigSchema]) -> list[SagaConfigSchema]:
         for saga in v:
             names = [s.name for s in saga.steps]
             if len(names) != len(set(names)):
                 dupes = {n for n in names if names.count(n) > 1}
                 raise ValueError(
-                    f"saga {saga.id!r} has duplicate step names: "
-                    f"{sorted(dupes)}"
+                    f"saga {saga.id!r} has duplicate step names: {sorted(dupes)}"
                 )
         return v
 ```
@@ -453,11 +453,11 @@ The `concordos/_mini_lang.py` module exposes a
 
 ```python
 BUILTIN_SPECS: dict[str, Callable[..., Specification]] = {
-    "step_completed":      lambda name: StepCompleted(step_name=name),
-    "step_failed":         lambda name: StepFailed(step_name=name),
-    "step_timed_out":      lambda name: StepTimedOut(step_name=name),
-    "domain_state_is":     lambda field, value: DomainStateIs(field=field, value=value),
-    "profile_tier_is":     lambda tier: ProfileTierIs(tier=tier),
+    "step_completed": lambda name: StepCompleted(step_name=name),
+    "step_failed": lambda name: StepFailed(step_name=name),
+    "step_timed_out": lambda name: StepTimedOut(step_name=name),
+    "domain_state_is": lambda field, value: DomainStateIs(field=field, value=value),
+    "profile_tier_is": lambda tier: ProfileTierIs(tier=tier),
     "continuity_tool_used": lambda name: ContinuityToolUsed(tool_name=name),
 }
 ```
@@ -507,7 +507,7 @@ of `pydantic.ValidationError` that adds:
 @dataclass(frozen=True, slots=True)
 class ConcordoValidationError(pydantic.ValidationError):
     bundle_path: Path | None  # source file, if any
-    bundle_id: str | None     # bundle_id from the parsed doc
+    bundle_id: str | None  # bundle_id from the parsed doc
 ```
 
 ### 5.3 Step 3 — Cross-reference validation

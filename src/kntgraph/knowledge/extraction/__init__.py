@@ -129,8 +129,6 @@ except ImportError:  # pragma: no cover
 # ``coerce``) live in the framework's ``argument``
 # subpackage (Iter 28). All imports are eager; no
 # ``kntgraph -> kntgraph.agents`` leak in any form.
-from .gliner_argument import GlinerArgumentAdapter
-
 # Iter 28: the argument subpackage is the canonical home
 # of the building blocks (FieldFinder, RegexFieldFinder,
 # coerce, SchemaArgumentExtractor, GlinerFieldFinder).
@@ -139,15 +137,16 @@ from .gliner_argument import GlinerArgumentAdapter
 # directly.
 from .argument import (
     FieldFinder,
+    FieldValue,
+    GlinerFieldFinder,
     RegexFieldFinder,
     SchemaArgumentExtractor,
-    GlinerFieldFinder,
     coerce,
-    FieldValue,
     extract_first,
     field_o,
     match_to_value,
 )
+from .gliner_argument import GlinerArgumentAdapter
 
 # SLM facades — public surfaces over the low-level
 # adapters. Always importable (no lazy sentinel) so
@@ -170,40 +169,40 @@ except ImportError:  # pragma: no cover
 
 
 __all__ = [
+    "ArgExtraction",
+    "ArgumentExtractor",
+    "Classification",
     # Types
     "Entity",
     "EntityExtractor",
     "EntityExtractorWithMentions",
-    "IntentClassifier",
-    "IntentScore",
-    "Classification",
-    "ArgumentExtractor",
     "ExtractedArg",
-    "ArgExtraction",
-    # Helpers
-    "canonicalize",
-    "dedup_entities",
-    "parse_payload",
-    # Implementations (None if the dep is missing)
-    "HeuristicEntityExtractor",
-    "GlinerEntityAdapter",
-    "GlinerIntentAdapter",
-    "GlinerArgumentAdapter",
     # Argument subpackage (Iter 28: framework-level)
     "FieldFinder",
-    "RegexFieldFinder",
-    "SchemaArgumentExtractor",
-    "GlinerFieldFinder",
     "FieldValue",
-    "coerce",
-    "extract_first",
-    "field_o",
-    "match_to_value",
+    "GlinerArgumentAdapter",
+    "GlinerEntityAdapter",
+    "GlinerFieldFinder",
+    "GlinerIntentAdapter",
+    # Implementations (None if the dep is missing)
+    "HeuristicEntityExtractor",
+    "IntentClassifier",
+    "IntentScore",
+    "RegexFieldFinder",
+    "SLMArgumentExtractor",
     # Facades (public surfaces; SLM* prefix decouples
     # from GLiNER2 specifically)
     "SLMEntityExtractor",
     "SLMIntentClassifier",
-    "SLMArgumentExtractor",
+    "SchemaArgumentExtractor",
+    # Helpers
+    "canonicalize",
+    "coerce",
+    "dedup_entities",
+    "extract_first",
+    "field_o",
+    "match_to_value",
+    "parse_payload",
 ]
 
 

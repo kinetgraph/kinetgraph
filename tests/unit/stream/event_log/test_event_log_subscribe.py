@@ -46,7 +46,6 @@ from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.stream.event_log import EventLog
 
-
 pytestmark = pytest.mark.asyncio
 
 

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
+
 import redis.asyncio as redis
 
 # Substitua pela URL da sua Cloud Redis (ex: redis://:senha@host:porta)

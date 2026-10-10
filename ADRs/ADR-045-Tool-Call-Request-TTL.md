@@ -138,15 +138,12 @@ A new immutable dataclass in
 @dataclass(frozen=True, slots=True)
 class ToolCallTTL:
     """Per-tool TTL for ``ToolCallRequest`` entries."""
+
     default_ttl_seconds: float = 300.0  # 5 minutes
-    per_tool_ttls: Mapping[str, float] = field(
-        default_factory=dict
-    )
+    per_tool_ttls: Mapping[str, float] = field(default_factory=dict)
 
     def ttl_for(self, tool_name: str) -> float:
-        return self.per_tool_ttls.get(
-            tool_name, self.default_ttl_seconds
-        )
+        return self.per_tool_ttls.get(tool_name, self.default_ttl_seconds)
 ```
 
 The dispatcher accepts a
@@ -197,9 +194,7 @@ class ToolCallTTLSweeperSystem:
             else world_or_views
         )
         for agent_id, view in views.items():
-            tool_requests = view.components.get(
-                "tool_requests", {}
-            )
+            tool_requests = view.components.get("tool_requests", {})
             for request_id, req in tool_requests.items():
                 if not isinstance(req, ToolCallRequest):
                     continue
@@ -230,9 +225,7 @@ Event.create(
         "swept_at": now.isoformat(),
     },
     causation_id=UUID(request.request_event_id),
-    correlation=CorrelationContext(
-        correlation_id=request.correlation_id
-    ),
+    correlation=CorrelationContext(correlation_id=request.correlation_id),
 )
 ```
 
@@ -440,6 +433,7 @@ class ToolCallTTLSweeperSystem:
     """Sweep the ``tool_requests`` slot of every
     agent in the World and emit
     ``tool.<name>.failed`` for stale requests."""
+
     ...
 ```
 

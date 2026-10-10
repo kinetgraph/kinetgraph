@@ -21,9 +21,9 @@ import pytest
 
 pytest.importorskip("prometheus_client")
 
-from prometheus_client import CollectorRegistry  # noqa: E402
+from prometheus_client import CollectorRegistry
 
-from kntgraph.runner.metrics.prometheus import (  # noqa: E402
+from kntgraph.runner.metrics.prometheus import (
     PrometheusMetricsSink,
 )
 

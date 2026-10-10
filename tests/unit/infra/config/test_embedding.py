@@ -12,7 +12,6 @@ the knobs.
 
 from __future__ import annotations
 
-
 from kntgraph.infra.config import Settings
 
 

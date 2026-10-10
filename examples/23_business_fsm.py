@@ -61,15 +61,15 @@ against it. No Redis, no dispatcher, no external model.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from kntgraph.concordos.fsm import FSMConfig, FSMProjection, FSMTransition, FSMSystem
+from kntgraph.concordos.fsm import FSMConfig, FSMProjection, FSMSystem, FSMTransition
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
 from kntgraph.core.world import DomainComponent
 from kntgraph.testing import AgentViewBuilder, WorldBuilder, run_system
 
-FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=timezone.utc)
+FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
 
 
 @dataclass(frozen=True, slots=True)

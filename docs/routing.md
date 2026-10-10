@@ -179,7 +179,7 @@ schema = {
         "valor": {"type": "number"},
         "qtd": {"type": "integer"},
         "ativo": {"type": "boolean"},  # V1: ignorado
-        "tags": {"type": "array"},     # V1: ignorado
+        "tags": {"type": "array"},  # V1: ignorado
     },
     "required": ["cnpj", "valor"],
 }
@@ -248,7 +248,8 @@ from uuid import uuid4
 from kntgraph.core.event import Event, CorrelationContext
 from kntgraph.core.result import Ok
 from kntgraph.knowledge.extraction import (
-    GlinerIntentClassifier, GlinerArgumentExtractor,
+    GlinerIntentClassifier,
+    GlinerArgumentExtractor,
 )
 from kntgraph.tools.invoker import ToolInvoker
 from kntgraph.tools.protocol import ToolRegistry, Tool
@@ -256,7 +257,8 @@ from kntgraph.stream.event_log import EventLog
 import redis.asyncio as aioredis
 
 from kntgraph.agents.roles import (
-    SemanticRoutingRole, RoutingConfig,
+    SemanticRoutingRole,
+    RoutingConfig,
     async_route_on_user_message,
 )
 
@@ -287,7 +289,9 @@ async def main():
     # Momento 1: roteamento
     classifier = GlinerIntentClassifier(model_name="gliner2-base")
     router = SemanticRoutingRole(
-        registry, classifier, config=RoutingConfig.from_env(),
+        registry,
+        classifier,
+        config=RoutingConfig.from_env(),
     )
 
     # Momento 2: extração (passada ao ToolInvoker como hook)
@@ -297,14 +301,18 @@ async def main():
         return await extractor.extract(text, tool_name)
 
     invoker = ToolInvoker(
-        log=log, registry=registry, pre_invoke_args_extractor=hook,
+        log=log,
+        registry=registry,
+        pre_invoke_args_extractor=hook,
     )
 
     # Request do usuário
     request = Event.domain_from(
         agent_id="agent-1",
         type="user.message.received",
-        data={"text": "Emitir NF-e para CNPJ 12.345.678/0001-90 no valor de R$ 1500,50"},
+        data={
+            "text": "Emitir NF-e para CNPJ 12.345.678/0001-90 no valor de R$ 1500,50"
+        },
         correlation=CorrelationContext.new(),
     )
 

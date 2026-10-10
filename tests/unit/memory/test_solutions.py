@@ -32,29 +32,27 @@ The tests are pure: no FalkorDB, no Redis. They cover:
 
 from __future__ import annotations
 
-import uuid
-
 import asyncio
+import uuid
 
 import pytest
 
-from kntgraph.core.event import Event, CorrelationContext
-from kntgraph.core.world import World
 from kntgraph.agents.memory.solutions import (
     Action,
     Outcome,
     Problem,
     SolutionCandidate,
     SolutionExtractor,
-    SolutionPromotionBus,
     SolutionPromoter,
+    SolutionPromotionBus,
     ToolDescriptor,
     fingerprint_params,
     fingerprint_problem,
     params_from_requested,
     result_signature,
 )
-
+from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.world import World
 
 # ---------------------------------------------------------------------------
 # Pure helpers

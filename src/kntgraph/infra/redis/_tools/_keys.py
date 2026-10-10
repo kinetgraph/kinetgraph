@@ -36,7 +36,6 @@ from __future__ import annotations
 
 from kntgraph.infra.redis._prefix import namespaced
 
-
 # Suffix template. Pure string; the adapter prepends the
 # prefix via :func:`namespaced` at every key build.
 TOOL_QUEUE_KEY_TEMPLATE: str = "knt:tools:{tool_name}:queue"

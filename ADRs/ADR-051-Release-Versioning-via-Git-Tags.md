@@ -352,6 +352,7 @@ A new step in `scripts/ci.py` runs
 import subprocess
 import kntgraph
 
+
 def main() -> None:
     """Fail if the installed version and the git
     tag disagree.
@@ -367,6 +368,7 @@ def main() -> None:
     install.
     """
     from packaging.version import Version, InvalidVersion
+
     try:
         installed = Version(kntgraph.__version__)
     except InvalidVersion:
@@ -374,7 +376,9 @@ def main() -> None:
         return
     tag = subprocess.run(
         ["git", "describe", "--tags", "--abbrev=0"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.strip()
     if installed != Version(tag.lstrip("v")):
         raise SystemExit(

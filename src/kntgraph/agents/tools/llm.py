@@ -67,7 +67,7 @@ import os
 import time
 from collections.abc import AsyncIterator
 from dataclasses import replace
-from typing import Any, Optional, cast
+from typing import Any, Self, cast
 
 import structlog
 
@@ -87,7 +87,6 @@ from kntgraph.tools.llm_transport import (
 )
 from kntgraph.tools.worker import tool_worker
 
-
 logger = structlog.get_logger()
 
 
@@ -105,12 +104,16 @@ logger = structlog.get_logger()
 class _StreamDone:
     """Sentinel: the async iterator is exhausted."""
 
-    _instance: "_StreamDone | None" = None
+    _instance: _StreamDone | None = None
 
-    def __new__(cls) -> "_StreamDone":
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-        return cls._instance
+        # The stored singleton widens ``cls._instance`` to
+        # ``_StreamDone | None``; the method's return type
+        # is the constructor-time ``Self``. ``cast`` bridges
+        # the two without a runtime check.
+        return cast("Self", cls._instance)
 
     def __repr__(self) -> str:
         return "_STREAM_DONE"
@@ -119,12 +122,12 @@ class _StreamDone:
 class _StreamTimeout:
     """Sentinel: the chunk did not arrive before the deadline."""
 
-    _instance: "_StreamTimeout | None" = None
+    _instance: _StreamTimeout | None = None
 
-    def __new__(cls) -> "_StreamTimeout":
+    def __new__(cls) -> Self:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-        return cls._instance
+        return cast("Self", cls._instance)
 
     def __repr__(self) -> str:
         return "_STREAM_TIMEOUT"
@@ -141,7 +144,7 @@ _STREAM_TIMEOUT = _StreamTimeout()
 # -----------------------------------------------------------------------------
 
 
-def _compute_cost_usd(response: dict) -> Optional[float]:
+def _compute_cost_usd(response: dict) -> float | None:
     """
     Best-effort cost extraction. LiteLLM has `completion_cost`
     but it requires the model to be in its pricing DB. Local
@@ -161,7 +164,7 @@ def _compute_cost_usd(response: dict) -> Optional[float]:
 
         computed = float(litellm.completion_cost(completion_response=response))
         return computed
-    except Exception as exc:
+    except (ImportError, AttributeError, ValueError, TypeError, KeyError) as exc:
         logger.debug("llm.compute_cost_fallback", error=str(exc))
     # Fallback for transport-side explicit cost.
     fallback = response.get("_cost_usd")
@@ -195,7 +198,7 @@ class LiteLLMTransportAdapter(LLMTransport):
 
     async def __call__(
         self,
-        request: "LLMRequest",
+        request: LLMRequest,
     ) -> dict:
         import litellm
 
@@ -232,7 +235,7 @@ class LiteLLMTransportAdapter(LLMTransport):
 
     def _build_completion_kwargs(
         self,
-        request: "LLMRequest",
+        request: LLMRequest,
         *,
         drop_params: bool,
     ) -> dict[str, Any]:
@@ -301,7 +304,7 @@ class LiteLLMTransportAdapter(LLMTransport):
         if callable(dump):
             try:
                 return response.model_dump()
-            except Exception as exc:
+            except (AttributeError, ValueError, TypeError) as exc:
                 logger.debug("llm.transport_model_dump_failed", error=str(exc))
         if isinstance(response, dict):
             return dict(response)
@@ -391,7 +394,7 @@ def _safe_dict(obj: Any) -> dict:
             if callable(v):
                 continue
             out[attr] = v
-        except Exception as exc:
+        except (AttributeError, ValueError, TypeError) as exc:
             logger.debug("llm.safe_dict_attr_failed", attr=attr, error=str(exc))
     return out
 
@@ -424,7 +427,7 @@ def _to_llm_response(
 
 def _parse_message(
     completion: Any,
-) -> "tuple[str, Optional[str]]":
+) -> tuple[str, str | None]:
     """
     Extract ``text`` and ``finish_reason`` from the
     first choice of the completion. The first choice
@@ -473,7 +476,7 @@ def _convert_to_raw_dict(completion: Any) -> dict:
     if hasattr(completion, "model_dump"):
         try:
             return completion.model_dump()
-        except Exception:
+        except (AttributeError, ValueError, TypeError):
             return _safe_dict(completion)
     if isinstance(completion, dict):
         return dict(completion)
@@ -532,7 +535,9 @@ async def _astream_litellm_inner(
                     finish_reason=finish,
                 )
             )
-    except Exception as e:
+    except asyncio.CancelledError:
+        raise
+    except (LLMError, ValueError, TypeError, KeyError, AttributeError) as e:
         yield Err(ToolError(f"stream_error: {e!r}"))
 
     # ``drop_params`` and ``LITELLM_TELEMETRY`` are
@@ -672,9 +677,9 @@ class LiteLLMToolWorker:
         # ``litellm`` import cost in the parent
         # process; the worker process is a fresh
         # interpreter anyway).
-        self._transport: "LLMTransport | None" = None
+        self._transport: LLMTransport | None = None
 
-    def _get_transport(self) -> "LLMTransport":
+    def _get_transport(self) -> LLMTransport:
         if self._transport is None:
             self._transport = LiteLLMTransportAdapter()
         return self._transport
@@ -685,13 +690,13 @@ class LiteLLMToolWorker:
         user: str,
         *,
         idempotency_key: str,
-        model: "str | None" = None,
-        temperature: "float | None" = None,
-        max_tokens: "int | None" = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
         think: bool = False,
-        response_format: "dict | None" = None,
+        response_format: dict | None = None,
         stream: bool = False,
-    ) -> "Result[dict[str, Any], ToolError]":
+    ) -> Result[dict[str, Any], ToolError]:
         """
         Run a single LLM completion via the
         ``LiteLLMTransportAdapter`` and return the
@@ -795,7 +800,7 @@ class LiteLLMToolWorker:
                     operation_name=f"llm.invoke.{effective_model}",
                 ),
             )
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             # All retries exhausted on timeout. The
             # ``with_timeout_and_retry`` re-raised the
             # last ``asyncio.TimeoutError``.
@@ -807,7 +812,17 @@ class LiteLLMToolWorker:
             err = ToolError(f"llm_rate_limit: {e}")
             err.__cause__ = e
             return Err(err)
-        except Exception as e:
+        except asyncio.CancelledError:
+            raise
+        except (
+            LLMError,
+            LLMAuthError,
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            RuntimeError,
+        ) as e:
             # ``LLMAuthError`` / generic ``LLMError`` /
             # anything else propagates immediately (no
             # retry). The envelope mirrors the legacy

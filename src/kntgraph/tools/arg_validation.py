@@ -43,7 +43,7 @@ path keeps a re-export shim for one minor cycle
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+from collections.abc import Mapping
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.tools.protocol import ToolArgValue
@@ -124,7 +124,7 @@ def _matches_type(value: ToolArgValue, json_type: str) -> bool:
 
 def validate_args(
     args: Mapping[str, ToolArgValue],
-    schema: Optional[Mapping[str, JsonValue]],
+    schema: Mapping[str, JsonValue] | None,
 ) -> None:
     """
     Validate `args` against `schema` (a JSON-Schema
@@ -189,7 +189,7 @@ def _collect_unexpected_keys(
     insertion order (Python dicts preserve
     insertion order) so the error report matches
     what the caller sent over the wire."""
-    return [k for k in args.keys() if k not in declared]
+    return [k for k in args if k not in declared]
 
 
 __all__ = ["SchemaValidationError", "validate_args"]

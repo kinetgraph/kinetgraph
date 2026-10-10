@@ -37,7 +37,7 @@ import pytest
 # (mirrors the other api tests).
 pytest.importorskip("fastapi")
 
-from kntgraph.api.intent_router.helpers import (  # noqa: E402
+from kntgraph.api.intent_router.helpers import (
     _MAX_IDEMPOTENCY_KEY_LEN,
     _sanitize_idempotency_key,
 )

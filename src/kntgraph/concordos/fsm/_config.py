@@ -14,12 +14,13 @@ input that varies per vertical.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Mapping
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from kntgraph.core.world.component import DomainComponent
     from kntgraph.concordos.base import Specification
+    from kntgraph.core.world.component import DomainComponent
 
 __all__ = ["FSMConfig", "FSMTransition"]
 
@@ -37,7 +38,7 @@ class FSMTransition:
     """
 
     to: str
-    guard: "Specification | None" = None
+    guard: Specification | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +55,7 @@ class FSMConfig:
     ``terminal``       -- states from which no transition is allowed.
     """
 
-    component_type: type["DomainComponent"]
+    component_type: type[DomainComponent]
     state_field: str
     transitions: Mapping[str, Mapping[str, FSMTransition]]
     on_entry: Mapping[str, str] = field(default_factory=dict)

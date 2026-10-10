@@ -94,8 +94,8 @@ in-memory cache.
 from kntgraph.concordos.fsm import FSMConfig, FSMTransition
 
 config = FSMConfig(
-    component_type=InvoiceDomainComponent,   # the DomainComponent subclass
-    state_field="status",                    # attribute holding the state
+    component_type=InvoiceDomainComponent,  # the DomainComponent subclass
+    state_field="status",  # attribute holding the state
     transitions={
         "draft": {
             "invoice.submitted": FSMTransition(to="validating"),

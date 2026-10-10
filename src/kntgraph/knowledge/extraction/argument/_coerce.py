@@ -18,18 +18,15 @@ the framework. Pure logic, zero third-party deps.
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from kntgraph.core._typing import ValidatorInput
 from kntgraph.tools.schema import FieldSpec
 
-
 # The coerced value is a JSON scalar (the FieldSpec's
 # json_type is one of "string", "integer", "number").
-CoercedValue = Union[str, int, float, None]
+CoercedValue = str | int | float | None
 
 
-def coerce(value: ValidatorInput, spec: FieldSpec) -> Optional[CoercedValue]:
+def coerce(value: ValidatorInput, spec: FieldSpec) -> CoercedValue | None:
     """
     Coerce the raw value returned by a `FieldFinder`
     into the type the JSON-Schema expects.
@@ -54,7 +51,7 @@ def coerce(value: ValidatorInput, spec: FieldSpec) -> Optional[CoercedValue]:
     return None
 
 
-def _coerce_string(value: ValidatorInput) -> Optional[str]:
+def _coerce_string(value: ValidatorInput) -> str | None:
     """Coerce to a non-empty string. Empty / whitespace
     becomes ``None`` so the field is dropped.
     """
@@ -64,9 +61,7 @@ def _coerce_string(value: ValidatorInput) -> Optional[str]:
     return v if v else None
 
 
-def _coerce_number(
-    value: ValidatorInput, json_type: str
-) -> Optional[Union[int, float]]:
+def _coerce_number(value: ValidatorInput, json_type: str) -> int | float | None:
     """Coerce to ``int`` (when ``json_type='integer'``) or
     ``float``. ``bool`` is rejected (booleans are
     technically ints in Python but we never want a
@@ -81,9 +76,7 @@ def _coerce_number(
     return None
 
 
-def _coerce_numeric(
-    value: Union[int, float], json_type: str
-) -> Optional[Union[int, float]]:
+def _coerce_numeric(value: float, json_type: str) -> int | float | None:
     """Coerce an already-numeric value. ``integer`` and a
     non-integral float returns ``None``.
     """
@@ -95,7 +88,7 @@ def _coerce_numeric(
     return value
 
 
-def _coerce_numeric_string(value: str, json_type: str) -> Optional[Union[int, float]]:
+def _coerce_numeric_string(value: str, json_type: str) -> int | float | None:
     """Coerce a string. ``","`` is normalised to ``"."`` so
     Brazilian-style decimals work.
     """

@@ -4,33 +4,33 @@
   "metric": "branch_coverage_percent",
   "scope": "verticals",
   "overall": {
-    "covered_branches": 1958,
-    "num_branches": 2574
+    "covered_branches": 2699,
+    "num_branches": 3546
   },
   "target_paths": {
     "src/kntgraph/agents/": {
-      "covered_branches": 273,
-      "num_branches": 406
+      "covered_branches": 277,
+      "num_branches": 408
     },
     "src/kntgraph/api/": {
-      "covered_branches": 58,
-      "num_branches": 86
+      "covered_branches": 55,
+      "num_branches": 84
     },
     "src/kntgraph/cli/": {
       "covered_branches": 0,
-      "num_branches": 148
+      "num_branches": 168
     },
     "src/kntgraph/events/": {
-      "covered_branches": 44,
-      "num_branches": 44
+      "covered_branches": 58,
+      "num_branches": 64
     },
     "src/kntgraph/knowledge/": {
       "covered_branches": 187,
-      "num_branches": 302
+      "num_branches": 300
     },
     "src/kntgraph/memory/": {
-      "covered_branches": 286,
-      "num_branches": 286
+      "covered_branches": 302,
+      "num_branches": 328
     }
   }
 }

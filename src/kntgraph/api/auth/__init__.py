@@ -67,7 +67,6 @@ from .._auth._dependencies import bind_principal_dependency, check_agent_binding
 from .._auth._errors import AuthError
 from .._auth._verifier import APIKeyVerifier, RedisAPIKeyVerifier
 
-
 __all__ = [
     "APIKeyVerifier",
     "AuthError",

@@ -50,13 +50,13 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import Awaitable, Callable, ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar
 
 import structlog
 
-from ..core.result import Err, Ok, Result, BusinessError
-
+from ..core.result import BusinessError, Err, Ok, Result
 
 # ``R`` is the coroutine's resolved value; ``P`` captures
 # the parameter shape so callers retain their concrete
@@ -84,8 +84,6 @@ class CircuitBreakerError(Exception):
     callers that want to ``raise`` it explicitly (e.g. in
     ``except`` blocks at the API edge).
     """
-
-    pass
 
 
 class CircuitBreaker:
@@ -343,7 +341,7 @@ class CircuitBreaker:
             # constructed instances during unittests; the
             # snapshot best-effort in that case.
             locked = not self._lock.locked()
-        except Exception:  # pragma: no cover
+        except AttributeError:  # pragma: no cover
             locked = False
         if not locked:
             return self._snapshot()

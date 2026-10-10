@@ -43,7 +43,6 @@ from kntgraph.infra.redis._memory._continuity import (
     RedisContinuityStorage,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

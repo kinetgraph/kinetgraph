@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
+from redis import exceptions as redis_exceptions
 
 from kntgraph.infra.config import Settings, fresh_settings
 
@@ -59,11 +60,11 @@ class RedisPool:
     and the namespace prefix (ADR-076).
     """
 
-    _client: "redis_async.Redis"
+    _client: redis_async.Redis
     _key_prefix: str = ""
 
     @classmethod
-    def from_settings(cls, settings: Settings | None = None) -> "RedisPool":
+    def from_settings(cls, settings: Settings | None = None) -> RedisPool:
         """Build a pool from ``Settings`` (or ``fresh_settings()`` if None)."""
         settings = settings or fresh_settings()
         import redis.asyncio as redis_async
@@ -74,6 +75,7 @@ class RedisPool:
             max_connections=settings.redis_max_connections,
             decode_responses=False,
             socket_connect_timeout=5,
+            socket_timeout=settings.redis_socket_timeout,
             socket_keepalive=True,
             retry_on_timeout=True,
         )
@@ -107,11 +109,24 @@ class RedisPool:
         return self._key_prefix
 
     async def aclose(self) -> None:
-        """Close all connections in the pool. Idempotent."""
+        """Close all connections in the pool. Idempotent.
+
+        Per ADR-077: the catch is narrow
+        (``redis_exceptions.RedisError, ConnectionError,
+        TimeoutError, OSError``); ``asyncio.CancelledError``
+        propagates. ``aclose`` is best-effort (the
+        process is shutting down); a transport error
+        is logged at ``warning`` but does not raise.
+        """
         try:
             await self._client.aclose()
-        except Exception as e:  # pragma: no cover
-            logger.warning("redis_pool.aclose.failed", error=str(e))
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:  # pragma: no cover
+            logger.warning("redis_pool.aclose.failed", error=str(exc))
 
 
 def create_redis_pool(settings: Settings | None = None) -> RedisPool:

@@ -76,7 +76,6 @@ import fnmatch
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -86,7 +85,6 @@ from kntgraph.core.world import AgentView, World
 
 from ._base import _BaseRoleSystem, _emit_chat_completion
 from ._prompts import ChatReply
-
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +136,7 @@ class RuleBasedChatSystem(_BaseRoleSystem):
     def __init__(
         self,
         *,
-        rules: Optional[list[ChatRule]] = None,
+        rules: list[ChatRule] | None = None,
         case_insensitive_message: bool = True,
         persona: str = "",
     ) -> None:
@@ -146,7 +144,7 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         # Defensive copy; sorted by descending priority
         # then by registration order (stable sort).
         self._rules: list[ChatRule] = sorted(
-            list(rules or []),
+            rules or [],
             key=lambda r: (-r.priority,),
         )
         self._case_insensitive = case_insensitive_message
@@ -203,10 +201,10 @@ class RuleBasedChatSystem(_BaseRoleSystem):
             raise ValueError(f"rule file {path!r} must be a mapping with a 'rules' key")
         raw_rules = data["rules"]
         if not isinstance(raw_rules, list):
-            raise ValueError(f"rule file {path!r}: 'rules' must be a list")
+            raise ValueError(f"rule file {path!r}: 'rules' must be a list")  # noqa: TRY004
         for raw in raw_rules:
             if not isinstance(raw, dict):
-                raise ValueError(f"rule file {path!r}: each rule must be a mapping")
+                raise ValueError(f"rule file {path!r}: each rule must be a mapping")  # noqa: TRY004
             rule = ChatRule(
                 tenant_id=str(raw.get("tenant_id", "*")),
                 persona_pattern=str(raw.get("persona_pattern", "*")),
@@ -229,7 +227,7 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         tenant_id: str,
         persona: str,
         message: str,
-    ) -> Optional[ChatRule]:
+    ) -> ChatRule | None:
         """Find the first rule (by priority) that matches
         the request. ``tenant_id == "*"`` matches any
         tenant; ``persona_pattern`` is ``fnmatch``;
@@ -261,7 +259,7 @@ class RuleBasedChatSystem(_BaseRoleSystem):
         dispatcher's list handles the LLM fallback).
         """
         out: list[Event] = []
-        for agent_id, view in world.views.items():
+        for view in world.views.values():
             events = self._handle_view(view)
             if events:
                 out.extend(events)

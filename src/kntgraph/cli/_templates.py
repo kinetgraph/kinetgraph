@@ -32,7 +32,6 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 # ``autoescape=False`` because the CLI renders Python

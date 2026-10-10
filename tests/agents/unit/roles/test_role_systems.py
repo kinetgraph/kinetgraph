@@ -36,6 +36,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from kntgraph.agents.role_systems._base import _BaseRoleSystem
 from kntgraph.core.components.memory import SessionComponent
 from kntgraph.core.components.role import (
@@ -44,8 +46,6 @@ from kntgraph.core.components.role import (
 )
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import AgentView, World
-
-from pydantic import BaseModel
 
 
 class _OutputModel(BaseModel):

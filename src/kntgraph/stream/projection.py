@@ -17,7 +17,6 @@ in-memory World. It does NOT mutate Redis; it only reads.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Optional
 
 from ..core.event import Event
 from ..core.world import Projection, World, project_default
@@ -39,9 +38,9 @@ async def read_all_events(log: EventLog) -> list[Event]:
 async def fold_world(
     log: EventLog,
     *,
-    agent_ids: Optional[list[str]] = None,
+    agent_ids: list[str] | None = None,
     projection: Projection = project_default,
-    tick: Optional[int] = None,
+    tick: int | None = None,
 ) -> World:
     """
     Build a World by reading events from the log and folding them.

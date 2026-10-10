@@ -11,13 +11,11 @@ State is derived from events by the projection function.
 """
 
 from __future__ import annotations
-from kntgraph.core.event import CorrelationContext
 
 from dataclasses import dataclass
 
-from kntgraph.core.event import Event
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World, project_default
-
 
 # ---------------------------------------------------------------------------
 # Empty / fold

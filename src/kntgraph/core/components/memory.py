@@ -41,7 +41,7 @@ not benefit from archetype indexing.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
@@ -69,11 +69,11 @@ class SessionComponent:
     session_id: str
     user_id: str
     tenant_id: str
-    messages: tuple[dict[str, "JsonValue"], ...] = ()
+    messages: tuple[dict[str, JsonValue], ...] = ()
     context: dict[str, str] = field(default_factory=dict)
     started_at: float = 0.0
-    ended_at: Optional[float] = None
-    intent_event_id: Optional[str] = None
+    ended_at: float | None = None
+    intent_event_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +116,7 @@ class ContinuityComponent:
     last_categories: dict[str, str] = field(default_factory=dict)
     created_at: float = 0.0
     updated_at: float = 0.0
-    cleared_at: Optional[float] = None
+    cleared_at: float | None = None
 
 
 __all__ = [

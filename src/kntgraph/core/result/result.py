@@ -35,14 +35,14 @@ type inference at every chain.
 
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 from result import Err as BaseErr
 from result import Ok as BaseOk
 from result import Result as BaseResult
 
 from .errors import UnwrapError
-
 
 T = TypeVar("T")
 E = TypeVar("E", bound=Exception)
@@ -56,7 +56,7 @@ F = TypeVar("F", bound=Exception)
 R = TypeVar("R")
 
 
-class Result(Generic[T, E]):
+class Result[T, E: Exception]:
     """
     Result of an operation that may fail (wrapper around
     the `result` library).
@@ -73,7 +73,7 @@ class Result(Generic[T, E]):
         cls,
         func: Callable[[], T],
         exception_type: type[Exception] | tuple[type[Exception], ...] = Exception,
-    ) -> "Result[T, Exception]":
+    ) -> Result[T, Exception]:
         """
         Executa função e captura exceções.
 
@@ -91,12 +91,12 @@ class Result(Generic[T, E]):
             return Err(e)
 
     @classmethod
-    def ok(cls, value: T) -> "Result[T, E]":
+    def ok(cls, value: T) -> Result[T, E]:
         """Build a success result."""
         return cls(BaseOk(value))
 
     @classmethod
-    def err(cls, error: E) -> "Result[T, E]":
+    def err(cls, error: E) -> Result[T, E]:
         """Build an error result."""
         return cls(BaseErr(error))
 
@@ -134,7 +134,7 @@ class Result(Generic[T, E]):
                 return e
         raise UnwrapError("err_value_or_raise called on an Ok Result")
 
-    def map(self, func: Callable[[T], U]) -> "Result[U, E]":
+    def map(self, func: Callable[[T], U]) -> Result[U, E]:
         """
         Transform the success value.
 
@@ -142,12 +142,10 @@ class Result(Generic[T, E]):
             result.map(lambda x: x * 2)
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return Ok(func(v))
+            return Ok(func(self.unwrap()))
         return self._as_same_err()
 
-    def map_err(self, func: Callable[[E], F]) -> "Result[T, F]":
+    def map_err(self, func: Callable[[E], F]) -> Result[T, F]:
         """
         Transform the error value.
 
@@ -155,12 +153,10 @@ class Result(Generic[T, E]):
             result.map_err(lambda e: CustomError(str(e)))
         """
         if self.is_err():
-            e = self.err_value()
-            if e is not None:
-                return Err(func(e))
+            return Err(func(self.err_value_or_raise()))
         return self._as_same_ok()
 
-    def bind(self, func: Callable[[T], "Result[U, E]"]) -> "Result[U, E]":
+    def bind(self, func: Callable[[T], Result[U, E]]) -> Result[U, E]:
         """
         Chain operations (flatMap).
 
@@ -172,9 +168,7 @@ class Result(Generic[T, E]):
             )
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return func(v)
+            return func(self.unwrap())
         return self._as_same_err()
 
     def value_or(self, default: T) -> T:
@@ -185,9 +179,7 @@ class Result(Generic[T, E]):
             value = result.value_or(default_value)
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self.unwrap()
         return default
 
     def unwrap(self) -> T:
@@ -198,9 +190,7 @@ class Result(Generic[T, E]):
             value = result.unwrap()  # Raises if Err
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self._result.unwrap()
         raise UnwrapError("Called unwrap on an error")
 
     def unwrap_or(self, default: T) -> T:
@@ -215,13 +205,8 @@ class Result(Generic[T, E]):
             value = result.unwrap_or_else(lambda e: handle_error(e))
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
-        e = self.err_value()
-        if e is not None:
-            return func(e)
-        raise UnwrapError("Result has neither value nor error")
+            return self.unwrap()
+        return func(self.err_value_or_raise())
 
     def expect(self, message: str) -> T:
         """
@@ -231,9 +216,7 @@ class Result(Generic[T, E]):
             value = result.expect("Operation failed")
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return v
+            return self.unwrap()
         raise UnwrapError(f"{message}: no value")
 
     def match(
@@ -256,13 +239,9 @@ class Result(Generic[T, E]):
         ``is_ok()`` / ``is_err()`` check.
         """
         if self.is_ok():
-            v = self.ok_value()
-            if v is not None:
-                return ok_func(v)
-            return None
-        e = self.err_value()
-        if e is not None:
-            return err_func(e)
+            return ok_func(self.unwrap())
+        if self.is_err():
+            return err_func(self.err_value_or_raise())
         return None
 
     # ------------------------------------------------------------------
@@ -274,19 +253,19 @@ class Result(Generic[T, E]):
     # construction per failure path, which is negligible.
     # ------------------------------------------------------------------
 
-    def _as_same_err(self) -> "Result[U, E]":
+    def _as_same_err(self) -> Result[U, E]:
         if self.is_err():
             return Err(self.err_value_or_raise())
         # Unreachable: the callers only invoke this on Err.
         raise UnwrapError("_as_same_err called on an Ok Result")
 
-    def _as_same_ok(self) -> "Result[T, F]":
+    def _as_same_ok(self) -> Result[T, F]:
         if self.is_ok():
-            return Ok(self.ok_value())  # type: ignore[arg-type]
+            return Ok(self.unwrap())
         raise UnwrapError("_as_same_ok called on an Err Result")
 
 
-def Ok(value: T) -> Result[T, E]:
+def Ok[T](value: T) -> Result[T, E]:
     """Build a Result Ok (convenience function).
 
     The error slot is left generic (``E`` is unbound)
@@ -296,7 +275,7 @@ def Ok(value: T) -> Result[T, E]:
     return Result(BaseOk(value))
 
 
-def Err(error: E) -> Result[T, E]:
+def Err[E: Exception](error: E) -> Result[T, E]:
     """Build a Result Err (convenience function).
 
     The value slot is left generic (``T`` is unbound)

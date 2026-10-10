@@ -138,7 +138,7 @@ class TestAsyncWithCleanExit:
             try:
                 await asyncio.wait_for(b.semaphore.acquire(), timeout=0.01)
                 acquired.append(True)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
         # The pool was supposed to leave exactly `max_concurrent`
         # permits. If the bug is present, we get one extra.
@@ -294,7 +294,7 @@ class TestSemaphoreInvariant:
             try:
                 await asyncio.wait_for(b.semaphore.acquire(), timeout=0.01)
                 acquired.append(True)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
         for _ in acquired:
             b.semaphore.release()

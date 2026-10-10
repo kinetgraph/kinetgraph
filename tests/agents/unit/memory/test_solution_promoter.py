@@ -29,23 +29,20 @@ The system is the I/O counterpart of the pure
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from types import MappingProxyType
-
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
+from datetime import UTC, datetime
 
 from kntgraph.agents.memory.solution_promoter import (
     PromoteStats,
     SolutionPromoterSystem,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 
 
 def _ts(offset_s: int = 0) -> datetime:
     from datetime import timedelta
 
-    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
     return base + timedelta(seconds=offset_s)
 
 
@@ -62,17 +59,15 @@ def _candidate_event(
         event_type="solution.candidate_extracted",
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(
-            {
-                "request_event_id": request_event_id,
-                "tool_name": tool_name,
-                "params": {"tool": tool_name},
-                "requested_at": _ts(0).isoformat(),
-                "completion_status": completion_status,
-                "latency_ms": latency_ms,
-                "cross_agent_count": cross_agent_count,
-            }
-        ),
+        data={
+            "request_event_id": request_event_id,
+            "tool_name": tool_name,
+            "params": {"tool": tool_name},
+            "requested_at": _ts(0).isoformat(),
+            "completion_status": completion_status,
+            "latency_ms": latency_ms,
+            "cross_agent_count": cross_agent_count,
+        },
         correlation=CorrelationContext.new(),
     )
 

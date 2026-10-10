@@ -27,7 +27,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -126,10 +125,10 @@ class TestNoDirectRedisImportInCheckpoint:
     ``redis`` directly; it consumes ``CheckpointStorage``.
     """
 
-    EXCLUDED = {
+    EXCLUDED = (
         # The Redis adapter package itself.
         "infra/redis/",
-    }
+    )
 
     async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re

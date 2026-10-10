@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from typing import Any
+
 from kntgraph.runner import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.router import ToolRouter

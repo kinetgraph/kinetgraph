@@ -18,11 +18,10 @@ from ._adapter import APIKeyStorage
 from ._cache import APIKeyCacheAdapter
 from ._redis import KEY_PREFIX, RedisAPIKeyStorage, storage_key
 
-
 __all__ = [
+    "KEY_PREFIX",
     "APIKeyCacheAdapter",
     "APIKeyStorage",
-    "KEY_PREFIX",
     "RedisAPIKeyStorage",
     "storage_key",
 ]

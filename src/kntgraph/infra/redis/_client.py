@@ -49,7 +49,7 @@ class PipelineLike(Protocol):
         name: str,
         fields: dict,
         maxlen: int | None = None,
-    ) -> "PipelineLike": ...
+    ) -> PipelineLike: ...
 
     def set(
         self,
@@ -58,9 +58,9 @@ class PipelineLike(Protocol):
         *,
         nx: bool = False,
         ex: int | None = None,
-    ) -> "PipelineLike": ...
+    ) -> PipelineLike: ...
 
-    def delete(self, *keys: str) -> "PipelineLike": ...
+    def delete(self, *keys: str) -> PipelineLike: ...
 
     def hset(
         self,
@@ -68,9 +68,9 @@ class PipelineLike(Protocol):
         field: str | None = None,
         value: str | None = None,
         mapping: dict | None = None,
-    ) -> "PipelineLike": ...
+    ) -> PipelineLike: ...
 
-    def expire(self, key: str, seconds: int) -> "PipelineLike": ...
+    def expire(self, key: str, seconds: int) -> PipelineLike: ...
 
     async def execute(self) -> list: ...
 
@@ -219,7 +219,7 @@ class RedisLike(Protocol):
 
 
 async def safe_xrange(
-    client: "RedisLike",
+    client: RedisLike,
     name: str,
     *,
     min: str = "-",
@@ -245,7 +245,7 @@ async def safe_xrange(
 
 
 async def safe_xrevrange(
-    client: "RedisLike",
+    client: RedisLike,
     name: str,
     *,
     max: str = "+",

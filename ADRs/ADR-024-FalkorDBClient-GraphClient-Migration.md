@@ -44,11 +44,13 @@ A regra AGENTS.md §1 ("1 lib externa = 1 adapter Protocol") implica que deve ha
 ```python
 # Antes (Iter 1-23)
 from fmh_backend.knowledge.falkordb.client import FalkorDBClient
+
 client = FalkorDBClient(host="localhost", port=16379)
 graph = client.graph(tenant_id)  # Graph | AsyncGraph
 
 # Depois (Iter 24+)
 from fmh_backend.infra.graph import GraphPool
+
 client = GraphPool(host="localhost", port=16379)
 graph = client.graph(tenant_id)  # GraphAdapter (Protocol)
 ```

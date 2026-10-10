@@ -67,18 +67,20 @@ LiteLLM dá:
 ```python
 class LiteLLMTool:
     name = "llm.complete"
-    
+
     async def invoke(
-        self, *, idempotency_key: str,
-        system: str, user: str,
+        self,
+        *,
+        idempotency_key: str,
+        system: str,
+        user: str,
         model: Optional[str] = None,
         temperature: float = 0.0,
         max_tokens: int = 1024,
         response_format: Optional[dict] = None,
         stream: bool = False,
         **kwargs,
-    ) -> Result[LLMResponse, ToolError]:
-        ...
+    ) -> Result[LLMResponse, ToolError]: ...
 ```
 
 `LLMResponse` carrega `text`, `usage`, `model`, `latency_ms`,

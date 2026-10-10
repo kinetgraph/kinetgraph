@@ -69,6 +69,7 @@ store = EventStore(redis, dlq=dlq)
 ```python
 from kntgraph.events.dead_letter import DLQReason
 
+
 async def process_event(event):
     try:
         await validate(event)
@@ -78,7 +79,7 @@ async def process_event(event):
             event,
             reason=DLQReason.PROCESSING_FAILED,
             error_message=str(e),
-            retry_count=3
+            retry_count=3,
         )
 ```
 
@@ -106,8 +107,8 @@ await store.move_to_dlq(
     metadata={
         "document_type": "nota_fiscal",
         "tenant_id": "123456789",
-        "validation_errors": ["CNPJ required", "Invalid format"]
-    }
+        "validation_errors": ["CNPJ required", "Invalid format"],
+    },
 )
 ```
 
@@ -136,9 +137,7 @@ events = await store.get_dlq_events(agent_id="agent-123")
 ### Filtrar por Razão
 
 ```python
-events = await store.get_dlq_events(
-    reason=DLQReason.TIMEOUT
-)
+events = await store.get_dlq_events(reason=DLQReason.TIMEOUT)
 ```
 
 ### Evento Específico
@@ -159,7 +158,7 @@ result = await store.reprocess_from_dlq(dlq_id)
 
 if result.is_ok():
     event = result.unwrap()
-    
+
     # Tenta processar novamente
     try:
         await process_event(event)
@@ -169,7 +168,7 @@ if result.is_ok():
         await store.move_to_dlq(
             event,
             reason=DLQReason.POISON_PILL,
-            error_message=f"Reprocessamento falhou: {e}"
+            error_message=f"Reprocessamento falhou: {e}",
         )
 ```
 
@@ -180,10 +179,10 @@ async def dlq_reprocessor_worker():
     """Reprocessa eventos periodicamente."""
     while True:
         events = await store.get_dlq_events(count=100)
-        
+
         for dl_event in events:
             result = await store.reprocess_from_dlq(dl_event.dlq_id)
-            
+
             if result.is_ok():
                 event = result.unwrap()
                 try:
@@ -191,12 +190,11 @@ async def dlq_reprocessor_worker():
                 except Exception as e:
                     # Poison pill
                     await store.move_to_dlq(
-                        event,
-                        reason=DLQReason.POISON_PILL,
-                        error_message=str(e)
+                        event, reason=DLQReason.POISON_PILL, error_message=str(e)
                     )
-        
+
         await asyncio.sleep(60)  # A cada minuto
+
 
 # Inicia worker
 asyncio.create_task(dlq_reprocessor_worker())
@@ -238,7 +236,7 @@ stats = await dlq.get_stats()
 print(f"Total eventos: {stats['total_events']}")
 print(f"Agentes únicos: {stats['unique_agents']}")
 print(f"Por razão:")
-for reason, count in stats['by_reason'].items():
+for reason, count in stats["by_reason"].items():
     print(f"  {reason}: {count}")
 ```
 
@@ -296,7 +294,7 @@ logger.warning(
     agent_id=event.agent_id,
     event_type=event.event_type,
     reason=reason.value,
-    retry_count=retry_count
+    retry_count=retry_count,
 )
 ```
 
@@ -311,10 +309,12 @@ from kntgraph.events.dead_letter import DLQReason, DeadLetterQueue
 from kntgraph.infra.redis import get_redis
 from kntgraph.resilience.retry import retry_with_backoff
 
+
 @retry_with_backoff(max_attempts=3, base_delay=2.0)
 async def process_with_retry(event):
     """Processa evento com retry."""
     return await validate_and_process(event)
+
 
 async def process_event_with_dlq(event):
     """Processa evento e move para DLQ se falhar."""
@@ -326,17 +326,18 @@ async def process_event_with_dlq(event):
             event,
             reason=DLQReason.MAX_RETRIES_EXCEEDED,
             error_message=str(e),
-            retry_count=3
+            retry_count=3,
         )
         logger.warning("Event moved to DLQ", event_id=event.event_id)
+
 
 async def reprocess_failed():
     """Reprocessa eventos falhos."""
     events = await store.get_dlq_events(count=50)
-    
+
     for dl_event in events:
         result = await store.reprocess_from_dlq(dl_event.dlq_id)
-        
+
         if result.is_ok():
             event = result.unwrap()
             try:
@@ -345,22 +346,24 @@ async def reprocess_failed():
             except Exception as e:
                 logger.error("Reprocess failed", dlq_id=dl_event.dlq_id, error=str(e))
 
+
 async def main():
     # Setup
     redis = await get_redis()
     dlq = DeadLetterQueue(redis)
     store = EventStore(redis, dlq=dlq)
-    
+
     # Processa evento
     event = AgentEvent.create("document.received", "agent-1", {})
     await process_event_with_dlq(event)
-    
+
     # Monitora
     stats = await dlq.get_stats()
     print(f"DLQ: {stats['total_events']} eventos")
-    
+
     # Reprocessa
     await reprocess_failed()
+
 
 asyncio.run(main())
 ```
@@ -374,19 +377,19 @@ asyncio.run(main())
 ```python
 async def process_with_dlq(event, max_retries=3):
     retry_count = 0
-    
+
     while retry_count < max_retries:
         try:
             return await process(event)
         except Exception as e:
             retry_count += 1
-            await asyncio.sleep(2 ** retry_count)  # Backoff
-    
+            await asyncio.sleep(2**retry_count)  # Backoff
+
     # Falhou → DLQ
     await store.move_to_dlq(
         event,
         reason=DLQReason.MAX_RETRIES_EXCEEDED,
-        error_message=f"Failed after {max_retries} retries"
+        error_message=f"Failed after {max_retries} retries",
     )
 ```
 
@@ -395,13 +398,11 @@ async def process_with_dlq(event, max_retries=3):
 ```python
 async def validate_document(doc):
     errors = validate(doc)
-    
+
     if errors:
         event = AgentEvent.create("doc.validation_failed", agent_id, {})
         await store.move_to_dlq(
-            event,
-            reason=DLQReason.VALIDATION_ERROR,
-            error_message=str(errors)
+            event, reason=DLQReason.VALIDATION_ERROR, error_message=str(errors)
         )
 ```
 
@@ -412,14 +413,15 @@ from kntgraph.resilience.circuit_breaker import CircuitBreakerError
 
 cb = get_circuit_breaker("external_api")
 
+
 async def call_with_dlq(event):
     result = await cb.call(external_api.process, event.data)
-    
+
     if result.is_err():
         await store.move_to_dlq(
             event,
             reason=DLQReason.CIRCUIT_BREAKER_OPEN,
-            error_message=str(result.err())
+            error_message=str(result.err()),
         )
 ```
 
@@ -432,17 +434,19 @@ async def call_with_dlq(event):
 ```python
 # Retry antes de DLQ
 @retry_with_backoff(max_attempts=3)
-async def process(event):
-    ...
+async def process(event): ...
+
 
 # Log ao mover para DLQ
 logger.warning("Event moved to DLQ", event_id=event.event_id, reason=reason)
+
 
 # Reprocessamento periódico
 async def dlq_worker():
     while True:
         await reprocess_failed()
         await asyncio.sleep(60)
+
 
 # Purge periódico
 await dlq.purge(older_than=datetime.now() - timedelta(days=30))
@@ -471,11 +475,11 @@ await store.move_to_dlq(event, reason=...)  # Sem retry!
 ```python
 # DLQ Settings
 DLQ = {
-    "max_size": 1000000,        # 1M eventos
-    "retention_days": 30,       # Remove após 30 dias
-    "reprocess_interval": 60,   # Reprocessa a cada 60s
-    "alert_threshold": 100,     # Alerta se > 100 eventos
-    "poison_pill_threshold": 10 # Alerta se > 10 poison pills
+    "max_size": 1000000,  # 1M eventos
+    "retention_days": 30,  # Remove após 30 dias
+    "reprocess_interval": 60,  # Reprocessa a cada 60s
+    "alert_threshold": 100,  # Alerta se > 100 eventos
+    "poison_pill_threshold": 10,  # Alerta se > 10 poison pills
 }
 ```
 

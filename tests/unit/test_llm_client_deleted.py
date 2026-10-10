@@ -133,9 +133,8 @@ class TestLLMClientDeleted:
         the canonical replacement for ``LLMClient()``
         (the default-branch behaviour). It is importable
         from ``kntgraph.agents.tools.llm``."""
-        from kntgraph.tools.llm_transport import LLMTransport
-
         from kntgraph.agents.tools.llm import LiteLLMTransportAdapter
+        from kntgraph.tools.llm_transport import LLMTransport
 
         assert issubclass(LiteLLMTransportAdapter, LLMTransport)
 
@@ -150,7 +149,7 @@ class TestLLMClientDeleted:
 
         # The Protocol still declares ``__call__`` (the
         # canonical contract post-Iter 28 FU 3).
-        assert hasattr(LLMTransport, "__call__")
+        assert callable(LLMTransport)
         # ``LLMRequest`` lives in the same module as
         # ``LLMTransport`` — the framework primitive.
         assert LLMRequest.__module__ == mod.__name__

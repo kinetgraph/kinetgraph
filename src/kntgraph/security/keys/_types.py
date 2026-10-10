@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import NewType, Union
+from typing import NewType
 
 from kntgraph.security.keys._crypto import (
     Ed25519PrivateKey,
@@ -35,7 +35,6 @@ from kntgraph.security.keys._crypto import (
     _StubPublicKey,
     serialization,
 )
-
 
 KeyEpoch = NewType("KeyEpoch", int)
 """Monotonic epoch counter per ``agent_id``.
@@ -120,6 +119,6 @@ class Ed25519PrivateKeyWrapper:
 # Public type aliases. The Protocol accepts anything with
 # ``.bytes`` and ``.algorithm`` (duck-typed for backwards
 # compatibility with PR 0 stubs). PR 1 prefers the wrappers.
-PublicKey = Union[Ed25519PublicKeyWrapper, _StubPublicKey]
-PrivateKey = Union[Ed25519PrivateKeyWrapper, _StubPrivateKey]
+PublicKey = Ed25519PublicKeyWrapper | _StubPublicKey
+PrivateKey = Ed25519PrivateKeyWrapper | _StubPrivateKey
 Keypair = tuple[PrivateKey, PublicKey]

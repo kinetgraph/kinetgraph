@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Deque, Literal, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
+from ..core.result import Ok, Result
+from ..infra.redis._errors import MemoryError
 from .profile import ProfileManager
 from .session import SessionManager
 
@@ -39,6 +41,26 @@ if TYPE_CHECKING:
     from .continuity import ContinuityManager
 
 logger = structlog.get_logger()
+
+
+@dataclass(frozen=True, slots=True)
+class PumpOutcome:
+    """
+    Per-batch outcome of :meth:`CacheWarmer.pump_once`.
+
+    ``ok`` is the number of refreshes that succeeded;
+    ``failed`` is the number that reported an error.
+    ``errors`` carries the actual error objects so the
+    operator-facing dashboard can surface them (no
+    fail-soft logging without a structured payload).
+
+    ``PumpOutcome.failed == 0`` means the whole batch
+    succeeded; callers can short-circuit on that.
+    """
+
+    ok: int = 0
+    failed: int = 0
+    errors: tuple[MemoryError, ...] = field(default_factory=tuple)
 
 
 CacheRefreshKind = Literal["session", "profile", "continuity"]
@@ -88,7 +110,7 @@ class CacheRefreshBus:
     __slots__ = ("_queue",)
 
     def __init__(self) -> None:
-        self._queue: Deque[CacheRefreshRequest] = deque()
+        self._queue: deque[CacheRefreshRequest] = deque()
 
     def publish(self, request: CacheRefreshRequest) -> None:
         """Enqueue a refresh request."""
@@ -133,7 +155,7 @@ class CacheWarmer:
         bus: CacheRefreshBus,
         session_manager: SessionManager,
         profile_manager: ProfileManager,
-        continuity_manager: Optional["ContinuityManager"] = None,
+        continuity_manager: ContinuityManager | None = None,
     ) -> None:
         self._bus = bus
         self._sessions = session_manager
@@ -143,10 +165,9 @@ class CacheWarmer:
         # adicional em `pump_once`. Veja ADR-014.
         self._continuity = continuity_manager
 
-    async def pump_once(self) -> int:
+    async def pump_once(self) -> Result[PumpOutcome, MemoryError]:
         """
         Drain the bus and apply all pending requests.
-        Returns the number of refreshes applied.
 
         ADR-068 §3.4 P4: every request flows through
         :meth:`BaseShortTermMemory.refresh_cache_incremental`.
@@ -158,23 +179,40 @@ class CacheWarmer:
         dispatcher does not need to carry a cursor on
         the request — the cache owns that state.
 
-        ``pump_once`` is the single sink for the
-        cache-write I/O. It is idempotent: re-running
-        it on the same bus with no new requests is a
-        no-op; re-running it on the same requests is
-        also a no-op because the underlying
-        refresh path is itself idempotent.
+        Returns a ``Result[PumpOutcome, MemoryError]``
+        wrapping the per-batch outcome. ``Ok(PumpOutcome)``
+        always reports ``ok + failed == len(requests)``
+        (or both zero when the bus was empty).
+        ``Err(MemoryError)`` surfaces when the bus
+        itself reports a failure — at the moment the
+        bus is an in-memory ``deque`` that cannot
+        fail, so the ``Err`` branch is reserved for
+        future storage-backed buses (ADR-068 §3.4
+        stretch goal). Per-request refresh errors
+        surface inside ``PumpOutcome.errors`` so a
+        single bad request never aborts the batch
+        (the batch is best-effort by design).
+
+        The per-request resilience is the same one the
+        legacy ``except Exception`` provided, but the
+        failure payload is now typed (``MemoryError``)
+        and propagated via the ``Result`` channel
+        instead of lost in a logger warning.
         """
         requests = self._bus.drain()
         if not requests:
-            return 0
+            return Ok(PumpOutcome())
 
+        successes = 0
+        failures: list[MemoryError] = []
         for req in requests:
             try:
                 if req.kind == "session":
-                    await self._sessions.refresh_cache_incremental(req.id1)
+                    result = await self._sessions.refresh_cache_incremental(req.id1)
                 elif req.kind == "profile":
-                    await self._profiles.refresh_cache_incremental(req.id1, req.id2)
+                    result = await self._profiles.refresh_cache_incremental(
+                        req.id1, req.id2
+                    )
                 elif req.kind == "continuity":
                     if self._continuity is None:
                         logger.warning(
@@ -182,21 +220,90 @@ class CacheWarmer:
                             id1=req.id1,
                             id2=req.id2,
                         )
+                        # Continuity not configured ⇒ the request is
+                        # acknowledged but skipped, NOT counted as a
+                        # failure (matches the legacy contract: the
+                        # operator opted out of the tier).
                         continue
-                    await self._continuity.refresh_cache_incremental(req.id1, req.id2)
-            except Exception as e:  # noqa: BLE001
-                # I/O failure on one request must not abort
-                # the rest of the batch. Log and continue.
+                    result = await self._continuity.refresh_cache_incremental(
+                        req.id1, req.id2
+                    )
+                else:  # pragma: no cover - guarded by Literal
+                    logger.warning(
+                        "cache_warmer.unknown_kind",
+                        kind=str(req.kind),
+                        id1=req.id1,
+                        id2=req.id2,
+                    )
+                    failures.append(
+                        MemoryError(f"unknown CacheRefreshKind {req.kind!r}")
+                    )
+                    continue
+            except asyncio.CancelledError:
+                raise
+            except (
+                MemoryError,
+                ValueError,
+                TypeError,
+                AttributeError,
+                RuntimeError,
+                KeyError,
+            ) as exc:
+                # Defensive: a buggy implementation might raise
+                # instead of returning Err. Convert to a typed
+                # ``MemoryError`` so the per-batch outcome stays
+                # consistent and the dispatch loop never aborts.
+                logger.warning(
+                    "cache_warmer.refresh_raised",
+                    kind=req.kind,
+                    id1=req.id1,
+                    id2=req.id2,
+                    error=str(exc),
+                )
+                failures.append(
+                    MemoryError(
+                        f"refresh_cache_incremental for "
+                        f"({req.kind}, {req.id1!r}, {req.id2!r}) "
+                        f"raised: {exc}"
+                    )
+                )
+                continue
+
+            if result.is_err():
+                err = result.err_value()
+                # The base layer wraps storage errors as
+                # ``PersistenceError``; the warmer's public
+                # contract says ``MemoryError``. The two are
+                # distinguishable but both belong in the
+                # warm-side error channel -- use the bare
+                # ``MemoryError`` text for the metrics sink
+                # and let the dashboard dedupe.
                 logger.warning(
                     "cache_warmer.refresh_failed",
                     kind=req.kind,
                     id1=req.id1,
                     id2=req.id2,
-                    error=str(e),
+                    error=str(err),
                 )
-        return len(requests)
+                failures.append(
+                    MemoryError(
+                        f"refresh_cache_incremental for "
+                        f"({req.kind}, {req.id1!r}, {req.id2!r}) "
+                        f"failed: {err}"
+                    )
+                )
+                continue
+            successes += 1
 
-    async def run_forever(self, interval: Optional[float] = None) -> None:
+        return Ok(
+            PumpOutcome(
+                ok=successes,
+                failed=len(failures),
+                errors=tuple(failures),
+            )
+        )
+
+    async def run_forever(self, interval: float | None = None) -> None:
         """
         Cooperative loop: pump the bus every `interval`
         seconds. Cancelled cleanly on `asyncio.CancelledError`.

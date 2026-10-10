@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 pytestmark = pytest.mark.asyncio
 
 
@@ -65,8 +64,8 @@ class TestRedisLikeProtocol:
         """`isinstance(client, RedisLike)` must work at runtime."""
         from kntgraph.infra.redis import RedisLike
 
-        assert getattr(RedisLike, "_is_runtime_protocol", False) or hasattr(
-            RedisLike, "__call__"
+        assert getattr(RedisLike, "_is_runtime_protocol", False) or callable(
+            RedisLike
         ), "RedisLike must be decorated with @runtime_checkable"
 
     async def test_redis_like_lists_required_methods(self):
@@ -119,9 +118,7 @@ class TestProtocolCoverage:
     `self._redis.X(...)` call without updating the Protocol.
     """
 
-    EXCLUDED_DIRS = {
-        "infra/redis/",
-    }
+    EXCLUDED_DIRS = ("infra/redis/",)
 
     async def test_protocol_covers_all_framework_redis_calls(self):
         from kntgraph.infra.redis import RedisLike
@@ -152,9 +149,7 @@ class TestNoDirectRedisImportInFramework:
     ``infra/redis/``.
     """
 
-    EXCLUDED = {
-        "infra/redis/",
-    }
+    EXCLUDED = ("infra/redis/",)
 
     async def test_no_redis_asyncio_imports_outside_redis_package(self):
         import re

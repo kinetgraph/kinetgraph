@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from uuid import uuid4
 
 import pytest
 
@@ -49,8 +50,6 @@ from kntgraph.tools import (
     WorkerManager,
     tool_worker,
 )
-from uuid import uuid4
-
 
 pytestmark = pytest.mark.asyncio
 

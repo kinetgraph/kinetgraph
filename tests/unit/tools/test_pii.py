@@ -42,7 +42,6 @@ from kntgraph.agents.tools.pii import (
 )
 from kntgraph.agents.tools.protocol import Tool
 
-
 # ---------------------------------------------------------------------------
 # Level 1 — regex
 # ---------------------------------------------------------------------------

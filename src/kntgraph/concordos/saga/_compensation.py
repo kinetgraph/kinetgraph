@@ -30,11 +30,11 @@ from typing import TYPE_CHECKING
 from ..base import StepContext, ViewTrigger
 
 if TYPE_CHECKING:
+    from kntgraph.concordos.saga._components import SagaProgressComponent
     from kntgraph.core._typing import JsonValue
     from kntgraph.core.event.event import Event
     from kntgraph.core.world.view import AgentView
     from kntgraph.core.world.world import World
-    from kntgraph.concordos.saga._components import SagaProgressComponent
 
 
 __all__ = ["begin_compensation", "is_compensation_failure", "step_result_payload"]
@@ -45,17 +45,17 @@ __all__ = ["begin_compensation", "is_compensation_failure", "step_result_payload
 # Protocols that previously lived here and in ``_dispatch.py``
 # were inconsistent with the canonical one -- pyright could
 # not verify that ``SagaSystem`` matched both shapes.
-from ._records import _SagaSystemLike  # noqa: F401
+from ._records import _SagaSystemLike
 
 
 def begin_compensation(
     saga: _SagaSystemLike,
-    world: "World",
-    view: "AgentView",
-    progress: "SagaProgressComponent",
+    world: World,
+    view: AgentView,
+    progress: SagaProgressComponent,
     trigger: ViewTrigger,
     reason: str,
-) -> list["Event"]:
+) -> list[Event]:
     """
     Emit compensation events in LIFO order.
 
@@ -172,7 +172,7 @@ def begin_compensation(
 def is_compensation_failure(
     saga: _SagaSystemLike,
     trigger: ViewTrigger,
-    progress: "SagaProgressComponent",
+    progress: SagaProgressComponent,
 ) -> bool:
     """True when the trigger is a ``tool.<name>.failed`` event
     for a compensation tool of a step on the compensate_stack
@@ -189,9 +189,9 @@ def is_compensation_failure(
 
 
 def step_result_payload(
-    progress: "SagaProgressComponent",
+    progress: SagaProgressComponent,
     step_name: str,
-) -> dict[str, "JsonValue"]:
+) -> dict[str, JsonValue]:
     """Return the step's result payload (a ``dict[str,
     JsonValue]``) for enrichment, or ``{}`` when the result
     is not a mapping."""

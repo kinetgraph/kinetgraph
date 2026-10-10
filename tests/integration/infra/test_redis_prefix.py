@@ -29,12 +29,11 @@ import pytest
 import redis.asyncio as aioredis
 
 from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.stream.event_log.store import EventLog
 from kntgraph.infra.redis._auth import RedisAPIKeyStorage
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.router import ToolRouter
-
 
 pytestmark = pytest.mark.asyncio
 

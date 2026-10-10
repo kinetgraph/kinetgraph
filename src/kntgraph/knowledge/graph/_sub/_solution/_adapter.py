@@ -33,10 +33,7 @@ Iter 13 (ADR-019 epílogo + Iter 13 do sharding).
 
 from __future__ import annotations
 
-from typing import Optional
-
 from ..._protocol import GraphAdapter
-
 from ._read_filters import (
     BASE_FIND_SOLUTIONS_BY_PROBLEM,
     BASE_FIND_SOLUTIONS_BY_TOOL,
@@ -280,8 +277,8 @@ class GraphSolutionAdapter:
         *,
         query_embedding: list[float],
         k: int = 5,
-        tags: Optional[dict[str, str]] = None,
-        tool_name: Optional[str] = None,
+        tags: dict[str, str] | None = None,
+        tool_name: str | None = None,
         status: str = "completed",
     ) -> list[dict]:
         """
@@ -328,7 +325,7 @@ class GraphSolutionAdapter:
         *,
         tool_name: str,
         k: int = 5,
-        tags: Optional[dict[str, str]] = None,
+        tags: dict[str, str] | None = None,
         status: str = "completed",
     ) -> list[dict]:
         """

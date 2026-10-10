@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from kntgraph.core.component import ComponentMeta, component_meta
 
 
@@ -49,8 +51,5 @@ class TestComponentMeta:
 
     def test_immutable(self):
         m = ComponentMeta.of(DocumentComponent)
-        try:
+        with pytest.raises(AttributeError):
             m.qualname = "other"  # type: ignore[misc]
-            assert False, "should have raised"
-        except Exception:
-            pass

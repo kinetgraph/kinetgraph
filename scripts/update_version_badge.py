@@ -37,7 +37,7 @@ README = ROOT / "README.md"
 # (the parent dir is not on ``sys.path`` by
 # default).
 sys.path.insert(0, str(ROOT / "scripts"))
-from readme_stats import _version_badge  # noqa: E402
+from readme_stats import _version_badge
 
 # Match the existing version badge line. The
 # badge format is

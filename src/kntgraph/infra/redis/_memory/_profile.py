@@ -19,21 +19,19 @@ docstring for the full contract.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from typing import Mapping, Optional
-
-from ....core._typing import JsonValue
 
 import structlog
 
 from kntgraph.core.result import Err, Ok, Result
 
+from ....core._typing import JsonValue
 from .._client import RedisLike
 from .._codec import decode_dict, decode_value
-from ._adapter import CacheRecord
 from .._errors import MemoryError, MemoryMiss, MemorySerializationError
-
+from .._translation import translate_redis_call
+from ._adapter import CacheRecord
 
 logger = structlog.get_logger()
 
@@ -50,7 +48,7 @@ class RedisProfileStorage:
     """
 
     client: RedisLike
-    ttl_seconds: Optional[int] = None
+    ttl_seconds: int | None = None
     key_prefix: str = ""
 
     async def get_record(
@@ -60,16 +58,21 @@ class RedisProfileStorage:
 
         Returns ``Err(MemoryMiss(key))`` on miss (empty
         Hash); decode errors surface as ``Err``.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`;
+        ``asyncio.CancelledError`` propagates so
+        operator-driven shutdown works.
         """
-        try:
-            raw = await self.client.hgetall(key)
-        except Exception as e:
-            logger.warning(
-                "profile_storage.get_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.hgetall(key),
+            op_name="profile_storage.get_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if not raw:
             return Err(MemoryMiss(key))
         return Ok(decode_dict(raw))
@@ -79,7 +82,7 @@ class RedisProfileStorage:
         key: str,
         record: CacheRecord,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a Hash mapping via DEL+HSET+EXPIRE pipeline.
 
@@ -91,43 +94,61 @@ class RedisProfileStorage:
         """
         # All Mapping[str, JsonValue] values must be string-coercible
         # for Hash storage; reject early with a typed error.
+        # The catch is narrow (``TypeError``, ``ValueError``) —
+        # the dict comprehension's ``str(...)`` coercion and
+        # a malformed ``Mapping.items()`` are the only
+        # failure paths; per ADR-077 the storage layer
+        # does not catch ``Exception`` blindly.
         try:
             mapping: dict[str, str] = (
                 {str(k): str(v) for k, v in record.items()}
                 if isinstance(record, Mapping)
                 else {}
             )
-        except Exception as e:
+        except (TypeError, ValueError) as exc:
             return Err(
-                MemorySerializationError(f"cannot serialize to hash: {e}", key=key)
+                MemorySerializationError(f"cannot serialize to hash: {exc}", key=key)
             )
         effective_ttl = ttl_seconds if ttl_seconds is not None else self.ttl_seconds
-        try:
+
+        # The pipeline is built and executed inside a
+        # small async closure so :func:`translate_redis_call`
+        # can await it under the canonical catch list.
+        # ``.execute()`` is the only call that can raise
+        # the third-party exceptions; the rest are
+        # in-process queuing.
+        async def _run_pipeline() -> None:
             pipe = self.client.pipeline(transaction=True)
             pipe.delete(key)
             pipe.hset(key, mapping=mapping)
             if effective_ttl:
                 pipe.expire(key, effective_ttl)
             await pipe.execute()
-        except Exception as e:
-            logger.warning(
-                "profile_storage.put_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+
+        result = await translate_redis_call(
+            _run_pipeline(),
+            op_name="profile_storage.put_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def delete_record(self, key: str) -> Result[None, MemoryError]:
-        try:
-            await self.client.delete(key)
-        except Exception as e:
-            logger.warning(
-                "profile_storage.delete_record.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        """Remove a record. Idempotent.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
+        """
+        result = await translate_redis_call(
+            self.client.delete(key),
+            op_name="profile_storage.delete_record",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def iter_keys(self, prefix: str) -> AsyncIterator[str]:
@@ -138,7 +159,7 @@ class RedisProfileStorage:
 
     # ------------------------------------------------------------ fold cursor (P4)
 
-    async def read_fold_cursor(self, key: str) -> str | None:
+    async def read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
         """
         Read the fold cursor from a plain string key.
 
@@ -146,28 +167,31 @@ class RedisProfileStorage:
         cursor is a plain ``GET <key>:fold_cursor`` —
         it survives as long as the cache itself
         (Profile keys are not expired by default).
+
+        Returns ``Ok(None)`` on miss; ``Err(MemoryError)``
+        on Redis-side failure (per ADR-077).
         """
-        try:
-            raw = await self.client.get(key)
-        except Exception as e:
-            logger.warning(
-                "profile_storage.read_fold_cursor.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return None
+        result = await translate_redis_call(
+            self.client.get(key),
+            op_name="profile_storage.read_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
+        raw = result.ok_value()
         if raw is None:
-            return None
+            return Ok(None)
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
-        return str(raw)
+        return Ok(str(raw))
 
     async def write_fold_cursor(
         self,
         key: str,
         cursor: str,
         *,
-        ttl_seconds: Optional[int] = None,
+        ttl_seconds: int | None = None,
     ) -> Result[None, MemoryError]:
         """
         Persist the fold cursor at the parallel
@@ -177,16 +201,18 @@ class RedisProfileStorage:
         so this implementation ignores ``ttl_seconds``
         and never sets an ``EXPIRE`` — the cursor lives
         as long as the cache.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            await self.client.set(key, cursor)
-        except Exception as e:
-            logger.warning(
-                "profile_storage.write_fold_cursor.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.set(key, cursor),
+            op_name="profile_storage.write_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
     async def delete_fold_cursor(self, key: str) -> Result[None, MemoryError]:
@@ -195,16 +221,18 @@ class RedisProfileStorage:
         Idempotent: a missing key returns ``Ok(None)`` so the
         caller can use this on a hot path without first
         checking for existence.
+
+        Per ADR-077: the catch is centralised in
+        :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
-        try:
-            await self.client.delete(key)
-        except Exception as e:
-            logger.warning(
-                "profile_storage.delete_fold_cursor.redis_error",
-                key=key,
-                error=str(e),
-            )
-            return Err(MemoryError(f"redis error: {e}", key=key))
+        result = await translate_redis_call(
+            self.client.delete(key),
+            op_name="profile_storage.delete_fold_cursor",
+            error_cls=MemoryError,
+            key=key,
+        )
+        if result.is_err():
+            return Err(result.err_value_or_raise())
         return Ok(None)
 
 

@@ -38,10 +38,16 @@ Wire format conversion:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from kntgraph.knowledge.graph._protocol import GraphError, GraphQueryResult
-
+# The framework's graph Protocol types (GraphAdapter,
+# GraphError, GraphQueryResult) are the framework's
+# canonical boundary. The vertical re-exports them for
+# back-compat; the adapter imports the canonical home.
+from kntgraph.infra.graph._protocol import (
+    GraphError,
+    GraphQueryResult,
+)
 
 if TYPE_CHECKING:
     from falkordb.asyncio.graph import AsyncGraph
@@ -71,14 +77,14 @@ class FalkorDBGraphAdapter:
     directly.
     """
 
-    def __init__(self, graph: "AsyncGraph") -> None:
+    def __init__(self, graph: AsyncGraph) -> None:
         self._graph = graph
 
     async def query(
         self,
         cypher: str,
         *,
-        params: Optional[Mapping[str, object]] = None,
+        params: Mapping[str, object] | None = None,
     ) -> GraphQueryResult:
         """
         Execute a Cypher query against the wrapped

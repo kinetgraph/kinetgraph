@@ -64,10 +64,12 @@ The canonical expression of ZTA principle 4 is the
 
 ```python
 from kntgraph.agents.role_systems import (
-    ChatRoleSystem, RuleBasedChatSystem,
+    ChatRoleSystem,
+    RuleBasedChatSystem,
 )
 from kntgraph.agents.memory.solution_lookup import (
-    InMemorySolutionStore, SolutionLookupSystem,
+    InMemorySolutionStore,
+    SolutionLookupSystem,
 )
 from kntgraph.runner.reactive import ReactiveDispatcher
 
@@ -112,9 +114,9 @@ from kntgraph.agents.role_systems import ChatRule, RuleBasedChatSystem
 
 rules = [
     ChatRule(
-        tenant_id="*",                  # "*" = any tenant
-        persona_pattern="*",            # fnmatch glob
-        message_pattern="hours",        # substring (case insensitive)
+        tenant_id="*",  # "*" = any tenant
+        persona_pattern="*",  # fnmatch glob
+        message_pattern="hours",  # substring (case insensitive)
         response="Mon-Fri, 9-18 UTC.",
         priority=10,
     ),
@@ -187,7 +189,8 @@ ship your own adapter for Redis / Postgres / FalkorDB
 
 ```python
 from kntgraph.agents.memory.solution_lookup import (
-    InMemorySolutionStore, SolutionLookupSystem,
+    InMemorySolutionStore,
+    SolutionLookupSystem,
 )
 
 store = InMemorySolutionStore()

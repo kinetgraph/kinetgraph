@@ -24,9 +24,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from kntgraph.knowledge.graph._sub._agent import GraphAgentAdapter
 from kntgraph.knowledge.graph._protocol import GraphError, GraphQueryResult
-
+from kntgraph.knowledge.graph._sub._agent import GraphAgentAdapter
 
 # ---------------------------------------------------------------------------
 # Mock GraphAdapter — records all queries + returns canned rows
@@ -141,7 +140,7 @@ class TestFindById:
         g = _MockGraphAdapter()
         adapter = GraphAgentAdapter(g)
         await adapter.find_by_id("NF-001")
-        cypher, params = g.calls[0]
+        _cypher, params = g.calls[0]
         assert params == {"agent_id": "NF-001"}
 
     @pytest.mark.asyncio

@@ -44,16 +44,16 @@ def _falkordb_available() -> bool:
 if not _falkordb_available():
     pytest.skip("falkordb not installed", allow_module_level=True)
 
-import redis.asyncio as aioredis  # noqa: E402
+import redis.asyncio as aioredis
 
-from kntgraph.core.event import CorrelationContext, Event  # noqa: E402
-from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector  # noqa: E402
-from kntgraph.infra.graph import (  # noqa: E402
+from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.infra.graph import (
     GraphPool,
 )
-from kntgraph.testing import FakeEmbeddingProvider  # noqa: E402
-from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever  # noqa: E402
-from kntgraph.stream.event_log import EventLog  # noqa: E402
+from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector
+from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
+from kntgraph.stream.event_log import EventLog
+from kntgraph.testing import FakeEmbeddingProvider
 
 # Mark all tests in this module as asyncio (the conftest-style
 # async fixture `event_log` requires an async context).
@@ -68,7 +68,7 @@ def falkordb_client() -> Iterator[GraphPool]:
     c = GraphPool(host=host, port=port, password=password)
     try:
         c.connect()
-    except Exception as e:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError) as e:
         pytest.skip(f"FalkorDB not reachable: {e}")
     yield c
     c.close()
@@ -86,13 +86,13 @@ async def clean_falkordb_graph(falkordb_client: GraphPool):
     # Clean BEFORE the test in case a previous run left state
     try:
         await graph.query("MATCH (n) DETACH DELETE n")
-    except Exception:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
         pass
     yield tenant, graph
     # Cleanup AFTER
     try:
         await graph.query("MATCH (n) DETACH DELETE n")
-    except Exception:
+    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
         pass
 
 
@@ -274,7 +274,13 @@ class TestFalkorDBProjector:
             for tid in (tenant_a, tenant_b):
                 try:
                     await falkordb_client.graph(tid).query("MATCH (n) DETACH DELETE n")
-                except Exception:
+                except (
+                    ConnectionError,
+                    OSError,
+                    TimeoutError,
+                    ValueError,
+                    RuntimeError,
+                ):
                     pass
 
 
@@ -282,7 +288,7 @@ class TestGraphRAGRetriever:
     async def test_vector_search_returns_top_k(
         self, event_log, falkordb_client, clean_falkordb_graph
     ):
-        tenant, graph = clean_falkordb_graph
+        tenant, _graph = clean_falkordb_graph
         # Seed two NFs with different "content"
         await event_log.append(
             Event.domain_from(

@@ -225,8 +225,8 @@ class TestCreateAPIKeyStorageFactory:
         """When the operator sets ``KNT_REDIS_KEY_PREFIX``,
         the factory threads it through.
         """
-        from kntgraph.infra.redis import create_api_key_storage
         from kntgraph.infra.config import fresh_settings
+        from kntgraph.infra.redis import create_api_key_storage
 
         settings = fresh_settings()
         settings.redis_key_prefix = "acme-billing:"

@@ -98,9 +98,7 @@ start_http_server(port=9100)
 sink = PrometheusMetricsSink()
 dispatcher = ReactiveDispatcher(
     log=EventLog(RedisEventLogAdapter(redis_client)),
-    world_store=IncrementalWorldStore(
-        RedisWorldCheckpointStorage(redis_client)
-    ),
+    world_store=IncrementalWorldStore(RedisWorldCheckpointStorage(redis_client)),
     metrics_sink=sink,
 )
 
@@ -126,11 +124,13 @@ Any class with the five methods is a `MetricsSink` (the Protocol is
 ```python
 from kntgraph.runner import MetricsSink
 
+
 class StatsdSink:
     """Push metrics to a StatsD UDP endpoint."""
 
     def __init__(self, host: str = "localhost", port: int = 8125) -> None:
         import statsd
+
         self._client = statsd.StatsClient(host, port)
 
     def record_in_flight(self, count: int) -> None:
@@ -147,6 +147,7 @@ class StatsdSink:
 
     def incr_compensation_started(self) -> None:
         self._client.incr("knt.compensations_started")
+
 
 # Wire it:
 dispatcher = ReactiveDispatcher(
@@ -171,7 +172,7 @@ is called:
 ```python
 # Operator-driven dashboards / cron / alerts
 in_flight = await dispatcher.in_flight_tasks()  # pushes to sink
-stale = await dispatcher.stale_tasks()           # pushes to sink
+stale = await dispatcher.stale_tasks()  # pushes to sink
 ```
 
 The counter method fires **once per `*.compensation_started` event

@@ -24,10 +24,12 @@ Why split
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import structlog
+from redis import exceptions as redis_exceptions
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, PersistenceError, Result
 
@@ -44,7 +46,7 @@ from ._keys import (
 )
 
 
-def _event_to_redis(event: Event) -> dict[str, str]:
+def _event_to_redis(event: Event) -> dict[str, JsonValue]:
     """Local import wrapper — see module docstring."""
     from kntgraph.stream.event_log.codec import event_to_redis
 
@@ -53,15 +55,11 @@ def _event_to_redis(event: Event) -> dict[str, str]:
 
 def _parse_event(mid: bytes | str, mdata: dict) -> Event:
     """Local import wrapper — see module docstring."""
-    from kntgraph.stream.event_log.codec import parse_event
-
     from typing import cast
 
+    from kntgraph.stream.event_log.codec import parse_event
+
     return parse_event(cast(bytes, mid), mdata)
-
-
-if TYPE_CHECKING:
-    pass
 
 
 logger = structlog.get_logger()
@@ -163,14 +161,19 @@ class RedisEventLogAdapter:
                 agent_id=agent_id,
             )
             return Err(PersistenceError("Concurrent insert in flight"))
-        except Exception as e:
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
             logger.error(
                 "event_log.append.error",
                 event_id=str(event.event_id),
                 agent_id=agent_id,
-                error=str(e),
+                error=str(exc),
             )
-            return Err(PersistenceError(f"Redis error: {e}"))
+            return Err(PersistenceError(f"Redis error: {exc}"))
         logger.debug(
             "event_log.append.ok",
             event_id=str(event.event_id),
@@ -250,7 +253,24 @@ class RedisEventLogAdapter:
                 max="+",
                 count=1,
             )
-        except Exception:
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            # Fail-open: a transport failure on
+            # ``latest_stream_id`` must NOT crash the
+            # EventLog append path. Log at ``debug`` (this
+            # is a hot read on every fold-warming cycle;
+            # ``warning`` would flood the log) and return
+            # ``None`` — the caller falls back to
+            # ``"0-0"`` (a known safe cursor).
+            logger.debug(
+                "event_log.latest_stream_id.redis_error",
+                agent_id=agent_id,
+                error=str(exc),
+            )
             return None
         if not messages:
             return None

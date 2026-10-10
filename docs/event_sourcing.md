@@ -52,11 +52,8 @@ from kntgraph.core.event import AgentEvent
 event = AgentEvent.create(
     event_type="document.validated",
     agent_id="agent-123",
-    data={
-        "document_id": "NF-001",
-        "validated_at": "2024-05-26T10:00:00Z"
-    },
-    version=1
+    data={"document_id": "NF-001", "validated_at": "2024-05-26T10:00:00Z"},
+    version=1,
 )
 ```
 
@@ -64,17 +61,17 @@ event = AgentEvent.create(
 
 ```python
 {
-    "event_id": "uuid",           # ID único
-    "agent_id": "agent-123",      # Dono do evento
-    "event_type": "doc.validated",# Tipo
-    "timestamp": "2024-05-26...", # Quando ocorreu
-    "data": {...},                # Payload
-    "version": 1,                 # Versão do schema
-    "correlation": {              # Tracing
+    "event_id": "uuid",  # ID único
+    "agent_id": "agent-123",  # Dono do evento
+    "event_type": "doc.validated",  # Tipo
+    "timestamp": "2024-05-26...",  # Quando ocorreu
+    "data": {...},  # Payload
+    "version": 1,  # Versão do schema
+    "correlation": {  # Tracing
         "correlation_id": "uuid",
         "causation_id": "uuid",
-        "span_id": "uuid"
-    }
+        "span_id": "uuid",
+    },
 }
 ```
 
@@ -83,6 +80,7 @@ event = AgentEvent.create(
 ```python
 # Ciclo de vida de documento
 "document.received"
+
 "document.validating"
 "document.validated"
 "document.rejected"
@@ -111,27 +109,18 @@ event = AgentEvent.create(
 ```python
 from kntgraph.core.event import correlation_middleware
 
-with correlation_middleware.context_manager({
-    "tenant_id": "123456789",
-    "document_id": "NF-001"
-}) as ctx:
+with correlation_middleware.context_manager(
+    {"tenant_id": "123456789", "document_id": "NF-001"}
+) as ctx:
     # Evento 1
-    event1 = AgentEvent.create(
-        "document.received",
-        "agent-1",
-        data={},
-        correlation=ctx
-    )
-    
+    event1 = AgentEvent.create("document.received", "agent-1", data={}, correlation=ctx)
+
     # Evento 2 (causado pelo 1)
     ctx2 = correlation_middleware.continue_correlation(event1)
     event2 = AgentEvent.create(
-        "document.validated",
-        "agent-1",
-        data={},
-        correlation=ctx2
+        "document.validated", "agent-1", data={}, correlation=ctx2
     )
-    
+
     # Ambos têm mesmo correlation_id
     assert event1.correlation.correlation_id == event2.correlation.correlation_id
 ```
@@ -232,11 +221,12 @@ declarativas por `agent_id`. Veja:
 def reconstruct_state(events: list[AgentEvent]) -> AgentState:
     """Reconstrói estado aplicando eventos em sequência."""
     state = AgentState(agent_id=events[0].agent_id)
-    
+
     for event in events:
         state = apply_event(state, event)
-    
+
     return state
+
 
 def apply_event(state: AgentState, event: AgentEvent) -> AgentState:
     """Aplica evento ao estado."""
@@ -309,9 +299,10 @@ if len(events) % 100 == 0:
         "agent_id": agent_id,
         "version": len(events),
         "state": serialize(state),
-        "timestamp": datetime.now()
+        "timestamp": datetime.now(),
     }
     await save_snapshot(snapshot)
+
 
 # Reconstrução otimizada
 def reconstruct_with_snapshot(agent_id):
@@ -334,7 +325,7 @@ await store.move_to_dlq(
     event,
     reason=DLQReason.MAX_RETRIES_EXCEEDED,
     error_message="Failed after 3 retries",
-    retry_count=3
+    retry_count=3,
 )
 ```
 
@@ -386,7 +377,7 @@ event = AgentEvent.create(
     "document.validated",
     agent_id,
     data={"status": "ok"},
-    timestamp=datetime(2024, 5, 26, 10, 0, 0)  # Explícito
+    timestamp=datetime(2024, 5, 26, 10, 0, 0),  # Explícito
 )
 
 # Versionamento
@@ -394,7 +385,7 @@ event = AgentEvent.create(
     "document.validated",
     agent_id,
     data={"status": "ok"},
-    version=2  # Schema v2
+    version=2,  # Schema v2
 )
 
 # Correlation sempre
@@ -446,48 +437,47 @@ from kntgraph.core.event import AgentEvent, correlation_middleware
 from kntgraph.events.store import EventStore
 from kntgraph.infra.redis import get_redis
 
+
 async def main():
     # Setup
     redis = await get_redis()
     store = EventStore(redis)
-    
+
     # Correlation
-    with correlation_middleware.context_manager({
-        "tenant_id": "123456789",
-        "document_id": "NF-001"
-    }) as ctx:
+    with correlation_middleware.context_manager(
+        {"tenant_id": "123456789", "document_id": "NF-001"}
+    ) as ctx:
         # 1. Cria agente
         agent = AgentState.create(
-            agent_type="service",
-            tenant_id="123456789",
-            unique_key="NF-001"
+            agent_type="service", tenant_id="123456789", unique_key="NF-001"
         )
-        
+
         # 2. Evento inicial
         event1 = AgentEvent.create(
             "document.received",
             agent.agent_id,
             {"document_type": "nota_fiscal"},
-            correlation=ctx
+            correlation=ctx,
         )
         await store.append(event1)
-        
+
         # 3. Processa
         event2 = AgentEvent.create(
             "document.validated",
             agent.agent_id,
             {"status": "ok"},
-            correlation=correlation_middleware.continue_correlation(event1)
+            correlation=correlation_middleware.continue_correlation(event1),
         )
         await store.append(event2)
-        
+
         # 4. Audit trail
         events = await store.get_by_correlation(ctx.correlation_id)
         print(f"{len(events)} eventos no fluxo")
-        
+
         # 5. Reconstrói estado
         state = reconstruct_state(events)
         print(f"Estado: {state.status}")
+
 
 asyncio.run(main())
 ```

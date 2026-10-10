@@ -29,13 +29,12 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any, Generic, Type
+from typing import Any
 
 from immutables import Map
 
 from ._typing import ComponentT
 from .archetype import ArchetypeId
-
 
 # Local alias kept for backward compatibility with
 # downstream imports (`from kntgraph.core.storage
@@ -44,7 +43,7 @@ from .archetype import ArchetypeId
 Component = ComponentT
 
 
-class ArchetypeStorage(Generic[ComponentT]):
+class ArchetypeStorage[ComponentT]:
     """
     In-memory archetype-keyed storage. Pure Python, no native deps.
 
@@ -171,7 +170,7 @@ class ArchetypeStorage(Generic[ComponentT]):
         return self.move_entity(entity_id, new_components)
 
     def query(
-        self, *component_types: Type[ComponentT]
+        self, *component_types: type[ComponentT]
     ) -> Iterator[tuple[str, dict[str | type[Any], ComponentT]]]:
         """
         Iterate entities that contain ALL given component types (AND).
@@ -192,13 +191,13 @@ class ArchetypeStorage(Generic[ComponentT]):
                     yield eid, comps
 
     def query_one(
-        self, *component_types: Type[ComponentT]
+        self, *component_types: type[ComponentT]
     ) -> tuple[str, dict[str | type[Any], ComponentT]] | None:
         for eid, comps in self.query(*component_types):
             return eid, comps
         return None
 
-    def count(self, *component_types: Type[ComponentT]) -> int:
+    def count(self, *component_types: type[ComponentT]) -> int:
         return sum(1 for _ in self.query(*component_types))
 
     def to_map(self) -> Map[str, Map[str | type[Any], ComponentT]]:
@@ -222,7 +221,7 @@ class ArchetypeStorage(Generic[ComponentT]):
         self,
         entity_id: str,
         components: Mapping[str | type[Any], ComponentT],
-    ) -> "ArchetypeStorage":
+    ) -> ArchetypeStorage:
         """
         Return a NEW ArchetypeStorage containing every entity
         of `self` except `entity_id`, plus the supplied
@@ -234,7 +233,7 @@ class ArchetypeStorage(Generic[ComponentT]):
         mutated.
         """
         new = ArchetypeStorage()
-        for arch_id, table in self._archetypes.items():
+        for table in self._archetypes.values():
             for eid, comps in table.items():
                 if eid == entity_id:
                     continue

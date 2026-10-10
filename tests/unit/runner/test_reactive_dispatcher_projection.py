@@ -20,7 +20,6 @@ from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.runner._folding import fold_with_filter

@@ -27,7 +27,7 @@ last_stream_id) tuple. The facade unpacks it.
 
 from __future__ import annotations
 
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
@@ -38,7 +38,7 @@ from .._errors import MemoryError
 class WorldCheckpointStorage(Protocol):
     """Domain interface for the per-agent World checkpoint."""
 
-    async def load(self, agent_id: str) -> Result[Optional[bytes], MemoryError]:
+    async def load(self, agent_id: str) -> Result[bytes | None, MemoryError]:
         """Load the pickled checkpoint payload.
 
         Returns ``Ok(None)`` on miss (first dispatch for the
@@ -47,7 +47,7 @@ class WorldCheckpointStorage(Protocol):
         """
         ...
 
-    async def load_cursor(self, agent_id: str) -> Result[Optional[str], MemoryError]:
+    async def load_cursor(self, agent_id: str) -> Result[str | None, MemoryError]:
         """Load the agent's stream cursor (P5b split).
 
         The cheap probe: a small ``GET`` that answers "is
@@ -62,8 +62,8 @@ class WorldCheckpointStorage(Protocol):
         agent_id: str,
         payload: bytes,
         *,
-        ttl_seconds: Optional[int] = None,
-        cursor: Optional[str] = None,
+        ttl_seconds: int | None = None,
+        cursor: str | None = None,
     ) -> Result[None, MemoryError]:
         """Persist a pickled checkpoint payload with sliding TTL.
 

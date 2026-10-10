@@ -59,7 +59,6 @@ from ._params import (
     _tool_call_node_params,
 )
 
-
 if TYPE_CHECKING:
     from ...graph._protocol import GraphAdapter
     from ...infra.graph import GraphPool
@@ -268,7 +267,14 @@ class FalkorDBProjector:
                 params={"dimension": self._embedding.dimension},
             )
             self._vector_index_created = True
-        except Exception as e:
+        except (
+            ConnectionError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+        ) as e:
             logger.warning(
                 "falkordb.vector_index.create_failed",
                 error=str(e),

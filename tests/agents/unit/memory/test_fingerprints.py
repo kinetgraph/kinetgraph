@@ -29,12 +29,9 @@ test surface is small.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from types import MappingProxyType
-from typing import Any, Mapping, Optional
-
-from kntgraph.core.event.correlation import CorrelationContext
-from kntgraph.core.event.event import Event
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
 
 from kntgraph.agents.memory.solutions._fingerprints import (
     cast_any_to_json,
@@ -44,23 +41,25 @@ from kntgraph.agents.memory.solutions._fingerprints import (
     params_from_requested,
     result_signature,
 )
+from kntgraph.core.event.correlation import CorrelationContext
+from kntgraph.core.event.event import Event
 
 
 def _ts() -> datetime:
-    return datetime(2026, 6, 30, 12, 0, 0, tzinfo=timezone.utc)
+    return datetime(2026, 6, 30, 12, 0, 0, tzinfo=UTC)
 
 
 def _event(
     *,
     event_type: str,
     agent_id: str = "agent-1",
-    data: Optional[Mapping[str, Any]] = None,
+    data: Mapping[str, Any] | None = None,
 ) -> Event:
     return Event.create(
         event_type=event_type,
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(dict(data or {})),
+        data=dict(data or {}),
         correlation=CorrelationContext.new(),
         causation_id=None,
         timestamp=_ts(),

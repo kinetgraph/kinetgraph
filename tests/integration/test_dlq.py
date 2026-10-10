@@ -16,25 +16,28 @@ The DLQ parks events that a system could not process. Tests cover:
 """
 
 from __future__ import annotations
-from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 
 import uuid
+from datetime import UTC
+from typing import Any
 
 import pytest
 
-from kntgraph.core.event import Event, CorrelationContext
+from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.events.dlq import (
     DLQ_AGENT_INDEX,
     DLQ_EVENT_INDEX,
     DLQ_REASON_INDEX,
     DLQ_STREAM_KEY,
-    DLQReason,
-    DeadLetterActions as _ActualDeadLetterActions,
     DeadLetterEvent,
+    DLQReason,
+)
+from kntgraph.events.dlq import (
+    DeadLetterActions as _ActualDeadLetterActions,
 )
 from kntgraph.events.dlq.store import DeadLetterQueue
 from kntgraph.infra.redis._dlq import RedisDLQStorage
-from typing import Any
+from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 
 
 class DeadLetterActions(_ActualDeadLetterActions):
@@ -97,9 +100,9 @@ def make_dl_event(
         data={"k": 1, "_unique": unique},
         correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
     )
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return DeadLetterEvent(
         event=e,
         reason=reason,
@@ -155,9 +158,9 @@ class TestDLQIdempotency:
             event_class="lifecycle",
             correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
         )
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         dle_timeout = DeadLetterEvent(
             event=e,
             reason=DLQReason.TIMEOUT,
@@ -183,15 +186,18 @@ class TestDLQRead:
         dlq = DeadLetterActions(clean_redis)
         dle = make_dl_event()
         await dlq.append(dle)
-        retrieved = await dlq.get_event(str(dle.event.event_id))
+        result = await dlq.get_event(str(dle.event.event_id))
+        assert result.is_ok()
+        retrieved = result.ok_value()
         assert retrieved is not None
         assert retrieved.event.event_id == dle.event.event_id
         assert retrieved.reason == dle.reason
 
     async def test_get_event_unknown(self, clean_redis):
         dlq = DeadLetterActions(clean_redis)
-        retrieved = await dlq.get_event("00000000-0000-0000-0000-000000000000")
-        assert retrieved is None
+        result = await dlq.get_event("00000000-0000-0000-0000-000000000000")
+        assert result.is_ok()
+        assert result.ok_value() is None
 
     async def test_list_for_agent(self, clean_redis):
         dlq = DeadLetterActions(clean_redis)
@@ -204,7 +210,9 @@ class TestDLQRead:
         await dlq.append(
             make_dl_event(agent_id="a-2", reason=DLQReason.TIMEOUT, unique=3)
         )
-        entries = await dlq.list_for_agent("a-1")
+        result = await dlq.list_for_agent("a-1")
+        assert result.is_ok()
+        entries = result.ok_value()
         assert len(entries) == 2
         for e in entries:
             assert e.event.agent_id == "a-1"
@@ -214,7 +222,9 @@ class TestDLQRead:
         await dlq.append(make_dl_event(reason=DLQReason.TIMEOUT, unique=1))
         await dlq.append(make_dl_event(reason=DLQReason.TIMEOUT, unique=2))
         await dlq.append(make_dl_event(reason=DLQReason.POISON_PILL, unique=3))
-        timeouts = await dlq.list_by_reason(DLQReason.TIMEOUT)
+        result = await dlq.list_by_reason(DLQReason.TIMEOUT)
+        assert result.is_ok()
+        timeouts = result.ok_value()
         assert len(timeouts) == 2
         for e in timeouts:
             assert e.reason == DLQReason.TIMEOUT
@@ -223,7 +233,9 @@ class TestDLQRead:
         dlq = DeadLetterActions(clean_redis)
         for i in range(5):
             await dlq.append(make_dl_event(unique=i))
-        all_entries = await dlq.list_all()
+        result = await dlq.list_all()
+        assert result.is_ok()
+        all_entries = result.ok_value()
         assert len(all_entries) == 5
 
 
@@ -237,7 +249,9 @@ class TestDLQReprocess:
         event = result.unwrap()
         assert event.event_id == dle.event.event_id
         # The entry is removed
-        assert await dlq.get_event(str(dle.event.event_id)) is None
+        get_after = await dlq.get_event(str(dle.event.event_id))
+        assert get_after.is_ok()
+        assert get_after.ok_value() is None
 
     async def test_reprocess_unknown_fails(self, clean_redis):
         dlq = DeadLetterActions(clean_redis)
@@ -263,7 +277,9 @@ class TestDLQDiscard:
         await dlq.append(dle)
         result = await dlq.discard(str(dle.event.event_id))
         assert result.is_ok()
-        assert await dlq.get_event(str(dle.event.event_id)) is None
+        get_after = await dlq.get_event(str(dle.event.event_id))
+        assert get_after.is_ok()
+        assert get_after.ok_value() is None
 
     async def test_discard_unknown_fails(self, clean_redis):
         dlq = DeadLetterActions(clean_redis)
@@ -274,7 +290,9 @@ class TestDLQDiscard:
 class TestDLQStats:
     async def test_stats_empty(self, clean_redis):
         dlq = DeadLetterActions(clean_redis)
-        stats = await dlq.get_stats()
+        result = await dlq.get_stats()
+        assert result.is_ok()
+        stats = result.ok_value()
         assert stats["total_events"] == 0
         assert stats["by_reason"] == {}
 
@@ -283,7 +301,9 @@ class TestDLQStats:
         await dlq.append(make_dl_event(reason=DLQReason.TIMEOUT, unique=1))
         await dlq.append(make_dl_event(reason=DLQReason.TIMEOUT, unique=2))
         await dlq.append(make_dl_event(reason=DLQReason.POISON_PILL, unique=3))
-        stats = await dlq.get_stats()
+        result = await dlq.get_stats()
+        assert result.is_ok()
+        stats = result.ok_value()
         assert stats["total_events"] == 3
         assert stats["by_reason"]["timeout"] == 2
         assert stats["by_reason"]["poison_pill"] == 1

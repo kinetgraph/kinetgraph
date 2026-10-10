@@ -42,7 +42,6 @@ from kntgraph.infra.redis._memory._session import (
     RedisSessionStorage,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

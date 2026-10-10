@@ -35,8 +35,7 @@ durable; the dispatcher is a cache".
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from types import MappingProxyType
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -62,7 +61,6 @@ from kntgraph.infra.world_checkpoint import (
     WorldCheckpoint,
 )
 from kntgraph.stream.event_log import EventLog
-
 
 pytestmark = pytest.mark.asyncio
 
@@ -96,13 +94,13 @@ def _compensating_world(
     progress = SagaProgressComponent(
         saga_name="chaos",
         saga_id="saga-chaos",
-        step_order=tuple(["step_a", "step_b", "step_c"]),
+        step_order=("step_a", "step_b", "step_c"),
         current_step=compensate_stack[0] if compensate_stack else "",
         direction="compensating",
-        step_states=MappingProxyType(dict(step_states)),
-        step_results=MappingProxyType({}),
+        step_states=dict(step_states),
+        step_results={},
         compensate_stack=tuple(compensate_stack),
-        started_at=datetime.now(tz=timezone.utc),
+        started_at=datetime.now(tz=UTC),
     )
     view = AgentView(
         agent_id=agent_id,

@@ -103,7 +103,6 @@ class TestImportGraphNoCycle:
             compatibility).
         """
         import kntgraph.tools.arg_validation as framework_av
-
         from kntgraph.tools.arg_validation import (
             SchemaValidationError,
             validate_args,

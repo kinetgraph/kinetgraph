@@ -26,7 +26,6 @@ import hashlib
 
 from pydantic import BaseModel
 
-
 # ---------------------------------------------------------------------------
 # Chat
 # ---------------------------------------------------------------------------
@@ -121,7 +120,7 @@ def chat_idempotency_key(
     default (the legacy role accepted this).
     """
     h = hashlib.sha256(
-        f"{session_id}|{history_length}|{new_message}".encode("utf-8")
+        f"{session_id}|{history_length}|{new_message}".encode()
     ).hexdigest()
     return f"chat:{h[:32]}"
 
@@ -275,15 +274,15 @@ def parse_role_output(text: str, model: type[BaseModel]) -> BaseModel:
 
 __all__ = [
     "CHAT_SYSTEM_PROMPT",
+    "PERSONALIZED_SYSTEM_PROMPT",
     "PLANNER_SYSTEM_PROMPT",
     "SUMMARIZER_SYSTEM_PROMPT",
-    "PERSONALIZED_SYSTEM_PROMPT",
     "ChatReply",
     "Plan",
     "PlanStep",
     "Summary",
-    "format_chat_history",
-    "chat_idempotency_key",
     "build_personalized_system_prompt",
+    "chat_idempotency_key",
+    "format_chat_history",
     "parse_role_output",
 ]
