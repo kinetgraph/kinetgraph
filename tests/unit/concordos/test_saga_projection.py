@@ -224,10 +224,8 @@ def test_projection_preserves_base_without_saga_events() -> None:
         current_step="validate_fiscal",
         direction="forward",
         step_order=("validate_fiscal", "emit_nfe", "register_receivable"),
-        step_states=__import__("types").MappingProxyType(
-            {"validate_fiscal": "in_flight"}
-        ),
-        step_results=__import__("types").MappingProxyType({}),
+        step_states={"validate_fiscal": "in_flight"},
+        step_results={},
         compensate_stack=(),
         started_at=FIXED_NOW,
     )

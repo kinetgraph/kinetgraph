@@ -24,7 +24,6 @@ replayed log re-evaluates guards with the same timestamp.
 
 from __future__ import annotations
 
-from types import MappingProxyType
 from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
@@ -191,9 +190,7 @@ class FSMSystem:
             event_id=UUID(str(view.last_event_id))
             if view.last_event_id is not None
             else None,
-            data=MappingProxyType(dict(payload))
-            if isinstance(payload, dict)
-            else MappingProxyType({}),
+            data=dict(payload) if isinstance(payload, dict) else {},
             correlation=correlation_middleware.current(),
         )
 
@@ -250,14 +247,14 @@ class FSMSystem:
             # closure over the post-fold World; specs
             # that don't need it receive ``None``.
             ctx = StepContext(
-                step_results=MappingProxyType({}),
-                step_states=MappingProxyType({}),
+                step_results={},
+                step_states={},
                 domain=component,
                 continuity=view.get_component(ContinuityComponent),
                 profile=view.get_component(ProfileComponent),
                 agent_id=view.agent_id,
                 now=self._now(),
-                trigger_data=MappingProxyType(dict(trigger.data))
+                trigger_data=dict(trigger.data)
                 if isinstance(getattr(trigger, "data", None), dict)
                 else None,
                 cross_agent_resolver=lambda aid: world.views.get(aid),

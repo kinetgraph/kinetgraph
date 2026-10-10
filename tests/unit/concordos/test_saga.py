@@ -15,7 +15,6 @@ mocks on ``ReactiveDispatcher``. They run with
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from types import MappingProxyType
 from uuid import uuid4
 
 from kntgraph.concordos.saga import (
@@ -112,11 +111,11 @@ def _progress(
         current_step=current_step,
         direction=direction,
         step_order=step_order,
-        step_states=MappingProxyType(step_states or {}),
-        step_results=MappingProxyType(step_results or {}),
+        step_states=step_states or {},
+        step_results=step_results or {},
         compensate_stack=compensate_stack,
         started_at=started_at,
-        awaiting_approval_at=MappingProxyType(awaiting_approval_at or {}),
+        awaiting_approval_at=awaiting_approval_at or {},
     )
 
 
@@ -1002,8 +1001,8 @@ def test_saga_next_non_skipped_step_unknown_current() -> None:
     system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
     unknown = SagaStepConfig(name="ghost", tool_name="ghost_tool")
     ctx = StepContext(
-        step_results=MappingProxyType({}),
-        step_states=MappingProxyType({}),
+        step_results={},
+        step_states={},
         domain=None,
         continuity=None,
         profile=None,

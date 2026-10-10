@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 
 import pytest
 
@@ -62,8 +61,8 @@ def _ctx(
     ``None``); tests can pass an explicit resolver.
     """
     return StepContext(
-        step_results=MappingProxyType(step_results or {}),
-        step_states=MappingProxyType(step_states or {}),
+        step_results=step_results or {},
+        step_states=step_states or {},
         domain=domain,
         continuity=continuity,
         profile=profile,
@@ -357,8 +356,8 @@ class TestCrossAgentResolver:
         """
         with pytest.raises(TypeError):
             StepContext(  # type: ignore[call-arg]
-                step_results=MappingProxyType({}),
-                step_states=MappingProxyType({}),
+                step_results={},
+                step_states={},
                 domain=None,
                 continuity=None,
                 profile=None,

@@ -36,7 +36,6 @@ durable; the dispatcher is a cache".
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import MappingProxyType
 from typing import Any
 from uuid import uuid4
 
@@ -98,8 +97,8 @@ def _compensating_world(
         step_order=("step_a", "step_b", "step_c"),
         current_step=compensate_stack[0] if compensate_stack else "",
         direction="compensating",
-        step_states=MappingProxyType(dict(step_states)),
-        step_results=MappingProxyType({}),
+        step_states=dict(step_states),
+        step_results={},
         compensate_stack=tuple(compensate_stack),
         started_at=datetime.now(tz=UTC),
     )

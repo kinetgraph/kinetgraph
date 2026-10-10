@@ -21,7 +21,6 @@ isolation:
 
 from __future__ import annotations
 
-from types import MappingProxyType
 from typing import Any
 from uuid import uuid4
 
@@ -49,7 +48,7 @@ def _event(
         event_type=event_type,
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(dict(data or {})),
+        data=dict(data or {}),
         correlation=_ctx(),
         causation_id=causation_id,
     )

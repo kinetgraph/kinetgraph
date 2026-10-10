@@ -1742,57 +1742,57 @@
     },
     "src/kntgraph/concordos/base.py:class:AndSpec": {
       "complexity": 3,
-      "lineno": 163,
+      "lineno": 162,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:Composable": {
       "complexity": 2,
-      "lineno": 121,
+      "lineno": 120,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:NotSpec": {
       "complexity": 2,
-      "lineno": 185,
+      "lineno": 184,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:OrSpec": {
       "complexity": 3,
-      "lineno": 174,
+      "lineno": 173,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:Specification": {
       "complexity": 2,
-      "lineno": 146,
+      "lineno": 145,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:StepContext": {
       "complexity": 1,
-      "lineno": 63,
+      "lineno": 62,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:class:ViewTrigger": {
       "complexity": 1,
-      "lineno": 195,
+      "lineno": 194,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:method:and_": {
       "complexity": 1,
-      "lineno": 136,
+      "lineno": 135,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:method:is_satisfied_by": {
       "complexity": 1,
-      "lineno": 190,
+      "lineno": 189,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:method:not_": {
       "complexity": 1,
-      "lineno": 142,
+      "lineno": 141,
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py:method:or_": {
       "complexity": 1,
-      "lineno": 139,
+      "lineno": 138,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/__init__.py:class:BusinessFSMConcordo": {
@@ -1852,52 +1852,52 @@
     },
     "src/kntgraph/concordos/fsm/_system.py:class:FSMSystem": {
       "complexity": 3,
-      "lineno": 80,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:__call__": {
       "complexity": 2,
-      "lineno": 139,
+      "lineno": 138,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:__init__": {
       "complexity": 1,
-      "lineno": 130,
+      "lineno": 129,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_emit": {
       "complexity": 1,
-      "lineno": 326,
+      "lineno": 323,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_entry_event": {
       "complexity": 1,
-      "lineno": 314,
+      "lineno": 311,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_events_for_agent": {
       "complexity": 8,
-      "lineno": 145,
+      "lineno": 144,
       "rank": "B"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_own_event_types": {
       "complexity": 1,
-      "lineno": 205,
+      "lineno": 202,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_process_trigger": {
       "complexity": 7,
-      "lineno": 214,
+      "lineno": 211,
       "rank": "B"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_rejected": {
       "complexity": 1,
-      "lineno": 298,
+      "lineno": 295,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py:method:_transitioned": {
       "complexity": 1,
-      "lineno": 281,
+      "lineno": 278,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/__init__.py:class:WorkflowSagaConcordo": {
@@ -1927,12 +1927,7 @@
     },
     "src/kntgraph/concordos/saga/_components.py:class:SagaProgressComponent": {
       "complexity": 1,
-      "lineno": 51,
-      "rank": "A"
-    },
-    "src/kntgraph/concordos/saga/_components.py:function:_reconstruct_mapping_proxy": {
-      "complexity": 1,
-      "lineno": 26,
+      "lineno": 31,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_config.py:class:SagaConfig": {
@@ -2012,192 +2007,192 @@
     },
     "src/kntgraph/concordos/saga/_state.py:class:SagaProjection": {
       "complexity": 4,
-      "lineno": 452,
+      "lineno": 459,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:class:SagaState": {
       "complexity": 1,
-      "lineno": 69,
+      "lineno": 68,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_apply_step_snapshot": {
       "complexity": 3,
-      "lineno": 197,
+      "lineno": 196,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_build_component": {
       "complexity": 3,
-      "lineno": 408,
+      "lineno": 407,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_fold_agent": {
       "complexity": 11,
-      "lineno": 346,
+      "lineno": 345,
       "rank": "C"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_init_state": {
       "complexity": 1,
-      "lineno": 125,
+      "lineno": 124,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_awaiting_approval": {
       "complexity": 2,
-      "lineno": 166,
+      "lineno": 165,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_compensated": {
       "complexity": 3,
-      "lineno": 272,
+      "lineno": 271,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_compensating": {
       "complexity": 4,
-      "lineno": 215,
+      "lineno": 214,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_compensation_failed": {
       "complexity": 2,
-      "lineno": 318,
+      "lineno": 317,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_compensation_started": {
       "complexity": 3,
-      "lineno": 238,
+      "lineno": 237,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_completed": {
       "complexity": 1,
-      "lineno": 293,
+      "lineno": 292,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_dlq": {
       "complexity": 2,
-      "lineno": 298,
+      "lineno": 297,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_started": {
       "complexity": 1,
-      "lineno": 130,
+      "lineno": 129,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_step_completed": {
       "complexity": 1,
-      "lineno": 184,
+      "lineno": 183,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_step_failed": {
       "complexity": 1,
-      "lineno": 191,
+      "lineno": 190,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_step_started": {
       "complexity": 6,
-      "lineno": 143,
+      "lineno": 142,
       "rank": "B"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_on_timed_out": {
       "complexity": 2,
-      "lineno": 310,
+      "lineno": 309,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:_saga_event_types": {
       "complexity": 1,
-      "lineno": 48,
+      "lineno": 47,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:function:reconcile_saga_progress": {
       "complexity": 5,
-      "lineno": 425,
+      "lineno": 432,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:method:__call__": {
       "complexity": 5,
-      "lineno": 466,
+      "lineno": 473,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py:method:__init__": {
       "complexity": 1,
-      "lineno": 463,
+      "lineno": 470,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:class:SagaSystem": {
       "complexity": 4,
-      "lineno": 84,
+      "lineno": 83,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:function:_saga_self": {
       "complexity": 1,
-      "lineno": 70,
+      "lineno": 69,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:__call__": {
       "complexity": 2,
-      "lineno": 128,
+      "lineno": 127,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:__init__": {
       "complexity": 2,
-      "lineno": 118,
+      "lineno": 117,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_advance": {
       "complexity": 2,
-      "lineno": 409,
+      "lineno": 408,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_build_trigger": {
       "complexity": 3,
-      "lineno": 184,
+      "lineno": 183,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_completion_for_step": {
       "complexity": 4,
-      "lineno": 287,
+      "lineno": 286,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_events_for_agent": {
       "complexity": 10,
-      "lineno": 134,
+      "lineno": 133,
       "rank": "B"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_handle_completion": {
       "complexity": 6,
-      "lineno": 338,
+      "lineno": 337,
       "rank": "B"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_handle_failure": {
       "complexity": 4,
-      "lineno": 449,
+      "lineno": 448,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_is_compensation_failure": {
       "complexity": 1,
-      "lineno": 274,
+      "lineno": 273,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_is_tool_trigger": {
       "complexity": 2,
-      "lineno": 240,
+      "lineno": 239,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_match_step": {
       "complexity": 3,
-      "lineno": 250,
+      "lineno": 249,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_on_compensation_failure": {
       "complexity": 1,
-      "lineno": 218,
+      "lineno": 217,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_on_saga_timeout": {
       "complexity": 2,
-      "lineno": 201,
+      "lineno": 200,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py:method:_start": {
       "complexity": 2,
-      "lineno": 319,
+      "lineno": 318,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_timeout_system.py:class:SagaTimeoutSystem": {
@@ -7132,42 +7127,42 @@
     },
     "src/kntgraph/runner/_observability.py:class:InFlightTask": {
       "complexity": 2,
-      "lineno": 44,
+      "lineno": 43,
       "rank": "A"
     },
     "src/kntgraph/runner/_observability.py:class:RecoveryReport": {
       "complexity": 1,
-      "lineno": 97,
+      "lineno": 96,
       "rank": "A"
     },
     "src/kntgraph/runner/_observability.py:function:_extract_in_flight": {
       "complexity": 10,
-      "lineno": 119,
+      "lineno": 118,
       "rank": "B"
     },
     "src/kntgraph/runner/_observability.py:function:dead_lettered_tasks": {
       "complexity": 7,
-      "lineno": 232,
+      "lineno": 229,
       "rank": "B"
     },
     "src/kntgraph/runner/_observability.py:function:in_flight_tasks": {
       "complexity": 5,
-      "lineno": 182,
+      "lineno": 179,
       "rank": "A"
     },
     "src/kntgraph/runner/_observability.py:function:stale_tasks": {
       "complexity": 4,
-      "lineno": 209,
+      "lineno": 206,
       "rank": "A"
     },
     "src/kntgraph/runner/_observability.py:function:stuck_in_queue": {
       "complexity": 10,
-      "lineno": 285,
+      "lineno": 282,
       "rank": "B"
     },
     "src/kntgraph/runner/_observability.py:method:is_stale": {
       "complexity": 1,
-      "lineno": 80,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/runner/_systems_runner.py:function:_advance_cursors_in_world": {
@@ -8786,7 +8781,7 @@
       "rank": "A"
     },
     "src/kntgraph/concordos/base.py": {
-      "mi": 58.614860748453445,
+      "mi": 58.32857199205126,
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/__init__.py": {
@@ -8806,7 +8801,7 @@
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_system.py": {
-      "mi": 68.43171673884811,
+      "mi": 68.51946969207975,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/__init__.py": {
@@ -8834,11 +8829,11 @@
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_state.py": {
-      "mi": 55.22306737364505,
+      "mi": 55.31801066859473,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_system.py": {
-      "mi": 55.85405376428162,
+      "mi": 55.923402856285186,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_timeout_system.py": {
@@ -9498,7 +9493,7 @@
       "rank": "A"
     },
     "src/kntgraph/runner/_observability.py": {
-      "mi": 58.58905759013059,
+      "mi": 58.46589867706419,
       "rank": "A"
     },
     "src/kntgraph/runner/_systems_runner.py": {

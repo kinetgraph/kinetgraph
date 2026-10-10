@@ -22,7 +22,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
-from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
@@ -56,7 +55,7 @@ def _event(
         event_type=event_type,
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(dict(data or {})),
+        data=dict(data or {}),
         correlation=CorrelationContext.new(),
         causation_id=causation_id,
         timestamp=timestamp or _ts(),

@@ -31,7 +31,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from types import MappingProxyType
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.clock import utcnow
@@ -407,18 +406,26 @@ def _fold_agent(
 
 def _build_component(config: SagaConfig, state: SagaState) -> SagaProgressComponent:
     """Materialise the ``SagaProgressComponent`` from the fold
-    state."""
+    state.
+
+    The history fields (``step_states``, ``step_results``,
+    ``awaiting_approval_at``) are typed ``Mapping[K, V]``
+    (ADR-079); we pass plain ``dict`` snapshots. The mapping
+    is immutable in the structural sense because the surrounding
+    dataclass is ``frozen=True`` and the fold pattern never
+    mutates.
+    """
     return SagaProgressComponent(
         saga_id=state.saga_id,
         saga_name=config.name,
         current_step=state.current_step,
         direction=state.direction,
         step_order=tuple(s.name for s in config.steps),
-        step_states=MappingProxyType(dict(state.step_states)),
-        step_results=MappingProxyType(dict(state.step_results)),
+        step_states=dict(state.step_states),
+        step_results=dict(state.step_results),
         compensate_stack=tuple(state.compensate_stack),
         started_at=state.started_at or utcnow(),
-        awaiting_approval_at=MappingProxyType(dict(state.awaiting_approval_at)),
+        awaiting_approval_at=dict(state.awaiting_approval_at),
     )
 
 

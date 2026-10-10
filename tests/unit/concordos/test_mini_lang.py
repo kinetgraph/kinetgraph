@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import MappingProxyType
 
 import pytest
 
@@ -53,16 +52,14 @@ def make_ctx(
     profile=None,
 ) -> StepContext:
     return StepContext(
-        step_results=MappingProxyType(step_results or {}),
-        step_states=MappingProxyType(step_states or {}),
+        step_results=step_results or {},
+        step_states=step_states or {},
         domain=domain,
         continuity=continuity,
         profile=profile,
         agent_id="a-1",
         now=FIXED_NOW,
-        trigger_data=MappingProxyType(trigger_data)
-        if trigger_data is not None
-        else None,
+        trigger_data=trigger_data if trigger_data is not None else None,
         cross_agent_resolver=None,
     )
 

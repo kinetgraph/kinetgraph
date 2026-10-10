@@ -20,7 +20,6 @@ All read-only. Composed on existing primitives (``view.tool_requests`` /
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from types import MappingProxyType
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -55,7 +54,7 @@ def _make_tool_request_event(
         agent_id=agent_id,
         event_class="domain",
         correlation=CorrelationContext.new(),
-        data=MappingProxyType({"tool": tool_name}),
+        data={"tool": tool_name},
         timestamp=timestamp or datetime.now(tz=UTC),
     )
 
@@ -76,7 +75,7 @@ def _make_tool_completion_event(
         agent_id=agent_id,
         event_class="domain",
         correlation=CorrelationContext.new(),
-        data=MappingProxyType({}),
+        data={},
         causation_id=causation_id,
         timestamp=timestamp or datetime.now(tz=UTC),
     )

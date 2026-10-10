@@ -39,7 +39,6 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Mapping
-from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
@@ -358,8 +357,8 @@ class SagaSystem:
         new_results[step_config.name] = result
 
         ctx = StepContext(
-            step_results=MappingProxyType(new_results),
-            step_states=MappingProxyType(new_states),
+            step_results=new_results,
+            step_states=new_states,
             domain=view.get_component(DomainComponent),
             continuity=view.get_component(ContinuityComponent),
             profile=view.get_component(ProfileComponent),
@@ -378,7 +377,7 @@ class SagaSystem:
                 new_states[step_config.name] = "failed"
                 ctx = dataclasses.replace(
                     ctx,
-                    step_states=MappingProxyType(new_states),
+                    step_states=new_states,
                 )
                 return self._handle_failure(
                     world,

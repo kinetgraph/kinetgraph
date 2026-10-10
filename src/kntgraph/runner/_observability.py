@@ -22,7 +22,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import structlog
@@ -164,9 +163,7 @@ def _extract_in_flight(
                 tool_name=str(getattr(req, "tool_name", "")),
                 requested_at=getattr(req, "requested_at", now),
                 expires_at=getattr(req, "expires_at", now + timedelta(hours=1)),
-                parameters=MappingProxyType(dict(params))
-                if isinstance(params, Mapping)
-                else MappingProxyType({}),
+                parameters=dict(params) if isinstance(params, Mapping) else {},
                 correlation_id=str(corr) if corr else None,
                 acknowledged_at=None,
             )

@@ -34,7 +34,6 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -107,14 +106,14 @@ class StepContext:
     Specification, not to the Specification itself.
     """
 
-    step_results: MappingProxyType[str, JsonValue]
-    step_states: MappingProxyType[str, str]
+    step_results: Mapping[str, JsonValue]
+    step_states: Mapping[str, str]
     domain: DomainComponent | None
     continuity: ContinuityComponent | None
     profile: ProfileComponent | None
     agent_id: str
     now: datetime
-    trigger_data: MappingProxyType[str, JsonValue] | None = None
+    trigger_data: Mapping[str, JsonValue] | None = None
     cross_agent_resolver: Callable[[str], AgentView | None] | None = None
 
 

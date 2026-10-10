@@ -30,7 +30,6 @@ The system is the I/O counterpart of the pure
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from types import MappingProxyType
 
 from kntgraph.agents.memory.solution_promoter import (
     PromoteStats,
@@ -60,17 +59,15 @@ def _candidate_event(
         event_type="solution.candidate_extracted",
         agent_id=agent_id,
         event_class="domain",
-        data=MappingProxyType(
-            {
-                "request_event_id": request_event_id,
-                "tool_name": tool_name,
-                "params": {"tool": tool_name},
-                "requested_at": _ts(0).isoformat(),
-                "completion_status": completion_status,
-                "latency_ms": latency_ms,
-                "cross_agent_count": cross_agent_count,
-            }
-        ),
+        data={
+            "request_event_id": request_event_id,
+            "tool_name": tool_name,
+            "params": {"tool": tool_name},
+            "requested_at": _ts(0).isoformat(),
+            "completion_status": completion_status,
+            "latency_ms": latency_ms,
+            "cross_agent_count": cross_agent_count,
+        },
         correlation=CorrelationContext.new(),
     )
 
