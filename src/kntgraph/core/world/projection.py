@@ -46,44 +46,43 @@ Projection = Callable[[Sequence[Event]], dict[str, AgentView]]
 
 # A ``components`` key is PRESERVED across a domain
 # ``_apply_event`` call when it appears in
-# ``_DERIVED_COMPONENT_KEYS``. The default domain
-# projection REPLACES ``components`` with the new
-# event's data; derived components (installed by an
-# orthogonal projection pass — e.g. the tool-call
-# overlay or the memory hydration) are kept on the
-# view so the system can read them in the same tick.
+# ``_DERIVED_COMPONENT_KEYS`` (string keys) or matches a
+# typed-component class in :data:`_DERIVED_COMPONENT_CLASSES`.
+# The default domain projection REPLACES ``components`` with
+# the new event's data; derived components (installed by an
+# orthogonal projection pass — e.g. the tool-call overlay or
+# the memory hydration) are kept on the view so the system
+# can read them in the same tick.
 #
-# The registry is intentionally explicit (not "all
-# non-equal keys") because a domain event's data
-# IS a component of the same name as the event
-# type; if we just preserved every key, the new
-# event's data would merge into the previous
-# component instead of replacing it (which is the
-# wrong semantics for the default fold).
+# The registry is intentionally explicit (not "all non-equal
+# keys") because a domain event's data IS a component of the
+# same name as the event type; if we just preserved every
+# key, the new event's data would merge into the previous
+# component instead of replacing it (which is the wrong
+# semantics for the default fold).
 #
-# Add a key here when a projection installs a
-# component that must survive the
-# "last-event-wins" domain fold.
-_DERIVED_COMPONENT_KEYS: frozenset[Any] = frozenset(
+# Add a key here when a projection installs a component
+# that must survive the "last-event-wins" domain fold.
+_DERIVED_COMPONENT_KEYS: frozenset[str] = frozenset(
     {
         "tool_requests",
         "tool_completions",
-        # Memory components (ADR-042). The default
-        # projection does not know about
-        # SessionComponent / ProfileComponent /
-        # ContinuityComponent; the hydration
-        # projection installs them and they must
-        # survive the next domain fold (otherwise
-        # a ``user.intent`` arriving on a fresh
-        # tick would clobber the session).
-        # The class identity is the key (the
-        # components dict uses class objects as
-        # keys, not strings, for typed components).
-        # The import is deferred to avoid a
-        # circular dependency; the actual lookup
-        # happens in :func:`_is_derived_component_key`.
     }
 )
+
+
+# Typed component classes preserved across a domain fold.
+# Default projection does not know about these; the
+# hydration / saga / fsm projections install them and they
+# must survive the next domain fold (otherwise a fresh
+# ``user.intent`` would clobber the session).
+#
+# Typed as ``frozenset[type[object]]`` (ADR-079): classes
+# of typed ECS components. ``Any`` was previously used here
+# for the merged set; ADR-079 §6.3 narrowed this to the
+# precise ``type`` union. The import is deferred inside
+# :func:`_is_derived_component_key` to avoid a cycle.
+_DERIVED_COMPONENT_CLASSES: frozenset[type] = frozenset()
 
 
 def _is_derived_component_key(key: Any) -> bool:
@@ -94,14 +93,16 @@ def _is_derived_component_key(key: Any) -> bool:
     :data:`_DERIVED_COMPONENT_KEYS`. Class keys
     (used by typed component projections like
     ADR-042) are matched by class identity
-    against a small set of well-known component
-    classes imported lazily.
+    against :data:`_DERIVED_COMPONENT_CLASSES`
+    (lazy-loaded) and the ``DomainComponent``
+    superclass (ADR-059).
     """
     if isinstance(key, str):
         return key in _DERIVED_COMPONENT_KEYS
-    # Typed component (class key, ADR-042).
+    # Typed component (class key, ADR-042 + ADR-059).
     if isinstance(key, type):
-        # 1. Check if it's a typed ECS Component (ADR-059)
+        # 1. Any subclass of DomainComponent is a typed
+        #    ECS component (ADR-059); it survives the fold.
         try:
             from .component import DomainComponent
 
@@ -110,16 +111,20 @@ def _is_derived_component_key(key: Any) -> bool:
         except TypeError:
             pass  # key is not a class or issubclass failed
 
-        # 2. Check legacy memory components (ADR-042)
+        # 2. Check legacy memory components (ADR-042).
         try:
             from ..components import memory as _memory_components
+
+            typed_set: frozenset[type] = frozenset(
+                {
+                    _memory_components.SessionComponent,
+                    _memory_components.ProfileComponent,
+                    _memory_components.ContinuityComponent,
+                }
+            )
         except ImportError:
             return False
-        return key in {
-            _memory_components.SessionComponent,
-            _memory_components.ProfileComponent,
-            _memory_components.ContinuityComponent,
-        }
+        return key in typed_set
     return False
 
 

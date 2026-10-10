@@ -31,6 +31,7 @@ import pytest
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools._result import ToolResult
 from kntgraph.tools.worker import tool_worker
 
 # Mirror the type alias the Manager exposes, so we can type
@@ -147,7 +148,7 @@ async def test_factory_result_ok_emits_completed_event(clean_redis):
     manager = WorkerManager(clean_redis, event_log=log)
 
     async def factory(sync_fn, idempotency_key, tool_params):
-        return {"status": "ok", "value": {"from_factory": True}}
+        return ToolResult.ok({"from_factory": True})
 
     manager.register(MathDoublerTool, executor_factory=factory)
 
@@ -194,7 +195,7 @@ async def test_factory_result_err_emits_failed_event(clean_redis):
     manager = WorkerManager(clean_redis, event_log=log)
 
     async def factory(sync_fn, idempotency_key, tool_params):
-        return {"status": "err", "error": "factory said no"}
+        return ToolResult.err("factory said no")
 
     manager.register(MathDoublerTool, executor_factory=factory)
 

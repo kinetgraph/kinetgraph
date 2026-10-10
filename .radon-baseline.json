@@ -3027,42 +3027,42 @@
     },
     "src/kntgraph/core/world/projection.py:function:_apply_event": {
       "complexity": 2,
-      "lineno": 141,
+      "lineno": 146,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py:function:_extract_components_from_event": {
       "complexity": 2,
-      "lineno": 341,
+      "lineno": 346,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py:function:_is_derived_component_key": {
       "complexity": 6,
-      "lineno": 89,
+      "lineno": 88,
       "rank": "B"
     },
     "src/kntgraph/core/world/projection.py:function:_is_tool_event": {
       "complexity": 6,
-      "lineno": 266,
+      "lineno": 271,
       "rank": "B"
     },
     "src/kntgraph/core/world/projection.py:function:_lifecycle_phase_from_event": {
       "complexity": 2,
-      "lineno": 311,
+      "lineno": 316,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py:function:_log_overlay_key_collision": {
       "complexity": 1,
-      "lineno": 126,
+      "lineno": 131,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py:function:_preserve_derived_components": {
       "complexity": 6,
-      "lineno": 218,
+      "lineno": 223,
       "rank": "B"
     },
     "src/kntgraph/core/world/projection.py:function:project_default": {
       "complexity": 3,
-      "lineno": 288,
+      "lineno": 293,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection_memory.py:function:_apply_continuity_handlers": {
@@ -8969,7 +8969,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py": {
-      "mi": 57.557829062122686,
+      "mi": 55.3503098239324,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection_memory.py": {
