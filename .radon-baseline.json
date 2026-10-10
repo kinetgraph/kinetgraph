@@ -2827,112 +2827,112 @@
     },
     "src/kntgraph/core/storage.py:class:ArchetypeStorage": {
       "complexity": 3,
-      "lineno": 46,
+      "lineno": 45,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:__init__": {
       "complexity": 1,
-      "lineno": 65,
+      "lineno": 64,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 247,
+      "lineno": 244,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:_derive_archetype": {
       "complexity": 2,
-      "lineno": 210,
+      "lineno": 207,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_component": {
       "complexity": 2,
-      "lineno": 149,
+      "lineno": 146,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_entity": {
       "complexity": 2,
-      "lineno": 102,
+      "lineno": 99,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:archetype_ids": {
       "complexity": 1,
-      "lineno": 96,
+      "lineno": 93,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:clear": {
       "complexity": 1,
-      "lineno": 216,
+      "lineno": 213,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:clone_with_entity": {
       "complexity": 5,
-      "lineno": 220,
+      "lineno": 217,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:count": {
       "complexity": 2,
-      "lineno": 200,
+      "lineno": 197,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:entities_in": {
       "complexity": 1,
-      "lineno": 99,
+      "lineno": 96,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:get_archetype_of": {
       "complexity": 1,
-      "lineno": 82,
+      "lineno": 81,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:get_components": {
       "complexity": 3,
-      "lineno": 85,
+      "lineno": 84,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:has_entity": {
       "complexity": 1,
-      "lineno": 79,
+      "lineno": 78,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:move_entity": {
       "complexity": 6,
-      "lineno": 125,
+      "lineno": 122,
       "rank": "B"
     },
     "src/kntgraph/core/storage.py:method:num_archetypes": {
       "complexity": 1,
-      "lineno": 76,
+      "lineno": 75,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:num_entities": {
       "complexity": 1,
-      "lineno": 72,
+      "lineno": 71,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:query": {
       "complexity": 8,
-      "lineno": 172,
+      "lineno": 169,
       "rank": "B"
     },
     "src/kntgraph/core/storage.py:method:query_one": {
       "complexity": 2,
-      "lineno": 193,
+      "lineno": 190,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_component": {
       "complexity": 4,
-      "lineno": 161,
+      "lineno": 158,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_entity": {
       "complexity": 4,
-      "lineno": 115,
+      "lineno": 112,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:to_map": {
       "complexity": 3,
-      "lineno": 203,
+      "lineno": 200,
       "rank": "A"
     },
     "src/kntgraph/core/system.py:class:WorldSystem": {
@@ -3332,17 +3332,17 @@
     },
     "src/kntgraph/core/world/view.py:method:get_component": {
       "complexity": 4,
-      "lineno": 151,
+      "lineno": 155,
       "rank": "A"
     },
     "src/kntgraph/core/world/view.py:method:is_running": {
       "complexity": 1,
-      "lineno": 148,
+      "lineno": 152,
       "rank": "A"
     },
     "src/kntgraph/core/world/view.py:method:is_terminated": {
       "complexity": 1,
-      "lineno": 144,
+      "lineno": 148,
       "rank": "A"
     },
     "src/kntgraph/core/world/world.py:class:World": {
@@ -8172,32 +8172,32 @@
     },
     "src/kntgraph/tools/_result.py:class:ToolResult": {
       "complexity": 2,
-      "lineno": 56,
+      "lineno": 58,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py:function:_err_wire": {
       "complexity": 1,
-      "lineno": 108,
+      "lineno": 110,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py:function:_ok_wire": {
       "complexity": 1,
-      "lineno": 101,
+      "lineno": 103,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py:method:err": {
       "complexity": 1,
-      "lineno": 95,
+      "lineno": 97,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py:method:ok": {
       "complexity": 1,
-      "lineno": 89,
+      "lineno": 91,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py:method:to_wire": {
       "complexity": 2,
-      "lineno": 76,
+      "lineno": 78,
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py:function:_invoke_tool_sync": {
@@ -8809,7 +8809,7 @@
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_compensation.py": {
-      "mi": 72.78000683019158,
+      "mi": 72.71067374755341,
       "rank": "A"
     },
     "src/kntgraph/concordos/saga/_components.py": {
@@ -8941,7 +8941,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/storage.py": {
-      "mi": 57.40428247509102,
+      "mi": 57.587423769973036,
       "rank": "A"
     },
     "src/kntgraph/core/system.py": {
@@ -8969,7 +8969,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/world/projection.py": {
-      "mi": 55.3503098239324,
+      "mi": 55.02470215601502,
       "rank": "A"
     },
     "src/kntgraph/core/world/projection_memory.py": {
@@ -8985,7 +8985,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/world/view.py": {
-      "mi": 38.95131105718897,
+      "mi": 37.10495121400001,
       "rank": "A"
     },
     "src/kntgraph/core/world/world.py": {
@@ -9653,7 +9653,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py": {
-      "mi": 55.40057334903692,
+      "mi": 53.82451134664934,
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py": {

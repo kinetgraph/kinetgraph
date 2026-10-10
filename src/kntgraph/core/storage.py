@@ -29,7 +29,6 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any
 
 from immutables import Map
 
@@ -64,7 +63,7 @@ class ArchetypeStorage[ComponentT]:
 
     def __init__(self) -> None:
         self._archetypes: dict[
-            ArchetypeId, dict[str, dict[str | type[Any], ComponentT]]
+            ArchetypeId, dict[str, dict[str | type, ComponentT]]
         ] = {}
         self._entity_archetype: dict[str, ArchetypeId] = {}
 
@@ -82,9 +81,7 @@ class ArchetypeStorage[ComponentT]:
     def get_archetype_of(self, entity_id: str) -> ArchetypeId | None:
         return self._entity_archetype.get(entity_id)
 
-    def get_components(
-        self, entity_id: str
-    ) -> dict[str | type[Any], ComponentT] | None:
+    def get_components(self, entity_id: str) -> dict[str | type, ComponentT] | None:
         arch = self._entity_archetype.get(entity_id)
         if arch is None:
             return None
@@ -102,7 +99,7 @@ class ArchetypeStorage[ComponentT]:
     def add_entity(
         self,
         entity_id: str,
-        components: dict[str | type[Any], ComponentT],
+        components: dict[str | type, ComponentT],
     ) -> ArchetypeId:
         if entity_id in self._entity_archetype:
             raise KeyError(f"Entity {entity_id!r} already exists")
@@ -125,7 +122,7 @@ class ArchetypeStorage[ComponentT]:
     def move_entity(
         self,
         entity_id: str,
-        new_components: dict[str | type[Any], ComponentT],
+        new_components: dict[str | type, ComponentT],
     ) -> tuple[ArchetypeId | None, ArchetypeId]:
         old_arch = self._entity_archetype.get(entity_id)
         new_arch = self._derive_archetype(new_components)
@@ -149,19 +146,19 @@ class ArchetypeStorage[ComponentT]:
     def add_component(
         self,
         entity_id: str,
-        name: str | type[Any],
+        name: str | type,
         component: ComponentT,
     ) -> tuple[ArchetypeId | None, ArchetypeId]:
         current = self.get_components(entity_id)
         if current is None:
             raise KeyError(f"Entity {entity_id!r} not found")
-        new_components: dict[str | type[Any], ComponentT] = {**current, name: component}
+        new_components: dict[str | type, ComponentT] = {**current, name: component}
         return self.move_entity(entity_id, new_components)
 
     def remove_component(
         self,
         entity_id: str,
-        name: str | type[Any],
+        name: str | type,
     ) -> tuple[ArchetypeId | None, ArchetypeId]:
         current = self.get_components(entity_id)
         if current is None:
@@ -171,7 +168,7 @@ class ArchetypeStorage[ComponentT]:
 
     def query(
         self, *component_types: type[ComponentT]
-    ) -> Iterator[tuple[str, dict[str | type[Any], ComponentT]]]:
+    ) -> Iterator[tuple[str, dict[str | type, ComponentT]]]:
         """
         Iterate entities that contain ALL given component types (AND).
 
@@ -192,7 +189,7 @@ class ArchetypeStorage[ComponentT]:
 
     def query_one(
         self, *component_types: type[ComponentT]
-    ) -> tuple[str, dict[str | type[Any], ComponentT]] | None:
+    ) -> tuple[str, dict[str | type, ComponentT]] | None:
         for eid, comps in self.query(*component_types):
             return eid, comps
         return None
@@ -200,15 +197,15 @@ class ArchetypeStorage[ComponentT]:
     def count(self, *component_types: type[ComponentT]) -> int:
         return sum(1 for _ in self.query(*component_types))
 
-    def to_map(self) -> Map[str, Map[str | type[Any], ComponentT]]:
-        result: dict[str, Map[str | type[Any], ComponentT]] = {}
+    def to_map(self) -> Map[str, Map[str | type, ComponentT]]:
+        result: dict[str, Map[str | type, ComponentT]] = {}
         for table in self._archetypes.values():
             for eid, comps in table.items():
                 result[eid] = Map(comps)
         return Map(result)
 
     def _derive_archetype(
-        self, components: dict[str | type[Any], ComponentT]
+        self, components: dict[str | type, ComponentT]
     ) -> ArchetypeId:
         types = frozenset(type(c) for c in components.values())
         return ArchetypeId(types)
@@ -220,7 +217,7 @@ class ArchetypeStorage[ComponentT]:
     def clone_with_entity(
         self,
         entity_id: str,
-        components: Mapping[str | type[Any], ComponentT],
+        components: Mapping[str | type, ComponentT],
     ) -> ArchetypeStorage:
         """
         Return a NEW ArchetypeStorage containing every entity

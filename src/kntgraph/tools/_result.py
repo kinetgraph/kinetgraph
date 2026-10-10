@@ -20,8 +20,10 @@ The dataclass form buys:
   ``result_dict["status"]``.
 - **Immutability.** ``frozen=True`` enforces it at the type
   level and at runtime; no ``MappingProxyType`` is needed.
-- **One wire boundary.** ``to_wire()`` is the only place a dict
-  literal is admitted (ADR-079 §3.3 + §5 anti-patterns allowlist).
+- **One wire boundary.** ``to_wire()`` is the place where a
+  *populated* dict literal (``{"status": "ok", "value": value}``)
+  is admitted (ADR-079 §3.3 + §5). Empty ``{}`` sentinels are
+  also allowed elsewhere in framework code (ADR-079 §5).
 
 Construction
 ------------

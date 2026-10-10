@@ -85,7 +85,7 @@ _DERIVED_COMPONENT_KEYS: frozenset[str] = frozenset(
 _DERIVED_COMPONENT_CLASSES: frozenset[type] = frozenset()
 
 
-def _is_derived_component_key(key: Any) -> bool:
+def _is_derived_component_key(key: str | type) -> bool:
     """True if ``key`` is a derived component that
     must survive the default domain fold.
 
@@ -200,7 +200,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
             last_event_correlation=event.correlation,
         )
     # "domain"
-    new_components: dict[Any, Any] = dict(_extract_components_from_event(event))
+    new_components: dict[str | type, Any] = dict(_extract_components_from_event(event))
     _preserve_derived_components(prev, event, new_components)
     return AgentView(
         agent_id=event.agent_id,
@@ -223,7 +223,7 @@ def _apply_event(prev: AgentView, event: Event) -> AgentView:
 def _preserve_derived_components(
     prev: AgentView,
     event: Event,
-    new_components: dict[Any, Any],
+    new_components: dict[str | type, Any],
 ) -> None:
     """Apply the ownership rule (ADR-067) to the new components
     dict, in place: a domain event may only write the component
@@ -343,7 +343,7 @@ def _lifecycle_phase_from_event(event_type: str) -> OperationalPhase:
     return event_type.rsplit(".", 1)[-1]  # type: ignore[return-value]
 
 
-def _extract_components_from_event(event: Event) -> dict[Any, Any]:
+def _extract_components_from_event(event: Event) -> dict[str | type, Any]:
     """
     Map the event payload into a components dict.
 

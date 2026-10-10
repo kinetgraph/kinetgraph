@@ -109,7 +109,7 @@ def run_step(ctx: StepContext) -> Mapping[str, str | JsonValue]:
 
 ### 3.3 `JsonValue` / `Mapping[str, JsonValue]` for the wire
 
-Unchanged. `Event.data`, Redis values, and tool params (from `Event.data`) all carry this discipline. The `ToolResult.to_wire()` boundary is the only place the dataclass casts to wire.
+Unchanged. `Event.data`, Redis values, and tool params (from `Event.data`) all carry this discipline. The `ToolResult.to_wire()` boundary is the place where the dataclass casts the populated wire dict (`{"status": "ok", "value": value}`); empty `{}` sentinels in framework code are also allowed (see §5).
 
 ## 4. Top 3 migration candidates
 
@@ -136,16 +136,22 @@ This ADR explicitly bans:
 
 | Anti-pattern | Why |
 |---|---|
-| `r = {"key": value, ...}` as a factory return | Shape-known composition; build a dataclass. |
-| `return dict(K=V, ...)` from production code | Same as above; the `dict` is duck-typing its return type. |
+| `return dict(K=V, ...)` from production code | Duck-types the return; the static type is `dict[str, Any]` or wider, hiding the real shape. The factory should return a `frozen=True` dataclass (this ADR's `ToolResult` form) — the call site then gets attribute access, `frozen=True` immutability, and discriminated `Literal` narrowing. |
+| A **shape-known factory** returning a populated `{"key": value, ...}` literal | Build a frozen dataclass instead (see `ToolResult.ok`/`err` for the canonical pattern). The literal hides the shape from the static checker. |
 | `TypedDict` (anywhere in framework) | Not adopted; frozen dataclass is the project's primitive (skill §1.4). |
-| `MappingProxyType(...)` in production | Runtime overhead without static benefit; `Mapping[K, V]` is enough. |
+| `MappingProxyType` in production | Runtime overhead without static benefit; `Mapping[K, V]` is enough. |
 | `dict[str, Any]` / `dict[Any, Any]` | The skill §1.1 already forbids `Any`; this ADR adds the dataclass replacement for shape-known dicts. |
 
-The only legitimate sites for `{}` or `dict(...)` literals **inside framework code** are:
+The allowed sites for dict literals in framework code:
 
-- `to_wire()` factories on dataclasses (the boundary to JSON).
-- Build-and-consume patterns inside a single function where the dict never escapes (rare; documented per-call).
+| Site | Why |
+|---|---|
+| `return {}` | Empty sentinel — Pythonic, ruff C408-compatible (the rule fires on `dict()` with no args, not on `{}`), and the static `Mapping`/`dict` return type carries the type discipline. |
+| `return {"status": "ok", "value": value}` in `to_wire()` | The wire boundary (§3.3); the `Mapping[str, str \| JsonValue]` return type makes the shape explicit. |
+| `return {**other, "key": value}` | Merging; the static type carries the union. |
+| `dict(other_dict)` | Explicit copy of an existing `Mapping`/`dict`; never a factory return. |
+
+The previous version of this section banned `r = {"key": value, ...}` wholesale. That was too strict: the populated `{"status": "ok", "value": value}` in `to_wire()` is a wire shape, not a shape-known factory return. The real rule is "use a dataclass for shape-known composition" (which `ToolResult` satisfies) — the dict-literal ban follows from that, not the other way around. The empty-sentinel `{}` was always idiomatic and ruff-aligned.
 
 ## 6. Migration plan
 
@@ -220,4 +226,5 @@ The only legitimate sites for `{}` or `dict(...)` literals **inside framework co
 
 ## 10. Revision history
 
-- **2026-10-09** — Initial draft (this version). Picks frozen dataclass over `TypedDict` and `Mapping` over `MappingProxyType`. No CI gate included per "no allowlist yet".
+- **2026-10-10** — Refined §5 anti-patterns. The previous version banned `r = {"key": value, ...}` wholesale; the refined version splits "shape-known factory return" (banned — use dataclass) from "wire-boundary literal" (allowed in `to_wire()`) and "empty sentinel" (allowed: `return {}`). The `dict()` call ban (`return dict(K=V, ...)`) is preserved. Removes the friction between ADR-079 §5 and ruff C408.
+- **2026-10-09** — Initial draft. Picks frozen dataclass over `TypedDict` and `Mapping` over `MappingProxyType`. No CI gate included per "no allowlist yet".

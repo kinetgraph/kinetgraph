@@ -115,9 +115,9 @@ def _extract_properties(
     schema: Mapping[str, JsonValue] | None,
 ) -> dict[str, JsonValue]:
     """Return the top-level ``properties`` mapping, or
-    ``{}`` for any malformed / missing input. Centralises
-    the shape guards that previously inlined the
-    walker's early-returns.
+    an empty dict for any malformed / missing input.
+    Centralises the shape guards that previously inlined
+    the walker's early-returns.
     """
     if not schema or not isinstance(schema, dict):
         return {}

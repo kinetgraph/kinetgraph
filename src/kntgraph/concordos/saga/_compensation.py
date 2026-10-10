@@ -193,8 +193,9 @@ def step_result_payload(
     step_name: str,
 ) -> dict[str, JsonValue]:
     """Return the step's result payload (a ``dict[str,
-    JsonValue]``) for enrichment, or ``{}`` when the result
-    is not a mapping."""
+    JsonValue]``) for enrichment, or an empty dict when
+    the result is not a mapping.
+    """
     result = progress.step_results.get(step_name)
     if isinstance(result, Mapping):
         return dict(result)
