@@ -43,10 +43,12 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
 
+from kntgraph.tools._result import ToolResult
+
 
 def _invoke_tool_sync(
     tool_cls: type, idempotency_key: str, kwargs: Mapping[str, JsonValue]
-) -> Mapping[str, str | JsonValue]:
+) -> ToolResult:
     """
     Synchronous wrapper that runs a tool's ``invoke``
     coroutine inside the worker process.
@@ -56,8 +58,12 @@ def _invoke_tool_sync(
     a fresh Python under ``spawn`` and has no running
     loop), runs ``tool_instance.invoke(...)`` to
     completion, and serialises the ``Result`` to a
-    JSON-safe ``dict`` so the parent can read it back
-    across the multiprocessing boundary.
+    ``ToolResult`` (ADR-079) so the parent can read it
+    back across the multiprocessing boundary.
+
+    The on-wire shape for callers that need a dict is
+    ``ToolResult.to_wire()``; the multiprocessing
+    boundary itself uses ``ToolResult`` directly.
     """
     tool_instance = tool_cls()
 
@@ -68,13 +74,12 @@ def _invoke_tool_sync(
             tool_instance.invoke(idempotency_key=idempotency_key, **kwargs)
         )
         if result.is_ok():
-            return cast(
-                "Mapping[str, str | JsonValue]",
-                {"status": "ok", "value": result.unwrap()},
-            )
-        return cast(
-            "Mapping[str, str | JsonValue]",
-            {"status": "err", "error": str(result.err_value_or_raise())},
-        )
+            # The tool's ``Result[T, ToolError].unwrap()``
+            # returns ``T``, which the framework treats as
+            # ``JsonValue`` at the wire boundary (ADR-067).
+            # ``cast`` is the explicit acknowledgement of
+            # that boundary — see ADR-079 §7.2.
+            return ToolResult.ok(cast("JsonValue", result.unwrap()))
+        return ToolResult.err(str(result.err_value_or_raise()))
     finally:
         loop.close()

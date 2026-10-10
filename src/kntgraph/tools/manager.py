@@ -85,6 +85,7 @@ from kntgraph.tools._message_handlers import (
     parse_request_payload,
     reconnect_redis_after_runtime_error,
 )
+from kntgraph.tools._result import ToolResult
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
@@ -126,18 +127,17 @@ _UNSET: object = object()
 #
 # Parameter and result shapes: ``tool_params`` is the value of
 # ``Event.data`` typed as ``Mapping[str, JsonValue]`` (ADR-067
-# §1.1). ``result_dict`` carries the tool return; ``"value"`` is
-# always a ``JsonValue`` and ``"error"`` is always ``str`` (the
-# ``str(...)`` of the tool's ``err_value_or_raise()`` result), so
-# the union ``str | JsonValue`` covers both branches without
-# leaking ``Any`` at the dispatch boundary.
+# §1.1). The result shape is the frozen ``ToolResult`` dataclass
+# (ADR-079); callers that need the wire dict call
+# ``result.to_wire()`` at the EventLog boundary
+# (ADR-079 §3.3).
 type ToolSyncInvoke = Callable[
     [type, str, Mapping[str, JsonValue]],
-    Mapping[str, str | JsonValue],
+    ToolResult,
 ]
 ExecutorFactory = Callable[
     [ToolSyncInvoke, str, Mapping[str, JsonValue]],
-    Awaitable[Mapping[str, str | JsonValue]],
+    Awaitable[ToolResult],
 ]
 
 # ``_invoke_tool_sync`` is re-exported here for the test
@@ -642,7 +642,7 @@ class WorkerManager:
             return
 
         try:
-            result_dict = await self._dispatch_to_tool(
+            result = await self._dispatch_to_tool(
                 tool_name=tool_name,
                 tool_cls=tool_cls,
                 idempotency_key=idempotency_key,
@@ -653,7 +653,7 @@ class WorkerManager:
                 tool_name=tool_name,
                 request_event=request_event,
                 idempotency_key=idempotency_key,
-                result_dict=result_dict,
+                result=result,
             )
 
             # Acknowledge the message since it was processed (success or explicit failure)
@@ -706,9 +706,11 @@ class WorkerManager:
         tool_cls: type,
         idempotency_key: str,
         tool_params: Mapping[str, JsonValue],
-    ) -> Mapping[str, str | JsonValue]:
+    ) -> ToolResult:
         """Run ``tool.<name>.invoke`` for one message and return
-        a ``result_dict`` (``{"status": "ok"|"err", "value"|"error": ...}``).
+        a ``ToolResult`` (ADR-079 frozen dataclass — the
+        discriminated-union replacement for the legacy
+        ``result_dict``).
 
         Three strategies, in order of preference (ADR-069):
 
@@ -753,14 +755,12 @@ class WorkerManager:
             idempotency_key=idempotency_key, **tool_params
         )
         if result.is_ok():
-            return cast(
-                "Mapping[str, str | JsonValue]",
-                {"status": "ok", "value": result.unwrap()},
-            )
-        return cast(
-            "Mapping[str, str | JsonValue]",
-            {"status": "err", "error": str(result.err_value_or_raise())},
-        )
+            # ``result.unwrap()`` is ``T``; the framework
+            # treats it as ``JsonValue`` at the wire boundary
+            # (ADR-067 + ADR-079 §7.2 — slight type-erasure at
+            # the wire).
+            return ToolResult.ok(cast("JsonValue", result.unwrap()))
+        return ToolResult.err(str(result.err_value_or_raise()))
 
     @staticmethod
     def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
@@ -858,20 +858,25 @@ class WorkerManager:
         tool_name: str,
         request_event: Event,
         idempotency_key: str,
-        result_dict: Mapping[str, str | JsonValue],
+        result: ToolResult,
     ) -> None:
-        """Map a tool's ``result_dict`` to the corresponding
-        domain event (``.completed`` or ``.failed``), append it
-        to the eventlog, and update the counter. Delegates the
-        event construction to ``_message_handlers``; the manager
-        keeps the I/O side effects (append, counter).
+        """Map a tool's ``ToolResult`` (ADR-079) to the
+        corresponding domain event (``.completed`` or ``.failed``),
+        append it to the eventlog, and update the counter.
+        Delegates the event construction to ``_message_handlers``;
+        the manager keeps the I/O side effects (append, counter).
+
+        The discriminated ``status`` enables mypy/pyright to
+        narrow ``result.value`` (success) vs ``result.error``
+        (failure) inside the branch — the legacy ``result_dict``
+        form was cego.
         """
-        if result_dict["status"] == "ok":
+        if result.status == "ok":
             event = build_completion_event(
                 tool_name=tool_name,
                 request_event=request_event,
                 idempotency_key=idempotency_key,
-                result_dict=result_dict,
+                result=result,
             )
             await self._event_log.append(event)
             self._messages_processed_total += 1
@@ -880,7 +885,7 @@ class WorkerManager:
                 tool_name=tool_name,
                 request_event=request_event,
                 idempotency_key=idempotency_key,
-                result_dict=result_dict,
+                result=result,
             )
             await self._event_log.append(event)
             self._messages_failed_total += 1

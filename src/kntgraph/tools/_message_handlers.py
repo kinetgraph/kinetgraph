@@ -27,6 +27,8 @@ from redis import exceptions as redis_exceptions
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 
+from ._result import ToolResult
+
 logger = structlog.get_logger()
 
 
@@ -194,17 +196,22 @@ def build_completion_event(
     tool_name: str,
     request_event: Event,
     idempotency_key: str,
-    result_dict: Mapping[str, str | JsonValue],
+    result: ToolResult,
 ) -> Event:
     """Build the ``tool.<name>.completed`` domain event from a
-    successful ``result_dict``. Pure: returns the Event; the
+    successful ``ToolResult``. Pure: returns the Event; the
     caller appends + updates the counter + XACKs.
+
+    The single boundary to a JSON dict happens here via
+    ``result.to_wire()["value"]`` (ADR-079 §3.3 — the only
+    legitimate site for a dict literal in framework code).
     """
-    val = result_dict["value"]
-    # ``val`` is ``str | JsonValue`` per the dispatch contract
-    # (``_dispatch_to_tool`` cast). When the tool returns a JSON
-    # mapping we lift it as the event payload; otherwise we wrap a
-    # single-key payload so the event is still JSON-safe downstream.
+    val = result.value
+    # ``val`` is ``JsonValue | None``. Per the ADR-079 contract,
+    # ``ToolResult.ok(value)`` sets ``value`` to the tool's
+    # ``Result.unwrap()`` payload. When that payload is a
+    # ``Mapping`` we lift it as the event payload; otherwise
+    # we wrap a single-key payload so the event is JSON-safe.
     if isinstance(val, Mapping):
         evt_data: dict[str, JsonValue] = dict(val)
     else:
@@ -224,17 +231,17 @@ def build_failure_event(
     tool_name: str,
     request_event: Event,
     idempotency_key: str,
-    result_dict: Mapping[str, str | JsonValue],
+    result: ToolResult,
 ) -> Event:
     """Build the ``tool.<name>.failed`` event from a failed
-    ``result_dict``. Pure: returns the Event.
+    ``ToolResult``. Pure: returns the Event.
     """
     return Event.create(
         event_type=f"tool.{tool_name}.failed",
         agent_id=request_event.agent_id,
         event_class="domain",
         causation_id=__import__("uuid").UUID(idempotency_key),
-        data={"error": result_dict["error"]},
+        data={"error": result.error},
         correlation=request_event.correlation,
     )
 

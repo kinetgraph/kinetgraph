@@ -42,6 +42,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from kntgraph.tools._result import ToolResult
+
 pytest.importorskip("fastapi")
 
 
@@ -122,7 +124,7 @@ class TestWorkerManagerACL:
 
         with patch(
             "kntgraph.tools.manager._invoke_tool_sync",
-            return_value={"status": "ok", "value": {"ok": True}},
+            return_value=ToolResult.ok({"ok": True}),
         ):
             await manager._process_message(
                 "chat_llm",
@@ -155,7 +157,7 @@ class TestWorkerManagerACL:
 
         with patch(
             "kntgraph.tools.manager._invoke_tool_sync",
-            return_value={"status": "ok", "value": {"ok": True}},
+            return_value=ToolResult.ok({"ok": True}),
         ):
             await manager._process_message(
                 "chat_llm",

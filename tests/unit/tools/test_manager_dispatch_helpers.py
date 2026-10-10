@@ -201,10 +201,12 @@ class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):
         )
 
         # The async path passes the tool's ``Ok(...)`` value
-        # through as the ``value`` field of ``result_dict``. The
-        # tool returns ``Ok({"result": 14})`` so the value is the
-        # dict itself.
-        self.assertEqual(result, {"status": "ok", "value": {"result": 14}})
+        # through as the ``value`` field of ``ToolResult``
+        # (ADR-079). The tool returns ``Ok({"result": 14})``
+        # so the value is the dict itself.
+        from kntgraph.tools._result import ToolResult
+
+        self.assertEqual(result, ToolResult.ok({"result": 14}))
 
     async def test_executor_factory_overrides_default(self) -> None:
         """Sanity: when a factory is registered, the default
