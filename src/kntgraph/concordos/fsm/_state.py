@@ -98,7 +98,7 @@ def reconcile_fsm_state(
         updated = _fold_agent(config, agent_events, base)
         if updated is None:
             continue
-        new_components: dict[Any, Any] = dict(view.components)
+        new_components: dict[str | type, Any] = dict(view.components)
         new_components[config.component_type] = updated
         out[agent_id] = replace(view, components=new_components)
     return out

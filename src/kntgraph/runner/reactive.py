@@ -368,14 +368,17 @@ class ReactiveDispatcher:
                     "world_store or redis (the default "
                     "IncrementalWorldStore wraps a Redis client)."
                 )
-            from typing import Any, cast
+            from typing import cast
 
+            from kntgraph.infra.redis._client import RedisLike
             from kntgraph.infra.redis._world_checkpoint import (
                 RedisWorldCheckpointStorage,
             )
 
             world_store = IncrementalWorldStore(
-                RedisWorldCheckpointStorage(cast(Any, redis), key_prefix=key_prefix)
+                RedisWorldCheckpointStorage(
+                    cast(RedisLike, redis), key_prefix=key_prefix
+                )
             )
         self._world_store = world_store
         # In-memory cache of agents tracked by the dispatcher.

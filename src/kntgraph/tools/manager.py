@@ -55,11 +55,10 @@ input to ``acl.check``. Events that predate v0.16
 from __future__ import annotations
 
 import asyncio
-import json
 import multiprocessing
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING, Any, cast
 
@@ -68,10 +67,7 @@ if TYPE_CHECKING:
 
     from kntgraph.infra.redis import RedisLike
 
-from collections.abc import Awaitable
-
 import structlog
-from redis import exceptions as redis_exceptions
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
@@ -79,6 +75,16 @@ from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._dispatch_helpers import compute_max_workers, is_cpu_bound
+from kntgraph.tools._message_handlers import (
+    build_acl_denied_event,
+    build_completion_event,
+    build_failure_event,
+    coerce_tool_params,
+    evaluate_acl,
+    log_acl_denial,
+    parse_request_payload,
+    reconnect_redis_after_runtime_error,
+)
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
@@ -100,7 +106,7 @@ logger = structlog.get_logger()
 _UNSET: object = object()
 
 
-# ADR-069: pluggable executor factory. A tool registered with
+# ADR-078: pluggable executor factory. A tool registered with
 # ``executor_factory=`` (see ``WorkerManager.register``) gets
 # this callable invoked once per message in place of the
 # internal ``ProcessPoolExecutor``. The factory receives the
@@ -112,10 +118,26 @@ _UNSET: object = object()
 # / ACL / observability; the factory is a black-box dispatch
 # hook that lets callers route heavy tools (ML models,
 # sidecars, GPU pins) to dedicated pools without forking
-# the framework.
+# the framework. The original design draft (proposed 2026-10-08)
+# lives at ``docs/adr-069-pluggable-executor-factory.md``;
+# it was promoted to a formal ADR when the criterion of
+# ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s")
+# was met by the backoffice post-mortem of 2026-10-07.
+#
+# Parameter and result shapes: ``tool_params`` is the value of
+# ``Event.data`` typed as ``Mapping[str, JsonValue]`` (ADR-067
+# §1.1). ``result_dict`` carries the tool return; ``"value"`` is
+# always a ``JsonValue`` and ``"error"`` is always ``str`` (the
+# ``str(...)`` of the tool's ``err_value_or_raise()`` result), so
+# the union ``str | JsonValue`` covers both branches without
+# leaking ``Any`` at the dispatch boundary.
+type ToolSyncInvoke = Callable[
+    [type, str, Mapping[str, JsonValue]],
+    Mapping[str, str | JsonValue],
+]
 ExecutorFactory = Callable[
-    [Callable[[type, str, dict[str, Any]], dict[str, Any]], str, dict[str, Any]],
-    Awaitable[dict[str, Any]],
+    [ToolSyncInvoke, str, Mapping[str, JsonValue]],
+    Awaitable[Mapping[str, str | JsonValue]],
 ]
 
 # ``_invoke_tool_sync`` is re-exported here for the test
@@ -405,54 +427,11 @@ class WorkerManager:
         return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
 
     async def _reconnect_after_runtime_error(self) -> None:
-        """Tear down the current Redis client connection and
-        force a reconnect on the next ``xreadgroup``.
-
-        Background
-        ----------
-        A ``RuntimeError`` from ``xreadgroup`` is the asyncio-redis
-        signal that the connection is in a broken state (the
-        socket got into a bad spot, the response stream got out
-        of sync, or the connection pool got exhausted). Continuing
-        to read on the same client returns the same error in a
-        tight loop, so we close the client (best-effort) and
-        disconnect the underlying connection pool. The next
-        ``xreadgroup`` will reconnect transparently.
-
-        Extracted from ``_consume_loop`` to keep the parent's CC
-        under 10 (ADR-019); the inline cleanup with two
-        ``try/except`` blocks, ``isinstance`` checks, and
-        ``asyncio.iscoroutine`` branches was a 10+ complexity
-        hot spot.
-        """
-        close_fn = getattr(self._redis, "aclose", None) or getattr(
-            self._redis, "close", None
-        )
-        if close_fn:
-            try:
-                res = close_fn()
-                if asyncio.iscoroutine(res):
-                    await res
-            except (
-                redis_exceptions.RedisError,
-                AttributeError,
-                OSError,
-                TimeoutError,
-            ):
-                pass
-        pool = getattr(self._redis, "connection_pool", None)
-        if pool and hasattr(pool, "disconnect"):
-            try:
-                dis_res = pool.disconnect()
-                if asyncio.iscoroutine(dis_res):
-                    await dis_res
-            except (
-                redis_exceptions.RedisError,
-                AttributeError,
-                OSError,
-                TimeoutError,
-            ):
-                pass
+        """Delegate to ``reconnect_redis_after_runtime_error``
+        in ``_message_handlers``. Kept as a method so the
+        ``_consume_loop`` call site stays
+        ``await self._reconnect_after_runtime_error()``."""
+        await reconnect_redis_after_runtime_error(self._redis)
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -645,15 +624,8 @@ class WorkerManager:
         )
         if request_event is None:
             return  # payload parse already XACKed + counted
-
-        tool_params = cast(
-            dict[str, Any],
-            request_event.data.get("params") or request_event.data.get("args") or {},
-        )
-        if not isinstance(tool_params, dict):
-            tool_params = {}
+        tool_params = coerce_tool_params(request_event)
         idempotency_key = str(request_event.event_id)
-
         denied_reason = self._evaluate_acl(
             tool_name=tool_name,
             request_event=request_event,
@@ -733,8 +705,8 @@ class WorkerManager:
         tool_name: str,
         tool_cls: type,
         idempotency_key: str,
-        tool_params: dict[str, Any],
-    ) -> dict[str, Any]:
+        tool_params: Mapping[str, JsonValue],
+    ) -> Mapping[str, str | JsonValue]:
         """Run ``tool.<name>.invoke`` for one message and return
         a ``result_dict`` (``{"status": "ok"|"err", "value"|"error": ...}``).
 
@@ -781,11 +753,14 @@ class WorkerManager:
             idempotency_key=idempotency_key, **tool_params
         )
         if result.is_ok():
-            return {"status": "ok", "value": result.unwrap()}
-        return {
-            "status": "err",
-            "error": str(result.err_value_or_raise()),
-        }
+            return cast(
+                "Mapping[str, str | JsonValue]",
+                {"status": "ok", "value": result.unwrap()},
+            )
+        return cast(
+            "Mapping[str, str | JsonValue]",
+            {"status": "err", "error": str(result.err_value_or_raise())},
+        )
 
     @staticmethod
     def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
@@ -806,32 +781,25 @@ class WorkerManager:
         message_data: dict,
         stream_key: str,
     ) -> Event | None:
-        """Decode the JSON ``payload`` field of a Redis Stream
-        entry into an ``Event``.
-
-        Returns ``None`` when the payload is malformed; in that
-        case the caller has already been XACK'd and counted
-        (``messages_failed_total += 1``) so the bad message
-        does not block the consumer. Extracted from
-        ``_process_message`` to keep the parent's CC under 10
-        (ADR-019); the inline ``try/except`` around the JSON
-        decode + the early-return on parse error was a
-        complexity hot spot.
+        """Delegate to ``parse_request_payload`` in
+        ``_message_handlers``. Kept as a method on the Manager
+        so the call site reads ``self._parse_message_payload(...)``.
+        On ``None`` the caller has already been told to XACK + count
+        the failure.
         """
-        try:
-            payload_str = message_data.get(b"payload", b"{}").decode()
-            request_event_dict = json.loads(payload_str)
-            return Event.from_dict(request_event_dict)
-        except Exception as e:
+        request_event = parse_request_payload(message_data)
+        if request_event is None:
+            # Match the prior inline behaviour: log + XACK + count.
             logger.exception(
                 "worker.payload_parse.error",
                 tool=tool_name,
                 message_id=message_id,
-                error=str(e),
+                error="see _message_handlers._log_payload_parse_error",
             )
             await self._redis.xack(stream_key, self._group_name, message_id)
             self._messages_failed_total += 1
             return None
+        return request_event
 
     def _evaluate_acl(
         self,
@@ -839,46 +807,15 @@ class WorkerManager:
         tool_name: str,
         request_event: Event,
     ) -> str | None:
-        """Gate-1 ACL check (ADR-060 §3.0, ADR-066 §4.1).
-
-        Returns the ``denied_reason`` string when the request
-        is rejected (so the caller emits ``tool.<name>.failed``
-        with the reason and ACKs the message), or ``None`` when
-        the request is allowed to proceed. Extracted from
-        ``_process_message`` because the inline check had three
-        nested branches (legacy no-ACL, event without
-        principal, full ACL evaluation) and contributed most
-        of the parent's complexity.
+        """Delegate to ``evaluate_acl`` in ``_message_handlers``.
+        ``self.acl_for`` is passed in so the helper does not need
+        a reference to the Manager.
         """
-        acl = self.acl_for(tool_name)
-        if acl is None:
-            # Tool registered without ``acl=`` (legacy):
-            # default-allow. The v0.17 step flips the default
-            # to deny (see ADR-066 §4.4).
-            return None
-
-        principal_id = request_event.producer_principal_id
-        if principal_id is None:
-            return "acl_denied_no_principal"
-
-        from kntgraph.security import Principal, PrincipalLevel
-
-        # ``producer_principal_id`` is the principal's ``agent_id``
-        # (the API layer in v0.16 sets it from ``principal_ctx``).
-        # Extract the tenant prefix for the ``Principal`` invariant
-        # (non-admin requires a non-empty tenant); fall back to the
-        # whole string as the tenant when the format is ambiguous.
-        tenant_id = principal_id.partition(".")[0] or principal_id
-        principal = Principal(
-            agent_id=principal_id,
-            level=PrincipalLevel.agent,
-            tenant_id=tenant_id,
-            key_id="worker",
+        return evaluate_acl(
+            tool_name=tool_name,
+            request_event=request_event,
+            acl_for=self.acl_for,
         )
-        ok, reason = acl.check(principal)
-        if not ok:
-            return f"acl_denied:{reason}"
-        return None
 
     async def _emit_acl_denied(
         self,
@@ -890,34 +827,26 @@ class WorkerManager:
         request_event: Event,
         denied_reason: str,
     ) -> None:
-        """Emit the ``tool.<name>.failed`` event for an ACL
-        denial, ACK the message, and update the failure counter.
-
-        Extracted from ``_process_message`` so the inline event
-        construction + ``append`` + ``xack`` block does not
-        inflate the parent's CC. The caller has already
-        determined the request is rejected; this method is the
-        side-effect half of the gate.
+        """Emit the ``worker.acl_denied`` log + ``tool.<name>.failed``
+        event for an ACL denial, ACK the message, and update the
+        failure counter. Delegates to three pure helpers in
+        ``_message_handlers``; the only side effects that
+        remain here are the ``xack`` and the counter increment
+        (the manager owns those).
         """
         principal_id = request_event.producer_principal_id
-        logger.warning(
-            "worker.acl_denied",
-            tool=tool_name,
+        log_acl_denial(
+            tool_name=tool_name,
             message_id=message_id,
-            reason=denied_reason,
-            producer_principal_id=principal_id,
+            denied_reason=denied_reason,
+            principal_id=principal_id,
         )
-        denied_evt = Event.create(
-            event_type=f"tool.{tool_name}.failed",
-            agent_id=request_event.agent_id,
-            event_class="domain",
-            causation_id=uuid.UUID(idempotency_key),
-            data={
-                "error": denied_reason,
-                "request_id": idempotency_key,
-            },
-            correlation=request_event.correlation,
-            producer_principal_id=principal_id,
+        denied_evt = build_acl_denied_event(
+            tool_name=tool_name,
+            request_event=request_event,
+            idempotency_key=idempotency_key,
+            denied_reason=denied_reason,
+            principal_id=principal_id,
         )
         await self._event_log.append(denied_evt)
         await self._redis.xack(stream_key, self._group_name, message_id)
@@ -929,44 +858,31 @@ class WorkerManager:
         tool_name: str,
         request_event: Event,
         idempotency_key: str,
-        result_dict: dict[str, Any],
+        result_dict: Mapping[str, str | JsonValue],
     ) -> None:
-        """Map a tool's ``result_dict`` (``{"status": ..., "value"|"error": ...}``)
-        to the corresponding domain event (``.completed`` or
-        ``.failed``), append it to the eventlog, and update the
-        processed/failed counter.
-
-        Extracted from ``_process_message`` because the inline
-        shape (dict-or-not value, branch on status) was inflating
-        the parent's CC. The caller has already dispatched the
-        tool and is responsible for the XACK; this method is
-        the eventlog half of the result.
+        """Map a tool's ``result_dict`` to the corresponding
+        domain event (``.completed`` or ``.failed``), append it
+        to the eventlog, and update the counter. Delegates the
+        event construction to ``_message_handlers``; the manager
+        keeps the I/O side effects (append, counter).
         """
         if result_dict["status"] == "ok":
-            val = result_dict["value"]
-            evt_data: dict[str, JsonValue] = (
-                val if isinstance(val, dict) else {"result": val}
+            event = build_completion_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result_dict=result_dict,
             )
-            completed_evt = Event.create(
-                event_type=f"tool.{tool_name}.completed",
-                agent_id=request_event.agent_id,
-                event_class="domain",
-                causation_id=uuid.UUID(idempotency_key),
-                data=evt_data,
-                correlation=request_event.correlation,
-            )
-            await self._event_log.append(completed_evt)
+            await self._event_log.append(event)
             self._messages_processed_total += 1
         else:
-            failed_evt = Event.create(
-                event_type=f"tool.{tool_name}.failed",
-                agent_id=request_event.agent_id,
-                event_class="domain",
-                causation_id=uuid.UUID(idempotency_key),
-                data={"error": result_dict["error"]},
-                correlation=request_event.correlation,
+            event = build_failure_event(
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                result_dict=result_dict,
             )
-            await self._event_log.append(failed_evt)
+            await self._event_log.append(event)
             self._messages_failed_total += 1
 
     async def _reaper_loop(self, tool_name: str) -> None:

@@ -37,12 +37,16 @@ fork+openssl+thread-local interaction.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
 
 
 def _invoke_tool_sync(
-    tool_cls: type, idempotency_key: str, kwargs: dict[str, Any]
-) -> dict[str, Any]:
+    tool_cls: type, idempotency_key: str, kwargs: Mapping[str, JsonValue]
+) -> Mapping[str, str | JsonValue]:
     """
     Synchronous wrapper that runs a tool's ``invoke``
     coroutine inside the worker process.
@@ -64,7 +68,13 @@ def _invoke_tool_sync(
             tool_instance.invoke(idempotency_key=idempotency_key, **kwargs)
         )
         if result.is_ok():
-            return {"status": "ok", "value": result.unwrap()}
-        return {"status": "err", "error": str(result.err_value_or_raise())}
+            return cast(
+                "Mapping[str, str | JsonValue]",
+                {"status": "ok", "value": result.unwrap()},
+            )
+        return cast(
+            "Mapping[str, str | JsonValue]",
+            {"status": "err", "error": str(result.err_value_or_raise())},
+        )
     finally:
         loop.close()
