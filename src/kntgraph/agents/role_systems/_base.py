@@ -23,6 +23,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.components.memory import SessionComponent
 from kntgraph.core.components.role import RoleComponent, has_tool_access
 from kntgraph.core.event import CorrelationContext, Event
@@ -133,7 +134,7 @@ class _BaseRoleSystem(ToolAwareSystem):
 
     # -- internals --
 
-    def _is_new_event(self, agent_id: str, last_eid: Any) -> bool:
+    def _is_new_event(self, agent_id: str, last_eid: str | None) -> bool:
         previous = self._last_seen_event_id.get(agent_id)
         is_new = previous != last_eid
         if is_new and last_eid:
@@ -321,7 +322,7 @@ def _emit_chat_completion(
     """
     output_model = base.OUTPUT_MODEL
     if output_model is ChatReply:
-        output_payload: dict[str, Any] = {
+        output_payload: dict[str, JsonValue] = {
             "reply": text,
             "follow_up_questions": list(follow_up_questions),
         }

@@ -71,6 +71,7 @@ from typing import Any, Self, cast
 
 import structlog
 
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.result import (
     Err,
     Ok,
@@ -199,7 +200,7 @@ class LiteLLMTransportAdapter(LLMTransport):
     async def __call__(
         self,
         request: LLMRequest,
-    ) -> dict:
+    ) -> dict[str, JsonValue]:
         import litellm
 
         # ``drop_params`` is forwarded **per-call** via
@@ -287,7 +288,7 @@ class LiteLLMTransportAdapter(LLMTransport):
         kwargs.update(request.extra)
         return kwargs
 
-    def _dump_response(self, response: Any) -> dict:
+    def _dump_response(self, response: Any) -> dict[str, JsonValue]:
         """Coerce the litellm ``ModelResponse`` (or
         a fallback shape) into a JSON-serialisable
         dict. The runtime type is ``ModelResponse``
@@ -377,7 +378,7 @@ class _TerminalToolError(ToolError):
     """
 
 
-def _safe_dict(obj: Any) -> dict:
+def _safe_dict(obj: Any) -> dict[str, JsonValue]:
     """
     Best-effort conversion of an arbitrary object to a
     plain dict. Used as a fallback when neither
@@ -457,7 +458,7 @@ def _parse_usage(completion: Any) -> LLMUsage:
     )
 
 
-def _convert_to_raw_dict(completion: Any) -> dict:
+def _convert_to_raw_dict(completion: Any) -> dict[str, JsonValue]:
     """
     Convert a LiteLLM completion to a plain dict for
     storage. LiteLLM returns a pydantic
@@ -776,7 +777,7 @@ class LiteLLMToolWorker:
         #     ``Err(ToolError("llm_transport_error: ..."))``
         #     (no retry benefit on auth or generic transport
         #     errors; ADR-061 §6.2).
-        async def _attempt() -> dict:
+        async def _attempt() -> dict[str, JsonValue]:
             """Single attempt at the LLM call.
 
             ``with_timeout_and_retry``'s ``fn`` parameter

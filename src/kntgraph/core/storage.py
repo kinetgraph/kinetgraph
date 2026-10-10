@@ -29,6 +29,7 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from typing import Any, cast
 
 from immutables import Map
 
@@ -128,8 +129,14 @@ class ArchetypeStorage[ComponentT]:
         new_arch = self._derive_archetype(new_components)
 
         if old_arch == new_arch:
-            if old_arch is not None:
-                self._archetypes[old_arch][entity_id] = new_components
+            # Invariant: ``_derive_archetype`` always returns a
+            # real ``ArchetypeId`` (not ``None``), so when
+            # ``old_arch == new_arch`` is True, ``old_arch`` is
+            # guaranteed non-None. The same-arch overwrite is
+            # therefore unconditional. ``cast`` is the
+            # explicit acknowledgement of that invariant for
+            # the static checker.
+            self._archetypes[cast(ArchetypeId, old_arch)][entity_id] = new_components
             return old_arch, new_arch
 
         if old_arch is not None:
