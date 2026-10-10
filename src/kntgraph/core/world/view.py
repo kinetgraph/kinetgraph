@@ -75,26 +75,30 @@ class AgentView:
     JSON-serialisable payloads (event data, tool args) and
     others are ECS components (``ToolCallRequest``,
     ``ToolCallCompletion`` — frozen dataclasses, not JSON).
-    The framework encodes this as ``Mapping[str, Any]`` to
-    avoid either:
+    The framework encodes this as ``Mapping[str | type, Any]``
+    to avoid either:
 
       - forcing callers to serialise the ECS components
-        just to satisfy ``Mapping[str, JsonValue]`` (which
-        is wrong — components live in-memory, not on the
-        wire);
+        just to satisfy ``Mapping[str | type, JsonValue]``
+        (which is wrong — components live in-memory, not on
+        the wire);
       - introducing a Union per slot, which would force
         callers to dispatch at every read.
 
-    The trade-off is documented in AGENTS.md §1: this is
-    one of two **legitimate** uses of ``Any`` in the
-    framework (the other is the public-facing ``Event.data``
-    which we just tightened to ``Mapping[str, JsonValue]``).
-    The migration was attempted in 2026-07 and reverted:
-    see DEBT_TECHNICAL.md item 6 for the reasoning.
+    The trade-off is documented in ``AGENTS.md`` §1 and
+    in :doc:`ADR-080`: this is the documented **legitimate**
+    use of ``Any`` in the framework — **only the value**
+    side. The **key** is ``str | type``: a string slot
+    name (``"tool_requests"``, ``"tool_completions"``) or
+    a typed component class (``ToolCallRequest``,
+    ``SessionComponent``, etc.). The historic
+    ``Mapping[str, Any]`` exception in skill §1.1 was
+    tightened by ADR-080: the ``Any`` in ``type[Any]`` is
+    gratuitous and has been dropped.
     """
 
     agent_id: str
-    components: Mapping[str | type[Any], Any] = field(default_factory=dict)
+    components: Mapping[str | type, Any] = field(default_factory=dict)
     operational_phase: OperationalPhase = "spawned"
     operational_at: datetime | None = None
     domain_phase: str | None = None
