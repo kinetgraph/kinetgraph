@@ -592,82 +592,82 @@
     },
     "src/kntgraph/agents/role_systems/_base.py:class:_BaseRoleSystem": {
       "complexity": 3,
-      "lineno": 39,
+      "lineno": 40,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:function:_emit_chat_completion": {
       "complexity": 5,
-      "lineno": 301,
+      "lineno": 302,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:__call__": {
       "complexity": 8,
-      "lineno": 113,
+      "lineno": 114,
       "rank": "B"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:__init__": {
       "complexity": 1,
-      "lineno": 71,
+      "lineno": 72,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_build_completion_event": {
       "complexity": 3,
-      "lineno": 226,
+      "lineno": 227,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_build_request_event": {
       "complexity": 3,
-      "lineno": 143,
+      "lineno": 144,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_build_system_prompt": {
       "complexity": 1,
-      "lineno": 78,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_build_user_prompt": {
       "complexity": 1,
-      "lineno": 81,
+      "lineno": 82,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_consume_completion": {
       "complexity": 5,
-      "lineno": 288,
+      "lineno": 289,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_consume_pending_completions": {
       "complexity": 3,
-      "lineno": 214,
+      "lineno": 215,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_emit_request": {
       "complexity": 1,
-      "lineno": 259,
+      "lineno": 260,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_emit_validation_failed": {
       "complexity": 2,
-      "lineno": 178,
+      "lineno": 179,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_is_new_event": {
       "complexity": 3,
-      "lineno": 136,
+      "lineno": 137,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_is_request_event": {
       "complexity": 3,
-      "lineno": 86,
+      "lineno": 87,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_parse_completion": {
       "complexity": 2,
-      "lineno": 105,
+      "lineno": 106,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py:method:_read_new_input": {
       "complexity": 4,
-      "lineno": 93,
+      "lineno": 94,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_prompts.py:class:ChatReply": {
@@ -777,117 +777,117 @@
     },
     "src/kntgraph/agents/tools/llm.py:class:LLMAuthError": {
       "complexity": 1,
-      "lineno": 350,
+      "lineno": 351,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:LLMError": {
       "complexity": 1,
-      "lineno": 330,
+      "lineno": 331,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:LLMRateLimitError": {
       "complexity": 1,
-      "lineno": 342,
+      "lineno": 343,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:LiteLLMToolWorker": {
       "complexity": 6,
-      "lineno": 566,
+      "lineno": 567,
       "rank": "B"
     },
     "src/kntgraph/agents/tools/llm.py:class:LiteLLMTransportAdapter": {
       "complexity": 5,
-      "lineno": 178,
+      "lineno": 179,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:_StreamDone": {
       "complexity": 3,
-      "lineno": 104,
+      "lineno": 105,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:_StreamTimeout": {
       "complexity": 3,
-      "lineno": 122,
+      "lineno": 123,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:class:_TerminalToolError": {
       "complexity": 1,
-      "lineno": 360,
+      "lineno": 361,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:function:_astream_litellm_inner": {
       "complexity": 8,
-      "lineno": 486,
+      "lineno": 487,
       "rank": "B"
     },
     "src/kntgraph/agents/tools/llm.py:function:_compute_cost_usd": {
       "complexity": 3,
-      "lineno": 147,
+      "lineno": 148,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:function:_convert_to_raw_dict": {
       "complexity": 4,
-      "lineno": 460,
+      "lineno": 461,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:function:_parse_message": {
       "complexity": 5,
-      "lineno": 428,
+      "lineno": 429,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:function:_parse_usage": {
       "complexity": 5,
-      "lineno": 446,
+      "lineno": 447,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:function:_safe_dict": {
       "complexity": 6,
-      "lineno": 380,
+      "lineno": 381,
       "rank": "B"
     },
     "src/kntgraph/agents/tools/llm.py:function:_to_llm_response": {
       "complexity": 2,
-      "lineno": 402,
+      "lineno": 403,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:__call__": {
       "complexity": 4,
-      "lineno": 199,
+      "lineno": 200,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:__init__": {
       "complexity": 1,
-      "lineno": 638,
+      "lineno": 639,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:__new__": {
       "complexity": 2,
-      "lineno": 127,
+      "lineno": 128,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 132,
+      "lineno": 133,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:_build_completion_kwargs": {
       "complexity": 4,
-      "lineno": 236,
+      "lineno": 237,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:_dump_response": {
       "complexity": 4,
-      "lineno": 290,
+      "lineno": 291,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:_get_transport": {
       "complexity": 2,
-      "lineno": 682,
+      "lineno": 683,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py:method:invoke": {
       "complexity": 11,
-      "lineno": 687,
+      "lineno": 688,
       "rank": "C"
     },
     "src/kntgraph/agents/tools/pii/_level1.py:function:redact_string": {
@@ -1232,102 +1232,102 @@
     },
     "src/kntgraph/cli/commands/upgrade.py:class:_BoilerplateMapping": {
       "complexity": 1,
-      "lineno": 83,
+      "lineno": 84,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_base_context": {
       "complexity": 1,
-      "lineno": 210,
+      "lineno": 211,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_discover_artifacts": {
       "complexity": 9,
-      "lineno": 185,
+      "lineno": 186,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_discover_context_names": {
       "complexity": 8,
-      "lineno": 167,
+      "lineno": 168,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_discover_package_name": {
       "complexity": 7,
-      "lineno": 152,
+      "lineno": 153,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_has_supervisor_artifact": {
       "complexity": 6,
-      "lineno": 499,
+      "lineno": 500,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_infer_init_flags": {
       "complexity": 3,
-      "lineno": 267,
+      "lineno": 268,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_render_template": {
       "complexity": 1,
-      "lineno": 218,
+      "lineno": 219,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_artifacts": {
       "complexity": 2,
-      "lineno": 427,
+      "lineno": 428,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_mapping": {
       "complexity": 3,
-      "lineno": 365,
+      "lineno": 366,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_context_singleton": {
       "complexity": 1,
-      "lineno": 404,
+      "lineno": 405,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_mapping": {
       "complexity": 2,
-      "lineno": 305,
+      "lineno": 306,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_mappings": {
       "complexity": 4,
-      "lineno": 231,
+      "lineno": 232,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_resolve_project_mapping": {
       "complexity": 2,
-      "lineno": 341,
+      "lineno": 342,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_snake_to_camel": {
       "complexity": 2,
-      "lineno": 487,
+      "lineno": 488,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:_template_to_kind": {
       "complexity": 1,
-      "lineno": 473,
+      "lineno": 474,
       "rank": "A"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:apply": {
       "complexity": 7,
-      "lineno": 580,
+      "lineno": 581,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:apply_all": {
       "complexity": 6,
-      "lineno": 623,
+      "lineno": 624,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:check": {
       "complexity": 7,
-      "lineno": 541,
+      "lineno": 542,
       "rank": "B"
     },
     "src/kntgraph/cli/commands/upgrade.py:function:list_templates": {
       "complexity": 3,
-      "lineno": 519,
+      "lineno": 520,
       "rank": "A"
     },
     "src/kntgraph/cli/main.py:function:_root_callback": {
@@ -2837,17 +2837,17 @@
     },
     "src/kntgraph/core/storage.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 244,
+      "lineno": 246,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:_derive_archetype": {
       "complexity": 2,
-      "lineno": 207,
+      "lineno": 209,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_component": {
       "complexity": 2,
-      "lineno": 146,
+      "lineno": 148,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_entity": {
@@ -2862,17 +2862,17 @@
     },
     "src/kntgraph/core/storage.py:method:clear": {
       "complexity": 1,
-      "lineno": 213,
+      "lineno": 215,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:clone_with_entity": {
       "complexity": 5,
-      "lineno": 217,
+      "lineno": 219,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:count": {
       "complexity": 2,
-      "lineno": 197,
+      "lineno": 199,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:entities_in": {
@@ -2912,17 +2912,17 @@
     },
     "src/kntgraph/core/storage.py:method:query": {
       "complexity": 8,
-      "lineno": 169,
+      "lineno": 171,
       "rank": "B"
     },
     "src/kntgraph/core/storage.py:method:query_one": {
       "complexity": 2,
-      "lineno": 190,
+      "lineno": 192,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_component": {
       "complexity": 4,
-      "lineno": 158,
+      "lineno": 160,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_entity": {
@@ -2932,7 +2932,7 @@
     },
     "src/kntgraph/core/storage.py:method:to_map": {
       "complexity": 3,
-      "lineno": 200,
+      "lineno": 202,
       "rank": "A"
     },
     "src/kntgraph/core/system.py:class:WorldSystem": {
@@ -8621,7 +8621,7 @@
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_base.py": {
-      "mi": 57.2493670311015,
+      "mi": 57.15648113094086,
       "rank": "A"
     },
     "src/kntgraph/agents/role_systems/_prompts.py": {
@@ -8641,7 +8641,7 @@
       "rank": "A"
     },
     "src/kntgraph/agents/tools/llm.py": {
-      "mi": 42.910912387883705,
+      "mi": 42.943778794993904,
       "rank": "A"
     },
     "src/kntgraph/agents/tools/pii/__init__.py": {
@@ -8941,11 +8941,11 @@
       "rank": "A"
     },
     "src/kntgraph/core/storage.py": {
-      "mi": 57.587423769973036,
+      "mi": 57.6090358230814,
       "rank": "A"
     },
     "src/kntgraph/core/system.py": {
-      "mi": 40.61635222840777,
+      "mi": 40.361878080639094,
       "rank": "A"
     },
     "src/kntgraph/core/tool_event.py": {

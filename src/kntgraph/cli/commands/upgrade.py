@@ -54,12 +54,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import typer
 from jinja2 import Environment, FileSystemLoader
 from rich.console import Console
 from rich.table import Table
+
+from kntgraph.core._typing import JsonValue
 
 app = typer.Typer(
     help="Regenerate boilerplate files against the current templates.",
@@ -207,7 +208,7 @@ def _discover_artifacts(context_name: str) -> dict[str, list[str]]:
     return artifacts
 
 
-def _base_context(package: str, project_name: str) -> dict[str, Any]:
+def _base_context(package: str, project_name: str) -> dict[str, JsonValue]:
     """The minimum context shared by every template."""
     return {
         "project_name": project_name,
@@ -217,7 +218,7 @@ def _base_context(package: str, project_name: str) -> dict[str, Any]:
 
 def _render_template(
     template_name: str,
-    context: dict[str, Any],
+    context: dict[str, JsonValue],
 ) -> str:
     """Render a template by name with the given context."""
     env = Environment(
@@ -228,7 +229,7 @@ def _render_template(
     return tmpl.render(context)
 
 
-def _resolve_mappings() -> list[tuple[Path, str, dict[str, Any]]]:
+def _resolve_mappings() -> list[tuple[Path, str, dict[str, JsonValue]]]:
     """Resolve every boilerplate mapping to a concrete (path, template, ctx)
     triple. Returns the list of files that ``knt upgrade`` can act on.
 
@@ -248,7 +249,7 @@ def _resolve_mappings() -> list[tuple[Path, str, dict[str, Any]]]:
     init_flags = _infer_init_flags(package)
     context_names = _discover_context_names()
 
-    resolved: list[tuple[Path, str, dict[str, Any]]] = []
+    resolved: list[tuple[Path, str, dict[str, JsonValue]]] = []
     for mapping in _MAPPING:
         if not mapping.requires_package:
             continue
@@ -266,7 +267,7 @@ def _resolve_mappings() -> list[tuple[Path, str, dict[str, Any]]]:
 
 def _infer_init_flags(
     package: str,
-) -> dict[str, Any]:
+) -> dict[str, JsonValue]:
     """Infer the ``init.py`` flags from the generated
     ``main.py``.
 
@@ -307,9 +308,9 @@ def _resolve_mapping(
     mapping: _BoilerplateMapping,
     package: str,
     project_name: str,
-    init_flags: dict[str, Any],
+    init_flags: dict[str, JsonValue],
     context_names: list[str],
-) -> list[tuple[Path, str, dict[str, Any]]]:
+) -> list[tuple[Path, str, dict[str, JsonValue]]]:
     """Dispatch one mapping to the right per-shape helper.
 
     The shape is determined by two flags on the mapping:
@@ -342,9 +343,9 @@ def _resolve_project_mapping(
     *,
     mapping: _BoilerplateMapping,
     package: str,
-    base_ctx: dict[str, Any],
-    init_flags: dict[str, Any],
-) -> list[tuple[Path, str, dict[str, Any]]]:
+    base_ctx: dict[str, JsonValue],
+    init_flags: dict[str, JsonValue],
+) -> list[tuple[Path, str, dict[str, JsonValue]]]:
     """Project-level boilerplate (``main.py``,
     ``consumer.py``, ``config.py``). The ``main.py.jinja``
     and ``consumer.py.jinja`` templates consume the
@@ -367,15 +368,15 @@ def _resolve_context_mapping(
     mapping: _BoilerplateMapping,
     package: str,
     context_names: list[str],
-    base_ctx: dict[str, Any],
-) -> list[tuple[Path, str, dict[str, Any]]]:
+    base_ctx: dict[str, JsonValue],
+) -> list[tuple[Path, str, dict[str, JsonValue]]]:
     """Per-context boilerplate. For per-artifact templates
     (``agent.py.jinja``, ``event.py.jinja``, etc.) we
     emit one entry per existing artifact; for singleton
     templates (``dispatcher.py.jinja``) we emit one entry
     per context.
     """
-    resolved: list[tuple[Path, str, dict[str, Any]]] = []
+    resolved: list[tuple[Path, str, dict[str, JsonValue]]] = []
     kind = _template_to_kind(mapping.template_name)
     for context_name in context_names:
         ctx_with_c = {**base_ctx, "context_name": context_name}
@@ -406,8 +407,8 @@ def _resolve_context_singleton(
     mapping: _BoilerplateMapping,
     package: str,
     context_name: str,
-    ctx_with_c: dict[str, Any],
-) -> tuple[Path, str, dict[str, Any]]:
+    ctx_with_c: dict[str, JsonValue],
+) -> tuple[Path, str, dict[str, JsonValue]]:
     """One entry per context (e.g. ``dispatcher.py``)."""
     return (
         Path(
@@ -430,15 +431,15 @@ def _resolve_context_artifacts(
     package: str,
     context_name: str,
     kind: str,
-    ctx_with_c: dict[str, Any],
-) -> list[tuple[Path, str, dict[str, Any]]]:
+    ctx_with_c: dict[str, JsonValue],
+) -> list[tuple[Path, str, dict[str, JsonValue]]]:
     """One entry per existing artifact inside the context
     (e.g. every ``agents/<name>.py``, every
     ``events/<name>.py``). The ``<name>`` placeholder in
     the mapping's ``rendered_path`` is substituted with
     the artifact's filename stem.
     """
-    resolved: list[tuple[Path, str, dict[str, Any]]] = []
+    resolved: list[tuple[Path, str, dict[str, JsonValue]]] = []
     for artifact in _discover_artifacts(context_name).get(kind, []):
         # The ``agent.py.jinja`` expects ``camel_case_name``
         # (the original CamelCase input). The on-disk
