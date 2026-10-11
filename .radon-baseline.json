@@ -2827,112 +2827,112 @@
     },
     "src/kntgraph/core/storage.py:class:ArchetypeStorage": {
       "complexity": 3,
-      "lineno": 45,
+      "lineno": 46,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:__init__": {
       "complexity": 1,
-      "lineno": 64,
+      "lineno": 65,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:__repr__": {
       "complexity": 1,
-      "lineno": 246,
+      "lineno": 251,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:_derive_archetype": {
       "complexity": 2,
-      "lineno": 209,
+      "lineno": 214,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_component": {
       "complexity": 2,
-      "lineno": 148,
+      "lineno": 153,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:add_entity": {
       "complexity": 2,
-      "lineno": 99,
+      "lineno": 100,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:archetype_ids": {
       "complexity": 1,
-      "lineno": 93,
+      "lineno": 94,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:clear": {
       "complexity": 1,
-      "lineno": 215,
+      "lineno": 220,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:clone_with_entity": {
       "complexity": 5,
-      "lineno": 219,
+      "lineno": 224,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:count": {
       "complexity": 2,
-      "lineno": 199,
+      "lineno": 204,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:entities_in": {
       "complexity": 1,
-      "lineno": 96,
+      "lineno": 97,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:get_archetype_of": {
       "complexity": 1,
-      "lineno": 81,
+      "lineno": 82,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:get_components": {
       "complexity": 3,
-      "lineno": 84,
+      "lineno": 85,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:has_entity": {
       "complexity": 1,
-      "lineno": 78,
+      "lineno": 79,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:move_entity": {
-      "complexity": 6,
-      "lineno": 122,
-      "rank": "B"
+      "complexity": 5,
+      "lineno": 123,
+      "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:num_archetypes": {
       "complexity": 1,
-      "lineno": 75,
+      "lineno": 76,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:num_entities": {
       "complexity": 1,
-      "lineno": 71,
+      "lineno": 72,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:query": {
       "complexity": 8,
-      "lineno": 171,
+      "lineno": 176,
       "rank": "B"
     },
     "src/kntgraph/core/storage.py:method:query_one": {
       "complexity": 2,
-      "lineno": 192,
+      "lineno": 197,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_component": {
       "complexity": 4,
-      "lineno": 160,
+      "lineno": 165,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:remove_entity": {
       "complexity": 4,
-      "lineno": 112,
+      "lineno": 113,
       "rank": "A"
     },
     "src/kntgraph/core/storage.py:method:to_map": {
       "complexity": 3,
-      "lineno": 202,
+      "lineno": 207,
       "rank": "A"
     },
     "src/kntgraph/core/system.py:class:WorldSystem": {
@@ -6337,22 +6337,22 @@
     },
     "src/kntgraph/memory/profile.py:function:_build_profile_state": {
       "complexity": 5,
-      "lineno": 599,
+      "lineno": 607,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_coerce_profile_float": {
       "complexity": 5,
-      "lineno": 583,
+      "lineno": 591,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_coerce_profile_scalar": {
       "complexity": 3,
-      "lineno": 565,
+      "lineno": 573,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_coerce_profile_scalar_value": {
       "complexity": 3,
-      "lineno": 485,
+      "lineno": 491,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_fold_profile_events": {
@@ -6362,27 +6362,27 @@
     },
     "src/kntgraph/memory/profile.py:function:_on_profile_created": {
       "complexity": 4,
-      "lineno": 504,
+      "lineno": 510,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_on_profile_preference_set": {
       "complexity": 2,
-      "lineno": 520,
+      "lineno": 528,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_on_profile_preference_unset": {
       "complexity": 2,
-      "lineno": 530,
+      "lineno": 538,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_on_profile_tier_changed": {
       "complexity": 1,
-      "lineno": 538,
+      "lineno": 546,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:function:_run_profile_handlers": {
       "complexity": 3,
-      "lineno": 470,
+      "lineno": 476,
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py:method:__init__": {
@@ -6462,147 +6462,147 @@
     },
     "src/kntgraph/memory/session.py:class:SessionEventType": {
       "complexity": 1,
-      "lineno": 65,
+      "lineno": 68,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:class:SessionManager": {
       "complexity": 3,
-      "lineno": 91,
+      "lineno": 94,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:class:SessionState": {
       "complexity": 2,
-      "lineno": 73,
+      "lineno": 76,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_build_session_state": {
       "complexity": 10,
-      "lineno": 614,
+      "lineno": 633,
       "rank": "B"
     },
     "src/kntgraph/memory/session.py:function:_build_session_state_from_fold": {
       "complexity": 1,
-      "lineno": 555,
+      "lineno": 568,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_coerce_float": {
       "complexity": 6,
-      "lineno": 596,
+      "lineno": 615,
       "rank": "B"
     },
     "src/kntgraph/memory/session.py:function:_coerce_str": {
       "complexity": 1,
-      "lineno": 575,
+      "lineno": 594,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_fold_session_events": {
       "complexity": 4,
-      "lineno": 462,
+      "lineno": 465,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_on_session_context": {
       "complexity": 3,
-      "lineno": 532,
+      "lineno": 535,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_on_session_ended": {
       "complexity": 1,
-      "lineno": 542,
+      "lineno": 555,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_on_session_message": {
       "complexity": 2,
-      "lineno": 512,
+      "lineno": 515,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_on_session_started": {
       "complexity": 2,
-      "lineno": 500,
+      "lineno": 503,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:function:_scalar_str": {
       "complexity": 4,
-      "lineno": 583,
+      "lineno": 602,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:__init__": {
       "complexity": 2,
-      "lineno": 103,
+      "lineno": 106,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:_emit_and_refresh": {
       "complexity": 5,
-      "lineno": 206,
+      "lineno": 209,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:_fold_from_log": {
       "complexity": 1,
-      "lineno": 450,
+      "lineno": 453,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:_read_cache": {
       "complexity": 7,
-      "lineno": 395,
+      "lineno": 398,
       "rank": "B"
     },
     "src/kntgraph/memory/session.py:method:_serialize_for_cache": {
       "complexity": 1,
-      "lineno": 436,
+      "lineno": 439,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:append_message": {
       "complexity": 3,
-      "lineno": 286,
+      "lineno": 289,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:cache_key": {
       "complexity": 1,
-      "lineno": 130,
+      "lineno": 133,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:end": {
       "complexity": 1,
-      "lineno": 330,
+      "lineno": 333,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:is_active": {
       "complexity": 1,
-      "lineno": 87,
+      "lineno": 90,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:list_active": {
       "complexity": 7,
-      "lineno": 362,
+      "lineno": 365,
       "rank": "B"
     },
     "src/kntgraph/memory/session.py:method:read": {
       "complexity": 1,
-      "lineno": 347,
+      "lineno": 350,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:refresh_cache": {
       "complexity": 1,
-      "lineno": 157,
+      "lineno": 160,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:refresh_cache_incremental": {
       "complexity": 1,
-      "lineno": 174,
+      "lineno": 177,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:set_context": {
       "complexity": 1,
-      "lineno": 310,
+      "lineno": 313,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py:method:start": {
       "complexity": 8,
-      "lineno": 228,
+      "lineno": 231,
       "rank": "B"
     },
     "src/kntgraph/memory/session.py:method:write_cache": {
       "complexity": 1,
-      "lineno": 138,
+      "lineno": 141,
       "rank": "A"
     },
     "src/kntgraph/resilience/bulkhead.py:class:BulkheadFullError": {
@@ -8941,7 +8941,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/storage.py": {
-      "mi": 57.6090358230814,
+      "mi": 58.4327203396113,
       "rank": "A"
     },
     "src/kntgraph/core/system.py": {
@@ -9429,11 +9429,11 @@
       "rank": "A"
     },
     "src/kntgraph/memory/profile.py": {
-      "mi": 53.655756704636225,
+      "mi": 53.647914928826026,
       "rank": "A"
     },
     "src/kntgraph/memory/session.py": {
-      "mi": 48.65971452913708,
+      "mi": 48.56032610268344,
       "rank": "A"
     },
     "src/kntgraph/resilience/__init__.py": {

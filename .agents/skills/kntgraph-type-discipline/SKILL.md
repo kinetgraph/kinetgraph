@@ -1,6 +1,6 @@
 ---
 name: kntgraph-type-discipline
-description: Use when writing or reviewing Python types in kntgraph framework code (src/kntgraph/core/, tools/, infra/, stream/, security/, runner/, resilience/, concordos/). Covers the no-Any / no-bare-object rule, the four primitives (JsonValue, Mapping[K,V], frozen dataclass, ComponentT TypeVar), the framework-never-imports-from-vertical boundary, the AgentView.components exception, the Event/Result/JsonValue/ToolResult public types, the `memory/` naming collision, and the canonical dict-construction rules. Trigger keywords: Any, object, JsonValue, AgentView, Event.data, TYPE_CHECKING, framework import, vertical dependency, ToolResult, frozen dataclass, MappingProxyType, Mapping, TypedDict, ToolError, Result, ComponentT, slot, projection, fold.
+description: Use when writing or reviewing Python types in kntgraph framework code (src/kntgraph/core/, tools/, infra/, stream/, security/, runner/, resilience/, concordos/). Covers the no-Any / no-bare-object rule, the four primitives (JsonValue, Mapping[K,V], frozen dataclass, ComponentT TypeVar), the framework-never-imports-from-vertical boundary, the AgentView.components exception, the Event/Result/JsonValue/ToolResult public types, the `memory/` naming collision, the canonical dict-construction rules, and the commit-by-commit ratchet rule (corrections + coverage + complexity + typing) that keeps the codebase improving as we go. Trigger keywords: Any, object, JsonValue, AgentView, Event.data, TYPE_CHECKING, framework import, vertical dependency, ToolResult, frozen dataclass, MappingProxyType, Mapping, TypedDict, ToolError, Result, ComponentT, slot, projection, fold, ratchet, coverage, complexity, ruff, pyright.
 ---
 
 <!--
@@ -34,7 +34,8 @@ The `memory/` naming collision is the most common
 import mistake in the codebase (§4.2 below).
 
 For the *why* of each rule, see the ADR cross-references
-in §6.
+in §6. For the *workflow* of applying the rules
+commit-by-commit, see §8 (the ratchet rule).
 
 ---
 
@@ -550,3 +551,55 @@ rg -nP 'from kntgraph\.(agents|api|cli|knowledge|events|memory)\.' src/kntgraph/
 
 When the gate is added, the allowlist per rule lives
 in `DEBT.md` §2.40 (open until CI is in place).
+
+---
+
+## 8. The ratchet rule (commit-by-commit improvement)
+
+**Principle.** When a commit touches a file in framework scope
+(§1.1), it leaves the file at least as good as it found it —
+across four orthogonal axes. "Better" means strictly net-positive
+on each axis the commit touches. "Follow-up PR" is a debt, not a
+plan: if you can fix it now, fix it now.
+
+When modifying a file, run the four-axis checklist:
+
+| Axis | What "better" means | How to check |
+|---|---|---|
+| **Corrections** | No new lint or type errors introduced. | `ruff check <file>` and `pyright <file>` clean. The §7 greppable rules catch the most common regressions. |
+| **Coverage** | No branch regression; every new branch has a test. | `pytest tests/unit/ --cov=<pkg> --cov-branch`; reliability/verticals coverage must not drop. New branches: see the test patterns in §5. |
+| **Complexity** | CC ≤ 10 in the touched block; MI delta ≥ 0 vs `.radon-baseline.json`. | `radon cc -s -a -n C` on the file; the `complexity` gate catches the budget violation. |
+| **Typing** | No new `Any`; existing `Any` not widened; primitives from §3 used where they apply. | `rg -nP '\bAny\b' src/kntgraph/{core,tools,infra,stream,security,runner,resilience,concordos}`; new `Any` requires a per-site comment referencing §3.5 or the relevant ADR. |
+
+The four axes are **orthogonal**: a commit can regress one while
+improving others. The ratchet fires on any axis. The gate pipeline
+(`scripts/ci.py`) enforces the automatable parts; this rule is
+the **agent-side complement** — it asks the author (human or AI)
+to apply judgment on the parts the gate can't see (test quality,
+naming, design fit).
+
+### Anti-patterns (smell tests)
+
+- "I'll add a test in a follow-up PR" — add it now, in this commit.
+- "This `Any` is harmless" — it isn't; every `Any` is a tax on the static checker.
+- "The MI drop is small (0.3pp)" — small drops compound; fix it or document the why in the commit message.
+- "The new branch is defensive code" — if it's unreachable, delete
+  it (e.g. `storage.py:131` last cycle: the `if old_arch is not None:`
+  check was dead by invariant; removing it let `cast` document the
+  invariant and the branch coverage stayed at 100%). If it's
+  reachable, write a test.
+
+### The ratchet in practice
+
+A single commit on `src/kntgraph/core/storage.py` should leave:
+
+1. `ruff check` clean (or improved).
+2. `pyright` clean.
+3. No new branches uncovered (verify with the gate).
+4. No new `Any` (run `rg '\bAny\b' src/kntgraph/core/storage.py`).
+5. Complexity within budget; CC delta documented in the commit
+   message.
+
+The rule is about **discipline at the time of the change**, not
+about retroactive audits. A repo-wide cleanup pass is fine but
+does not replace per-commit application of the rule.
