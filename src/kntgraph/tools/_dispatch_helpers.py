@@ -19,7 +19,6 @@ Both helpers are exercised by
 from __future__ import annotations
 
 import inspect
-from typing import Any
 
 # ``max_concurrency`` is the per-tool semaphore knob. When a tool
 # is registered with ``max_concurrency=N`` the Manager creates an
@@ -69,7 +68,7 @@ def compute_max_workers(
     )
 
 
-def is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
+def is_cpu_bound(tool_cls: type, tool_instance: object) -> bool:
     """A tool is CPU-bound if it is explicitly marked
     (``__tool_worker_cpu_bound__ = True``), wraps a non-async
     ``invoke`` (``inspect.iscoroutinefunction`` returns ``False``

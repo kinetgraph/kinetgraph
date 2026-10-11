@@ -60,7 +60,10 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import (
+    TYPE_CHECKING,
+    cast,
+)  # Any was removed; ExecutorFactory is the type alias for executors now.
 
 if TYPE_CHECKING:
     from multiprocessing.context import BaseContext
@@ -209,7 +212,7 @@ class WorkerManager:
         # returns the standard ``result_dict`` shape. The Manager
         # remains the owner of XACK / events / reaper / ACL /
         # observability; the factory is a black-box dispatch hook.
-        self._executors: dict[str, Any] = {}
+        self._executors: dict[str, ExecutorFactory] = {}
         # ``max_pool_workers`` is the explicit cap on the internal
         # ``ProcessPoolExecutor``. ``None`` (default) means "use
         # the legacy formula ``max(1, sum(max_concurrency))``"; an
@@ -763,7 +766,7 @@ class WorkerManager:
         return ToolResult.err(str(result.err_value_or_raise()))
 
     @staticmethod
-    def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
+    def _is_cpu_bound(tool_cls: type, tool_instance: object) -> bool:
         """Delegate to ``is_cpu_bound`` in ``_dispatch_helpers.py``.
         Kept as a static method on the Manager so the
         ``_dispatch_to_tool`` call site stays
