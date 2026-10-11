@@ -239,7 +239,7 @@ class LiteLLMTransportAdapter(LLMTransport):
         request: LLMRequest,
         *,
         drop_params: bool,
-    ) -> dict[str, Any]:
+    ) -> dict[str, JsonValue]:
         """Build the ``litellm.acompletion`` kwargs
         from the ``LLMRequest`` value object. The
         ``response_format`` slot is forwarded to
@@ -253,9 +253,16 @@ class LiteLLMTransportAdapter(LLMTransport):
         process. The request's ``extra`` dict is
         merged last so callers can override defaults
         via ``LLMRequest(extra={"...": ...})``."""
-        kwargs: dict[str, Any] = {
+        kwargs: dict[str, JsonValue] = {
             "model": request.model,
-            "messages": request.messages,
+            # ``LLMRequest.messages`` is typed as ``list[dict]``
+            # (untyped dicts) for backwards compat with the
+            # third-party LLM transports; each element is
+            # JSON-shaped at runtime. The cast is the
+            # explicit acknowledgement that the static
+            # view is wider than the JsonValue contract
+            # (ADR-081 §3.2).
+            "messages": cast(list[JsonValue], request.messages),
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             # Per-call ``drop_params`` override (ADR-061
@@ -491,7 +498,7 @@ async def _astream_litellm_inner(
     user: str,
     temperature: float,
     max_tokens: int,
-    **kwargs: Any,
+    **kwargs: JsonValue,
 ) -> AsyncIterator[Result[LLMChunk, ToolError]]:
     """
     Inner async-generator that yields Result[LLMChunk]
@@ -697,7 +704,7 @@ class LiteLLMToolWorker:
         think: bool = False,
         response_format: dict | None = None,
         stream: bool = False,
-    ) -> Result[dict[str, Any], ToolError]:
+    ) -> Result[dict[str, JsonValue], ToolError]:
         """
         Run a single LLM completion via the
         ``LiteLLMTransportAdapter`` and return the
