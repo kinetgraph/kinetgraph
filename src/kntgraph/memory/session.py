@@ -37,7 +37,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import (  # Any kept for back-compat imports; ADR-081 narrows in-tree
+    Any,
+    cast,
+)
 
 import structlog
 
@@ -477,7 +480,7 @@ def _fold_session_events(
     stays a linear ``for`` loop and under the CC ≤ 10
     ceiling.
     """
-    state: dict[str, Any] = {
+    state: dict[str, JsonValue] = {
         "user_id": "",
         "tenant_id": "",
         "started_at": None,
@@ -497,25 +500,25 @@ def _fold_session_events(
     return _build_session_state_from_fold(session_id, state)
 
 
-def _on_session_started(e: Event, state: dict[str, Any]) -> None:
+def _on_session_started(e: Event, state: dict[str, JsonValue]) -> None:
     """``session.started`` handler: capture identity,
     stamp the start time, and seed ``context`` from
     the event's ``metadata`` field (if any)."""
     state["user_id"] = _scalar_str(e.data.get("user_id"))
     state["tenant_id"] = _scalar_str(e.data.get("tenant_id"))
-    state["started_at"] = e.timestamp.timestamp()
+    state["started_at"] = e.timestamp.timestamp()  # float; JsonValue-compatible
     meta = e.data.get("metadata")
     if isinstance(meta, dict):
-        state["context"].update(meta)
+        cast("dict[str, str]", state["context"]).update(cast("dict[str, str]", meta))
 
 
-def _on_session_message(e: Event, state: dict[str, Any]) -> None:
+def _on_session_message(e: Event, state: dict[str, JsonValue]) -> None:
     """``session.message`` handler: append a single
     message and enforce the
     ``MAX_MESSAGES_IN_CACHE`` cap (older messages are
     dropped from the cache; the EventLog retains
     everything)."""
-    state["messages"].append(
+    cast(list, state["messages"]).append(
         {
             "role": _scalar_str(e.data.get("role"), default="user"),
             "content": _scalar_str(e.data.get("content")),
@@ -523,28 +526,38 @@ def _on_session_message(e: Event, state: dict[str, Any]) -> None:
             "at": e.timestamp.timestamp(),
         }
     )
-    if len(state["messages"]) > MAX_MESSAGES_IN_CACHE:
+    if len(cast(list, state["messages"])) > MAX_MESSAGES_IN_CACHE:
         # Keep only the most recent MAX_MESSAGES_IN_CACHE
         # in cache; the EventLog retains everything.
-        state["messages"][:-MAX_MESSAGES_IN_CACHE] = []
+        cast(list, state["messages"])[:-MAX_MESSAGES_IN_CACHE] = []
 
 
-def _on_session_context(e: Event, state: dict[str, Any]) -> None:
+def _on_session_context(e: Event, state: dict[str, JsonValue]) -> None:
     """``session.context`` handler: write a key/value
     pair. ``None`` and non-string keys are dropped
     (the canonical enforcer is upstream in the
-    recorder)."""
+    recorder).
+    """
     slot = e.data.get("key")
     if slot is not None and isinstance(slot, str):
-        state["context"][slot] = e.data.get("value")
+        # ADR-081 §3.3: the ``context`` slot stores
+        # arbitrary JsonValue-shaped data (e.g. nested
+        # dicts for ``scratchpad``); the ``cast`` is the
+        # explicit acknowledgement that pyright sees a
+        # wider static type at the JsonValue-typed fold
+        # state than the runtime ``dict[str, str]`` slot
+        # in ``SessionComponent``.
+        cast("dict[str, str]", state["context"])[slot] = e.data.get(  # type: ignore[arg-type]
+            "value"
+        )
 
 
-def _on_session_ended(e: Event, state: dict[str, Any]) -> None:
+def _on_session_ended(e: Event, state: dict[str, JsonValue]) -> None:
     """``session.ended`` handler: stamp the end time."""
-    state["ended_at"] = e.timestamp.timestamp()
+    state["ended_at"] = e.timestamp.timestamp()  # float; JsonValue-compatible
 
 
-_SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
+_SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, JsonValue]], None]] = {
     SessionEventType.STARTED: _on_session_started,
     SessionEventType.MESSAGE: _on_session_message,
     SessionEventType.CONTEXT: _on_session_context,
@@ -553,7 +566,7 @@ _SESSION_HANDLERS: dict[str, Callable[[Event, dict[str, Any]], None]] = {
 
 
 def _build_session_state_from_fold(
-    session_id: str, state: dict[str, Any]
+    session_id: str, state: dict[str, JsonValue]
 ) -> SessionState:
     """Materialise the ``SessionState`` from the fold
     state dict. The fold's ``messages`` list and
@@ -563,12 +576,18 @@ def _build_session_state_from_fold(
     their values)."""
     return SessionState(
         session_id=session_id,
-        user_id=state["user_id"],
-        tenant_id=state["tenant_id"],
-        messages=tuple(state["messages"]),
-        context=state["context"],
-        started_at=state["started_at"],
-        ended_at=state["ended_at"],
+        # The fold handlers always write tighter types
+        # (``str`` for ids, ``float`` for timestamps, ``list``
+        # for messages, ``dict[str, str]`` for context) even
+        # though the fold state is typed ``dict[str, JsonValue]``.
+        # The ``cast`` is the explicit acknowledgement of
+        # that bridge (ADR-081 §3.3).
+        user_id=cast(str, state["user_id"]),
+        tenant_id=cast(str, state["tenant_id"]),
+        messages=tuple(cast(list, state["messages"])),
+        context=cast(Any, state["context"]),
+        started_at=cast(float, state["started_at"]),
+        ended_at=cast("float | None", state["ended_at"]),
     )
 
 

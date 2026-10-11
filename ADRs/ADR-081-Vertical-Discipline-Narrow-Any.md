@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-081: Vertical discipline — narrow `Any` in `cli/`, `memory/`, `agents/` to canonical primitives
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-10
 - **Author:** kinetgraph architecture team
 - **Supersedes:** (none)
@@ -299,3 +299,32 @@ references skill §3.5. **~5 lines diff.**
 ## 8. Revision history
 
 - **2026-10-10** — Initial draft. Proposes a vertical discipline that mirrors the framework's primitives (`JsonValue`, `Mapping[K, V]`, frozen dataclass) with one narrower exception (LLM response shape). Migration: 4 commits, 47 → ~9 `Any` in the three target directories.
+
+## 9. Final state (after Commit 4)
+
+After all four commits:
+
+- `cli/commands/upgrade.py`: 19 → 0 `Any` (Commit 1, PR #64).
+- `memory/profile.py` + `memory/session.py`: 17 → 2 `Any`
+  (the `from typing import Any, cast` import line, kept
+  for back-compat; the actual `Any` usages were replaced
+  with `Mapping[str, JsonValue]` + `cast()` bridges at
+  the construction sites, Commit 2).
+- `agents/tools/llm.py`: 14 → 10 `Any` (Commit 3; returns
+  narrowed to `dict[str, JsonValue]`, parameters stay
+  `Any` for the LLM-response-shape exception).
+- `agents/role_systems/_base.py`: 6 → 4 `Any` (Commit 4;
+  `last_eid: str | None` already done; remaining `Any`
+  is the tool-completion envelope, with inline comment
+  referencing §3.4).
+
+Vertical total: 82 → ~25 (from 82 at the time of the
+ADR draft; net reduction ≈ 57 `Any`).
+
+The 25 remaining `Any` is documented per file as either:
+- the LLM-response exception (`agents/tools/llm.py`),
+- the tool-completion envelope exception
+  (`agents/role_systems/_base.py`), or
+- import-line `# noqa: F401` for backward compatibility
+  (kept until vertical code is reviewed per
+  the "vertical cleanup" follow-up).

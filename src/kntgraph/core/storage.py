@@ -29,7 +29,7 @@ the World fold reads only the events relevant to the tick window
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from typing import Any, cast
+from typing import cast
 
 from immutables import Map
 

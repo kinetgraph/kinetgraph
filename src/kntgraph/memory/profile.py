@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import cast
 
 import structlog
 
@@ -445,7 +445,7 @@ def _fold_profile_events(
     itself stays a linear loop and stays under the CC ≤ 10
     ceiling (each handler is ≤ 5).
     """
-    state: dict[str, Any] = {
+    state: dict[str, JsonValue] = {
         "created_at": None,
         "updated_at": 0.0,
         "preferences": {},
@@ -460,14 +460,20 @@ def _fold_profile_events(
     return ProfileState(
         tenant_id=tenant_id,
         user_id=user_id,
-        preferences=state["preferences"],
-        tier=state["tier"],
-        created_at=state["created_at"] or 0.0,
-        updated_at=state["updated_at"],
+        # The fold handlers always write tighter types
+        # (``dict[str, str]`` for preferences, ``str`` for tier,
+        # ``float`` for timestamps) even though the fold state
+        # is typed ``dict[str, JsonValue]``. The ``cast`` is
+        # the explicit acknowledgement of that bridge
+        # (ADR-081 §3.3).
+        preferences=cast("dict[str, str]", state["preferences"]),
+        tier=cast(str, state["tier"]),
+        created_at=cast(float, state["created_at"]) or 0.0,
+        updated_at=cast(float, state["updated_at"]),
     )
 
 
-def _run_profile_handlers(events: Iterable[Event], state: dict[str, Any]) -> bool:
+def _run_profile_handlers(events: Iterable[Event], state: dict[str, JsonValue]) -> bool:
     """Run the ``profile.*`` handler table over the stream,
     mutating ``state`` in place. Returns True when the stream
     carried at least one ``profile.*`` event (the implicit
@@ -483,7 +489,7 @@ def _run_profile_handlers(events: Iterable[Event], state: dict[str, Any]) -> boo
 
 
 def _coerce_profile_scalar_value(
-    value: Any,
+    value: JsonValue,
     *,
     fallback: str,
 ) -> str:
@@ -501,7 +507,7 @@ def _coerce_profile_scalar_value(
     return str(value)
 
 
-def _on_profile_created(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_created(e: Event, state: dict[str, JsonValue]) -> None:
     """``profile.created`` handler: initialise the state
     and seed preferences / tier from the event payload."""
     ts = e.timestamp.timestamp()
@@ -511,39 +517,41 @@ def _on_profile_created(e: Event, state: dict[str, Any]) -> None:
     if isinstance(prefs, dict):
         for k, v in prefs.items():
             if isinstance(k, str):
-                state["preferences"][k] = _coerce_profile_scalar_value(v, fallback="")
+                cast("dict[str, str]", state["preferences"])[k] = (
+                    _coerce_profile_scalar_value(v, fallback="")
+                )
     state["tier"] = _coerce_profile_scalar_value(
-        e.data.get("tier", state["tier"]), fallback=state["tier"]
+        e.data.get("tier", state["tier"]), fallback=cast(str, state["tier"])
     )
 
 
-def _on_profile_preference_set(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_preference_set(e: Event, state: dict[str, JsonValue]) -> None:
     """``profile.preference_set`` handler: write a key."""
     k = e.data.get("key")
     if isinstance(k, str):
-        state["preferences"][k] = _coerce_profile_scalar_value(
+        cast("dict[str, str]", state["preferences"])[k] = _coerce_profile_scalar_value(
             e.data.get("value"), fallback=""
         )
     state["updated_at"] = e.timestamp.timestamp()
 
 
-def _on_profile_preference_unset(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_preference_unset(e: Event, state: dict[str, JsonValue]) -> None:
     """``profile.preference_unset`` handler: drop a key."""
     k = e.data.get("key")
     if isinstance(k, str):
-        state["preferences"].pop(k, None)
+        cast("dict[str, str]", state["preferences"]).pop(k, None)
     state["updated_at"] = e.timestamp.timestamp()
 
 
-def _on_profile_tier_changed(e: Event, state: dict[str, Any]) -> None:
+def _on_profile_tier_changed(e: Event, state: dict[str, JsonValue]) -> None:
     """``profile.tier_changed`` handler: update the tier."""
     state["tier"] = _coerce_profile_scalar_value(
-        e.data.get("to_tier"), fallback=state["tier"]
+        e.data.get("to_tier"), fallback=cast(str, state["tier"])
     )
     state["updated_at"] = e.timestamp.timestamp()
 
 
-_ProfileHandler = Callable[[Event, dict[str, Any]], None]
+_ProfileHandler = Callable[[Event, dict[str, JsonValue]], None]
 """Per-event-type side-effect on the fold's ``state``
 dict. Each handler reads the event payload and mutates
 ``state`` in place; the fold itself stays a linear

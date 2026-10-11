@@ -227,7 +227,7 @@ class _BaseRoleSystem(ToolAwareSystem):
     def _build_completion_event(
         self,
         rid: str,
-        comp: Any,
+        comp: Any,  # ToolCallCompletion (frozen dataclass); ``Any`` per ADR-081 §3.4 (tool-completion envelope exception)
         pending_input: str,
         pending_agent: str,
     ) -> Event:
@@ -286,7 +286,9 @@ class _BaseRoleSystem(ToolAwareSystem):
         self._pending_agents[str(e.event_id)] = agent_id
         return e
 
-    def _consume_completion(self, view) -> list[tuple[str, Any]]:
+    def _consume_completion(
+        self, view
+    ) -> list[tuple[str, Any]]:  # Any for ToolCallCompletion envelope (ADR-081 §3.4)
         tool_completions = view.components.get("tool_completions", {})
         if not isinstance(tool_completions, dict):
             return []
