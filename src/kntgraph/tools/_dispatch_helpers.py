@@ -88,7 +88,8 @@ def is_cpu_bound(tool_cls: type, tool_instance: object) -> bool:
 def _is_wrapped_sync_helper() -> bool:
     """True when ``_invoke_tool_sync`` has been monkey-patched
     or replaced (the test-instrumentation path in
-    ``tests/integration/tools/test_worker_manager.py``). When
+    ``tests/integration/tools/test_worker_manager.py`` and
+    ``tests/unit/tools/test_worker_manager_acl.py``). When
     True, even an ``async def invoke`` should run through the
     process pool because the wrapped helper is sync.
 
@@ -96,15 +97,17 @@ def _is_wrapped_sync_helper() -> bool:
     -------------------
     The identity check (``_invoke_tool_sync is not
     _ORIGINAL_INVOKE_TOOL_SYNC``) reads the *current binding*
-    of ``_invoke_tool_sync`` in the ``manager`` module's
-    namespace. Test instrumentation does
-    ``patch("kntgraph.tools.manager._invoke_tool_sync", ...)``
-    which mutates the binding IN the manager module — so the
-    identity check has to look there, not at the original
-    import in ``_worker_invocation`` (which would always be
-    the original, regardless of patching). Reading the name
-    via ``getattr`` on the module object is the robust path.
+    of ``_invoke_tool_sync`` in the modules that import it.
+    The dispatch is now in ``_dispatch.py`` (ADR-069), so we
+    check both the legacy ``manager`` binding and the new
+    ``_dispatch`` binding — test patches may target either
+    path. Reading the name via ``getattr`` on the module
+    object is the robust path.
     """
+    from kntgraph.tools import _dispatch as _dispatch_mod
     from kntgraph.tools import manager as _manager
 
-    return _manager._invoke_tool_sync is not _manager._ORIGINAL_INVOKE_TOOL_SYNC
+    return (
+        _manager._invoke_tool_sync is not _manager._ORIGINAL_INVOKE_TOOL_SYNC
+        or _dispatch_mod._invoke_tool_sync is not _manager._ORIGINAL_INVOKE_TOOL_SYNC
+    )

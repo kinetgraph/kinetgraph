@@ -450,13 +450,18 @@ class TestProcessMessageHardCrash:
         def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
+        from kntgraph.tools import _dispatch as dispatch_mod
+
         original = mgr_mod._invoke_tool_sync
+        original_dispatch = dispatch_mod._invoke_tool_sync
         mgr_mod._invoke_tool_sync = raise_then_crash
+        dispatch_mod._invoke_tool_sync = raise_then_crash
         try:
             redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 5}])
             await manager._process_message("echo", "stream", "1-0", data)
         finally:
             mgr_mod._invoke_tool_sync = original
+            dispatch_mod._invoke_tool_sync = original_dispatch
 
         # After 5 deliveries (>3 retries), a failed event
         # is appended and the message is acked.
@@ -478,13 +483,18 @@ class TestProcessMessageHardCrash:
         def raise_then_crash(*_args, **_kwargs):
             raise RuntimeError("worker process died")
 
+        from kntgraph.tools import _dispatch as dispatch_mod
+
         original = mgr_mod._invoke_tool_sync
+        original_dispatch = dispatch_mod._invoke_tool_sync
         mgr_mod._invoke_tool_sync = raise_then_crash
+        dispatch_mod._invoke_tool_sync = raise_then_crash
         try:
             redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
             await manager._process_message("echo", "stream", "1-0", data)
         finally:
             mgr_mod._invoke_tool_sync = original
+            dispatch_mod._invoke_tool_sync = original_dispatch
 
         # Below the retry budget: no failed event, no ack
         # (the reaper will retry via xautoclaim).

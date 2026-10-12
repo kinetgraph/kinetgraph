@@ -123,7 +123,7 @@ class TestWorkerManagerACL:
         from unittest.mock import patch
 
         with patch(
-            "kntgraph.tools.manager._invoke_tool_sync",
+            "kntgraph.tools._dispatch._invoke_tool_sync",
             return_value=ToolResult.ok({"ok": True}),
         ):
             await manager._process_message(
@@ -156,7 +156,7 @@ class TestWorkerManagerACL:
         from unittest.mock import patch
 
         with patch(
-            "kntgraph.tools.manager._invoke_tool_sync",
+            "kntgraph.tools._dispatch._invoke_tool_sync",
             return_value=ToolResult.ok({"ok": True}),
         ):
             await manager._process_message(
