@@ -58,9 +58,9 @@ import asyncio
 import multiprocessing
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from multiprocessing.context import BaseContext
@@ -74,7 +74,10 @@ from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
 from kntgraph.stream.event_log.store import EventLog
-from kntgraph.tools._dispatch_helpers import compute_max_workers, is_cpu_bound
+from kntgraph.tools._dispatch import ExecutorFactory, dispatch_to_tool
+from kntgraph.tools._dispatch_helpers import (
+    compute_max_workers,
+)
 from kntgraph.tools._message_handlers import (
     build_acl_denied_event,
     build_completion_event,
@@ -131,14 +134,13 @@ _UNSET: object = object()
 # (ADR-079); callers that need the wire dict call
 # ``result.to_wire()`` at the EventLog boundary
 # (ADR-079 §3.3).
-type ToolSyncInvoke = Callable[
-    [type, str, Mapping[str, JsonValue]],
-    ToolResult,
-]
-ExecutorFactory = Callable[
-    [ToolSyncInvoke, str, Mapping[str, JsonValue]],
-    Awaitable[ToolResult],
-]
+# Type aliases (ToolSyncInvoke, ExecutorFactory) live in
+# ``_dispatch.py`` (ADR-069). They were moved out of this
+# file to break the circular import: ``_dispatch.py`` imports
+# the alias from here, and ``manager.py`` imports the
+# ``dispatch_to_tool`` free function from ``_dispatch.py``.
+# Importing the alias from here into ``_dispatch.py`` would
+# re-introduce the cycle.
 
 # ``_invoke_tool_sync`` is re-exported here for the test
 # suite (which historically monkey-patched it on
@@ -209,7 +211,7 @@ class WorkerManager:
         # returns the standard ``result_dict`` shape. The Manager
         # remains the owner of XACK / events / reaper / ACL /
         # observability; the factory is a black-box dispatch hook.
-        self._executors: dict[str, Any] = {}
+        self._executors: dict[str, ExecutorFactory] = {}
         # ``max_pool_workers`` is the explicit cap on the internal
         # ``ProcessPoolExecutor``. ``None`` (default) means "use
         # the legacy formula ``max(1, sum(max_concurrency))``"; an
@@ -707,71 +709,25 @@ class WorkerManager:
         idempotency_key: str,
         tool_params: Mapping[str, JsonValue],
     ) -> ToolResult:
-        """Run ``tool.<name>.invoke`` for one message and return
-        a ``ToolResult`` (ADR-079 frozen dataclass — the
-        discriminated-union replacement for the legacy
-        ``result_dict``).
+        """Thin wrapper that gathers Manager state and delegates
+        to the free function ``dispatch_to_tool`` in
+        :mod:`kntgraph.tools._dispatch` (ADR-069 + ADR-019
+        CC ≤ 10). The dispatch decision tree is fully testable
+        in isolation by injecting a fake ``executors`` mapping
+        and a fake ``pool``.
 
-        Three strategies, in order of preference (ADR-069):
-
-          1. Per-tool ``executor_factory`` registered via
-             ``register(executor_factory=...)``: opaque async
-             callable that receives the sync ``_invoke_tool_sync``
-             plus the idempotency key and tool params. Lets the
-             caller route heavy tools (ML models, sidecars, GPU
-             pins) to dedicated pools without forking the
-             framework.
-          2. CPU-bound tool (legacy): ``loop.run_in_executor`` into
-             the internal ``ProcessPoolExecutor``.
-          3. Async tool (default): direct ``await tool.invoke()``
-             in the Manager's event loop.
-
-        Extracted from ``_process_message`` to keep the parent's
-        cyclomatic complexity in check (ADR-019: CC ≤ 10 per
-        block); the dispatch is the single linear decision tree
-        of which strategy to use, no other branching happens here.
+        The Manager's side effects (ACL, observability, XACK)
+        stay outside this method — they are not dispatch
+        concerns.
         """
-        # ADR-069: per-tool factory override (preferred).
-        executor_factory = self._executors.get(tool_name)
-        if executor_factory is not None:
-            return await executor_factory(
-                _invoke_tool_sync, idempotency_key, tool_params
-            )
-
-        # CPU-bound: run the sync wrapper in the shared process pool.
-        tool_instance = tool_cls()
-        if self._is_cpu_bound(tool_cls, tool_instance):
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                self._pool,
-                _invoke_tool_sync,
-                tool_cls,
-                idempotency_key,
-                tool_params,
-            )
-
-        # Async tool: invoke directly in the event loop.
-        result = await tool_instance.invoke(
-            idempotency_key=idempotency_key, **tool_params
+        return await dispatch_to_tool(
+            tool_name,
+            tool_cls,
+            idempotency_key,
+            tool_params,
+            executors=self._executors,
+            pool=self._pool,
         )
-        if result.is_ok():
-            # ``result.unwrap()`` is ``T``; the framework
-            # treats it as ``JsonValue`` at the wire boundary
-            # (ADR-067 + ADR-079 §7.2 — slight type-erasure at
-            # the wire).
-            return ToolResult.ok(cast("JsonValue", result.unwrap()))
-        return ToolResult.err(str(result.err_value_or_raise()))
-
-    @staticmethod
-    def _is_cpu_bound(tool_cls: type, tool_instance: Any) -> bool:
-        """Delegate to ``is_cpu_bound`` in ``_dispatch_helpers.py``.
-        Kept as a static method on the Manager so the
-        ``_dispatch_to_tool`` call site stays
-        ``self._is_cpu_bound(...)`` (preserves the existing call
-        shape; the helper is a free function so it is testable
-        without instantiating a Manager).
-        """
-        return is_cpu_bound(tool_cls, tool_instance)
 
     async def _parse_message_payload(
         self,

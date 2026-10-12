@@ -166,13 +166,14 @@ class TestIsCpuBound(unittest.TestCase):
         instance = NoInvoke()
         self.assertTrue(is_cpu_bound(NoInvoke, instance))
 
-    def test_method_delegate_keeps_call_shape(self) -> None:
-        """``WorkerManager._is_cpu_bound`` is a thin delegate to
-        the free function. The method exists so the
-        ``_dispatch_to_tool`` call site stays ``self._is_cpu_bound(...)``
-        (preserves the existing call shape)."""
+    def test_is_cpu_bound_called_via_free_function(self) -> None:
+        """The ``is_cpu_bound`` helper is the free function in
+        ``_dispatch_helpers.py``; the WorkerManager method
+        was removed when the dispatch was extracted to
+        ``dispatch_to_tool`` (the call site in the free
+        function imports it directly)."""
         tool = CpuDoublerTool()
-        self.assertTrue(WorkerManager._is_cpu_bound(CpuDoublerTool, tool))
+        self.assertTrue(is_cpu_bound(CpuDoublerTool, tool))
 
 
 class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):
@@ -191,6 +192,10 @@ class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):
         mgr._acls = {}
         mgr._executors = {}
         mgr._redis = object()  # not used in this branch
+        from concurrent.futures import ProcessPoolExecutor
+
+        mgr._pool = ProcessPoolExecutor()  # refactored dispatch: pass real pool so the
+        # async path doesn't run a real tool when the test patches _invoke_tool_sync
         mgr._event_log = EventLog(RedisEventLogAdapter(object()))  # ditto
 
         result = await mgr._dispatch_to_tool(
@@ -216,6 +221,7 @@ class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):
         mgr._tools = {"async_doubler": AsyncDoublerTool}
         mgr._acls = {}
         mgr._executors = {}
+        mgr._pool = None  # __new__ bypasses __init__
 
         captured: list[dict] = []
 

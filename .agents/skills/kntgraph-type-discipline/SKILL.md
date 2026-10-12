@@ -603,3 +603,77 @@ A single commit on `src/kntgraph/core/storage.py` should leave:
 The rule is about **discipline at the time of the change**, not
 about retroactive audits. A repo-wide cleanup pass is fine but
 does not replace per-commit application of the rule.
+
+---
+
+## 9. The tool execution factory pattern (ADR-069, decommissioning per ADR-078)
+
+`WorkerManager` exposes a single dispatch surface for
+every tool message. The dispatch decision tree (in
+`kntgraph.tools._dispatch.dispatch_to_tool`) has three
+strategies, in preference order:
+
+| Strategy | When it fires | What it does |
+|---|---|---|
+| 1. `executor_factory` | A factory was registered for the tool via `WorkerManager.register(executor_factory=...)` | Awaits `factory(_invoke_tool_sync, idempotency_key, tool_params)` — the factory decides how to run the tool (its own pool, a sidecar, a remote API, etc.) |
+| 2. CPU-bound pool (legacy) | `is_cpu_bound(tool_cls, tool_instance)` returns True AND the internal `ProcessPoolExecutor` is set | `loop.run_in_executor(pool, _invoke_tool_sync, ...)` |
+| 3. Async (default) | Otherwise | `await tool_instance.invoke(idempotency_key=..., **tool_params)` |
+
+### When to register an `executor_factory`
+
+Register a factory when the tool needs custom execution
+isolation that the default `ProcessPoolExecutor` does not
+provide. Common cases (per ADR-069 §1.4):
+
+- **ML / DL models** (PyTorch, GLiNER2, Docling) that should
+  not be loaded by every fork of the Manager's pool —
+  pin them to a single dedicated worker process.
+- **Blocking I/O** in tools that should not contend with
+  the async event loop — pin to a thread-pool factory.
+- **Sidecars** (e.g. a dedicated browser process) that the
+  factory connects to and dispatches to.
+
+The factory contract is the `ExecutorFactory` callable
+type alias in `kntgraph/tools/manager.py`:
+
+```python
+type ToolSyncInvoke = Callable[
+    [type, str, Mapping[str, JsonValue]],
+    ToolResult,
+]
+ExecutorFactory = Callable[
+    [ToolSyncInvoke, str, Mapping[str, JsonValue]],
+    Awaitable[ToolResult],
+]
+```
+
+The first argument is the **sync helper** that actually
+runs the tool. The factory decides whether to call it
+in its own thread pool, its own process pool, or forward
+to a sidecar. The factory returns a coroutine that resolves
+to a `ToolResult`.
+
+### When **not** to register a factory
+
+For the common case (async tool, no heavy model),
+the default async path is correct and cheap. Registering a
+factory "just to be safe" wraps the call in an extra
+awaitable and adds no value. The 2nd strategy (CPU-bound pool)
+is the historical default for sync tools; ADR-069 §6 notes
+that the framework is in the process of replacing it with
+`executor_factory` (ADR-078 decommissions the internal
+`ProcessPoolExecutor` in favor of the factory).
+
+### Ratchet impact
+
+When a new tool is added:
+- Async tool → no factory, no ratchet action needed.
+- Sync / CPU-bound tool → register an `executor_factory`
+  (or, while the internal pool still exists, mark the tool
+  with `__tool_worker_cpu_bound__ = True` to fall through to
+  the legacy path).
+- ML / DL tool → **must** register an `executor_factory`
+  to pin model loading to a single process. The default
+  `ProcessPoolExecutor` is sized at `max_pool_workers` and
+  each worker imports the full Python environment — this
+  is the OOM scenario that triggered ADR-078.
