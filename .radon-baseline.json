@@ -8106,8 +8106,8 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch.py:function:dispatch_to_tool": {
-      "complexity": 4,
-      "lineno": 67,
+      "complexity": 3,
+      "lineno": 72,
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch_helpers.py:function:_is_wrapped_sync_helper": {
@@ -8206,7 +8206,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py:function:_invoke_tool_sync": {
-      "complexity": 2,
+      "complexity": 4,
       "lineno": 49,
       "rank": "A"
     },
@@ -8278,6 +8278,56 @@
     "src/kntgraph/tools/descriptors.py:method:__post_init__": {
       "complexity": 2,
       "lineno": 56,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:class:AsyncInProcFactory": {
+      "complexity": 3,
+      "lineno": 83,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:class:PoolDeprecationWarning": {
+      "complexity": 1,
+      "lineno": 57,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:class:ProcessPoolFactory": {
+      "complexity": 3,
+      "lineno": 116,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:class:WorkerStrategyError": {
+      "complexity": 1,
+      "lineno": 70,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:function:_dict_to_tool_result": {
+      "complexity": 2,
+      "lineno": 165,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:function:_require_pool": {
+      "complexity": 1,
+      "lineno": 235,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:function:_run_sync": {
+      "complexity": 1,
+      "lineno": 180,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:function:default_factory_for": {
+      "complexity": 3,
+      "lineno": 203,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:method:__call__": {
+      "complexity": 1,
+      "lineno": 134,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py:method:__init__": {
+      "complexity": 1,
+      "lineno": 92,
       "rank": "A"
     },
     "src/kntgraph/tools/llm_transport.py:class:LLMChunk": {
@@ -9645,7 +9695,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch.py": {
-      "mi": 79.10598267532177,
+      "mi": 75.53039278248663,
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch_helpers.py": {
@@ -9661,7 +9711,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py": {
-      "mi": 100.0,
+      "mi": 65.19032894639761,
       "rank": "A"
     },
     "src/kntgraph/tools/acl.py": {
@@ -9674,6 +9724,10 @@
     },
     "src/kntgraph/tools/descriptors.py": {
       "mi": 80.67372143488765,
+      "rank": "A"
+    },
+    "src/kntgraph/tools/executors.py": {
+      "mi": 74.64252232702556,
       "rank": "A"
     },
     "src/kntgraph/tools/llm_transport.py": {

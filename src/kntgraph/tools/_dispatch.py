@@ -42,6 +42,11 @@ from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 from typing import cast
 
+# v0.18.0 default switch: the async-path fallback uses the
+# built-in ``AsyncInProcFactory`` via ``default_factory_for``.
+# We import the helper lazily to avoid a circular import with
+# ``executors`` (the helper sits in ``executors``; ``_dispatch``
+# sits in ``tools``; ``executors`` imports from ``tools``).
 from kntgraph.core._typing import JsonValue
 from kntgraph.tools._dispatch_helpers import is_cpu_bound
 from kntgraph.tools._result import ToolResult
@@ -108,15 +113,25 @@ async def dispatch_to_tool(
             tool_params,
         )
 
-    # 3. Async tool: invoke directly in the event loop.
-    result = await tool_instance.invoke(idempotency_key=idempotency_key, **tool_params)
-    if result.is_ok():
-        # ``result.unwrap()`` is ``T``; the framework
-        # treats it as ``JsonValue`` at the wire boundary
-        # (ADR-067 + ADR-079 §7.2 — slight type-erasure at
-        # the wire).
-        return ToolResult.ok(cast("JsonValue", result.unwrap()))
-    return ToolResult.err(str(result.err_value_or_raise()))
+    # 3. Async tool: v0.18.0 default switch — use the
+    # ``default_factory_for`` fallback (which selects
+    # ``AsyncInProcFactory`` for async tools) instead of
+    # calling the tool's ``invoke`` directly. The factory
+    # route preserves the ``ExecutorFactory`` contract for
+    # any custom factory the user might register in the
+    # future (per ADR-078 v0.18).
+    from kntgraph.tools.executors import default_factory_for as _default_factory_for
+
+    default_factory = _default_factory_for(tool_cls)
+    # Inject __tool_cls__ into the params dict so the dispatcher's
+    # ``_invoke_tool_sync`` helper can extract it. The factory
+    # contract is ``__call__(sync_fn, idempotency_key, tool_params)``
+    # — the helper reads tool_cls from the params dict.
+    params_with_cls: dict[str, JsonValue] = {
+        **dict(tool_params),
+        "__tool_cls__": cast(type, tool_cls),  # type: ignore[arg-type]
+    }
+    return await default_factory(_invoke_tool_sync, idempotency_key, params_with_cls)
 
 
 __all__ = ["ExecutorFactory", "ToolSyncInvoke", "dispatch_to_tool"]

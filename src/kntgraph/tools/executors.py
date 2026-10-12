@@ -44,7 +44,7 @@ import asyncio
 import warnings
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from typing import cast
+from typing import Any, cast
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.tools._dispatch import (
@@ -141,23 +141,40 @@ class ProcessPoolFactory:
             if self._sem is not None:
                 async with self._sem:
                     loop = asyncio.get_running_loop()
-                    return await loop.run_in_executor(
+                    raw = await loop.run_in_executor(
                         self._pool,
                         sync_fn,
                         cast(type, tool_params.get("__tool_cls__")),
                         idempotency_key,
                         cast("dict[str, JsonValue]", dict(tool_params)),
                     )
+                    return _dict_to_tool_result(raw)
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
+            raw = await loop.run_in_executor(
                 self._pool,
                 sync_fn,
                 cast(type, tool_params.get("__tool_cls__")),
                 idempotency_key,
                 cast("dict[str, JsonValue]", dict(tool_params)),
             )
+            return _dict_to_tool_result(raw)
 
         return _runner()
+
+
+def _dict_to_tool_result(raw: Any) -> ToolResult:
+    """Convert the dispatcher's dict shape to a ``ToolResult``.
+
+    The dispatcher ``_invoke_tool_sync`` returns
+    ``{"status": "ok" | "err", "value" | "error": ...}`` (per
+    ADR-069 §6). The factories return ``Awaitable[ToolResult]``
+    (the discriminated union, per ADR-079), so we translate
+    the dict to ``ToolResult.ok(...)`` or ``ToolResult.err(...)``
+    here.
+    """
+    if raw["status"] == "ok":
+        return ToolResult.ok(cast(JsonValue, raw["value"]))
+    return ToolResult.err(cast(str, raw["error"]))
 
 
 async def _run_sync(
@@ -168,21 +185,19 @@ async def _run_sync(
     """Run the sync helper in a thread and await its result.
 
     The ``dispatch_to_tool`` contract says the factory returns
-    an awaitable that resolves to a ``ToolResult``. Calling
-    the sync ``ToolSyncInvoke`` directly returns a plain dict
-    (per the legacy ``_invoke_tool_sync``), so we wrap it in
-    ``asyncio.to_thread`` (v0.17+) to honour the
-    ``Awaitable[ToolResult]`` contract.
+    an awaitable that resolves to a ``ToolResult``. The
+    dispatcher ``_invoke_tool_sync`` returns the legacy dict
+    shape (per ADR-069 §6); we wrap the call in
+    ``asyncio.to_thread`` (v0.17+) AND translate the dict
+    into the ``ToolResult`` discriminated union.
     """
-    return cast(
-        ToolResult,
-        await asyncio.to_thread(
-            sync_fn,
-            cast(type, tool_params.get("__tool_cls__")),
-            idempotency_key,
-            cast("dict[str, JsonValue]", dict(tool_params)),
-        ),
+    raw = await asyncio.to_thread(
+        sync_fn,
+        cast(type, tool_params.get("__tool_cls__")),
+        idempotency_key,
+        cast("dict[str, JsonValue]", dict(tool_params)),
     )
+    return _dict_to_tool_result(raw)
 
 
 def default_factory_for(tool_cls: type) -> ExecutorFactory:
@@ -209,6 +224,10 @@ def default_factory_for(tool_cls: type) -> ExecutorFactory:
     import inspect
 
     if inspect.iscoroutinefunction(getattr(tool_cls, "invoke", None)):
+        # v0.18 default: async tools do NOT need a pool (the
+        # ``AsyncInProcFactory`` uses the loop's default
+        # executor). Only sync / CPU-bound tools require a
+        # caller-supplied pool via ``ProcessPoolFactory``.
         return AsyncInProcFactory()
     return ProcessPoolFactory(pool=_require_pool(), concurrency=1)
 

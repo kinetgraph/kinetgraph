@@ -615,34 +615,58 @@ strategies, in preference order:
 
 | Strategy | When it fires | What it does |
 |---|---|---|
-| 1. `executor_factory` | A factory was registered for the tool via `WorkerManager.register(executor_factory=...)` | Awaits `factory(_invoke_tool_sync, idempotency_key, tool_params)` — the factory decides how to run the tool (its own pool, a sidecar, a remote API, etc.) |
+| 1. `executor_factory` (per-tool) | A factory was registered for the tool via `WorkerManager.register(executor_factory=...)` | Awaits `factory(_invoke_tool_sync, idempotency_key, tool_params)` — the factory decides how to run the tool (its own pool, a sidecar, a remote API, etc.) |
 | 2. CPU-bound pool (legacy) | `is_cpu_bound(tool_cls, tool_instance)` returns True AND the internal `ProcessPoolExecutor` is set | `loop.run_in_executor(pool, _invoke_tool_sync, ...)` |
 | 3. Async (default) | Otherwise | `await tool_instance.invoke(idempotency_key=..., **tool_params)` |
 
-### When to register an `executor_factory`
+### Built-in factories (ADR-078 v0.17.0 step 1)
 
-Register a factory when the tool needs custom execution
-isolation that the default `ProcessPoolExecutor` does not
-provide. Common cases (per ADR-069 §1.4):
+The framework ships two built-in `ExecutorFactory`
+implementations in `kntgraph.tools.executors` so callers
+do not have to write a custom factory for the common cases.
+Pick the right one (or `default_factory_for` for the
+default pick) when registering a tool.
 
-- **ML / DL models** (PyTorch, GLiNER2, Docling) that should
-  not be loaded by every fork of the Manager's pool —
-  pin them to a single dedicated worker process.
-- **Blocking I/O** in tools that should not contend with
-  the async event loop — pin to a thread-pool factory.
-- **Sidecars** (e.g. a dedicated browser process) that the
-  factory connects to and dispatches to.
+| Factory | Use when | What it does |
+|---|---|---|
+| `AsyncInProcFactory()` | Tool's `invoke` is `async def` (the default) | Invokes the tool in the loop's default executor via `asyncio.to_thread`. **No extra process pool.** Warns once with `PoolDeprecationWarning` (a `UserWarning` subclass). |
+| `ProcessPoolFactory(pool, concurrency=1)` | Tool is CPU-bound or blocks I/O | Runs the tool in a caller-owned `ProcessPoolExecutor` with a per-tool `asyncio.Semaphore` cap (`concurrency=0` disables the cap). |
+| `default_factory_for(tool_cls)` | Helper — picks one of the two above based on `__tool_worker_cpu_bound__` and the async-ness of `invoke`. | Raises `WorkerStrategyError` for sync tools without the marker (the framework's v0.18+ default switch). |
+
+Example — typical async tool:
+
+```python
+from kntgraph.tools.executors import AsyncInProcFactory
+
+manager.register(
+    MyAsyncTool,
+    executor_factory=AsyncInProcFactory(),
+)
+```
+
+Example — CPU-bound tool with a dedicated process pool:
+
+```python
+from concurrent.futures import ProcessPoolExecutor
+from kntgraph.tools.executors import ProcessPoolFactory
+
+pool = ProcessPoolExecutor(max_workers=2)
+manager.register(
+    MyCpuBoundTool,
+    executor_factory=ProcessPoolFactory(pool, concurrency=1),
+)
+```
 
 The factory contract is the `ExecutorFactory` callable
-type alias in `kntgraph/tools/manager.py`:
+type alias in `kntgraph/tools/_dispatch.py`:
 
 ```python
 type ToolSyncInvoke = Callable[
-    [type, str, Mapping[str, JsonValue]],
+    [type, str, "Mapping[str, JsonValue]"],
     ToolResult,
 ]
 ExecutorFactory = Callable[
-    [ToolSyncInvoke, str, Mapping[str, JsonValue]],
+    [ToolSyncInvoke, str, "Mapping[str, JsonValue]"],
     Awaitable[ToolResult],
 ]
 ```
@@ -653,27 +677,67 @@ in its own thread pool, its own process pool, or forward
 to a sidecar. The factory returns a coroutine that resolves
 to a `ToolResult`.
 
-### When **not** to register a factory
+### When to register a custom `ExecutorFactory`
 
-For the common case (async tool, no heavy model),
-the default async path is correct and cheap. Registering a
-factory "just to be safe" wraps the call in an extra
-awaitable and adds no value. The 2nd strategy (CPU-bound pool)
-is the historical default for sync tools; ADR-069 §6 notes
-that the framework is in the process of replacing it with
-`executor_factory` (ADR-078 decommissions the internal
-`ProcessPoolExecutor` in favor of the factory).
+The built-in factories cover the common cases. Reach for a
+custom factory only when:
+
+- **ML / DL models** (PyTorch, GLiNER2, Docling) that should
+  not be loaded by every fork of the Manager's pool —
+  pin them to a single dedicated worker process.
+- **Sidecars** (e.g. a dedicated browser process) that the
+  factory connects to and dispatches to.
+- **Specialised pools** (e.g. a separate `ThreadPoolExecutor`
+  for blocking I/O that should not contend with the async
+  event loop — `ProcessPoolFactory` does not cover this).
+
+The custom factory receives the same `ToolSyncInvoke` /
+`ToolResult` contract as the built-ins; see the
+`ExecutorFactory` type alias above.
+
+### When **not** to register a custom factory
+
+For the common case (async tool, no heavy model), the
+built-in `AsyncInProcFactory` is correct and cheap. For a
+CPU-bound tool, the built-in `ProcessPoolFactory` is the
+right pick — register a custom factory only for the
+specialised cases above. ADR-069 §6 and ADR-078 §5
+decommission the internal `ProcessPoolExecutor` in favor of
+the factory; the built-ins are the canonical default for the
+v0.18 default switch.
 
 ### Ratchet impact
 
 When a new tool is added:
-- Async tool → no factory, no ratchet action needed.
-- Sync / CPU-bound tool → register an `executor_factory`
-  (or, while the internal pool still exists, mark the tool
-  with `__tool_worker_cpu_bound__ = True` to fall through to
-  the legacy path).
-- ML / DL tool → **must** register an `executor_factory`
+- Async tool → register with `executor_factory=AsyncInProcFactory()`
+  (or rely on the v0.18 default switch). **No extra cost.**
+- Sync / CPU-bound tool → register with
+  `executor_factory=ProcessPoolFactory(pool, concurrency=1)`
+  and a caller-owned pool. **No process-pool import cost**
+  beyond the pool itself.
+- ML / DL tool → **must** register a custom `ExecutorFactory`
   to pin model loading to a single process. The default
-  `ProcessPoolExecutor` is sized at `max_pool_workers` and
-  each worker imports the full Python environment — this
-  is the OOM scenario that triggered ADR-078.
+  `ProcessPoolExecutor` was sized at `max_pool_workers` and
+  each worker imported the full Python environment — this
+  was the OOM scenario that triggered ADR-078.
+
+### v0.17.0 → v0.19.0 migration window
+
+The factory is the future; the internal pool is the past:
+
+- **v0.17.0** (this release): built-in factories shipped;
+  `executor_factory=None` path unchanged (legacy pool still
+  fires when no factory is registered). `PoolDeprecationWarning`
+  fires once when a manager boots with `max_pool_workers` set
+  (symbol retained through v0.18 and removed in v0.19).
+- **v0.18.0**: `register(executor_factory=None)` is no longer
+  a silent fallback. Async tools get `AsyncInProcFactory`
+  automatically (warns-once-per-tool); sync tools without a
+  factory raise `WorkerStrategyError`. The `max_pool_workers`
+  kwarg is deprecated (still accepted, still warns at boot,
+  still creates the pool).
+- **v0.19.0** (hard removal): `max_pool_workers` kwarg and
+  `__tool_worker_cpu_bound__` attribute are removed; every
+  tool must register an `executor_factory` or rely on one
+  of the two built-ins.
+
