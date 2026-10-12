@@ -16,18 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **ADR-078 step 1 ships.** Two new built-in ``ExecutorFactory``
-  classes (``AsyncInProcFactory``, ``ProcessPoolFactory``) and a
-  ``default_factory_for()`` helper exported from
-  ``kntgraph.tools.executors``. The ``executor_factory=None`` path
-  is unchanged — the legacy internal ``ProcessPoolExecutor`` still
-  fires when no factory is registered. The new ``PoolDeprecationWarning``
-  fires once per tool when a manager boots with
-  ``max_pool_workers`` set (the public symbol stays through v0.18 and
-  is removed in v0.19 per ADR-078 §5.1). The ``WorkerStrategyError``
-  exception type is exported for the v0.18 default switch but is
-  not raised by v0.17 code yet.
-
 ### Fixed
 - **ADR-076 auth-adapter prefix plumbing (closes
   DEBT §2.35 follow-up #2):** `RedisAPIKeyStorage`

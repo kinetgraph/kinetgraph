@@ -8106,8 +8106,8 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch.py:function:dispatch_to_tool": {
-      "complexity": 3,
-      "lineno": 72,
+      "complexity": 4,
+      "lineno": 67,
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch_helpers.py:function:_is_wrapped_sync_helper": {
@@ -8206,7 +8206,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py:function:_invoke_tool_sync": {
-      "complexity": 4,
+      "complexity": 2,
       "lineno": 49,
       "rank": "A"
     },
@@ -9695,7 +9695,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch.py": {
-      "mi": 75.53039278248663,
+      "mi": 79.10598267532177,
       "rank": "A"
     },
     "src/kntgraph/tools/_dispatch_helpers.py": {
@@ -9711,7 +9711,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_worker_invocation.py": {
-      "mi": 65.19032894639761,
+      "mi": 100.0,
       "rank": "A"
     },
     "src/kntgraph/tools/acl.py": {

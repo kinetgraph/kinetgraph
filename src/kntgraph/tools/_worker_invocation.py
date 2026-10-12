@@ -67,17 +67,11 @@ def _invoke_tool_sync(
     """
     tool_instance = tool_cls()
 
-    # ``__tool_cls__`` is the dispatcher's internal key for
-    # passing the tool class through the factory contract;
-    # it is NOT a tool parameter and must be stripped from
-    # ``kwargs`` before forwarding to the tool's ``invoke``.
-    invoke_kwargs = {k: v for k, v in kwargs.items() if k != "__tool_cls__"}
-
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         result = loop.run_until_complete(
-            tool_instance.invoke(idempotency_key=idempotency_key, **invoke_kwargs)
+            tool_instance.invoke(idempotency_key=idempotency_key, **kwargs)
         )
         if result.is_ok():
             # The tool's ``Result[T, ToolError].unwrap()``
