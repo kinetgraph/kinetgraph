@@ -38,6 +38,13 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     ConnectionError,
     TimeoutError,
     OSError,
+    # redis-py uses ``RuntimeError("Transport is closed")``
+    # for transport-class state changes (the post-mortem
+    # of 2026-10-07 identified this exact pattern). The
+    # class is generic, but the message body is the
+    # stable contract redis-py ships; including the class
+    # catches every variant redis-py emits.
+    RuntimeError,
 )
 
 
@@ -47,6 +54,15 @@ def is_transport_error(e: BaseException) -> bool:
 
     The match is class-based; ``redis-py`` exception classes
     are stable across the 4.x and 5.x lines.
+
+    ``RuntimeError`` is included because ``redis-py`` raises
+    ``RuntimeError("Transport is closed")`` for transport-
+    class state changes — a stable pattern that the
+    2026-10-07 post-mortem identified. Application-level
+    ``RedisError`` subclasses (``WatchError``,
+    ``ResponseError``, ``DataError``) are excluded by
+    design — those indicate a wrong command, not a
+    transport failure (ADR-077 §4.3).
     """
     return isinstance(e, _TRANSPORT_ERRORS)
 

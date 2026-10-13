@@ -228,6 +228,22 @@ implementation review (ruff `UP041`) to avoid the duplicate
 entry. The consumer-side catches in §3.2 likewise use
 `TimeoutError` (not `asyncio.TimeoutError`).
 
+The tuple **does** list `RuntimeError`. The `redis-py`
+library raises `RuntimeError("Transport is closed")` for
+transport-class state changes; this is the exact pattern
+the 2026-10-07 post-mortem identified (see
+`tests/unit/tools/test_manager.py::TestConsumeLoop::
+test_consume_loop_closes_dead_socket_on_runtime_error`,
+which predates this ADR). `RuntimeError` is a generic
+class, but the message body is the stable contract
+`redis-py` ships; including the class catches every
+variant `redis-py` emits without falling back to substring
+matching (which the framework rejects as too brittle — see
+§1.6 row 1). Application-level `RedisError` subclasses
+(`WatchError`, `ResponseError`, `DataError`) remain
+excluded — those indicate a wrong command, not a transport
+failure (ADR-077 §4.3).
+
 **Change (2):** wire the predicate into `_consume_loop`. The
 helper at `manager.py:456` (`_reconnect_after_runtime_error`) is
 renamed `_reconnect_after_transport_error` in the same commit; the

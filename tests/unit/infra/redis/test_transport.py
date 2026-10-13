@@ -36,6 +36,11 @@ def test_is_transport_error_class_match() -> None:
         ConnectionError("x"),
         TimeoutError("x"),
         OSError("broken pipe"),
+        # redis-py uses ``RuntimeError("Transport is closed")``
+        # for transport-class state changes (ADR-082 §3.1
+        # errata; 2026-10-07 post-mortem identified this
+        # exact pattern).
+        RuntimeError("Transport is closed"),
     ]
     for e in cases:
         assert is_transport_error(e), f"expected True for {type(e).__name__}"
@@ -67,11 +72,19 @@ def test_is_transport_error_substring_does_not_match() -> None:
 
     This is the regression test for the substring-match
     footgun the ADR-082 §1.6 row 1 rejected.
+
+    ``RuntimeError`` is **not** in this test: it is in the
+    catch list by design (ADR-082 §3.1 errata; redis-py
+    uses ``RuntimeError("Transport is closed")`` for
+    transport-class state changes). A ``RuntimeError``
+    matches for the right reason (class match), not for a
+    substring match — but the substring test cannot
+    distinguish the two.
     """
     cases: list[BaseException] = [
         ValueError("Connection is closed"),
-        RuntimeError("transport not configured"),
         redis_exceptions.DataError("closed during sync"),
+        KeyError("transport not configured"),
     ]
     for e in cases:
         assert not is_transport_error(e), (

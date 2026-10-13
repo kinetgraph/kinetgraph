@@ -73,6 +73,7 @@ from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
+from kntgraph.infra.redis._transport import is_transport_error
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._dispatch import ExecutorFactory, dispatch_to_tool
 from kntgraph.tools._dispatch_helpers import (
@@ -607,7 +608,7 @@ class WorkerManager:
                     error=str(e),
                 )
                 self._last_error = repr(e)
-                if isinstance(e, RuntimeError):
+                if is_transport_error(e):
                     await self._reconnect_after_transport_error()
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
