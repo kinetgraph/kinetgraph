@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import redis.exceptions as redis_exceptions
 
-_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
+TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     redis_exceptions.ConnectionError,
     redis_exceptions.TimeoutError,
     redis_exceptions.BusyLoadingError,
@@ -49,8 +49,8 @@ _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 
 
 def is_transport_error(e: BaseException) -> bool:
-    """True when ``e`` is a transport-layer failure that
-    requires proactive reconnect.
+    """True when ``e`` is a transport-class failure that
+    requires proactive reconnect (ADR-082 §3.1).
 
     The match is class-based; ``redis-py`` exception classes
     are stable across the 4.x and 5.x lines.
@@ -64,7 +64,7 @@ def is_transport_error(e: BaseException) -> bool:
     design — those indicate a wrong command, not a
     transport failure (ADR-077 §4.3).
     """
-    return isinstance(e, _TRANSPORT_ERRORS)
+    return isinstance(e, TRANSPORT_ERRORS)
 
 
-__all__ = ["is_transport_error"]
+__all__ = ["TRANSPORT_ERRORS", "is_transport_error"]

@@ -514,3 +514,137 @@ class TestWakeUpSpinLoopFix:
             assert block_ms == 4500
         finally:
             await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# ADR-082 §3.2 — wake_once proactively closes transport on failure
+# ---------------------------------------------------------------------------
+
+
+class TestWakeOnceTransportRecovery:
+    """ADR-082 §3.2: ``_wake_once`` narrows ``except Exception`` to a
+    transport-class tuple (``TRANSPORT_ERRORS``), and proactively
+    calls ``self._log.close_transport()`` on the failure path so the
+    next ``_log.subscribe`` reconnects instead of reusing the broken
+    client.
+
+    The contract pinned here:
+
+      - transport-class failure: ``close_transport`` is called
+        before ``dispatch_once``;
+      - application-class failure (``ValueError``): ``close_transport``
+        is **not** called;
+      - cancellation: propagates without touching ``close_transport``.
+    """
+
+    async def test_wake_once_proactive_close_on_transport_failure(self):
+        from unittest.mock import AsyncMock
+
+        from redis import exceptions as redis_exceptions
+
+        from kntgraph.infra.redis import RedisEventLogAdapter
+
+        client = _make_client()
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        log.subscribe = AsyncMock(
+            side_effect=redis_exceptions.ConnectionError("Connection reset"),
+        )
+        log.close_transport = AsyncMock()
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.05,
+            fallback_poll_interval=5.0,
+            key_prefix="test_wakeup:",
+        )
+        dispatcher.track_agent("agent-1")
+        dispatcher._subscribe_cursors["agent-1"] = "0-0"
+        dispatcher._bootstrapped = True
+        dispatcher.dispatch_once = AsyncMock(return_value=0)
+
+        try:
+            await dispatcher._wake_once()
+            log.close_transport.assert_awaited_once()
+            dispatcher.dispatch_once.assert_awaited_once()
+        finally:
+            await client.aclose()
+
+    async def test_wake_once_no_close_on_application_error(self):
+        """``ValueError`` is not transport-class; ``_wake_once``
+        propagates it to the outer loop, which logs + backs off.
+        ``close_transport`` is **not** called (the transport is
+        not the problem — a reconnect would mask the bug)."""
+        from unittest.mock import AsyncMock
+
+        from kntgraph.infra.redis import RedisEventLogAdapter
+
+        client = _make_client()
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        log.subscribe = AsyncMock(
+            side_effect=ValueError("application error, not transport"),
+        )
+        log.close_transport = AsyncMock()
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.05,
+            fallback_poll_interval=5.0,
+            key_prefix="test_wakeup:",
+        )
+        dispatcher.track_agent("agent-1")
+        dispatcher._subscribe_cursors["agent-1"] = "0-0"
+        dispatcher._bootstrapped = True
+        dispatcher.dispatch_once = AsyncMock(return_value=0)
+
+        try:
+            with pytest.raises(ValueError, match="application error"):
+                await dispatcher._wake_once()
+            log.close_transport.assert_not_awaited()
+        finally:
+            await client.aclose()
+
+    async def test_wake_once_no_close_on_cancelled(self):
+        from unittest.mock import AsyncMock
+
+        from kntgraph.infra.redis import RedisEventLogAdapter
+
+        client = _make_client()
+        log = EventLog(
+            storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
+        )
+        log.subscribe = AsyncMock(side_effect=asyncio.CancelledError())
+        log.close_transport = AsyncMock()
+        store = IncrementalWorldStore(
+            RedisWorldCheckpointStorage(client=client, key_prefix="test_wakeup:")
+        )
+        dispatcher = ReactiveDispatcher(
+            log=log,
+            world_store=store,
+            redis=client,
+            poll_interval=0.05,
+            fallback_poll_interval=5.0,
+            key_prefix="test_wakeup:",
+        )
+        dispatcher.track_agent("agent-1")
+        dispatcher._subscribe_cursors["agent-1"] = "0-0"
+        dispatcher._bootstrapped = True
+        dispatcher.dispatch_once = AsyncMock(return_value=0)
+
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await dispatcher._wake_once()
+            log.close_transport.assert_not_awaited()
+        finally:
+            await client.aclose()
