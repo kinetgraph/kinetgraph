@@ -462,3 +462,23 @@ class TestEventLogIterAll:
             events.append(e)
 
         assert events == []
+
+
+class TestEventLogCloseTransport:
+    """ADR-082 §3.2 — ``EventLog.close_transport`` forwarder.
+
+    The ReactiveDispatcher calls this after a transport-class
+    ``_log.subscribe`` failure so the next operation reconnects
+    instead of reusing the broken client. The forwarder is a
+    one-line delegation; the test pins the delegation
+    contract.
+    """
+
+    async def test_close_transport_delegates_to_storage(self):
+        from kntgraph.stream.event_log.store import EventLog
+
+        storage = _fake_storage()
+        storage.close_transport = AsyncMock()
+        log = EventLog(storage=storage)
+        await log.close_transport()
+        storage.close_transport.assert_awaited_once_with()

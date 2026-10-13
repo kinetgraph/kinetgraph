@@ -117,6 +117,23 @@ class EventLogStorage(Protocol):
         count: int | None = None,
     ) -> tuple[dict[str, str], list[Event]]: ...
 
+    async def close_transport(self) -> None:
+        """Proactively close the underlying transport
+        (ADR-082 §3.2).
+
+        Called by long-running consumers after a
+        transport-class failure to force the next operation
+        to reconnect instead of reusing the broken
+        connection. Best-effort; implementations MUST catch
+        and swallow transport exceptions on the close path
+        (see ``RedisPool.aclose`` at
+        ``infra/redis/_pool.py:111-129`` for the canonical
+        swallow).
+
+        For in-memory fakeredis or test adapters the
+        implementation is a no-op.
+        """
+
 
 @dataclass(frozen=True)
 class RedisEventLogAdapter:
@@ -349,6 +366,27 @@ class RedisEventLogAdapter:
 
         response = await self.client.xread(streams=streams, count=count, block=block_ms)
         return _flatten_xread_response(response, self.key_prefix)
+
+    async def close_transport(self) -> None:
+        """Best-effort ``aclose`` on the underlying Redis
+        client (ADR-082 §3.2).
+
+        The ``RedisLike`` Protocol guarantees ``aclose``;
+        fakeredis and the in-memory test adapters also
+        implement it as a no-op. The exception swallow
+        mirrors ``RedisPool.aclose`` at
+        ``infra/redis/_pool.py:111-129`` — a transport
+        failure on the close path is logged, not raised.
+        """
+        try:
+            await self.client.aclose()
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            logger.warning("event_log.close_transport.failed", error=str(exc))
 
     @staticmethod
     def _response_error() -> type[Exception]:
