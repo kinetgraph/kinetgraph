@@ -16,6 +16,104 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ADR-082 — Redis transport defense-in-depth.** Closes
+  the loop on the 2026-10-07 post-mortem
+  (`soldi/backoffice/docs/ADRs/adr-013-fork-kntgraph-para-correcoes-de-oom.md`):
+  the three residual transport-resilience mechanisms the
+  backoffice has been maintaining in
+  `soldi/backoffice/src/backoffice/infra/resilience_patch.py:1-227`
+  ship as framework defaults. The `resilience_patch.py`
+  monkey-patch can be deleted in the backoffice's next
+  minor.
+
+  - `infra/redis/_transport.py` (NEW, 70 L): the single
+    source of truth for transport-class detection —
+    `is_transport_error(e)` predicate (class-based, no
+    substring matching) and the `TRANSPORT_ERRORS` tuple
+    re-used by the consumer `except` clauses. Covers
+    `redis.exceptions.ConnectionError` / `TimeoutError` /
+    `BusyLoadingError`, builtin `ConnectionError` /
+    `TimeoutError` / `OSError`, and `RuntimeError` (the
+    `redis-py` "Transport is closed" pattern the
+    post-mortem identified).
+  - `infra/redis/_event_log/_adapter.py`: NEW
+    `EventLogStorage.close_transport()` Protocol method;
+    `RedisEventLogAdapter.close_transport()` is a
+    best-effort `aclose()` with the same transport-
+    exception swallow as `RedisPool.aclose`
+    (`infra/redis/_pool.py:111-129`). `EventLog`
+    forwards (`stream/event_log/store.py`). No more
+    `getattr(self._log, "_redis")` reach-through in the
+    dispatcher — the framework's own anti-pattern
+    (`stream/event_log/store.py:373, 389, 392`).
+  - `infra/config/_redis.py`: NEW
+    `redis_health_check_interval: float = 15.0` setting
+    (env `KNT_REDIS_HEALTH_CHECK_INTERVAL`; set to `0`
+    to disable byte-for-byte the redis-py default).
+    Wired in `infra/redis/_pool.py` via
+    `health_check_interval=settings.redis_health_check_interval`.
+    Stays below typical NAT idle timeouts (60 s for AWS
+    NAT Gateway, 120 s for most on-prem firewalls).
+  - `tools/_message_handlers.py`: NEW canonical name
+    `reconnect_redis_after_transport_error(redis: RedisLike)`
+    (parameter tightened from `Any` to the typed
+    `RedisLike` Protocol — `kntgraph-type-discipline`
+    ratchet). The old `reconnect_redis_after_runtime_error`
+    is now a one-line wrapper emitting
+    `DeprecationWarning(stacklevel=2)` with the **v0.19**
+    removal target in the message. `WorkerManager`
+    gained `_reconnect_after_transport_error` (internal;
+    no deprecation wrapper — the old method is renamed
+    directly). `WorkerManager._consume_loop` switched
+    from `isinstance(e, RuntimeError)` to
+    `is_transport_error(e)` — the wider transport-class
+    catch replaces the pre-`fe6ba89` exception-class
+    coverage that the post-mortem flagged as
+    insufficient.
+  - `runner/reactive.py`: `_wake_once` narrows
+    `except Exception` + `# noqa: BLE001` to
+    `except TRANSPORT_ERRORS as e:` (the same tuple as
+    the predicate). On the failure path, calls
+    `await self._log.close_transport()` before the
+    fallback dispatch so the next `_log.subscribe`
+    reconnects instead of reusing the broken client
+    (the 30-60 s latency spike the patch was working
+    around). Application-class exceptions (e.g.
+    `ValueError`) now propagate to the outer `_loop()`
+    where they are logged + backed off — strictly
+    better than the prior catch-all.
+  - 27 new unit tests across
+    `tests/unit/infra/redis/test_transport.py` (5),
+    `tests/unit/infra/redis/test_pool.py` (3),
+    `tests/unit/tools/test_message_handlers.py` (4),
+    `tests/unit/tools/test_manager.py` (5),
+    `tests/unit/stream/event_log/test_event_log_refactor.py`
+    (1 forwarder test), and
+    `tests/unit/runner/test_reactive_wake_up.py` (3).
+    Pin the new transport-class tuple, the deprecation
+    warning, the wider catch in `_consume_loop`, the
+    `EventLog.close_transport` Protocol method, the
+    narrow catch in `_wake_once`, and the
+    `redis_health_check_interval` knob.
+
+  Deprecations: `reconnect_redis_after_runtime_error`
+  is deprecated in favour of
+  `reconnect_redis_after_transport_error`; removal in
+  v0.19 (per `kntgraph-deprecation-policy` §2.1). The
+  removal target is documented in the `DeprecationWarning`
+  message and committed to this changelog.
+
+  Backwards compatible: `KNT_REDIS_HEALTH_CHECK_INTERVAL=0`
+  opts out of the health check byte-for-byte; the wider
+  catch covers strictly more than the pre-ADR-082 code;
+  the deprecation wrapper is a no-op for callers that
+  haven't updated yet.
+
+  Follow-up (out of this release): `git rm` of
+  `soldi/backoffice/src/backoffice/infra/resilience_patch.py`
+  and the `apply_resilience_patches()` call site in
+  the backoffice repo, gated on this ADR shipping.
+
 - **ADR-078 v0.18.0 step 1 ships (the default switch).**
   ``WorkerManager._dispatch_to_tool`` now uses
   ``default_factory_for(tool_cls)`` as the fallback for

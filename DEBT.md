@@ -3657,3 +3657,55 @@ catch cannot regress silently.
 - The split is exercised by at least one test that
   simulates a Redis failure on each of the 4 steps
   individually.
+
+## 2.40 ADR-082 follow-ups — out of scope of the v0.18 commit
+
+**Status:** OPEN
+**Owner:** knetgraph architecture team
+
+The ADR-082 commit (`feat(redis): add transport-layer
+failure classifier` + 6 follow-up commits, 2026-10-13)
+touched three axes in scope and explicitly deferred two
+follow-ups to keep the ratchet discipline (no
+scope-creep in a single commit):
+
+  1. **`reactive.py` is 1113 L** (post-commit). The
+     `kntgraph-file-layout` skill §3.1 says files > 500
+     L should be split into private sub-modules. The
+     `ReactiveDispatcher.__init__` is the hot spot
+     (`radon cc -n C` flags CC=13) — same hotspot as the
+     pre-ADR-082 state, but now the file is 9 L longer.
+     The refactor target is `_private.py` (per the
+     §3.1 `_private.py` prefix convention) with the
+     public `__init__.py` re-exporting the dispatcher
+     class. Out of scope: would have inflated the diff
+     and broken the ratchet (commit would have done too
+     much).
+
+  2. **`tools/manager.py` is 949 L** (post-commit).
+     Same problem; same fix. The `_compute_max_workers`,
+     `_reconnect_after_transport_error`, `_maybe_emit_heartbeat`,
+     `_consume_loop`, `_reaper_loop` helpers are
+     candidates for `_private.py`. Out of scope:
+     tracked separately per the file-layout skill.
+
+  3. **`tools/_message_handlers.py:39` `redis: Any`.**
+     The ADR-082 §3.1 design tightened the
+     `reconnect_redis_after_*` helper signature from
+     `redis: Any` to `redis: RedisLike`. The same
+     `redis: Any` parameter on the
+     `xack_and_count_failure` helper at line 39 was
+     not tightened — kept out of scope to honour the
+     per-commit ratchet (one `Any` ratchet per file per
+     commit, not a sweep). The fix is identical:
+     `redis: RedisLike` with the Protocol import.
+
+**Acceptance for closing:**
+- `reactive.py` < 500 L (or split with `__all__` in
+  `__init__.py`).
+- `tools/manager.py` < 500 L (same shape).
+- `xack_and_count_failure` accepts `redis: RedisLike`;
+  the `Any` import is dropped from
+  `_message_handlers.py` (one ratchet step).
+- Pyright clean on the three files; radon CC ≤ 10 in
+  the touched blocks.
