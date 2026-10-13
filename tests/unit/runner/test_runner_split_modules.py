@@ -395,12 +395,22 @@ class TestAppendSystemOutgoing:
 
 
 class TestRunSystemsAndPersist:
-    async def test_router_called_only_when_batch_non_empty(self) -> None:
-        """The branch where ``new_event_count > 0`` AND
-        ``_tool_router`` is set: the router receives the
-        NEW batch (not the system-emitted events; the
-        system-emitted events go through
-        ``append_system_outgoing`` separately).
+    async def test_router_called_for_new_events_batch(self) -> None:
+        """ADR-036 §2.5 + ADR-068 §3.6 P3b: the dispatcher
+        routes ``tool.*.requested`` events from the
+        just-consumed ``new_events`` batch to the tool
+        queue BEFORE the systems run. This closes the
+        latency gap (the worker can start processing while
+        the systems are still folding the batch) and is
+        the only path that routes events that came in
+        from sources other than the systems (a vertical
+        seed, a snapshot replay, a manual append).
+
+        System-emitted events are routed separately inside
+        ``append_system_outgoing``; the two routes do NOT
+        double-deliver (a system-emitted event is appended
+        AFTER the systems run, so the ``new_events`` route
+        sees only the original batch).
         """
         cap = _Captured()
         log = _FakeEventLog(cap)
@@ -412,7 +422,10 @@ class TestRunSystemsAndPersist:
         await run_systems_and_persist(
             dispatcher, "a-1", World.empty(), "1-0", 1, new_events
         )
-        assert router.route_batch.await_args.args[0] == new_events
+        # ``new_events`` was routed to the tool queue (so
+        # the workers can pick the message up); the systems
+        # were silent so no second route fires.
+        router.route_batch.assert_awaited_once_with(new_events)
         assert cap.saved  # checkpoint saved
 
     async def test_no_router_no_call(self) -> None:
@@ -425,8 +438,9 @@ class TestRunSystemsAndPersist:
             dispatcher, "a-1", World.empty(), "1-0", 0, new_events
         )
         # ``new_event_count == 0`` short-circuits the
-        # router call even when one is wired in.
-        # ADR-068 §3.5 P5c: the checkpoint save is
+        # router call even when one is wired in (no batch
+        # to route; the dispatcher had no work to do this
+        # tick). ADR-068 §3.5 P5c: the checkpoint save is
         # dirty-only. Here the batch was delivered
         # through ``new_events`` but the dispatcher was
         # told ``new_event_count=0`` (the legacy test

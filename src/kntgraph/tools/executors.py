@@ -24,7 +24,8 @@ Symbols
 -------
 
 - ``AsyncInProcFactory``: factory for async tools — invokes
-  the tool directly in the loop's default executor.
+  the tool directly on the Manager's event loop (no
+  thread, no extra pool).
 - ``ProcessPoolFactory``: factory for sync / CPU-bound
   tools — runs the tool in a caller-owned
   ``ProcessPoolExecutor``.
@@ -44,7 +45,7 @@ import asyncio
 import warnings
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from typing import cast
+from typing import Any, cast
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.tools._dispatch import (
@@ -80,37 +81,109 @@ class WorkerStrategyError(Exception):
     """
 
 
+def _extract_tool_cls(tool_params: Mapping[str, JsonValue]) -> type:
+    """Pull the tool class out of the dispatch's
+    ``__tool_cls__``-augmented params. Raises
+    :class:`WorkerStrategyError` when the key is missing
+    (the dispatch contract was broken upstream).
+    """
+    tool_cls_raw = tool_params.get("__tool_cls__")
+    if tool_cls_raw is None:
+        raise WorkerStrategyError(
+            "AsyncInProcFactory requires '__tool_cls__' in "
+            "tool_params; the dispatch contract was broken "
+            "upstream."
+        )
+    return cast(type, tool_cls_raw)
+
+
+def _strip_internal_keys(
+    tool_params: Mapping[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Return ``tool_params`` without the framework's
+    internal ``__tool_cls__`` key. The tool's ``invoke``
+    does not accept this key (it is the dispatcher's
+    contract-internal hand-off, not a tool parameter).
+    """
+    return {k: v for k, v in tool_params.items() if k != "__tool_cls__"}
+
+
+def _result_to_tool_result(result: Any) -> ToolResult:
+    """Map a tool's ``Result[T, ToolError]`` to the
+    framework's ``ToolResult`` (ADR-079). The two
+    classes share the ``is_ok`` / ``unwrap`` /
+    ``err_value_or_raise`` protocol; the translation
+    strips the ``Result`` envelope and projects to the
+    ``status`` discriminator + ``value`` / ``error`` fields.
+    """
+    if result.is_ok():
+        return ToolResult.ok(cast(JsonValue, result.unwrap()))
+    return ToolResult.err(str(result.err_value_or_raise()))
+
+
 class AsyncInProcFactory:
     """Factory for async tools — invokes the tool directly
-    in the loop's default executor (no extra pool).
+    in the Manager's event loop (ADR-078 §3.1).
 
     This is the canonical v0.18 default for tools with an
-    async ``invoke``. The factory is stateless: ``create``
-    returns a closure that the Manager calls per message.
+    async ``invoke``. The factory is stateless: ``__call__``
+    is awaited once per message by the Manager. The
+    ``sync_fn`` parameter is part of the ``ExecutorFactory``
+    Protocol (the dispatcher's generic contract) but is
+    ignored here — the factory invokes ``tool_cls().invoke``
+    directly on the running event loop instead.
+
+    Bounded by the per-tool ``asyncio.Semaphore`` owned by
+    the Manager (ADR-070 §6.4): no process boundary, no
+    extra RAM, no fork/TLS overhead, and no cross-thread
+    event-loop handoff. Running on the Manager's event
+    loop also avoids the fakeredis-specific thread-lock
+    starvation documented in
+    ``tests/integration/tools/test_worker_manager_parallel_starvation.py``
+    (a real-Redis smoke that passes 5/5 against the legacy
+    thread-bound path faked 0/8 here).
     """
 
     def __init__(self) -> None:
-        self._seen: set[int] = set()
+        self._seen: set[type] = set()
 
-    def __call__(
+    async def __call__(
         self,
         sync_fn: ToolSyncInvoke,
         idempotency_key: str,
         tool_params: Mapping[str, JsonValue],
-    ) -> Awaitable[ToolResult]:
-        tool_id = id(self)
-        if tool_id not in self._seen:
-            self._seen.add(tool_id)
-            warnings.warn(
-                (
-                    "Tool uses AsyncInProcFactory by default; "
-                    "register executor_factory= explicitly to "
-                    "pin the strategy (ADR-078)."
-                ),
-                PoolDeprecationWarning,
-                stacklevel=3,
-            )
-        return _run_sync(sync_fn, tool_params, idempotency_key)
+    ) -> ToolResult:
+        # ``sync_fn`` is the dispatcher's generic
+        # ``_invoke_tool_sync`` (the sync wrapper that opens
+        # a fresh event loop in a thread). For async tools
+        # we don't need that wrapper — we invoke the tool's
+        # coroutine directly on the running event loop.
+        del sync_fn  # explicit acknowledgement: ignored
+        tool_cls = _extract_tool_cls(tool_params)
+        self._warn_once_per_tool(tool_cls)
+        result = await tool_cls().invoke(
+            idempotency_key=idempotency_key,
+            **_strip_internal_keys(tool_params),
+        )
+        return _result_to_tool_result(result)
+
+    def _warn_once_per_tool(self, tool_cls: type) -> None:
+        """Emit the ADR-078 ``PoolDeprecationWarning`` once
+        per tool class (per factory instance). Idempotent;
+        the ``_seen`` set is the dedup key.
+        """
+        if tool_cls in self._seen:
+            return
+        self._seen.add(tool_cls)
+        warnings.warn(
+            (
+                "Tool uses AsyncInProcFactory by default; "
+                "register executor_factory= explicitly to "
+                "pin the strategy (ADR-078)."
+            ),
+            PoolDeprecationWarning,
+            stacklevel=3,
+        )
 
 
 class ProcessPoolFactory:
@@ -141,48 +214,29 @@ class ProcessPoolFactory:
             if self._sem is not None:
                 async with self._sem:
                     loop = asyncio.get_running_loop()
-                    return await loop.run_in_executor(
-                        self._pool,
-                        sync_fn,
-                        cast(type, tool_params.get("__tool_cls__")),
-                        idempotency_key,
-                        cast("dict[str, JsonValue]", dict(tool_params)),
+                    return cast(
+                        ToolResult,
+                        await loop.run_in_executor(
+                            self._pool,
+                            sync_fn,
+                            cast(type, tool_params.get("__tool_cls__")),
+                            idempotency_key,
+                            cast("dict[str, JsonValue]", dict(tool_params)),
+                        ),
                     )
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                self._pool,
-                sync_fn,
-                cast(type, tool_params.get("__tool_cls__")),
-                idempotency_key,
-                cast("dict[str, JsonValue]", dict(tool_params)),
+            return cast(
+                ToolResult,
+                await loop.run_in_executor(
+                    self._pool,
+                    sync_fn,
+                    cast(type, tool_params.get("__tool_cls__")),
+                    idempotency_key,
+                    cast("dict[str, JsonValue]", dict(tool_params)),
+                ),
             )
 
         return _runner()
-
-
-async def _run_sync(
-    sync_fn: ToolSyncInvoke,
-    tool_params: Mapping[str, JsonValue],
-    idempotency_key: str,
-) -> ToolResult:
-    """Run the sync helper in a thread and await its result.
-
-    The ``dispatch_to_tool`` contract says the factory returns
-    an awaitable that resolves to a ``ToolResult``. Calling
-    the sync ``ToolSyncInvoke`` directly returns a plain dict
-    (per the legacy ``_invoke_tool_sync``), so we wrap it in
-    ``asyncio.to_thread`` (v0.17+) to honour the
-    ``Awaitable[ToolResult]`` contract.
-    """
-    return cast(
-        ToolResult,
-        await asyncio.to_thread(
-            sync_fn,
-            cast(type, tool_params.get("__tool_cls__")),
-            idempotency_key,
-            cast("dict[str, JsonValue]", dict(tool_params)),
-        ),
-    )
 
 
 def default_factory_for(tool_cls: type) -> ExecutorFactory:
@@ -209,6 +263,11 @@ def default_factory_for(tool_cls: type) -> ExecutorFactory:
     import inspect
 
     if inspect.iscoroutinefunction(getattr(tool_cls, "invoke", None)):
+        # v0.18 default: async tools do NOT need a pool
+        # (the ``AsyncInProcFactory`` invokes the tool's
+        # coroutine directly on the Manager's event loop).
+        # Only sync / CPU-bound tools require a
+        # caller-supplied pool via ``ProcessPoolFactory``.
         return AsyncInProcFactory()
     return ProcessPoolFactory(pool=_require_pool(), concurrency=1)
 

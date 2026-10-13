@@ -311,6 +311,31 @@ class WorkerManager:
         else:
             self._acls[tool_cls.name] = acl
 
+        # v0.18+ default switch (ADR-078 §5.5): raise
+        # ``WorkerStrategyError`` when a sync tool has no
+        # factory. The ``executor_factory`` is the v0.18+ way
+        # to route execution; for backward compatibility
+        # (v0.17), the legacy ``__tool_worker_cpu_bound__``
+        # marker still works through the internal pool.
+        if executor_factory is None and not getattr(
+            tool_cls, "__tool_worker_cpu_bound__", False
+        ):
+            import inspect
+
+            invoke = getattr(tool_cls, "invoke", None)
+            if invoke is not None and not inspect.iscoroutinefunction(invoke):
+                from kntgraph.tools.executors import WorkerStrategyError
+
+                raise WorkerStrategyError(
+                    f"Tool {tool_cls.__name__!r} has a sync ``invoke`` "
+                    f"but no ``executor_factory`` and no "
+                    f"``__tool_worker_cpu_bound__`` marker. "
+                    f"Three exits (ADR-078 v0.18 §5.5): "
+                    f"(a) pass executor_factory=ProcessPoolFactory(your_pool, concurrency=N); "
+                    f"(b) convert the tool to ``async def invoke``; "
+                    f"(c) set max_pool_workers=N at WorkerManager.__init__."
+                )
+
         # ADR-069: optional per-tool dispatch override. The
         # factory replaces the internal ``ProcessPoolExecutor``
         # path with a custom async callable that returns the

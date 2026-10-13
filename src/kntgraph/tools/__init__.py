@@ -91,6 +91,13 @@ from .acl import ToolACL, default_acl
 # cycle (see the comment above).
 from .arg_validation import SchemaValidationError, validate_args
 from .descriptors import ToolDescriptor
+from .executors import (
+    AsyncInProcFactory,
+    PoolDeprecationWarning,
+    ProcessPoolFactory,
+    WorkerStrategyError,
+    default_factory_for,
+)
 from .llm_transport import (
     LLMChunk,
     LLMRequest,
@@ -126,6 +133,7 @@ from .system import ToolAwareSystem
 from .worker import tool_worker
 
 __all__ = [
+    "AsyncInProcFactory",
     "Callable",
     "Describable",
     "FieldSpec",
@@ -134,6 +142,8 @@ __all__ = [
     "LLMResponse",
     "LLMTransport",
     "LLMUsage",
+    "PoolDeprecationWarning",
+    "ProcessPoolFactory",
     "SchemaValidationError",
     "Tool",
     "ToolACL",
@@ -142,8 +152,10 @@ __all__ = [
     "ToolDescriptor",
     "ToolRouter",
     "WorkerManager",
+    "WorkerStrategyError",
     "compute_schema_version",
     "default_acl",
+    "default_factory_for",
     "tool_worker",
     "validate_args",
     "walk_schema",

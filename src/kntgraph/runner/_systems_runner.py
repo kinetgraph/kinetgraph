@@ -176,7 +176,14 @@ async def run_systems_and_persist(
     """
     from ._checkpoint_io import save_checkpoint
 
-    if new_event_count > 0 and dispatcher._tool_router is not None:
+    # ADR-036 §2.5 + ADR-068 §3.6: route ``tool.*.requested``
+    # events from the just-consumed batch BEFORE the systems
+    # run. The second route (inside ``append_system_outgoing``)
+    # covers events the systems themselves emit this tick.
+    # The two routes do NOT double-deliver: a system-emitted
+    # event is appended AFTER the systems run, so the route
+    # here sees only the original batch.
+    if dispatcher._tool_router is not None and new_events:
         await dispatcher._tool_router.route_batch(new_events)
     system_events = await append_system_outgoing(
         dispatcher, world, agent_id, return_events=True
