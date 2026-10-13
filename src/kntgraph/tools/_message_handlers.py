@@ -17,7 +17,9 @@ and keeps the dependency direction one-way
 
 from __future__ import annotations
 
+import asyncio
 import json
+import warnings
 from collections.abc import Mapping
 from typing import Any, cast
 
@@ -26,6 +28,7 @@ from redis import exceptions as redis_exceptions
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
+from kntgraph.infra.redis._client import RedisLike
 
 from ._result import ToolResult
 
@@ -246,27 +249,30 @@ def build_failure_event(
     )
 
 
-async def reconnect_redis_after_runtime_error(redis: Any) -> None:
-    """Tear down the current Redis client connection and
-    force a reconnect on the next ``xreadgroup``.
+async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
+    """Deprecated. Removal target: v0.19.0 (ADR-082 §3.3)."""
+    warnings.warn(
+        "`reconnect_redis_after_runtime_error` is deprecated; "
+        "use `reconnect_redis_after_transport_error` instead. "
+        "Removal target: v0.19.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    await reconnect_redis_after_transport_error(redis)
 
-    A ``RuntimeError`` from ``xreadgroup`` is the asyncio-redis
-    signal that the connection is in a broken state. Continuing
-    to read on the same client returns the same error in a
-    tight loop, so we close the client (best-effort) and
-    disconnect the underlying connection pool. The next
-    ``xreadgroup`` reconnects transparently.
 
-    Extracted from ``_consume_loop`` to keep the parent's CC
-    under 10 (ADR-019); the inline cleanup with two
-    ``try/except`` blocks, ``isinstance`` checks, and
-    ``asyncio.iscoroutine`` branches was a complexity hot spot.
+async def reconnect_redis_after_transport_error(redis: RedisLike) -> None:
+    """Tear down the Redis client on transport-class failure
+    (ADR-082 §3.1) so the next ``xreadgroup`` reconnects.
+
+    Best-effort: swallows transport exceptions on the close
+    path.
     """
     close_fn = getattr(redis, "aclose", None) or getattr(redis, "close", None)
     if close_fn:
         try:
             res = close_fn()
-            if __import__("asyncio").iscoroutine(res):
+            if asyncio.iscoroutine(res):
                 await res
         except (
             redis_exceptions.RedisError,
@@ -279,7 +285,7 @@ async def reconnect_redis_after_runtime_error(redis: Any) -> None:
     if pool and hasattr(pool, "disconnect"):
         try:
             dis_res = pool.disconnect()
-            if __import__("asyncio").iscoroutine(dis_res):
+            if asyncio.iscoroutine(dis_res):
                 await dis_res
         except (
             redis_exceptions.RedisError,

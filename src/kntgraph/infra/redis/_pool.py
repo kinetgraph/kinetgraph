@@ -78,6 +78,7 @@ class RedisPool:
             socket_timeout=settings.redis_socket_timeout,
             socket_keepalive=True,
             retry_on_timeout=True,
+            health_check_interval=settings.redis_health_check_interval,
         )
         client = redis_async.Redis(connection_pool=pool)
         logger.info(

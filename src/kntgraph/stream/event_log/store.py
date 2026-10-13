@@ -467,6 +467,15 @@ class EventLog:
         """Alias for ``delete_agent_stream``."""
         await self.delete_agent_stream(agent_id)
 
+    # ------------------------------------------------------------------ lifecycle
+
+    async def close_transport(self) -> None:
+        """Forwarder for ``EventLogStorage.close_transport``
+        (ADR-082 §3.2). Called by ``_wake_once`` after a
+        transport-class failure.
+        """
+        await self._storage.close_transport()
+
 
 def _current_principal():
     """Read the bound principal from the ContextVar. Lazy import

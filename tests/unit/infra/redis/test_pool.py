@@ -73,3 +73,48 @@ class TestRedisPool:
         object.__setattr__(pool, "_client", fake)
         await pool.aclose()
         assert fake.closed
+
+    async def test_pool_passes_health_check_interval_from_settings(self):
+        """ADR-082 §3.4: ``redis_health_check_interval`` is
+        forwarded to ``ConnectionPool.from_url``. Default
+        behaviour (redis-py 0 = disabled) would silently
+        stall the consumer on a half-open TCP — the setting
+        defaults to 15 s to stay below typical NAT / firewall
+        idle timeouts.
+        """
+        from kntgraph.infra.config import Settings
+        from kntgraph.infra.redis import RedisPool
+
+        settings = Settings(
+            redis_url="redis://x",
+            redis_health_check_interval=30.0,
+        )
+        with patch("redis.asyncio.connection.ConnectionPool.from_url") as mock_from_url:
+            RedisPool.from_settings(settings)
+            kwargs = mock_from_url.call_args.kwargs
+            assert kwargs["health_check_interval"] == 30.0
+
+    async def test_pool_health_check_interval_default_is_15(self):
+        """ADR-082 §3.4: the framework default is 15 s
+        (matches the backoffice production value)."""
+        from kntgraph.infra.config import fresh_settings
+
+        settings = fresh_settings()
+        assert settings.redis_health_check_interval == 15.0
+
+    async def test_pool_health_check_interval_zero_opts_out(self):
+        """Setting ``redis_health_check_interval=0`` disables
+        the redis-py health check (the pre-ADR-082 behaviour
+        for operators who depend on it byte-for-byte).
+        """
+        from kntgraph.infra.config import Settings
+        from kntgraph.infra.redis import RedisPool
+
+        settings = Settings(
+            redis_url="redis://x",
+            redis_health_check_interval=0.0,
+        )
+        with patch("redis.asyncio.connection.ConnectionPool.from_url") as mock_from_url:
+            RedisPool.from_settings(settings)
+            kwargs = mock_from_url.call_args.kwargs
+            assert kwargs["health_check_interval"] == 0

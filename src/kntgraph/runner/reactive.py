@@ -81,6 +81,7 @@ from ..core.event import Event
 from ..core.system import WorldSystem
 from ..core.world.components import ToolCallTTL
 from ..infra.redis._prefix import namespaced, validate_prefix
+from ..infra.redis._transport import TRANSPORT_ERRORS
 from ..infra.world_checkpoint import IncrementalWorldStore
 from ..stream.event_log import EventLog
 from ._checkpoint_io import (
@@ -811,11 +812,14 @@ class ReactiveDispatcher:
             )
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001 - top-level wake loop isolates transport crash
-            # A failed wake-up is an I/O crash signal: log, then
-            # let the fallback poll below converge the state.
-            # Swallowing without logging would turn a Redis
-            # outage into a silent stall.
+        except TRANSPORT_ERRORS as e:
+            # Transport-class wake-up failure (ADR-082 §3.2):
+            # narrow catch mirrors ``is_transport_error`` and
+            # the storage-adapter pattern of ADR-077 §4.3.
+            # Proactive close so the next ``_log.subscribe``
+            # reconnects instead of reusing the broken
+            # client.
+            await self._log.close_transport()
             logger.warning("reactive.wake.subscribe_failed", error=str(e))
             await self.dispatch_once()
             self._next_fallback_at = time.monotonic() + self._fallback_interval

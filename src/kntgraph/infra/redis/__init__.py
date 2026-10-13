@@ -64,6 +64,7 @@ from ._memory import (
 )
 from ._pool import RedisPool, create_redis_pool
 from ._tools import TOOL_QUEUE_KEY_TEMPLATE, tool_queue_key
+from ._transport import is_transport_error
 
 __all__ = [
     # Keys
@@ -104,11 +105,13 @@ __all__ = [
     "create_redis_pool",
     "create_session_storage",
     "create_solution_storage",
+    # Codec
     "decode_dict",
     "decode_int_dict",
-    # Codec
     "decode_value",
     "event_id_key",
+    # Transport classifier (ADR-082)
+    "is_transport_error",
     "parse_agent_id_from_stream_key",
     "stream_key_for_agent",
     "tool_queue_key",

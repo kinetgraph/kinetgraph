@@ -600,6 +600,120 @@ class TestConsumeLoop:
         redis_mock.aclose.assert_called_once()
         assert "RuntimeError" in manager._last_error
 
+    async def test_consume_loop_reconnects_on_redis_connection_error(
+        self, manager, redis_mock
+    ):
+        """ADR-082 §3.1 + §5.3: a ``redis.exceptions.ConnectionError``
+        on ``xreadgroup`` triggers ``_reconnect_after_transport_error``
+        (the wider transport catch)."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+        from redis import exceptions as redis_exceptions
+
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                redis_exceptions.ConnectionError("Connection reset"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_called_once()
+
+    async def test_consume_loop_reconnects_on_os_error(self, manager, redis_mock):
+        """ADR-082 §3.1 + §5.3: builtin ``OSError`` (``EPIPE`` /
+        ``ECONNRESET``) triggers the wider transport catch."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                OSError("broken pipe"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_called_once()
+
+    async def test_consume_loop_reconnects_on_busy_loading(self, manager, redis_mock):
+        """ADR-082 §3.1 + §5.3: ``redis.exceptions.BusyLoadingError``
+        (server still loading RDB) triggers the wider transport
+        catch."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+        from redis import exceptions as redis_exceptions
+
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                redis_exceptions.BusyLoadingError("LOADING"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_called_once()
+
+    async def test_consume_loop_does_not_reconnect_on_data_error(
+        self, manager, redis_mock
+    ):
+        """ADR-082 §3.1 + §5.3: ``redis.exceptions.DataError`` is an
+        application-level error (malformed command / payload), not a
+        transport failure. ``aclose`` is **not** called."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+        from redis import exceptions as redis_exceptions
+
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                redis_exceptions.DataError("malformed payload"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_not_called()
+
+    async def test_consume_loop_does_not_reconnect_on_value_error_with_substring(
+        self, manager, redis_mock
+    ):
+        """ADR-082 §3.1 + §5.3: regression test for the
+        substring-match footgun the ADR rejected. A ``ValueError``
+        whose message contains ``"transport"`` does **not** trigger
+        a reconnect — only the class matters."""
+        manager.register(_EchoTool, acl=None)
+        redis_mock.aclose = AsyncMock()
+
+        redis_mock.xreadgroup = AsyncMock(
+            side_effect=[
+                ValueError("transport pipeline not configured"),
+                asyncio.CancelledError(),
+            ]
+        )
+        await manager.start()
+        try:
+            await asyncio.sleep(0.1)
+        finally:
+            await manager.stop()
+
+        redis_mock.aclose.assert_not_called()
+
 
 class TestReaperLoop:
     async def test_reaper_loop_swallows_generic_exception(

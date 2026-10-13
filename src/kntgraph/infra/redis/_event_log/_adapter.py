@@ -117,6 +117,14 @@ class EventLogStorage(Protocol):
         count: int | None = None,
     ) -> tuple[dict[str, str], list[Event]]: ...
 
+    async def close_transport(self) -> None:
+        """Force the next op to reconnect (ADR-082 §3.2).
+
+        Best-effort: swallows transport exceptions on the
+        close path (see ``RedisPool.aclose`` at
+        ``infra/redis/_pool.py:111-129``).
+        """
+
 
 @dataclass(frozen=True)
 class RedisEventLogAdapter:
@@ -349,6 +357,22 @@ class RedisEventLogAdapter:
 
         response = await self.client.xread(streams=streams, count=count, block=block_ms)
         return _flatten_xread_response(response, self.key_prefix)
+
+    async def close_transport(self) -> None:
+        """Best-effort ``aclose`` (ADR-082 §3.2).
+
+        Swallows transport exceptions on the close path
+        (mirrors ``RedisPool.aclose``).
+        """
+        try:
+            await self.client.aclose()
+        except (
+            redis_exceptions.RedisError,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as exc:
+            logger.warning("event_log.close_transport.failed", error=str(exc))
 
     @staticmethod
     def _response_error() -> type[Exception]:
