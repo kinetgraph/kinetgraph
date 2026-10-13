@@ -176,8 +176,8 @@ async def run_systems_and_persist(
     """
     from ._checkpoint_io import save_checkpoint
 
-    if new_event_count > 0 and dispatcher._tool_router is not None:
-        await dispatcher._tool_router.route_batch(new_events)
+    # ADR-036 §2.5: router fan-out happens in
+    # ``append_system_outgoing``; not here, on ``new_events``.
     system_events = await append_system_outgoing(
         dispatcher, world, agent_id, return_events=True
     )

@@ -395,12 +395,13 @@ class TestAppendSystemOutgoing:
 
 
 class TestRunSystemsAndPersist:
-    async def test_router_called_only_when_batch_non_empty(self) -> None:
-        """The branch where ``new_event_count > 0`` AND
-        ``_tool_router`` is set: the router receives the
-        NEW batch (not the system-emitted events; the
-        system-emitted events go through
-        ``append_system_outgoing`` separately).
+    async def test_router_not_called_for_new_events_batch(self) -> None:
+        """ADR-036 §2.5: the router fan-out for
+        ``tool.*.requested`` lives in
+        ``append_system_outgoing``. ``run_systems_and_persist``
+        does NOT call ``route_batch`` on ``new_events``: those
+        were already routed when the system emitted them, and
+        re-routing would double every message in the queue.
         """
         cap = _Captured()
         log = _FakeEventLog(cap)
@@ -412,7 +413,8 @@ class TestRunSystemsAndPersist:
         await run_systems_and_persist(
             dispatcher, "a-1", World.empty(), "1-0", 1, new_events
         )
-        assert router.route_batch.await_args.args[0] == new_events
+        # No system emitted anything → router is silent here.
+        router.route_batch.assert_not_called()
         assert cap.saved  # checkpoint saved
 
     async def test_no_router_no_call(self) -> None:
