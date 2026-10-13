@@ -250,14 +250,7 @@ def build_failure_event(
 
 
 async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
-    """Deprecated. Use :func:`reconnect_redis_after_transport_error`.
-
-    The name was a misnomer post-``fe6ba89`` (the catch was
-    always about *transport*, not runtime semantics). Removal
-    target: **v0.19.0** (per ``kntgraph-deprecation-policy``
-    §2.1 — one minor of ``DeprecationWarning``, then
-    ``git rm``).
-    """
+    """Deprecated. Removal target: v0.19.0 (ADR-082 §3.3)."""
     warnings.warn(
         "`reconnect_redis_after_runtime_error` is deprecated; "
         "use `reconnect_redis_after_transport_error` instead. "

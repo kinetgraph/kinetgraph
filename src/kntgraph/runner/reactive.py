@@ -814,16 +814,11 @@ class ReactiveDispatcher:
             raise
         except TRANSPORT_ERRORS as e:
             # Transport-class wake-up failure (ADR-082 §3.2):
-            # the narrow catch mirrors ``is_transport_error``
-            # and the storage-adapter pattern of ADR-077 §4.3
-            # (``stream/event_log/dispatch.py:83``). The
-            # ``except Exception`` + ``noqa: BLE001`` this
-            # replaced was the anti-pattern ADR-082 §1.6
-            # row 2 identified. We proactively close the
-            # Redis client so the next ``_log.subscribe``
+            # narrow catch mirrors ``is_transport_error`` and
+            # the storage-adapter pattern of ADR-077 §4.3.
+            # Proactive close so the next ``_log.subscribe``
             # reconnects instead of reusing the broken
-            # connection (the 30-60 s latency spike the
-            # patch was working around).
+            # client.
             await self._log.close_transport()
             logger.warning("reactive.wake.subscribe_failed", error=str(e))
             await self.dispatch_once()

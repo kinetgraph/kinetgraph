@@ -470,14 +470,9 @@ class EventLog:
     # ------------------------------------------------------------------ lifecycle
 
     async def close_transport(self) -> None:
-        """Proactively close the underlying transport
-        (ADR-082 §3.2).
-
-        Forwarder for :meth:`EventLogStorage.close_transport`.
-        Called by ``ReactiveDispatcher._wake_once`` after a
-        transport-class ``_log.subscribe`` failure so the
-        next operation reconnects instead of reusing the
-        broken client.
+        """Forwarder for ``EventLogStorage.close_transport``
+        (ADR-082 §3.2). Called by ``_wake_once`` after a
+        transport-class failure.
         """
         await self._storage.close_transport()
 
