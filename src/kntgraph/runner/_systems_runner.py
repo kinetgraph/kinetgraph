@@ -176,8 +176,31 @@ async def run_systems_and_persist(
     """
     from ._checkpoint_io import save_checkpoint
 
-    # ADR-036 §2.5: router fan-out happens in
-    # ``append_system_outgoing``; not here, on ``new_events``.
+    # ADR-036 §2.5: route every ``tool.<name>.requested``
+    # event in the just-consumed batch to the global tool
+    # queue BEFORE the systems run. Two routes are needed:
+    #
+    #   1. ``new_events`` (this block) — events that arrived
+    #      in the EventLog from any source: systems, the
+    #      application writing directly, a replay from
+    #      a snapshot, or a vertical's seed call. Routing
+    #      before the systems run closes the latency gap
+    #      (the worker can start processing while the
+    #      systems are still folding the batch).
+    #   2. ``outgoing`` (inside ``append_system_outgoing``)
+    #      — events the systems themselves emit this tick.
+    #      A system that emits ``tool.<name>.requested``
+    #      would otherwise be missed if route #1 were the
+    #      only route (its event has not yet landed in the
+    #      EventLog when the systems run; the system emits
+    #      and appends synchronously).
+    #
+    # The two routes do NOT double-deliver: a
+    # system-emitted event is appended AFTER the systems
+    # run, so route #1 (which reads from the post-fold
+    # ``new_events``) sees only the original batch.
+    if dispatcher._tool_router is not None and new_events:
+        await dispatcher._tool_router.route_batch(new_events)
     system_events = await append_system_outgoing(
         dispatcher, world, agent_id, return_events=True
     )

@@ -6,8 +6,12 @@
 (ADR-078 v0.17.0 step 1, skill §9 ratchet).
 
 The contract (per ADR-079): ``ToolSyncInvoke`` returns
-``ToolResult`` (the discriminated union). The factories
-``run_in_executor(sync_fn, ...)`` and pass the result through.
+``ToolResult`` (the discriminated union). The
+``AsyncInProcFactory`` invokes the tool's ``invoke`` directly
+on the running event loop (ADR-078 §3.1 — the canonical
+default for async tools). The ``ProcessPoolFactory`` runs
+the dispatcher-supplied ``sync_fn`` in a caller-owned pool
+(the canonical path for sync / CPU-bound tools).
 
 These tests use real ``ThreadPoolExecutor`` instances (a thread
 pool, not process) to exercise the same code path without
@@ -26,6 +30,7 @@ from typing import Any
 
 import pytest
 
+from kntgraph.core.result import Ok, Result
 from kntgraph.tools._result import ToolResult
 from kntgraph.tools.executors import (
     AsyncInProcFactory,
@@ -42,18 +47,45 @@ from kntgraph.tools.executors import (
 
 
 class SyncEcho:
+    """Sync tool — used with ``ProcessPoolFactory`` (where the
+    pool-hosted sync helper wraps it). Async factories
+    (``AsyncInProcFactory``) ignore sync tools; the dispatch
+    picks ``AsyncInProcFactory`` for async tools and
+    ``ProcessPoolFactory`` for sync tools.
+    """
+
     def invoke(self, *, idempotency_key: str) -> Any:
-        return {"echo": idempotency_key}
+        return Ok({"echo": idempotency_key})
 
 
 class FailingEcho:
+    """Sync tool that raises. Used to verify exception
+    propagation through ``ProcessPoolFactory``.
+    """
+
     def invoke(self, *, idempotency_key: str) -> Any:
         raise RuntimeError("worker crashed")
 
 
 class AsyncEcho:
-    async def invoke(self, *, idempotency_key: str) -> Any:
-        return {"echo": idempotency_key}
+    """Async tool — the canonical target of
+    ``AsyncInProcFactory``. Returns the idempotency key as
+    the echo payload wrapped in ``Result.ok`` (the
+    v0.18 contract per ADR-079).
+    """
+
+    async def invoke(self, *, idempotency_key: str) -> Result[Any, Exception]:
+        return Ok({"echo": idempotency_key})
+
+
+class AsyncFailingEcho:
+    """Async tool that raises. Used to verify exception
+    propagation through ``AsyncInProcFactory`` (the exception
+    bubbles through ``await`` directly, no thread).
+    """
+
+    async def invoke(self, *, idempotency_key: str) -> Result[Any, Exception]:
+        raise RuntimeError("worker crashed")
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +96,18 @@ class AsyncEcho:
 def _ok_sync_fn(
     tool_cls: type, idempotency_key: str, kwargs: dict[str, Any]
 ) -> ToolResult:
-    """Real sync helper: instantiate the tool, call invoke,
-    wrap the return in ``ToolResult.ok``.
+    """Real sync helper for ``ProcessPoolFactory`` tests: instantiate
+    the tool, call ``invoke`` (which returns a ``Result``), unwrap
+    the success value, and wrap it in ``ToolResult.ok``. Mirrors
+    the real ``_invoke_tool_sync`` shape (ADR-079) so the
+    pool's wire result is bit-identical to the dispatcher's.
     """
     instance = tool_cls()
     invoke_kwargs = {k: v for k, v in kwargs.items() if k != "__tool_cls__"}
-    value = instance.invoke(idempotency_key=idempotency_key, **invoke_kwargs)
-    return ToolResult.ok(value)
+    result = instance.invoke(idempotency_key=idempotency_key, **invoke_kwargs)
+    if result.is_ok():
+        return ToolResult.ok(result.unwrap())
+    return ToolResult.err(str(result.err_value_or_raise()))
 
 
 def _failing_sync_fn(
@@ -88,13 +125,15 @@ def _failing_sync_fn(
 
 
 class TestAsyncInProcFactory:
-    def test_invokes_sync_helper_and_returns_awaitable(self) -> None:
-        """The factory wraps ``sync_fn`` in ``asyncio.to_thread``
-        and the resulting awaitable resolves to a ``ToolResult.ok``.
+    def test_invokes_tool_directly_on_event_loop(self) -> None:
+        """The factory invokes ``tool_cls().invoke(...)`` directly
+        on the running event loop (ADR-078 §3.1) and the
+        resulting awaitable resolves to a ``ToolResult.ok``
+        carrying the tool's return value.
         """
         factory = AsyncInProcFactory()
 
-        params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+        params: dict[str, Any] = {"__tool_cls__": AsyncEcho}
         result = asyncio.run(factory(_ok_sync_fn, "k-1", params))
 
         assert isinstance(result, ToolResult)
@@ -110,7 +149,7 @@ class TestAsyncInProcFactory:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             for _ in range(3):
-                params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+                params: dict[str, Any] = {"__tool_cls__": AsyncEcho}
                 asyncio.run(factory(_ok_sync_fn, "k", params))
 
         pool_warns = [
@@ -118,16 +157,16 @@ class TestAsyncInProcFactory:
         ]
         assert len(pool_warns) == 1
 
-    def test_does_not_swallow_exceptions_from_sync_fn(self) -> None:
-        """If the sync helper raises, the exception propagates
-        through ``asyncio.to_thread`` and is re-raised by the
-        factory's awaitable.
+    def test_propagates_exceptions_from_invoke(self) -> None:
+        """If the tool's ``invoke`` raises, the exception
+        propagates through ``await`` directly (no thread
+        hop, no ``asyncio.to_thread`` re-wrap).
         """
         factory = AsyncInProcFactory()
 
-        params: dict[str, Any] = {"__tool_cls__": FailingEcho}
+        params: dict[str, Any] = {"__tool_cls__": AsyncFailingEcho}
         with pytest.raises(RuntimeError, match="worker crashed"):
-            asyncio.run(factory(_failing_sync_fn, "k", params))
+            asyncio.run(factory(_ok_sync_fn, "k", params))
 
 
 # ---------------------------------------------------------------------------
