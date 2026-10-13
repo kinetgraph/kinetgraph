@@ -35,7 +35,6 @@ from kntgraph.tools.executors import (
     default_factory_for,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test tool classes (plain classes with ``invoke`` method, no
 # ``@tool_worker`` decorator)
@@ -96,9 +95,7 @@ class TestAsyncInProcFactory:
         factory = AsyncInProcFactory()
 
         params: dict[str, Any] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(
-            factory(_ok_sync_fn, "k-1", params)
-        )
+        result = asyncio.run(factory(_ok_sync_fn, "k-1", params))
 
         assert isinstance(result, ToolResult)
         assert result.status == "ok"
@@ -117,8 +114,7 @@ class TestAsyncInProcFactory:
                 asyncio.run(factory(_ok_sync_fn, "k", params))
 
         pool_warns = [
-            w for w in caught
-            if issubclass(w.category, PoolDeprecationWarning)
+            w for w in caught if issubclass(w.category, PoolDeprecationWarning)
         ]
         assert len(pool_warns) == 1
 
@@ -131,9 +127,7 @@ class TestAsyncInProcFactory:
 
         params: dict[str, Any] = {"__tool_cls__": FailingEcho}
         with pytest.raises(RuntimeError, match="worker crashed"):
-            asyncio.run(
-                factory(_failing_sync_fn, "k", params)
-            )
+            asyncio.run(factory(_failing_sync_fn, "k", params))
 
 
 # ---------------------------------------------------------------------------
@@ -156,9 +150,7 @@ class TestProcessPoolFactory:
         factory = ProcessPoolFactory(pool, concurrency=1)
 
         params: dict[str, Any] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(
-            factory(_ok_sync_fn, "k-1", params)
-        )
+        result = asyncio.run(factory(_ok_sync_fn, "k-1", params))
 
         assert isinstance(result, ToolResult)
         assert result.status == "ok"
@@ -172,9 +164,7 @@ class TestProcessPoolFactory:
         factory = ProcessPoolFactory(pool, concurrency=0)
 
         params: dict[str, Any] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(
-            factory(_ok_sync_fn, "k-2", params)
-        )
+        result = asyncio.run(factory(_ok_sync_fn, "k-2", params))
 
         assert isinstance(result, ToolResult)
         assert result.value == {"echo": "k-2"}
@@ -190,9 +180,7 @@ class TestProcessPoolFactory:
 
         params: dict[str, Any] = {"__tool_cls__": FailingEcho}
         with pytest.raises(RuntimeError, match="worker crashed"):
-            asyncio.run(
-                factory(_failing_sync_fn, "k", params)
-            )
+            asyncio.run(factory(_failing_sync_fn, "k", params))
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +192,7 @@ class SyncEchoWithMarker(SyncEcho):
     """A sync tool that explicitly opts in to the
     ``__tool_worker_cpu_bound__ = True`` marker.
     """
+
     __tool_worker_cpu_bound__ = True
 
 
@@ -221,6 +210,7 @@ class TestDefaultFactoryFor:
         # prefers real instances where possible, and this is
         # the boundary at which a real pool is needed).
         import kntgraph.tools.executors as exec_module
+
         original = exec_module._require_pool
         exec_module._require_pool = lambda: pool
         try:
@@ -269,9 +259,7 @@ class TestExample:
         factory = AsyncInProcFactory()
 
         params: dict[str, Any] = {"__tool_cls__": AsyncEcho}
-        result = asyncio.run(
-            factory(_ok_sync_fn, "k", params)
-        )
+        result = asyncio.run(factory(_ok_sync_fn, "k", params))
         assert result.status == "ok"
 
     def test_cpu_bound_tool_via_process_pool_factory(self) -> None:
@@ -289,7 +277,5 @@ class TestExample:
         factory = ProcessPoolFactory(pool, concurrency=1)
 
         params: dict[str, Any] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(
-            factory(_ok_sync_fn, "k", params)
-        )
+        result = asyncio.run(factory(_ok_sync_fn, "k", params))
         assert result.value == {"echo": "k"}
