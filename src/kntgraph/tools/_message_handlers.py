@@ -262,22 +262,11 @@ async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
 
 
 async def reconnect_redis_after_transport_error(redis: RedisLike) -> None:
-    """Tear down the current Redis client connection and
-    force a reconnect on the next ``xreadgroup`` (ADR-082 §3.1).
+    """Tear down the Redis client on transport-class failure
+    (ADR-082 §3.1) so the next ``xreadgroup`` reconnects.
 
-    A transport-class failure (``is_transport_error(e)``,
-    ADR-082 §3.1) from ``xreadgroup`` is the signal that
-    the connection is in a broken state. Continuing to
-    read on the same client returns the same error in a
-    tight loop, so we close the client (best-effort) and
-    disconnect the underlying connection pool. The next
-    ``xreadgroup`` reconnects transparently.
-
-    Extracted from ``_consume_loop`` to keep the parent's
-    CC under 10 (ADR-019); the inline cleanup with two
-    ``try/except`` blocks, ``isinstance`` checks, and
-    ``asyncio.iscoroutine`` branches was a complexity hot
-    spot.
+    Best-effort: swallows transport exceptions on the close
+    path.
     """
     close_fn = getattr(redis, "aclose", None) or getattr(redis, "close", None)
     if close_fn:
