@@ -48,6 +48,14 @@ class RedisSettingsMixin(BaseSettings):
     redis_max_connections: int = Field(default=50)
     # Socket read timeout (seconds); must exceed block_ms to prevent socket timeout collisions
     redis_socket_timeout: float = Field(default=15.0)
+    # ADR-082 §3.4: PING idle connections before reuse
+    # (seconds). redis-py default is 0 (disabled). The
+    # framework defaults to 15 s, comfortably below typical
+    # NAT idle timeouts (60 s for AWS NAT Gateway, 120 s for
+    # most on-prem firewalls). Set to 0 to disable the
+    # health check (redis-py default; not recommended for
+    # remote Redis with NAT / firewall idle reapers).
+    redis_health_check_interval: float = Field(default=15.0)
     # In-process fakeredis toggle for benchmarks / CI smoke
     # tests; never set in production.
     redis_fake: bool = Field(default=False)
