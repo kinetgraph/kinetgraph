@@ -9,11 +9,12 @@ The contract (per ADR-079): ``ToolSyncInvoke`` returns
 ``ToolResult`` (the discriminated union). The factories
 ``run_in_executor(sync_fn, ...)`` and pass the result through.
 
-These tests use a real ``ThreadPoolExecutor`` (a thread pool,
-not process) to exercise the SAME code path without
-pickling overhead in the test process. They also use
-real ``ToolWorker``-decorated classes instead of patches,
-per the skill §1.3 ratchet ("no ``unittest.mock.patch``").
+These tests use real ``ThreadPoolExecutor`` instances (a thread
+pool, not process) to exercise the same code path without
+pickling overhead. The tool classes are simple function objects
+— no ``@tool_worker`` decorator (the decorator is unrelated
+to the factory contract) and no mocks (per the skill §1.3
+ratchet).
 """
 
 from __future__ import annotations
@@ -25,8 +26,6 @@ from typing import Any
 
 import pytest
 
-from kntgraph.core._typing import JsonValue
-from kntgraph.core.result import Err, Ok
 from kntgraph.tools._result import ToolResult
 from kntgraph.tools.executors import (
     AsyncInProcFactory,
@@ -35,29 +34,27 @@ from kntgraph.tools.executors import (
     WorkerStrategyError,
     default_factory_for,
 )
-from kntgraph.tools.worker import tool_worker
+
 
 # ---------------------------------------------------------------------------
-# Test tool classes (real, picklable, picklable closures OK)
+# Test tool classes (plain classes with ``invoke`` method, no
+# ``@tool_worker`` decorator)
 # ---------------------------------------------------------------------------
 
 
-@tool_worker(name="sync_echo", max_concurrency=1)
 class SyncEcho:
-    def invoke(self, *, idempotency_key: str) -> Err[Any, str] | Ok[Any, Any]:
-        return Ok({"echo": idempotency_key})
+    def invoke(self, *, idempotency_key: str) -> Any:
+        return {"echo": idempotency_key}
 
 
-@tool_worker(name="failing_echo", max_concurrency=1)
 class FailingEcho:
-    def invoke(self, *, idempotency_key: str) -> Err[Any, str]:
-        return Err(RuntimeError("worker crashed"))
+    def invoke(self, *, idempotency_key: str) -> Any:
+        raise RuntimeError("worker crashed")
 
 
-@tool_worker(name="async_echo", max_concurrency=1)
 class AsyncEcho:
-    async def invoke(self, *, idempotency_key: str) -> Err[Any, str] | Ok[Any, Any]:
-        return Ok({"echo": idempotency_key})
+    async def invoke(self, *, idempotency_key: str) -> Any:
+        return {"echo": idempotency_key}
 
 
 # ---------------------------------------------------------------------------
@@ -66,24 +63,19 @@ class AsyncEcho:
 
 
 def _ok_sync_fn(
-    tool_cls: type, idempotency_key: str, kwargs: dict[str, JsonValue]
+    tool_cls: type, idempotency_key: str, kwargs: dict[str, Any]
 ) -> ToolResult:
-    """Real sync helper: instantiate the tool and call
-    ``invoke(idempotency_key, **kwargs)`` — returns
-    ``ToolResult.ok(value)`` on success.
+    """Real sync helper: instantiate the tool, call invoke,
+    wrap the return in ``ToolResult.ok``.
     """
     instance = tool_cls()
-    # Extract ``__tool_cls__`` from kwargs (dispatcher
-    # internal key, not a tool parameter).
     invoke_kwargs = {k: v for k, v in kwargs.items() if k != "__tool_cls__"}
-    result = instance.invoke(idempotency_key=idempotency_key, **invoke_kwargs)
-    if result.is_ok():
-        return ToolResult.ok(result.unwrap())
-    return ToolResult.err(str(result.err_value_or_raise()))
+    value = instance.invoke(idempotency_key=idempotency_key, **invoke_kwargs)
+    return ToolResult.ok(value)
 
 
 def _failing_sync_fn(
-    tool_cls: type, idempotency_key: str, kwargs: dict[str, JsonValue]
+    tool_cls: type, idempotency_key: str, kwargs: dict[str, Any]
 ) -> ToolResult:
     """Sync helper that always raises (for the
     exception-propagation test).
@@ -103,8 +95,10 @@ class TestAsyncInProcFactory:
         """
         factory = AsyncInProcFactory()
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(factory(_ok_sync_fn, "k-1", params))
+        params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+        result = asyncio.run(
+            factory(_ok_sync_fn, "k-1", params)
+        )
 
         assert isinstance(result, ToolResult)
         assert result.status == "ok"
@@ -119,11 +113,12 @@ class TestAsyncInProcFactory:
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             for _ in range(3):
-                params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
+                params: dict[str, Any] = {"__tool_cls__": SyncEcho}
                 asyncio.run(factory(_ok_sync_fn, "k", params))
 
         pool_warns = [
-            w for w in caught if issubclass(w.category, PoolDeprecationWarning)
+            w for w in caught
+            if issubclass(w.category, PoolDeprecationWarning)
         ]
         assert len(pool_warns) == 1
 
@@ -134,9 +129,11 @@ class TestAsyncInProcFactory:
         """
         factory = AsyncInProcFactory()
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
+        params: dict[str, Any] = {"__tool_cls__": FailingEcho}
         with pytest.raises(RuntimeError, match="worker crashed"):
-            asyncio.run(factory(_failing_sync_fn, "k", params))
+            asyncio.run(
+                factory(_failing_sync_fn, "k", params)
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -158,8 +155,10 @@ class TestProcessPoolFactory:
         pool = ThreadPoolExecutor(max_workers=2)
         factory = ProcessPoolFactory(pool, concurrency=1)
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(factory(_ok_sync_fn, "k-1", params))
+        params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+        result = asyncio.run(
+            factory(_ok_sync_fn, "k-1", params)
+        )
 
         assert isinstance(result, ToolResult)
         assert result.status == "ok"
@@ -172,8 +171,10 @@ class TestProcessPoolFactory:
         pool = ThreadPoolExecutor(max_workers=2)
         factory = ProcessPoolFactory(pool, concurrency=0)
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(factory(_ok_sync_fn, "k-2", params))
+        params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+        result = asyncio.run(
+            factory(_ok_sync_fn, "k-2", params)
+        )
 
         assert isinstance(result, ToolResult)
         assert result.value == {"echo": "k-2"}
@@ -187,14 +188,23 @@ class TestProcessPoolFactory:
         pool = ThreadPoolExecutor(max_workers=1)
         factory = ProcessPoolFactory(pool, concurrency=1)
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
+        params: dict[str, Any] = {"__tool_cls__": FailingEcho}
         with pytest.raises(RuntimeError, match="worker crashed"):
-            asyncio.run(factory(_failing_sync_fn, "k", params))
+            asyncio.run(
+                factory(_failing_sync_fn, "k", params)
+            )
 
 
 # ---------------------------------------------------------------------------
 # default_factory_for
 # ---------------------------------------------------------------------------
+
+
+class SyncEchoWithMarker(SyncEcho):
+    """A sync tool that explicitly opts in to the
+    ``__tool_worker_cpu_bound__ = True`` marker.
+    """
+    __tool_worker_cpu_bound__ = True
 
 
 class TestDefaultFactoryFor:
@@ -211,11 +221,10 @@ class TestDefaultFactoryFor:
         # prefers real instances where possible, and this is
         # the boundary at which a real pool is needed).
         import kntgraph.tools.executors as exec_module
-
         original = exec_module._require_pool
         exec_module._require_pool = lambda: pool
         try:
-            factory = default_factory_for(SyncEcho)
+            factory = default_factory_for(SyncEchoWithMarker)
         finally:
             exec_module._require_pool = original
         assert isinstance(factory, ProcessPoolFactory)
@@ -235,7 +244,7 @@ class TestDefaultFactoryFor:
         surfaces the same error for symmetry.
         """
         with pytest.raises(WorkerStrategyError, match="executor_factory"):
-            default_factory_for(FailingEcho.__class__)  # no marker
+            default_factory_for(SyncEcho)
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +268,10 @@ class TestExample:
         """
         factory = AsyncInProcFactory()
 
-        params: dict[str, JsonValue] = {"__tool_cls__": AsyncEcho}
-        result = asyncio.run(factory(_ok_sync_fn, "k", params))
+        params: dict[str, Any] = {"__tool_cls__": AsyncEcho}
+        result = asyncio.run(
+            factory(_ok_sync_fn, "k", params)
+        )
         assert result.status == "ok"
 
     def test_cpu_bound_tool_via_process_pool_factory(self) -> None:
@@ -277,6 +288,8 @@ class TestExample:
         pool = ThreadPoolExecutor(max_workers=2)
         factory = ProcessPoolFactory(pool, concurrency=1)
 
-        params: dict[str, JsonValue] = {"__tool_cls__": SyncEcho}
-        result = asyncio.run(factory(_ok_sync_fn, "k", params))
+        params: dict[str, Any] = {"__tool_cls__": SyncEcho}
+        result = asyncio.run(
+            factory(_ok_sync_fn, "k", params)
+        )
         assert result.value == {"echo": "k"}

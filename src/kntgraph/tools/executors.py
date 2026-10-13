@@ -141,23 +141,27 @@ class ProcessPoolFactory:
             if self._sem is not None:
                 async with self._sem:
                     loop = asyncio.get_running_loop()
-                    raw = await loop.run_in_executor(
-                        self._pool,
-                        sync_fn,
-                        cast(type, tool_params.get("__tool_cls__")),
-                        idempotency_key,
-                        cast("dict[str, JsonValue]", dict(tool_params)),
+                    return cast(
+                        ToolResult,
+                        await loop.run_in_executor(
+                            self._pool,
+                            sync_fn,
+                            cast(type, tool_params.get("__tool_cls__")),
+                            idempotency_key,
+                            cast("dict[str, JsonValue]", dict(tool_params)),
+                        ),
                     )
-                    return _dict_to_tool_result(raw)
             loop = asyncio.get_running_loop()
-            raw = await loop.run_in_executor(
-                self._pool,
-                sync_fn,
-                cast(type, tool_params.get("__tool_cls__")),
-                idempotency_key,
-                cast("dict[str, JsonValue]", dict(tool_params)),
+            return cast(
+                ToolResult,
+                await loop.run_in_executor(
+                    self._pool,
+                    sync_fn,
+                    cast(type, tool_params.get("__tool_cls__")),
+                    idempotency_key,
+                    cast("dict[str, JsonValue]", dict(tool_params)),
+                ),
             )
-            return _dict_to_tool_result(raw)
 
         return _runner()
 
@@ -186,18 +190,20 @@ async def _run_sync(
 
     The ``dispatch_to_tool`` contract says the factory returns
     an awaitable that resolves to a ``ToolResult``. The
-    dispatcher ``_invoke_tool_sync`` returns the legacy dict
-    shape (per ADR-069 §6); we wrap the call in
-    ``asyncio.to_thread`` (v0.17+) AND translate the dict
-    into the ``ToolResult`` discriminated union.
+    dispatcher ``_invoke_tool_sync`` returns a ``ToolResult``
+    directly (v0.18+ contract, per ADR-079); we wrap the
+    call in ``asyncio.to_thread`` and return the result
+    unchanged.
     """
-    raw = await asyncio.to_thread(
-        sync_fn,
-        cast(type, tool_params.get("__tool_cls__")),
-        idempotency_key,
-        cast("dict[str, JsonValue]", dict(tool_params)),
+    return cast(
+        ToolResult,
+        await asyncio.to_thread(
+            sync_fn,
+            cast(type, tool_params.get("__tool_cls__")),
+            idempotency_key,
+            cast("dict[str, JsonValue]", dict(tool_params)),
+        ),
     )
-    return _dict_to_tool_result(raw)
 
 
 def default_factory_for(tool_cls: type) -> ExecutorFactory:
