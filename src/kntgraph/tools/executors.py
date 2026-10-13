@@ -45,7 +45,7 @@ import asyncio
 import warnings
 from collections.abc import Awaitable, Mapping
 from concurrent.futures import ProcessPoolExecutor
-from typing import cast
+from typing import Any, cast
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.tools._dispatch import (
@@ -79,6 +79,46 @@ class WorkerStrategyError(Exception):
       (b) convert the tool to ``async def invoke``;
       (c) set ``max_pool_workers=N`` at ``WorkerManager.__init__`` (legacy).
     """
+
+
+def _extract_tool_cls(tool_params: Mapping[str, JsonValue]) -> type:
+    """Pull the tool class out of the dispatch's
+    ``__tool_cls__``-augmented params. Raises
+    :class:`WorkerStrategyError` when the key is missing
+    (the dispatch contract was broken upstream).
+    """
+    tool_cls_raw = tool_params.get("__tool_cls__")
+    if tool_cls_raw is None:
+        raise WorkerStrategyError(
+            "AsyncInProcFactory requires '__tool_cls__' in "
+            "tool_params; the dispatch contract was broken "
+            "upstream."
+        )
+    return cast(type, tool_cls_raw)
+
+
+def _strip_internal_keys(
+    tool_params: Mapping[str, JsonValue],
+) -> dict[str, JsonValue]:
+    """Return ``tool_params`` without the framework's
+    internal ``__tool_cls__`` key. The tool's ``invoke``
+    does not accept this key (it is the dispatcher's
+    contract-internal hand-off, not a tool parameter).
+    """
+    return {k: v for k, v in tool_params.items() if k != "__tool_cls__"}
+
+
+def _result_to_tool_result(result: Any) -> ToolResult:
+    """Map a tool's ``Result[T, ToolError]`` to the
+    framework's ``ToolResult`` (ADR-079). The two
+    classes share the ``is_ok`` / ``unwrap`` /
+    ``err_value_or_raise`` protocol; the translation
+    strips the ``Result`` envelope and projects to the
+    ``status`` discriminator + ``value`` / ``error`` fields.
+    """
+    if result.is_ok():
+        return ToolResult.ok(cast(JsonValue, result.unwrap()))
+    return ToolResult.err(str(result.err_value_or_raise()))
 
 
 class AsyncInProcFactory:
@@ -119,40 +159,31 @@ class AsyncInProcFactory:
         # we don't need that wrapper — we invoke the tool's
         # coroutine directly on the running event loop.
         del sync_fn  # explicit acknowledgement: ignored
-        tool_cls_raw = tool_params.get("__tool_cls__")
-        if tool_cls_raw is None:
-            raise WorkerStrategyError(
-                "AsyncInProcFactory requires '__tool_cls__' in "
-                "tool_params; the dispatch contract was broken "
-                "upstream."
-            )
-        tool_cls = cast(type, tool_cls_raw)
-        if tool_cls not in self._seen:
-            self._seen.add(tool_cls)
-            warnings.warn(
-                (
-                    "Tool uses AsyncInProcFactory by default; "
-                    "register executor_factory= explicitly to "
-                    "pin the strategy (ADR-078)."
-                ),
-                PoolDeprecationWarning,
-                stacklevel=3,
-            )
-        # ``__tool_cls__`` is the dispatcher's internal key for
-        # passing the tool class through the factory contract;
-        # it is NOT a tool parameter and must be stripped from
-        # the kwargs before forwarding to the tool's ``invoke``.
-        invoke_kwargs = {
-            k: v for k, v in tool_params.items() if k != "__tool_cls__"
-        }
-        tool_instance = tool_cls()
-        result = await tool_instance.invoke(
+        tool_cls = _extract_tool_cls(tool_params)
+        self._warn_once_per_tool(tool_cls)
+        result = await tool_cls().invoke(
             idempotency_key=idempotency_key,
-            **invoke_kwargs,
+            **_strip_internal_keys(tool_params),
         )
-        if result.is_ok():
-            return ToolResult.ok(cast(JsonValue, result.unwrap()))
-        return ToolResult.err(str(result.err_value_or_raise()))
+        return _result_to_tool_result(result)
+
+    def _warn_once_per_tool(self, tool_cls: type) -> None:
+        """Emit the ADR-078 ``PoolDeprecationWarning`` once
+        per tool class (per factory instance). Idempotent;
+        the ``_seen`` set is the dedup key.
+        """
+        if tool_cls in self._seen:
+            return
+        self._seen.add(tool_cls)
+        warnings.warn(
+            (
+                "Tool uses AsyncInProcFactory by default; "
+                "register executor_factory= explicitly to "
+                "pin the strategy (ADR-078)."
+            ),
+            PoolDeprecationWarning,
+            stacklevel=3,
+        )
 
 
 class ProcessPoolFactory:
@@ -232,9 +263,10 @@ def default_factory_for(tool_cls: type) -> ExecutorFactory:
     import inspect
 
     if inspect.iscoroutinefunction(getattr(tool_cls, "invoke", None)):
-        # v0.18 default: async tools do NOT need a pool (the
-        # ``AsyncInProcFactory`` uses the loop's default
-        # executor). Only sync / CPU-bound tools require a
+        # v0.18 default: async tools do NOT need a pool
+        # (the ``AsyncInProcFactory`` invokes the tool's
+        # coroutine directly on the Manager's event loop).
+        # Only sync / CPU-bound tools require a
         # caller-supplied pool via ``ProcessPoolFactory``.
         return AsyncInProcFactory()
     return ProcessPoolFactory(pool=_require_pool(), concurrency=1)
