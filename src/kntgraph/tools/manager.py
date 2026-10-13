@@ -86,7 +86,7 @@ from kntgraph.tools._message_handlers import (
     evaluate_acl,
     log_acl_denial,
     parse_request_payload,
-    reconnect_redis_after_runtime_error,
+    reconnect_redis_after_transport_error,
 )
 from kntgraph.tools._result import ToolResult
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
@@ -453,12 +453,12 @@ class WorkerManager:
         in ``start()`` (preserves the existing call site)."""
         return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
 
-    async def _reconnect_after_runtime_error(self) -> None:
-        """Delegate to ``reconnect_redis_after_runtime_error``
-        in ``_message_handlers``. Kept as a method so the
-        ``_consume_loop`` call site stays
-        ``await self._reconnect_after_runtime_error()``."""
-        await reconnect_redis_after_runtime_error(self._redis)
+    async def _reconnect_after_transport_error(self) -> None:
+        """Delegate to ``reconnect_redis_after_transport_error``
+        in ``_message_handlers`` (ADR-082 §3.1). Kept as a
+        method so the ``_consume_loop`` call site stays
+        ``await self._reconnect_after_transport_error()``."""
+        await reconnect_redis_after_transport_error(self._redis)
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -608,7 +608,7 @@ class WorkerManager:
                 )
                 self._last_error = repr(e)
                 if isinstance(e, RuntimeError):
-                    await self._reconnect_after_runtime_error()
+                    await self._reconnect_after_transport_error()
                 await asyncio.sleep(1)
                 self._maybe_emit_heartbeat(tool_name)
 
