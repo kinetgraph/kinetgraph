@@ -111,23 +111,20 @@ def _strip_internal_keys(
 
 def _result_to_tool_result(result: Any) -> ToolResult:
     """Map a tool's ``Result[T, ToolError]`` to the
-    framework's ``ToolResult`` (ADR-079). The two
-    classes share the ``is_ok`` / ``unwrap`` /
-    ``err_value_or_raise`` protocol; the translation
-    strips the ``Result`` envelope and projects to the
-    ``status`` discriminator + ``value`` / ``error`` fields.
-
-    On the ``Err`` branch the ``error_class`` is read
-    from the underlying ``ToolError`` when present — the
-    tool classified it (transient / permanent / unknown).
-    Falls back to the legacy ``"unknown"`` default for
-    non-``ToolError`` err values (preserves the previous
-    behaviour for tools that raised a bare string or a
-    non-tool exception).
+    framework's ``ToolResult`` (ADR-079). The Err-branch
+    classification is delegated to the helper below.
     """
     if result.is_ok():
         return ToolResult.ok(cast(JsonValue, result.unwrap()))
-    err_value = result.err_value_or_raise()
+    return _toolresult_from_err_value(result.err_value_or_raise())
+
+
+def _toolresult_from_err_value(err_value: object) -> ToolResult:
+    """Read ``error_class`` from a ``ToolError``; fall back
+    to ``"unknown"`` for non-ToolError values (preserves
+    the legacy behaviour for tools that raised a bare
+    string or a non-tool exception).
+    """
     if isinstance(err_value, ToolError):
         return ToolResult.err(str(err_value), error_class=err_value.error_class)
     return ToolResult.err(str(err_value))

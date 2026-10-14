@@ -2696,8 +2696,8 @@
       "rank": "A"
     },
     "src/kntgraph/core/result/errors.py:class:ToolError": {
-      "complexity": 1,
-      "lineno": 58,
+      "complexity": 2,
+      "lineno": 84,
       "rank": "A"
     },
     "src/kntgraph/core/result/errors.py:class:UnwrapError": {
@@ -8989,7 +8989,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/event/id_helpers.py": {
-      "mi": 90.56833491378244,
+      "mi": 88.00837163384726,
       "rank": "A"
     },
     "src/kntgraph/core/event/operational.py": {
@@ -9737,7 +9737,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/_message_handlers.py": {
-      "mi": 69.71219496193676,
+      "mi": 67.05,
       "rank": "A"
     },
     "src/kntgraph/tools/_result.py": {
@@ -9761,7 +9761,7 @@
       "rank": "A"
     },
     "src/kntgraph/tools/executors.py": {
-      "mi": 70.13112540334377,
+      "mi": 69.62501131658202,
       "rank": "A"
     },
     "src/kntgraph/tools/llm_transport.py": {

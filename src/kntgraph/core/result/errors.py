@@ -6,48 +6,26 @@
 result.errors -- Exception hierarchy for the railway flow.
 
 Five exception classes that all inherit from
-`RailwayError` (the abstract base). Use them as the
-`E` type parameter of `Result[T, E]` to give callers
-typed catches:
+``RailwayError`` (the abstract base). Use them as the
+``E`` type parameter of ``Result[T, E]``:
 
     try:
         await persist(event)
     except PersistenceError as e:
         ...
 
-`UnwrapError` lives here too (it's a programming
-error, not a domain error, but it's an exception
-and fits the same module).
-
-Why a separate module?
-
-The `Result` class is generic over the error type.
-The 5 domain errors are concrete types. Keeping
-them in `result.errors` lets callers import the
-exceptions without dragging the `Result`
-implementation in:
-
-    from kntgraph.core.result.errors import (
-        PersistenceError,
-    )
-
-ToolError error_class
----------------------
+``UnwrapError`` lives here too (it's a programming
+error, not a domain error, but it's an exception).
 
 ``ToolError`` carries an ``error_class`` slot
 (``Literal["transient", "permanent", "unknown"]``) so
-the framework classifies failures without inspecting the
-message string. ``permanent`` means the failure will
-never succeed on retry (deterministic infra error
-like ``NoSuchBucket``); ``transient`` means retry may
-succeed (rate limit, timeout, network blip);
-``unknown`` is the safe default.
-
-The classification is read by the WorkerManager and
-forwarded into the ``tool.<name>.failed`` event's
-``data`` so downstream consumers (TTL sweeper,
-circuit breaker, DLQ redaction) can act on it without
-parsing the free-form ``error`` string.
+the framework classifies failures without parsing the
+free-form message — ``permanent`` means the failure
+will never succeed on retry (e.g. ``NoSuchBucket``);
+``transient`` means retry may succeed; ``unknown`` is
+the safe default. The classification is read by the
+WorkerManager and forwarded into the
+``tool.<name>.failed`` event's ``data``.
 """
 
 from __future__ import annotations
@@ -87,14 +65,19 @@ class ToolError(RailwayError):
     Carries an ``error_class`` (``transient`` /
     ``permanent`` / ``unknown``) so the framework can
     distinguish retryable failures from deterministic
-    ones without parsing the free-form message string.
+    ones without parsing the free-form message.
+
+    Construction::
+
+        ToolError("boom")                        # legacy: unknown
+        ToolError("boom", error_class="permanent")
+        ToolError.transient("rate_limited")
+        ToolError.permanent("no_such_bucket")
     """
 
-    # Declared at class level so the attribute is
-    # typed ``ToolErrorClass`` (not ``str``) for static
-    # checkers — the body sets it again in ``__init__``,
-    # but pyright/mypy infer the wider ``str`` from the
-    # ``__init__`` body alone.
+    # Class attribute declared for static-typing —
+    # the body sets it again in ``__init__``, but
+    # pyright/mypy infer ``str`` from the body alone.
     error_class: ToolErrorClass
 
     def __init__(
@@ -108,30 +91,13 @@ class ToolError(RailwayError):
 
     @classmethod
     def transient(cls, message: str = "") -> ToolError:
-        """Factory for a transient (retryable) error."""
+        """Transient (retryable) error."""
         return cls(message, error_class="transient")
 
     @classmethod
     def permanent(cls, message: str = "") -> ToolError:
-        """Factory for a permanent (non-retryable) error.
-
-        Examples: ``NoSuchBucket``, ``PermissionDenied``,
-        ``InvalidArgument``, ``NotFound``. The framework
-        MUST NOT retry; the failure routes straight to
-        DLQ (or surfaces to the operator via the
-        reactive layer).
-        """
+        """Permanent (non-retryable) error."""
         return cls(message, error_class="permanent")
-
-    @classmethod
-    def unknown(cls, message: str = "") -> ToolError:
-        """Factory for an unclassified error (the legacy
-        default — used when the tool cannot determine
-        whether the failure is retryable). The framework
-        preserves the previous retry behaviour for this
-        case (no escalation change).
-        """
-        return cls(message, error_class="unknown")
 
 
 __all__ = [

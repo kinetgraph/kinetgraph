@@ -60,27 +60,19 @@ class ToolResult:
     """Result of one ``@tool_worker`` invocation.
 
     Discriminated union over ``status``:
+      - ``"ok"`` ⇒ ``value`` is the tool's payload.
+      - ``"err"`` ⇒ ``error`` is the human-readable
+        message and ``error_class`` is the framework
+        classification (transient / permanent / unknown).
 
-    - ``status == "ok"`` ⇒ ``value`` is the tool's
-      ``Result.unwrap()`` payload (serialisable to ``JsonValue``
-      per the EventLog wire shape).
-    - ``status == "err"`` ⇒ ``error`` is the ``str(...)`` of the
-      tool's ``Result.err_value_or_raise()`` and
-      ``error_class`` is the framework-level classification
-      (transient / permanent / unknown).
+    ``error_class`` lets the WorkerManager, TTL sweeper,
+    and circuit breaker act on the failure type without
+    parsing the free-form ``error`` string. ``transient``
+    = retry may succeed; ``permanent`` = will never succeed
+    (framework MUST NOT re-dispatch); ``unknown`` = legacy
+    safe default.
 
-    The on-wire shape (Redis / EventLog) is produced by
-    ``to_wire()`` and is the only site in framework code that
-    admits a dict literal (ADR-079 §3.3, §5 allowlist).
-
-    ``error_class`` (default ``"unknown"``) lets the
-    WorkerManager, TTL sweeper, and circuit breaker act
-    on the failure type without parsing the free-form
-    ``error`` string. ``permanent`` means deterministic
-    (the failure will never succeed on retry); the
-    framework MUST NOT re-dispatch and routes straight
-    to DLQ. ``transient`` means retry may succeed.
-    ``unknown`` is the legacy safe default.
+    Wire shape: ``to_wire()`` (ADR-079 §3.3, §5 allowlist).
     """
 
     status: Literal["ok", "err"]
@@ -91,15 +83,9 @@ class ToolResult:
     def to_wire(self) -> Mapping[str, str | JsonValue]:
         """Project the dataclass to the wire shape used by
         ``build_completion_event`` and ``build_failure_event``.
-
-        Returns a fresh ``Mapping`` per call; callers that need
-        to pass it through Redis serialise it via the
-        infrastructure adapter (see ADR-067 §1.1).
-
         On the ``err`` branch the wire carries both
-        ``error`` and ``error_class`` — the latter is
-        the canonical classification; the former stays
-        for human-readable diagnostics.
+        ``error`` (human-readable) and ``error_class``
+        (canonical classification).
         """
         if self.status == "ok":
             return _ok_wire(self.value)
@@ -120,17 +106,12 @@ class ToolResult:
     ) -> ToolResult:
         """Build a failure result.
 
-        ``error`` is the ``str(...)`` of the tool's
-        ``Result.err_value_or_raise()``.
-
-        ``error_class`` (default ``"unknown"``) classifies
-        the failure for downstream consumers
-        (TTL sweeper, circuit breaker, DLQ routing).
-        Use the ``ToolError.transient`` /
+        ``error_class`` classifies the failure for
+        downstream consumers (TTL sweeper, circuit
+        breaker). Use ``ToolError.transient`` /
         ``ToolError.permanent`` factories when raising
         in tool code so the classification survives the
-        ``Result`` → ``ToolResult`` conversion in
-        ``_worker_invocation.py``.
+        ``Result`` → ``ToolResult`` conversion.
         """
         return cls(status="err", value=None, error=error, error_class=error_class)
 

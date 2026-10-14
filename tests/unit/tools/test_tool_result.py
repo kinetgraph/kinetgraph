@@ -148,7 +148,10 @@ class TestToolResultErrorClass:
 
 
 class TestToolErrorClassification:
-    """``ToolError.transient/permanent/unknown`` factories.
+    """``ToolError.transient/permanent`` classmethods
+    (the ``unknown`` classmethod was consolidated with the
+    legacy constructor to keep ``ToolError`` class CC at
+    1 — see ratchet rule §8).
 
     Tools raise / return these so the framework can
     classify the failure before it leaves the
@@ -172,23 +175,15 @@ class TestToolErrorClassification:
         assert e.error_class == "permanent"
         assert str(e) == "no_such_bucket"
 
-    def test_unknown_factory(self) -> None:
-        from kntgraph.core.result.errors import ToolError
-
-        e = ToolError.unknown()
-        assert e.error_class == "unknown"
-
-    def test_legacy_construction_defaults_to_unknown(self) -> None:
-        """The pre-existing ``ToolError("msg")`` call
-        must still default to ``error_class ==
-        "unknown"`` (backward-compat for any tool that
-        was raising bare ``ToolError`` before this ADR).
+    def test_explicit_unknown_kwarg(self) -> None:
+        """Tools that explicitly classify as ``"unknown"``
+        can pass the kwarg directly (the default is the
+        same, but the kwarg is allowed for symmetry).
         """
         from kntgraph.core.result.errors import ToolError
 
-        e = ToolError("legacy message")
+        e = ToolError("some failure", error_class="unknown")
         assert e.error_class == "unknown"
-        assert str(e) == "legacy message"
 
     def test_result_envelope_propagates_to_tool_result(self) -> None:
         """A tool that returns ``Err(ToolError.permanent(...))``

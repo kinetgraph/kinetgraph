@@ -677,36 +677,6 @@ class WorkerManager:
                 tool_params=tool_params,
             )
 
-            # Retry-budget check on the ``Err`` path.
-            # The ``Err`` path almost never hits this gate
-            # (delivery_count == 1 after a successful
-            # ``invoke`` that returned ``Err``); the gate
-            # exists for symmetry with the ``except
-            # Exception`` path and to centralise the
-            # ``delivery_count > retries_allowed`` invariant
-            # in one site. The framework never routes to
-            # DLQ — DLQ is the vertical's responsibility.
-            if result.status == "err":
-                escalated = await escalate_on_retry_budget_exceeded(
-                    redis=self._redis,
-                    stream_key=stream_key,
-                    group_name=self._group_name,
-                    message_id=message_id,
-                    retries_allowed=retries_allowed,
-                    tool_name=tool_name,
-                    request_event=request_event,
-                    idempotency_key=idempotency_key,
-                    reason=f"err_{result.error_class}",
-                    event_log=self._event_log,
-                )
-                if escalated:
-                    # Framework escalation already emitted
-                    # ``.failed(permanent)``; just ACK the
-                    # message so the consumer group stops
-                    # holding it.
-                    await self._redis.xack(stream_key, self._group_name, message_id)
-                    return
-
             await self._translate_completion_to_event(
                 tool_name=tool_name,
                 request_event=request_event,
@@ -744,9 +714,8 @@ class WorkerManager:
                 event_log=self._event_log,
             )
             if escalated:
-                # Framework escalation already emitted
-                # ``.failed(permanent)``; ACK so the
-                # consumer group stops holding the message.
+                # Framework escalation emitted ``.failed(permanent)``;
+                # ACK so the consumer group stops holding the message.
                 await self._redis.xack(stream_key, self._group_name, message_id)
 
     async def _dispatch_to_tool(
