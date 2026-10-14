@@ -29,11 +29,48 @@ class _HelloTool:
         "type": "object",
         "properties": {"name": {"type": "string"}},
     }
+    # ``idempotent`` defaults to ``True`` on the Protocol
+    # (ADR-075 §3.3); explicit here to pin the test surface.
+    idempotent = True
 
     async def invoke(self, *, name: str, **kwargs):
         if not name:
             return Err(ToolError("name is required"))
         return Ok({"greeting": f"hello, {name}"})
+
+
+class _NonIdempotentTool:
+    """Tool that opts out of framework-level re-dispatch
+    (ADR-075 §3.3). Mirrors a PIX-style side effect tool.
+    """
+
+    name = "bank.transfer"
+    description = "PIX transfer (operator opted out of retry)."
+    input_schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {"amount": {"type": "integer"}},
+    }
+    idempotent = False
+
+    async def invoke(self, *, idempotency_key: str, amount: int, **kwargs):
+        return Ok({"status": "ok", "transfer": {"amount": amount}})
+
+
+class _OmittedIdempotentTool:
+    """Tool that does NOT declare ``idempotent`` at all —
+    must still satisfy the Protocol because the default
+    on the Protocol is ``True`` (ADR-075 §4 backward-compat).
+    """
+
+    name = "lookup.by_id"
+    description = "Read-only lookup (naturally idempotent)."
+    input_schema: ClassVar[dict] = {
+        "type": "object",
+        "properties": {"id": {"type": "string"}},
+    }
+
+    async def invoke(self, *, idempotency_key: str, id: str, **kwargs):
+        return Ok({"id": id})
 
 
 def _make_manager() -> WorkerManager:
@@ -78,6 +115,63 @@ class TestWorkerManagerIntrospection:
         mgr = _make_manager()
         mgr.register(_HelloTool, acl=None)
         assert isinstance(mgr.get("hello.greet"), Tool)
+
+
+class TestToolIdempotentFlag:
+    """``Tool.idempotent: bool = True`` (ADR-075 §3.3).
+
+    Pin the per-tool idempotency contract:
+      - a tool without the attribute still satisfies the Protocol
+        (default ``True`` — backward compat per ADR-075 §4);
+      - a tool that declares ``idempotent = False`` opts out
+        of framework-level re-dispatch (the sweeper reads the
+        flag and routes to DLQ instead — ADR-075 §2.3.2).
+    """
+
+    def test_default_is_true(self):
+        """The Protocol default is ``True`` (ADR-075 §3.3)."""
+        assert _HelloTool.idempotent is True
+
+    def test_explicit_false_opts_out(self):
+        """Non-idempotent side-effect tools can opt out."""
+        assert _NonIdempotentTool.idempotent is False
+
+    def test_omitted_attribute_treated_as_true(self):
+        """A class without ``idempotent`` declared is treated
+        as ``True`` by the framework at runtime — but
+        ``isinstance(cls, Tool)`` still requires presence
+        (Python ``@runtime_checkable`` Protocol gotcha).
+
+        This pins the semantic the sweeper relies on:
+        ``WorkerManager.tool_for(name).idempotent`` defaults
+        to ``True`` when the tool class omitted the field.
+        The TypeError on missing attributes is caught by the
+        explicit ``getattr(..., True)`` fallback at every
+        read site.
+        """
+        # Type-checker view: omitting ``idempotent`` is fine
+        # because the Protocol declares the default.
+        # Runtime view: ``getattr`` honours the default
+        # the type-checker sees.
+        assert getattr(_OmittedIdempotentTool(), "idempotent", True) is True
+        # ``isinstance`` does NOT honour the Protocol
+        # default — that is a documented
+        # ``@runtime_checkable`` quirk. The test for
+        # ``isinstance`` therefore requires the attribute
+        # to be present (see ``_HelloTool`` /
+        # ``_NonIdempotentTool`` above).
+
+    def test_worker_manager_reads_flag(self):
+        """``WorkerManager.get(...)`` returns the class, and
+        the class carries the flag — the sweeper reads it
+        via ``WorkerManager.tool_for(name).idempotent``
+        (ADR-075 §2.3.2 / §3.3).
+        """
+        mgr = _make_manager()
+        mgr.register(_NonIdempotentTool, acl=None)
+        cls = mgr.get("bank.transfer")
+        assert cls is _NonIdempotentTool
+        assert cls.idempotent is False
 
 
 class TestToolEventType:

@@ -57,17 +57,31 @@ class Tool(Protocol):
     name: str  # "invoice.issue" (provider.action)
     description: str  # humano-legível, usado em prompts
     input_schema: dict  # JSON-schema-like (opcional)
+    idempotent: bool = True  # ADR-075 §3.3 — safe-retry por padrão
 
     async def invoke(self, **kwargs) -> Result[Any, ToolError]: ...
 ```
 
 - Sem estado: o framework trata a tool como opaca, lê
-  `name` / `description` / `input_schema` e chama `invoke`.
+  `name` / `description` / `input_schema` / `idempotent`
+  e chama `invoke`.
 - O retorno é `Result[Any, ToolError]`: nunca levanta
   exceções de negócio — empacote em `Err(ToolError(...))`.
-- Idempotência: se a chamada for repetível com segurança,
-  documente e implemente (e.g. `invoice.query` é safe-retry,
-  `bank.transfer` não é).
+- Idempotência:
+  - **Por chamada** — toda tool recebe `idempotency_key`
+    (igual ao `event_id` do `tool.<name>.requested`). Tools
+    naturalmente idempotentes podem ignorar; tools com
+    side-effect não-idempotente (PIX, TED, mutação de
+    arquivo fora de transação) **devem** deduplicar por
+    essa chave. Detalhes em `docs/checkpoints.md`.
+  - **Por ferramenta** — `Tool.idempotent: bool = True`
+    (ADR-075 §3.3) declara se o framework pode re-dispatchar
+    a tool em caminhos de recuperação (TTL sweeper, reaper).
+    Default `True`; opt-out explícito para side-effects não
+    repetíveis (`bank.transfer`, `pix.send`). O
+    `ToolCallTTLSweeperSystem` lê essa flag e roteia para
+    DLQ em vez de re-dispatch quando `False`
+    (ADR-075 §2.3.2).
 
 ### Convenção de nomes
 
