@@ -188,6 +188,12 @@ def build_acl_denied_event(
         data={
             "error": denied_reason,
             "request_id": idempotency_key,
+            # ACL denial is permanent — re-attempting
+            # without changing the caller's role/ACL will
+            # always fail. The TTL sweeper and circuit
+            # breaker route permanent failures to DLQ
+            # instead of re-dispatching.
+            "error_class": "permanent",
         },
         correlation=request_event.correlation,
         producer_principal_id=principal_id,
@@ -238,13 +244,23 @@ def build_failure_event(
 ) -> Event:
     """Build the ``tool.<name>.failed`` event from a failed
     ``ToolResult``. Pure: returns the Event.
+
+    ``data`` carries both the human-readable ``error``
+    string and the framework-level ``error_class``
+    (transient / permanent / unknown). Downstream
+    consumers (TTL sweeper, circuit breaker, DLQ
+    adapter, reactive agent) act on ``error_class``
+    without parsing the free-form message.
     """
     return Event.create(
         event_type=f"tool.{tool_name}.failed",
         agent_id=request_event.agent_id,
         event_class="domain",
         causation_id=__import__("uuid").UUID(idempotency_key),
-        data={"error": result.error},
+        data={
+            "error": result.error,
+            "error_class": result.error_class,
+        },
         correlation=request_event.correlation,
     )
 

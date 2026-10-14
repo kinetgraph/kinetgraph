@@ -48,6 +48,7 @@ from concurrent.futures import ProcessPoolExecutor
 from typing import Any, cast
 
 from kntgraph.core._typing import JsonValue
+from kntgraph.core.result.errors import ToolError
 from kntgraph.tools._dispatch import (
     ExecutorFactory,
     ToolSyncInvoke,
@@ -115,10 +116,21 @@ def _result_to_tool_result(result: Any) -> ToolResult:
     ``err_value_or_raise`` protocol; the translation
     strips the ``Result`` envelope and projects to the
     ``status`` discriminator + ``value`` / ``error`` fields.
+
+    On the ``Err`` branch the ``error_class`` is read
+    from the underlying ``ToolError`` when present — the
+    tool classified it (transient / permanent / unknown).
+    Falls back to the legacy ``"unknown"`` default for
+    non-``ToolError`` err values (preserves the previous
+    behaviour for tools that raised a bare string or a
+    non-tool exception).
     """
     if result.is_ok():
         return ToolResult.ok(cast(JsonValue, result.unwrap()))
-    return ToolResult.err(str(result.err_value_or_raise()))
+    err_value = result.err_value_or_raise()
+    if isinstance(err_value, ToolError):
+        return ToolResult.err(str(err_value), error_class=err_value.error_class)
+    return ToolResult.err(str(err_value))
 
 
 class AsyncInProcFactory:

@@ -74,17 +74,167 @@ class TestToolResultToWire:
 
     def test_err_projects_status_error(self) -> None:
         """The error branch returns a mapping with
-        ``status`` and ``error`` keys, no ``value`` key.
-        This is the branch that was uncovered in
-        ``_result.py:84`` when the dataclass shipped.
+        ``status``, ``error`` and ``error_class`` keys,
+        no ``value`` key. This is the branch that was
+        uncovered in ``_result.py:84`` when the
+        dataclass shipped.
         """
         result: ToolResult = ToolResult.err("bad input")
 
         wire = result.to_wire()
 
-        assert wire == {"status": "err", "error": "bad input"}
+        # ``error_class`` defaults to ``"unknown"`` for
+        # legacy callers (no classification specified);
+        # the framework / sweeper consume it on the
+        # ``tool.<name>.failed`` event's ``data``.
+        assert wire == {
+            "status": "err",
+            "error": "bad input",
+            "error_class": "unknown",
+        }
         # No ``value`` key on the error wire shape.
         assert "value" not in wire
+
+
+class TestToolResultErrorClass:
+    """``ToolResult.error_class`` (item 1 of the backoffice
+    2026-10-07 retry-storm post-mortem).
+
+    The framework-level classification slot lets the
+    WorkerManager, TTL sweeper, and circuit breaker
+    distinguish retryable failures (transient) from
+    deterministic ones (permanent) without parsing the
+    free-form ``error`` string. Default ``"unknown"``
+    preserves the legacy behaviour for tools that have
+    not adopted the classification.
+    """
+
+    def test_default_is_unknown(self) -> None:
+        """Legacy callers (``ToolResult.err("msg")``)
+        get ``error_class == "unknown"`` — no
+        behavioural change.
+        """
+        result = ToolResult.err("boom")
+        assert result.error_class == "unknown"
+
+    def test_explicit_transient(self) -> None:
+        result = ToolResult.err("timeout", error_class="transient")
+        assert result.error_class == "transient"
+
+    def test_explicit_permanent(self) -> None:
+        result = ToolResult.err("no_such_bucket", error_class="permanent")
+        assert result.error_class == "permanent"
+
+    def test_wire_carries_error_class(self) -> None:
+        """The wire shape (consumed by
+        ``build_failure_event`` and projected to the
+        ``tool.<name>.failed`` event's ``data``) carries
+        ``error_class`` so downstream consumers can
+        route on it.
+        """
+        wire = ToolResult.err("timeout", error_class="transient").to_wire()
+        assert wire["error_class"] == "transient"
+        wire_p = ToolResult.err("nsb", error_class="permanent").to_wire()
+        assert wire_p["error_class"] == "permanent"
+
+    def test_ok_branch_omits_error_class(self) -> None:
+        """The success wire shape stays unchanged —
+        ``error_class`` is failure-only (ADR-079
+        §3.3 minimal-surface rule).
+        """
+        wire = ToolResult.ok({"x": 1}).to_wire()
+        assert wire == {"status": "ok", "value": {"x": 1}}
+        assert "error_class" not in wire
+
+
+class TestToolErrorClassification:
+    """``ToolError.transient/permanent/unknown`` factories.
+
+    Tools raise / return these so the framework can
+    classify the failure before it leaves the
+    tool-process boundary (``_worker_invocation.py`` and
+    ``executors._result_to_tool_result`` extract the
+    classification when wrapping the ``Result`` into a
+    ``ToolResult``).
+    """
+
+    def test_transient_factory(self) -> None:
+        from kntgraph.core.result.errors import ToolError
+
+        e = ToolError.transient("rate_limited")
+        assert e.error_class == "transient"
+        assert str(e) == "rate_limited"
+
+    def test_permanent_factory(self) -> None:
+        from kntgraph.core.result.errors import ToolError
+
+        e = ToolError.permanent("no_such_bucket")
+        assert e.error_class == "permanent"
+        assert str(e) == "no_such_bucket"
+
+    def test_unknown_factory(self) -> None:
+        from kntgraph.core.result.errors import ToolError
+
+        e = ToolError.unknown()
+        assert e.error_class == "unknown"
+
+    def test_legacy_construction_defaults_to_unknown(self) -> None:
+        """The pre-existing ``ToolError("msg")`` call
+        must still default to ``error_class ==
+        "unknown"`` (backward-compat for any tool that
+        was raising bare ``ToolError`` before this ADR).
+        """
+        from kntgraph.core.result.errors import ToolError
+
+        e = ToolError("legacy message")
+        assert e.error_class == "unknown"
+        assert str(e) == "legacy message"
+
+    def test_result_envelope_propagates_to_tool_result(self) -> None:
+        """A tool that returns ``Err(ToolError.permanent(...))``
+        gets a ``ToolResult`` carrying ``error_class ==
+        "permanent"`` — the classification survives the
+        ``Result`` → ``ToolResult`` conversion in
+        ``_worker_invocation.py``.
+        """
+        from kntgraph.core.result import Err
+        from kntgraph.core.result.errors import ToolError
+
+        # The test exercises the public contract that
+        # ``_invoke_tool_sync`` uses internally; we
+        # mirror the conversion here so the test does not
+        # depend on pickling machinery.
+        result = Err(ToolError.permanent("no_such_bucket"))
+        assert result.is_err()
+        err_value = result.err_value_or_raise()
+        assert isinstance(err_value, ToolError)
+        assert err_value.error_class == "permanent"
+        # ``_invoke_tool_sync`` then wraps as:
+        #   ToolResult.err(str(err_value), error_class=err_value.error_class)
+        wrapped = ToolResult.err(str(err_value), error_class=err_value.error_class)
+        assert wrapped.error_class == "permanent"
+        assert wrapped.status == "err"
+
+    def test_non_toolerror_envelope_defaults_to_unknown(self) -> None:
+        """A tool that raises a non-``ToolError``
+        falls back to ``error_class == "unknown"`` —
+        the framework cannot introspect the type, so it
+        preserves the legacy retry behaviour for this
+        case.
+        """
+        from kntgraph.core.result import Err
+        from kntgraph.core.result.errors import ToolError
+
+        # ``ValueError`` is a non-ToolError exception;
+        # the framework cannot extract classification,
+        # so the wrap falls back to ``"unknown"``.
+        result = Err(ValueError("some other failure"))
+        assert result.is_err()
+        err_value = result.err_value_or_raise()
+        assert not isinstance(err_value, ToolError)
+        # The legacy wrap:
+        wrapped = ToolResult.err(str(err_value))
+        assert wrapped.error_class == "unknown"
 
 
 class TestToolResultImmutability:

@@ -720,7 +720,16 @@ class WorkerManager:
                         agent_id=request_event.agent_id,
                         event_class="domain",
                         causation_id=uuid.UUID(idempotency_key),
-                        data={"error": f"Max retries exceeded / Worker crash: {e!s}"},
+                        # Worker crashes are transient by
+                        # default — a fresh worker can
+                        # re-attempt. The TTL sweeper and
+                        # circuit breaker consume
+                        # ``error_class`` for routing
+                        # decisions.
+                        data={
+                            "error": f"Max retries exceeded / Worker crash: {e!s}",
+                            "error_class": "transient",
+                        },
                         correlation=request_event.correlation,
                     )
                     await self._event_log.append(failed_evt)

@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
 
+from kntgraph.core.result.errors import ToolError
 from kntgraph.tools._result import ToolResult
 
 
@@ -86,6 +87,15 @@ def _invoke_tool_sync(
             # ``cast`` is the explicit acknowledgement of
             # that boundary — see ADR-079 §7.2.
             return ToolResult.ok(cast("JsonValue", result.unwrap()))
-        return ToolResult.err(str(result.err_value_or_raise()))
+        # On the Err branch, prefer the structured
+        # ``error_class`` from a ``ToolError`` (the tool
+        # classified it). Falls back to ``"unknown"`` for
+        # non-``ToolError`` err values — preserves the
+        # legacy behaviour for tools that raised a bare
+        # string or non-tool exception.
+        err_value = result.err_value_or_raise()
+        if isinstance(err_value, ToolError):
+            return ToolResult.err(str(err_value), error_class=err_value.error_class)
+        return ToolResult.err(str(err_value))
     finally:
         loop.close()
