@@ -135,3 +135,107 @@ def test_request_tool_without_correlation_raises():
             causation_id=str(uuid.uuid4()),
             correlation=None,  # type: ignore[arg-type]
         )
+
+
+class TestRequestToolIdempotencyKey:
+    """``idempotency_key`` on ``request_tool`` (item 4 of the
+    backoffice 2026-10-07 retry-storm post-mortem).
+
+    When a reactive system retries a failed tool call, it
+    passes the original request's idempotency_key (=
+    ``str(failed_event.causation_id)`` — the WorkerManager
+    stamps ``causation_id = idempotency_key`` on the
+    ``failed`` event). Two re-emits with the same key
+    collapse to the same ``event_id``; the EventLog
+    idempotency index dedupes the duplicate so the worker
+    runs at most once per logical request.
+
+    Without this kwarg (legacy behaviour), each retry
+    re-derives the event_id from a different
+    ``causation_id`` (the failure event of the previous
+    attempt) and a fresh UUID is minted — runaway loop.
+    """
+
+    def test_same_idempotency_key_collapses_event_id(self):
+        """Two re-emits of the same logical request — same
+        params, same idempotency_key, different
+        ``causation_id`` (the retry is caused by the
+        failure event) — collapse to the same
+        ``event_id``.
+        """
+        from kntgraph.core.event import CorrelationContext
+
+        system = ToolAwareSystem()
+        correlation = CorrelationContext.new(correlation_id=uuid.uuid4())
+        idempotency_key = "orig-request-event-id"
+
+        e1 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),  # original intent
+            correlation=correlation,
+            idempotency_key=idempotency_key,
+        )
+        e2 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),  # the failed event (different)
+            correlation=correlation,
+            idempotency_key=idempotency_key,
+        )
+        assert e1.event_id == e2.event_id
+
+    def test_different_idempotency_key_keeps_event_id_distinct(self):
+        """Two distinct logical requests must NOT collapse."""
+        from kntgraph.core.event import CorrelationContext
+
+        system = ToolAwareSystem()
+        correlation = CorrelationContext.new(correlation_id=uuid.uuid4())
+
+        e1 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),
+            correlation=correlation,
+            idempotency_key="request-1",
+        )
+        e2 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),
+            correlation=correlation,
+            idempotency_key="request-2",
+        )
+        assert e1.event_id != e2.event_id
+
+    def test_legacy_default_uses_causation_id_in_hash(self):
+        """When ``idempotency_key`` is omitted (legacy path),
+        the event_id still depends on ``causation_id`` — the
+        runaway-loop behaviour the backoffice saw.
+        This test pins that the kwarg is genuinely opt-in
+        and the legacy hash is untouched.
+        """
+        from kntgraph.core.event import CorrelationContext
+
+        system = ToolAwareSystem()
+        correlation = CorrelationContext.new(correlation_id=uuid.uuid4())
+
+        e1 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),
+            correlation=correlation,
+        )
+        e2 = system.request_tool(
+            agent_id="a-1",
+            tool_name="document_parser",
+            params={"path": "/a/b.pdf"},
+            causation_id=str(uuid.uuid4()),  # different
+            correlation=correlation,
+        )
+        assert e1.event_id != e2.event_id

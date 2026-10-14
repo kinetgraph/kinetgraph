@@ -141,6 +141,70 @@ class TestEventIdDeterminism:
         b = generate_deterministic_event_id(uuid4(), "x", {"k": 1})
         assert a != b
 
+    def test_same_idempotency_key_same_id(self):
+        """Two calls with the same ``idempotency_key`` (and
+        same other inputs) collapse to the same UUID — this
+        is the runaway-loop containment pattern: a reactive
+        system that re-emits a ``tool.<name>.requested``
+        passes the original request's idempotency_key so
+        the EventLog dedupes the duplicate.
+        """
+        c = uuid4()
+        a = generate_deterministic_event_id(
+            c, "tool.x.requested", {"k": 1}, idempotency_key="key-1"
+        )
+        b = generate_deterministic_event_id(
+            c, "tool.x.requested", {"k": 1}, idempotency_key="key-1"
+        )
+        assert a == b
+
+    def test_different_idempotency_key_different_id(self):
+        """Two calls with the same other inputs but
+        DIFFERENT ``idempotency_key``s produce different
+        UUIDs — distinct logical requests must not
+        collapse.
+        """
+        c = uuid4()
+        a = generate_deterministic_event_id(
+            c, "tool.x.requested", {"k": 1}, idempotency_key="key-1"
+        )
+        b = generate_deterministic_event_id(
+            c, "tool.x.requested", {"k": 1}, idempotency_key="key-2"
+        )
+        assert a != b
+
+    def test_idempotency_key_overrides_causation_drift(self):
+        """The whole point of the salt: a re-emit with a
+        different ``causation_id`` (the failed event's id
+        on the second attempt) but the SAME
+        ``idempotency_key`` must still collapse. This is
+        the scenario that produced the backoffice
+        2026-10-07 retry storm.
+        """
+        c_original = uuid4()
+        c_retry = uuid4()  # the failed event's id (differs)
+        a = generate_deterministic_event_id(
+            c_original, "tool.x.requested", {"k": 1}, idempotency_key="orig-req-id"
+        )
+        b = generate_deterministic_event_id(
+            c_retry,
+            "tool.x.requested",
+            {"k": 1},
+            idempotency_key="orig-req-id",  # unchanged
+        )
+        assert a == b
+
+    def test_idempotency_key_none_preserves_legacy_hash(self):
+        """Default behaviour (no ``idempotency_key``)
+        MUST match the pre-existing hash exactly — the
+        addition is opt-in and must not perturb
+        existing call sites.
+        """
+        c = uuid4()
+        a = generate_deterministic_event_id(c, "x", {"k": 1})
+        b = generate_deterministic_event_id(c, "x", {"k": 1}, idempotency_key=None)
+        assert a == b
+
     def test_event_create_with_deterministic_id(self):
         c = uuid4()
         e1 = Event.create(

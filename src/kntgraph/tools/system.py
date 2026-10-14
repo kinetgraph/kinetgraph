@@ -14,6 +14,7 @@ from uuid import UUID
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.event.id_helpers import generate_deterministic_event_id
 from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.core.world.view import AgentView
 
@@ -45,6 +46,8 @@ class ToolAwareSystem:
         causation_id: str | None = None,
         correlation: CorrelationContext | None = None,
         producer_principal_id: str | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Event:
         """
         Builds a ``tool.<name>.requested`` event (the canonical
@@ -73,6 +76,23 @@ class ToolAwareSystem:
         original caller. ``None`` when the request is not
         attributable to a principal (e.g. a system-initiated
         call).
+
+        ``idempotency_key`` (opt-in, default ``None``)
+        salts the deterministic ``event_id`` hash. When a
+        reactive system retries a failed tool call, it
+        SHOULD pass the original request's
+        ``idempotency_key`` (i.e.
+        ``str(failed_event.causation_id)`` — the
+        ``WorkerManager`` stamps ``causation_id =
+        idempotency_key`` on the ``failed`` event).
+        Two re-emits with the same key collapse to the
+        same ``event_id``; the EventLog idempotency
+        index dedupes the duplicate so the worker
+        runs at most once per logical request. This is
+        the canonical runaway-loop containment pattern
+        (the backoffice 2026-10-07 retry storm on
+        ``document_parser`` was caused by the absence of
+        this salt — every retry minted a fresh event id).
         """
         if correlation is None:
             raise TypeError(
@@ -93,7 +113,21 @@ class ToolAwareSystem:
         # caller already passed a real UUID. Production
         # callers in the EventLog path always pass a
         # stringified UUID.
+        eid: UUID | None = None
+        if idempotency_key is not None:
+            # Pre-compute the event_id with the salt so
+            # retries collapse. ``Event.create`` will
+            # honour the explicit ``event_id`` and skip
+            # its built-in derivation.
+            eid = generate_deterministic_event_id(
+                causation_id=causation_id or "root",
+                agent_id=agent_id,
+                event_type=f"tool.{tool_name}.requested",
+                data=payload,
+                idempotency_key=idempotency_key,
+            )
         return Event.create(
+            event_id=eid,
             event_type=f"tool.{tool_name}.requested",
             agent_id=agent_id,
             event_class="domain",
