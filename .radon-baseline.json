@@ -9545,7 +9545,7 @@
       "rank": "A"
     },
     "src/kntgraph/resilience/retry.py": {
-      "mi": 69.37935351954272,
+      "mi": 69.31055156588917,
       "rank": "A"
     },
     "src/kntgraph/resilience/timeout.py": {
