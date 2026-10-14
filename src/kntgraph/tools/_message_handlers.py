@@ -265,6 +265,95 @@ def build_failure_event(
     )
 
 
+async def escalate_on_retry_budget_exceeded(
+    *,
+    redis: RedisLike,
+    stream_key: str,
+    group_name: str,
+    message_id: str,
+    retries_allowed: int,
+    tool_name: str,
+    request_event: Event,
+    idempotency_key: str,
+    reason: str,
+    event_log: Any,
+) -> bool:
+    """Check the Redis Streams retry budget; if exceeded,
+    emit a ``tool.<name>.failed`` event with
+    ``error_class="permanent"`` (the framework's
+    "I gave up" signal) and return ``True``.
+
+    Returns ``False`` when the budget is intact (caller
+    continues normal processing). Pure side-effect helper:
+    caller is responsible for the XACK (this function does
+    not XACK — the consumer group semantics differ
+    between the ``Err`` path and the ``except Exception``
+    path).
+
+    Item 3 of the backoffice 2026-10-07 retry-storm
+    post-mortem: the retry-budget check is consulted on
+    BOTH the ``Err`` path and the ``except Exception``
+    path. The framework never routes to DLQ itself — it
+    only emits the signal. DLQ routing is the vertical's
+    responsibility (the role system observes
+    ``.failed(permanent)`` and decides, per its policy).
+
+    The ``Err`` path almost never triggers this gate
+    (delivery_count is 1 after a successful ``invoke``
+    that returned ``Err``); the gate fires on the
+    ``except Exception`` path when the worker crashes
+    repeatedly and the reaper reclaims. The unified
+    helper exists for symmetry and so the
+    ``delivery_count > retries_allowed`` invariant
+    lives in one site.
+    """
+    from uuid import UUID
+
+    pending_info = await redis.xpending_range(
+        stream_key, group_name, min=message_id, max=message_id, count=1
+    )
+    if not pending_info:
+        return False
+    delivery_count = pending_info[0]["times_delivered"]
+    if delivery_count <= retries_allowed:
+        return False
+
+    # Framework escalation: emit ``.failed(permanent)``.
+    # The tool may have classified as transient/unknown
+    # but the framework has given up after the budget
+    # is exhausted; from the EventLog's perspective,
+    # this is a terminal event for the delivery.
+    logger.error(
+        "worker.retry_budget.exceeded",
+        tool=tool_name,
+        message_id=message_id,
+        delivery_count=delivery_count,
+        retries_allowed=retries_allowed,
+        reason=reason,
+    )
+    failed_evt = Event.create(
+        event_type=f"tool.{tool_name}.failed",
+        agent_id=request_event.agent_id,
+        event_class="domain",
+        causation_id=UUID(idempotency_key),
+        data={
+            "error": (
+                f"Retry budget exhausted "
+                f"({delivery_count}/{retries_allowed}, {reason!r})"
+            ),
+            # Framework escalation: from this delivery's
+            # perspective the request is terminal. The
+            # vertical / reactive decides whether to
+            # route to DLQ, alert the operator, or
+            # compensate.
+            "error_class": "permanent",
+        },
+        correlation=request_event.correlation,
+    )
+    await event_log.append(failed_evt)
+    return True
+
+
 async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
     """Deprecated. Removal target: v0.19.0 (ADR-082 §3.3)."""
     warnings.warn(

@@ -359,7 +359,89 @@ class TestProcessMessageErr:
         failed = event_log_mock.append.await_args.args[0]
         assert failed.event_type == "tool.boom.failed"
         assert "boom" in failed.data["error"]
+        # ``_BoomTool`` raises ``ToolError("boom")`` (legacy
+        # constructor), which defaults to
+        # ``error_class="unknown"`` — the framework
+        # preserves that on the wire.
+        assert failed.data["error_class"] == "unknown"
         redis_mock.xack.assert_awaited_once()
+
+    async def test_err_permanent_does_not_retry_in_framework(
+        self, manager, redis_mock, event_log_mock
+    ):
+        """A tool that classifies as ``permanent`` is
+        final on the first attempt — the framework does
+        NOT re-dispatch (the reactive / operator
+        decides). The wire carries ``error_class=
+        "permanent"`` so downstream consumers can
+        route.
+        """
+
+        @tool_worker(name="permdoc", max_concurrency=1, retries=3)
+        class _PermanentFailTool:
+            async def invoke(self, *, idempotency_key: str, **kwargs):
+                from kntgraph.core.result import Err
+                from kntgraph.core.result.errors import ToolError
+
+                return Err(ToolError.permanent("no_such_bucket"))
+
+        manager.register(_PermanentFailTool, acl=None)
+
+        request = _make_request_event(tool_name="permdoc")
+        _, data = _stream_message(request)
+
+        # ``delivery_count == 1`` (typical first delivery,
+        # well below the budget of 3).
+        redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
+
+        await manager._process_message("permdoc", "stream", "1-0", data)
+
+        event_log_mock.append.assert_awaited_once()
+        failed = event_log_mock.append.await_args.args[0]
+        assert failed.event_type == "tool.permdoc.failed"
+        # Framework preserves the tool's classification —
+        # NOT escalating to "permanent" on the first attempt
+        # (the tool already did that), but ALSO not
+        # downgrading to "unknown".
+        assert failed.data["error_class"] == "permanent"
+        # The framework acks the message; it does NOT
+        # route to DLQ (that's the vertical's
+        # responsibility).
+        redis_mock.xack.assert_awaited_once()
+        # No second delivery expected — the message is
+        # gone from PEL.
+        assert redis_mock.xpending_range.await_count <= 2
+
+    async def test_err_transient_propagates_to_wire(
+        self, manager, redis_mock, event_log_mock
+    ):
+        """A tool that classifies as ``transient`` keeps
+        the classification on the wire — the reactive
+        agent reads ``error_class`` and decides whether
+        to re-emit (with ``idempotency_key`` so the
+        EventLog dedupes).
+        """
+
+        @tool_worker(name="transdoc", max_concurrency=1, retries=3)
+        class _TransientFailTool:
+            async def invoke(self, *, idempotency_key: str, **kwargs):
+                from kntgraph.core.result import Err
+                from kntgraph.core.result.errors import ToolError
+
+                return Err(ToolError.transient("rate_limited"))
+
+        manager.register(_TransientFailTool, acl=None)
+
+        request = _make_request_event(tool_name="transdoc")
+        _, data = _stream_message(request)
+
+        redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
+
+        await manager._process_message("transdoc", "stream", "1-0", data)
+
+        event_log_mock.append.assert_awaited_once()
+        failed = event_log_mock.append.await_args.args[0]
+        assert failed.data["error_class"] == "transient"
 
     async def test_args_fallback_when_no_params(self, manager, event_log_mock):
         manager.register(_EchoTool, acl=None)
@@ -468,6 +550,12 @@ class TestProcessMessageHardCrash:
         event_log_mock.append.assert_awaited_once()
         failed = event_log_mock.append.await_args.args[0]
         assert failed.event_type == "tool.echo.failed"
+        # Framework escalation: the framework has given
+        # up after the budget is exhausted, so the wire
+        # carries ``error_class="permanent"``. The
+        # vertical / reactive decides whether to route
+        # to DLQ (NOT the framework's responsibility).
+        assert failed.data["error_class"] == "permanent"
         redis_mock.xack.assert_awaited_once()
 
     async def test_hard_crash_below_budget_does_not_ack(
