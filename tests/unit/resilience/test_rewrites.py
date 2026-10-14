@@ -35,6 +35,7 @@ broken before the audit fixes (June 2026):
 from __future__ import annotations
 
 import asyncio
+import inspect
 from unittest.mock import patch
 
 import pytest
@@ -82,7 +83,7 @@ class TestRetryAwaitsCoroutines:
         result = fn()
         # The wrapped function must itself be a coroutine
         # function (so callers can `await fn()`).
-        assert asyncio.iscoroutinefunction(fn), (
+        assert inspect.iscoroutinefunction(fn), (
             "retry_with_backoff must preserve async-ness"
         )
         # Awaiting yields the value, not a coroutine object.
