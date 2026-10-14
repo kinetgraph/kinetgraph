@@ -64,6 +64,10 @@ class _FullTool:
         "type": "object",
         "properties": {"x": {"type": "integer"}},
     }
+    # ``idempotent`` is required for ``isinstance(cls, Tool)``
+    # at runtime (``@runtime_checkable`` Protocol quirk;
+    # see test_protocol.py::TestToolIdempotentFlag).
+    idempotent = True
 
     async def invoke(
         self,

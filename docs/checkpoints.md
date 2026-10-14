@@ -223,6 +223,50 @@ class InvoiceQueryTool:
         return Ok(await self._invoice_api.query(document_id))
 ```
 
+### Retry de uma tool que falhou (opt-in por `idempotency_key`)
+
+Quando um sistema reativo decide re-dispatchar um
+`tool.<name>.requested` após observar um
+`tool.<name>.failed`, ele **deve** passar a
+`idempotency_key` original (o `event_id` do request
+original) no novo emit. Isso ancora o `event_id` do
+re-emit no `idempotency_key`, e o índice de idempotência
+do EventLog colapsa a duplicata — o worker executa no
+máximo uma vez por request lógico, e a retry-storm do
+backoffice 2026-10-07 (6 tentativas do mesmo
+`document_parser` em 5 s, cada uma com `event_id`
+novo) é contida.
+
+```python
+class MySystem(ToolAwareSystem):
+    def on_tool_failed(self, view, failed_event):
+        # failed_event.causation_id == idempotency_key
+        # do request original (o WorkerManager carimba
+        # causation_id = idempotency_key no .failed).
+        return self.request_tool(
+            agent_id=view.agent_id,
+            tool_name=failed_event.data["tool"],
+            params=failed_event.data["params"],
+            causation_id=str(failed_event.event_id),  # a falha atual
+            correlation=failed_event.correlation,
+            idempotency_key=str(failed_event.causation_id),  # request original
+        )
+```
+
+Sem o `idempotency_key=`, cada retry emite um
+`event_id` novo (o hash inclui o `causation_id`, que
+muda entre tentativas — o segundo emit é causado pela
+falha, não pela intent original) e o EventLog aceita
+todos como eventos distintos: **runaway loop**. Com o
+kwarg, o `event_id` fica ancorado na identidade lógica
+do request e a retry colapsa em um no-op no EventLog.
+
+Detalhes da primitiva: `generate_deterministic_event_id`
+em `src/kntgraph/core/event/id_helpers.py:25` (modo
+`idempotency_key` ancorado vs. modo default legado) e
+`ToolAwareSystem.request_tool` em
+`src/kntgraph/tools/system.py:40`.
+
 ---
 
 ## 6. Crash safety — fluxos garantidos

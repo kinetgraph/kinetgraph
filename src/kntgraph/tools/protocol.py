@@ -224,11 +224,32 @@ class Tool(Describable, Protocol[R]):
     The framework never reads the ``idempotency_key`` from
     the tool's return value; it is the tool's responsibility
     to persist the key → result mapping externally.
+
+    Per-tool idempotency flag (ADR-075 §3.3)
+    ----------------------------------------
+
+    ``idempotent`` declares whether the tool's side effects
+    are safe to retry by the framework (TTL sweeper, reaper
+    re-run, reactive re-dispatch). Default ``True``: the
+    framework may freely re-invoke a tool on recovery paths.
+    Operators opt out per-tool when the tool has
+    non-idempotent side effects (bank transfers, PIX, file
+    mutation outside a transaction). The flag is read by
+    ``ToolCallTTLSweeperSystem`` (ADR-075 §2.3.2) to decide
+    between re-dispatch and DLQ routing.
+
+    A tool without a registered descriptor is treated as
+    non-idempotent (safe-by-default; the operator adds the
+    descriptor to opt in to retry).
+
+    The Protocol change is additive (existing classes
+    satisfy it because ``True`` is the default — ADR-075 §4).
     """
 
     name: str
     description: str
     input_schema: dict[str, JsonValue]
+    idempotent: bool = True  # ADR-075 §3.3 — per-tool retry safety
 
     async def invoke(
         self,

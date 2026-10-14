@@ -72,6 +72,23 @@ async def actions(queue, storage):
     return DeadLetterActions(queue=queue)
 
 
+@pytest_asyncio.fixture
+async def failing_storage(fake_redis):
+    """Adapter-shaped fake with opt-in failure injection.
+
+    See ``tests/unit/events/_fakes.py`` for the SUT-
+    pattern rationale. Used by the
+    ``TestFailingStorageBranches`` class to cover the
+    defensive ``translate_redis_call`` paths in
+    ``store.py:219, 252`` and the ``Err`` / ``Ok(None)``
+    paths in ``actions.py:128-130, 136-137, 178`` without
+    monkeypatching.
+    """
+    from tests.unit.events._fakes import FailingRedisDLQStorage
+
+    return FailingRedisDLQStorage(fake_redis)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -566,3 +583,139 @@ class TestActionsErrorBranches:
             assert result.is_err()
         finally:
             monkeypatch_.undo()
+
+
+# ---------------------------------------------------------------------------
+# Failing-storage fake (SUT pattern at the adapter level — see
+# tests/unit/events/_fakes.py for the rationale). Covers the
+# defensive branches in store.py and actions.py without
+# monkeypatching the production adapter or the fakeredis
+# client.
+# ---------------------------------------------------------------------------
+
+
+class TestFailingStorageBranches:
+    """Cover the 6 branches in ``events/dlq/{store,actions}``
+    that the regular ``storage`` fixture cannot reach:
+
+    - ``actions.py:128-130`` (Err from _find_entry on discard)
+    - ``actions.py:136-137`` (Err from _drop_entry on discard)
+    - ``actions.py:178``     (Ok(None) from read on _find_entry)
+    - ``store.py:160->163``  (stream_id is None on append)
+    - ``store.py:219``       (Err from bump_reason_counter)
+    - ``store.py:252``       (Err from set_agent_head)
+
+    The fake exposes the same Protocol surface as
+    ``RedisDLQStorage`` so the production consumers
+    (``DeadLetterQueue``, ``DeadLetterActions``) accept
+    it without modification.
+    """
+
+    async def test_discard_returns_err_when_find_entry_errs(self, failing_storage):
+        from kntgraph.core.result import Err
+        from kntgraph.infra.redis._errors import MemoryError
+
+        failing_storage.make_find_return(Err(MemoryError("find down")))
+        actions = DeadLetterActions(storage=failing_storage)
+        result = await actions.discard("any-event-id")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
+
+    async def test_discard_returns_err_when_drop_entry_errs(self, fake_redis):
+        from kntgraph.core.result import Err
+        from kntgraph.infra.redis._errors import MemoryError
+        from tests.unit.events._fakes import FailingRedisDLQStorage
+
+        # Build a queue that uses the fake end-to-end so
+        # the drop_entry override is actually exercised.
+        # The append() and find_by_event_id() use the
+        # real fakeredis path; only drop_entry is fake.
+        failing = FailingRedisDLQStorage(fake_redis)
+        failing.make_drop_return(Err(MemoryError("drop down")))
+        queue = DeadLetterQueue(failing)
+        dl = _make_dlq_event()
+        await queue.append(dl)
+        actions = DeadLetterActions(queue=queue)
+        result = await actions.discard(str(dl.event.event_id))
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
+
+    async def test_discard_returns_err_when_read_returns_none(self, failing_storage):
+        """``_find_entry`` calls ``find_by_event_id`` (returns
+        Ok(stream_id)) and then ``read(stream_id)`` — when
+        the read returns Ok(None) (the stream entry is
+        gone), ``_find_entry`` returns Ok(None) and
+        ``discard`` raises PersistenceError("No DLQ
+        entry..."). Exercises ``actions.py:178``.
+        """
+        from kntgraph.core.result import Ok
+
+        # Two-step: make find return a stream_id, then
+        # make read return Ok(None).
+        failing_storage.make_find_return(Ok("ghost-stream-id"))
+        failing_storage.make_read_return(Ok(None))
+        actions = DeadLetterActions(storage=failing_storage)
+        result = await actions.discard("any-event-id")
+        assert result.is_err()
+        assert isinstance(result.err_value(), PersistenceError)
+
+    async def test_append_skips_set_agent_head_when_stream_id_is_none(
+        self, failing_storage
+    ):
+        """When ``append`` returns ``Ok(None)`` (custom
+        storage implementations), the
+        ``stream_id is not None`` check on
+        ``store.py:160`` is False and the agent-head
+        step is skipped. Exercises ``store.py:160->163``.
+        """
+        from kntgraph.core.result import Ok
+
+        failing_storage.make_append_return(Ok(None))
+        queue = DeadLetterQueue(failing_storage)
+        result = await queue.append(_make_dlq_event())
+        # The queue treats None as a valid "no stream id"
+        # answer; it short-circuits to PLACEHOLDER.
+        assert result.is_ok()
+
+    async def test_append_swallows_bump_reason_counter_redis_error(self, fake_redis):
+        """``_bump_reason_counter`` wraps the call in
+        ``translate_redis_call``. When the underlying
+        raises ``RedisError`` (the fake's
+        ``fail_bump_reason_counter`` opt-in), the helper
+        catches it and returns ``Err``; the outer
+        ``is_err()`` branch fires and the call returns
+        silently (``append`` is not affected). Exercises
+        ``store.py:219``.
+        """
+        from kntgraph.infra.redis._dlq import PLACEHOLDER
+        from tests.unit.events._fakes import FailingRedisDLQStorage
+
+        failing = FailingRedisDLQStorage(fake_redis)
+        failing.fail_bump_reason_counter()
+        queue = DeadLetterQueue(failing)
+        result = await queue.append(_make_dlq_event())
+        # The append still succeeds (the counter is a
+        # hint, not a durability primitive).
+        assert result.is_ok()
+        assert result.ok_value() != PLACEHOLDER
+
+    async def test_append_swallows_set_agent_head_redis_error(self, fake_redis):
+        """The agent-head pointer step uses
+        ``self._storage.client.hsetnx(...)`` (not a
+        storage method). The fake wraps the client so
+        that the ``fail_set_agent_head`` opt-in makes
+        the underlying ``hsetnx`` raise. The
+        ``translate_redis_call`` helper catches and
+        returns Err; the outer ``is_err()`` fires and
+        the call returns silently. Exercises
+        ``store.py:252``.
+        """
+        from kntgraph.infra.redis._dlq import PLACEHOLDER
+        from tests.unit.events._fakes import FailingRedisDLQStorage
+
+        failing = FailingRedisDLQStorage(fake_redis)
+        failing.fail_set_agent_head()
+        queue = DeadLetterQueue(failing)
+        result = await queue.append(_make_dlq_event())
+        assert result.is_ok()
+        assert result.ok_value() != PLACEHOLDER

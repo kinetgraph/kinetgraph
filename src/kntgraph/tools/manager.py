@@ -57,7 +57,6 @@ from __future__ import annotations
 import asyncio
 import multiprocessing
 import time
-import uuid
 from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
@@ -84,6 +83,7 @@ from kntgraph.tools._message_handlers import (
     build_completion_event,
     build_failure_event,
     coerce_tool_params,
+    escalate_on_retry_budget_exceeded,
     evaluate_acl,
     log_acl_denial,
     parse_request_payload,
@@ -701,31 +701,22 @@ class WorkerManager:
             # If the process pool itself broke, we can't do much but we must not XACK.
             # We let the Reaper pick it up via XAUTOCLAIM.
             # But we can proactively check delivery count via XPENDING to see if it exceeded retries.
-            pending_info = await self._redis.xpending_range(
-                stream_key, self._group_name, min=message_id, max=message_id, count=1
+            escalated = await escalate_on_retry_budget_exceeded(
+                redis=self._redis,
+                stream_key=stream_key,
+                group_name=self._group_name,
+                message_id=message_id,
+                retries_allowed=retries_allowed,
+                tool_name=tool_name,
+                request_event=request_event,
+                idempotency_key=idempotency_key,
+                reason="worker_crash",
+                event_log=self._event_log,
             )
-            if pending_info:
-                delivery_count = pending_info[0]["times_delivered"]
-                if delivery_count > retries_allowed:
-                    # DLQ trigger!
-                    logger.error(
-                        "worker.dlq.triggered",
-                        tool=tool_name,
-                        message_id=message_id,
-                        delivery_count=delivery_count,
-                        retries_allowed=retries_allowed,
-                    )
-                    failed_evt = Event.create(
-                        event_type=f"tool.{tool_name}.failed",
-                        agent_id=request_event.agent_id,
-                        event_class="domain",
-                        causation_id=uuid.UUID(idempotency_key),
-                        data={"error": f"Max retries exceeded / Worker crash: {e!s}"},
-                        correlation=request_event.correlation,
-                    )
-                    await self._event_log.append(failed_evt)
-                    await self._redis.xack(stream_key, self._group_name, message_id)
-                    # We could also write to a DLQ stream here if needed.
+            if escalated:
+                # Framework escalation emitted ``.failed(permanent)``;
+                # ACK so the consumer group stops holding the message.
+                await self._redis.xack(stream_key, self._group_name, message_id)
 
     async def _dispatch_to_tool(
         self,

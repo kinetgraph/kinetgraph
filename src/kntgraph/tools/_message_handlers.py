@@ -188,6 +188,12 @@ def build_acl_denied_event(
         data={
             "error": denied_reason,
             "request_id": idempotency_key,
+            # ACL denial is permanent — re-attempting
+            # without changing the caller's role/ACL will
+            # always fail. The TTL sweeper and circuit
+            # breaker route permanent failures to DLQ
+            # instead of re-dispatching.
+            "error_class": "permanent",
         },
         correlation=request_event.correlation,
         producer_principal_id=principal_id,
@@ -238,15 +244,80 @@ def build_failure_event(
 ) -> Event:
     """Build the ``tool.<name>.failed`` event from a failed
     ``ToolResult``. Pure: returns the Event.
+
+    ``data`` carries both the human-readable ``error``
+    string and the framework-level ``error_class``
+    (transient / permanent / unknown). Downstream
+    consumers (TTL sweeper, circuit breaker, DLQ
+    adapter, reactive agent) act on ``error_class``
+    without parsing the free-form message.
     """
     return Event.create(
         event_type=f"tool.{tool_name}.failed",
         agent_id=request_event.agent_id,
         event_class="domain",
         causation_id=__import__("uuid").UUID(idempotency_key),
-        data={"error": result.error},
+        data={
+            "error": result.error,
+            "error_class": result.error_class,
+        },
         correlation=request_event.correlation,
     )
+
+
+async def escalate_on_retry_budget_exceeded(
+    *,
+    redis: RedisLike,
+    stream_key: str,
+    group_name: str,
+    message_id: str,
+    retries_allowed: int,
+    tool_name: str,
+    request_event: Event,
+    idempotency_key: str,
+    reason: str,
+    event_log: Any,
+) -> bool:
+    """Check the Redis Streams retry budget; if exceeded,
+    emit ``.failed(permanent)`` and return ``True``.
+    Caller XACKs. The framework never routes to DLQ
+    itself — DLQ is the vertical's responsibility.
+    """
+    from uuid import UUID
+
+    pending = await redis.xpending_range(
+        stream_key, group_name, min=message_id, max=message_id, count=1
+    )
+    if not pending:
+        return False
+    delivery_count = pending[0]["times_delivered"]
+    if delivery_count <= retries_allowed:
+        return False
+
+    logger.error(
+        "worker.retry_budget.exceeded",
+        tool=tool_name,
+        message_id=message_id,
+        delivery_count=delivery_count,
+        retries_allowed=retries_allowed,
+        reason=reason,
+    )
+    failed_evt = Event.create(
+        event_type=f"tool.{tool_name}.failed",
+        agent_id=request_event.agent_id,
+        event_class="domain",
+        causation_id=UUID(idempotency_key),
+        data={
+            "error": (
+                f"Retry budget exhausted "
+                f"({delivery_count}/{retries_allowed}, {reason!r})"
+            ),
+            "error_class": "permanent",
+        },
+        correlation=request_event.correlation,
+    )
+    await event_log.append(failed_evt)
+    return True
 
 
 async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:

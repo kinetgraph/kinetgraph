@@ -14,6 +14,7 @@ from uuid import UUID
 
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.event.id_helpers import generate_deterministic_event_id
 from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.core.world.view import AgentView
 
@@ -45,6 +46,8 @@ class ToolAwareSystem:
         causation_id: str | None = None,
         correlation: CorrelationContext | None = None,
         producer_principal_id: str | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Event:
         """
         Builds a ``tool.<name>.requested`` event (the canonical
@@ -73,6 +76,14 @@ class ToolAwareSystem:
         original caller. ``None`` when the request is not
         attributable to a principal (e.g. a system-initiated
         call).
+
+        ``idempotency_key`` (opt-in, default ``None``)
+        salts the ``event_id`` hash so retries of the
+        same logical request collapse to one event at
+        the EventLog (the ``WorkerManager`` stamps
+        ``causation_id = idempotency_key`` on the
+        ``.failed`` event, so the reactive re-emit can
+        pass ``str(failed_event.causation_id)``).
         """
         if correlation is None:
             raise TypeError(
@@ -86,14 +97,20 @@ class ToolAwareSystem:
             "tool": tool_name,
             "params": dict(params),
         }
-        # ``causation_id`` comes in as ``str | None`` (the
-        # EventView stores it as a string projection of
-        # the underlying UUID). ``Event.create`` expects a
-        # ``UUID | None``; the cast is a no-op when the
-        # caller already passed a real UUID. Production
-        # callers in the EventLog path always pass a
-        # stringified UUID.
+        # Pre-compute the event_id (only when the caller
+        # opted in via ``idempotency_key=``; otherwise
+        # ``Event.create`` derives it). The helper below
+        # owns the if/or/return so the public method
+        # stays CC ≤ 2 (ratchet rule).
+        eid = _stable_event_id_for_tool_request(
+            idempotency_key=idempotency_key,
+            causation_id=causation_id,
+            agent_id=agent_id,
+            tool_name=tool_name,
+            payload=payload,
+        )
         return Event.create(
+            event_id=eid,
             event_type=f"tool.{tool_name}.requested",
             agent_id=agent_id,
             event_class="domain",
@@ -134,3 +151,27 @@ class ToolAwareSystem:
         has_req = self.has_requested(view, request_event_id)
         has_comp = self.get_completion(view, request_event_id) is not None
         return has_req and not has_comp
+
+
+def _stable_event_id_for_tool_request(
+    *,
+    idempotency_key: str | None,
+    causation_id: str | None,
+    agent_id: str,
+    tool_name: str,
+    payload: Mapping[str, JsonValue],
+) -> UUID | None:
+    """Return the explicit ``event_id`` when the caller
+    opted in via ``idempotency_key``; ``None`` otherwise
+    (the framework's default derivation applies).
+    Module-level function so ``request_tool`` stays CC ≤ 2.
+    """
+    if idempotency_key is None:
+        return None
+    return generate_deterministic_event_id(
+        causation_id=causation_id or "root",
+        agent_id=agent_id,
+        event_type=f"tool.{tool_name}.requested",
+        data=payload,
+        idempotency_key=idempotency_key,
+    )

@@ -43,27 +43,21 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
 
+from kntgraph.core.result.errors import ToolError
 from kntgraph.tools._result import ToolResult
 
 
 def _invoke_tool_sync(
     tool_cls: type, idempotency_key: str, kwargs: Mapping[str, JsonValue]
 ) -> ToolResult:
-    """
-    Synchronous wrapper that runs a tool's ``invoke``
-    coroutine inside the worker process.
-
-    Instantiates ``tool_cls`` with no arguments, opens
-    a fresh event loop for this process (the worker is
-    a fresh Python under ``spawn`` and has no running
-    loop), runs ``tool_instance.invoke(...)`` to
-    completion, and serialises the ``Result`` to a
-    ``ToolResult`` (ADR-079) so the parent can read it
-    back across the multiprocessing boundary.
-
-    The on-wire shape for callers that need a dict is
-    ``ToolResult.to_wire()``; the multiprocessing
-    boundary itself uses ``ToolResult`` directly.
+    """Synchronous wrapper that runs a tool's ``invoke``
+    coroutine inside the worker process. Instantiates
+    ``tool_cls``, opens a fresh event loop (the worker
+    is a fresh Python under ``spawn``), runs
+    ``tool_instance.invoke(...)`` to completion, and
+    serialises the ``Result`` to a ``ToolResult``
+    (ADR-079) for the parent to read back across the
+    multiprocessing boundary.
     """
     tool_instance = tool_cls()
 
@@ -86,6 +80,17 @@ def _invoke_tool_sync(
             # ``cast`` is the explicit acknowledgement of
             # that boundary — see ADR-079 §7.2.
             return ToolResult.ok(cast("JsonValue", result.unwrap()))
-        return ToolResult.err(str(result.err_value_or_raise()))
+        return _toolresult_from_err_value(result.err_value_or_raise())
     finally:
         loop.close()
+
+
+def _toolresult_from_err_value(err_value: object) -> ToolResult:
+    """Map an ``Err``-branch value to a ``ToolResult``.
+    Falls back to ``"unknown"`` for non-``ToolError``
+    err values (preserves the legacy behaviour for tools
+    that raised a bare string or a non-tool exception).
+    """
+    if isinstance(err_value, ToolError):
+        return ToolResult.err(str(err_value), error_class=err_value.error_class)
+    return ToolResult.err(str(err_value))

@@ -49,6 +49,7 @@ not.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from typing import ParamSpec, TypeVar, cast
 
@@ -159,7 +160,7 @@ def retry_with_backoff(
     def decorator(
         fn: Callable[P, Awaitable[T]],
     ) -> Callable[P, Awaitable[T]]:
-        if not asyncio.iscoroutinefunction(fn):
+        if not inspect.iscoroutinefunction(fn):
             raise TypeError(
                 "retry_with_backoff must be applied to an "
                 "async def callable; got a sync function"
@@ -227,7 +228,7 @@ async def retry_async[**P, T](
             reraise=False, which we do not expose here).
         asyncio.CancelledError: propagated unchanged.
     """
-    if not asyncio.iscoroutinefunction(fn):
+    if not inspect.iscoroutinefunction(fn):
         raise TypeError("retry_async requires an async callable")
     safe_retry_on = _sanitise_retry_on(retry_on)
 

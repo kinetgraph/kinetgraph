@@ -48,6 +48,7 @@ from concurrent.futures import ProcessPoolExecutor
 from typing import Any, cast
 
 from kntgraph.core._typing import JsonValue
+from kntgraph.core.result.errors import ToolError
 from kntgraph.tools._dispatch import (
     ExecutorFactory,
     ToolSyncInvoke,
@@ -110,15 +111,23 @@ def _strip_internal_keys(
 
 def _result_to_tool_result(result: Any) -> ToolResult:
     """Map a tool's ``Result[T, ToolError]`` to the
-    framework's ``ToolResult`` (ADR-079). The two
-    classes share the ``is_ok`` / ``unwrap`` /
-    ``err_value_or_raise`` protocol; the translation
-    strips the ``Result`` envelope and projects to the
-    ``status`` discriminator + ``value`` / ``error`` fields.
+    framework's ``ToolResult`` (ADR-079). The Err-branch
+    classification is delegated to the helper below.
     """
     if result.is_ok():
         return ToolResult.ok(cast(JsonValue, result.unwrap()))
-    return ToolResult.err(str(result.err_value_or_raise()))
+    return _toolresult_from_err_value(result.err_value_or_raise())
+
+
+def _toolresult_from_err_value(err_value: object) -> ToolResult:
+    """Read ``error_class`` from a ``ToolError``; fall back
+    to ``"unknown"`` for non-ToolError values (preserves
+    the legacy behaviour for tools that raised a bare
+    string or a non-tool exception).
+    """
+    if isinstance(err_value, ToolError):
+        return ToolResult.err(str(err_value), error_class=err_value.error_class)
+    return ToolResult.err(str(err_value))
 
 
 class AsyncInProcFactory:
