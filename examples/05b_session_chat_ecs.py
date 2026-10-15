@@ -98,13 +98,13 @@ from kntgraph.core.event import (
 )
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import World
+from kntgraph.infra.config import fresh_settings
 from kntgraph.infra.redis import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.infra.redis._memory import RedisSessionStorage
 from kntgraph.memory.session import SessionManager
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
 
@@ -633,7 +633,9 @@ async def main() -> None:
 
     chat_system = SessionChatSystem()
 
-    tool_router = ToolRouter(redis_client)
+    tool_router = create_tool_router(
+        settings=fresh_settings(), client=redis_client
+    )
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[chat_system],
@@ -642,7 +644,8 @@ async def main() -> None:
         poll_interval=0.5,
     )
 
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis_client,
         event_log=event_log,
     )

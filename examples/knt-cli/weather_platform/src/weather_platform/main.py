@@ -11,11 +11,10 @@ from kntgraph.api.auth import APIKeyVerifier, AuthError
 from kntgraph.core.result import Err, Ok
 from kntgraph.infra.config import Settings
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.infra.redis._pool import create_redis_pool
 from kntgraph.security import Principal, Role
 from kntgraph.stream.event_log import EventLog
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 from weather_platform.contexts.weather.dispatcher import (
     build_weather_dispatcher,
     get_weather_tools,
@@ -74,8 +73,10 @@ def build_monolith():
     redis = create_redis_pool(settings).client
     log = EventLog(RedisEventLogAdapter(client=redis))
 
-    tool_router = ToolRouter(redis)
-    worker_manager = WorkerManager(redis=redis, event_log=log)
+    tool_router = create_tool_router(settings=settings, client=redis)
+    worker_manager = create_worker_manager(
+        settings=settings, redis=redis, event_log=log
+    )
 
     # Initialize Context Dispatchers
     weather_dispatcher = build_weather_dispatcher(log, redis, tool_router)
