@@ -13,6 +13,9 @@ Settings-driven. The framework's recommended entry points:
   - :func:`create_continuity_storage`    — Continuity tier (Hash, sliding TTL)
   - :func:`create_solution_storage`      — Solution tier (Hash, ADR-010 / ADR-049)
   - :func:`create_dlq_storage`           — Dead-letter queue storage
+  - :func:`create_api_key_storage`       — API key storage (auth layer)
+  - :func:`create_tool_router`           — ToolRouter (ADR-036 / ADR-083)
+  - :func:`create_worker_manager`        — WorkerManager (ADR-036)
 
 When ``client=`` is passed, factories do not touch
 ``Settings`` at all. Useful for tests and for callers that
@@ -27,11 +30,22 @@ When omitted, the prefix is read from
 the prefix MUST be passed too (the factory cannot infer
 it from a raw client). This keeps the seam honest: the
 caller owns the prefix decision, not the adapter.
+
+The tool-dispatcher factories (:func:`create_tool_router`,
+:func:`create_worker_manager`) close the DEBT §2.35
+follow-up #3 gap: callers that set ``KNT_REDIS_KEY_PREFIX``
+saw storage keys move to the prefixed namespace but tool
+queues still landed at the unprefixed ``knt:tools:*:queue``
+root because ``ToolRouter`` and ``WorkerManager`` had no
+factory and defaulted ``key_prefix=""``.
 """
 
 from __future__ import annotations
 
 from kntgraph.infra.config import Settings, fresh_settings
+from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools.manager import WorkerManager
+from kntgraph.tools.router import ToolRouter
 
 from ._auth import APIKeyStorage, RedisAPIKeyStorage
 from ._client import RedisLike
@@ -288,6 +302,105 @@ def create_api_key_storage(
     )
 
 
+def create_tool_router(
+    settings: Settings | None = None,
+    *,
+    client: RedisLike | None = None,
+    key_prefix: str | None = None,
+    dedup: bool = False,
+    dedup_ttl_seconds: int | None = None,
+) -> ToolRouter:
+    """Build the :class:`ToolRouter` (ADR-036 / ADR-083).
+
+    Closes the DEBT §2.35 follow-up #3 gap: callers that
+    set ``KNT_REDIS_KEY_PREFIX`` saw storage keys move to
+    the prefixed namespace but tool queues still landed
+    at the unprefixed ``knt:tools:<name>:queue`` root
+    because ``ToolRouter`` had no factory and defaulted
+    ``key_prefix=""``.
+
+    ``key_prefix`` falls back to
+    ``settings.redis_key_prefix`` when omitted -- the
+    operator's ``KNT_REDIS_KEY_PREFIX`` env var. The
+    composed stream key is
+    ``<prefix>knt:tools:<name>:queue`` and the composed
+    dedup-index key is
+    ``<prefix>knt:tools:<name>:idem:<event_id>``
+    (ADR-076 §1.3 contract, ADR-083 §3.1).
+
+    ``dedup`` (ADR-083) opts in to per-``event_id``
+    dedup at the ``XADD`` boundary. The default
+    ``False`` keeps the pre-ADR-083 wire format
+    byte-for-byte. ``dedup_ttl_seconds`` bounds the
+    index size; ``None`` reads
+    :data:`kntgraph.infra.redis._tools.DEDUP_TTL_SECONDS_DEFAULT`
+    (1h).
+
+    ``client=None`` builds a fresh
+    :class:`RedisPool` from ``Settings``; ``client=`` is
+    the seam for tests and external lifecycle owners.
+    """
+    from kntgraph.infra.redis._tools import DEDUP_TTL_SECONDS_DEFAULT
+
+    if dedup_ttl_seconds is None:
+        dedup_ttl_seconds = DEDUP_TTL_SECONDS_DEFAULT
+    return ToolRouter(
+        redis=_resolve_client(settings, client),
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
+        dedup=dedup,
+        dedup_ttl_seconds=dedup_ttl_seconds,
+    )
+
+
+def create_worker_manager(
+    settings: Settings | None = None,
+    *,
+    redis: RedisLike | None = None,
+    event_log: EventLog,
+    group_name: str = "fmh_tool_workers",
+    consumer_name: str = "worker-1",
+    reaper_interval: float = 60.0,
+    reaper_idle_time: float = 300.0,
+    heartbeat_interval_seconds: float = 30.0,
+    key_prefix: str | None = None,
+    max_pool_workers: int | None = None,
+) -> WorkerManager:
+    """Build the :class:`WorkerManager` (ADR-036).
+
+    Mirror of :func:`create_tool_router` for the worker
+    side: ``key_prefix`` falls back to
+    ``settings.redis_key_prefix`` so an operator who sets
+    ``KNT_REDIS_KEY_PREFIX=acme-billing:`` gets
+    ``acme-billing:knt:tools:<name>:queue`` on both the
+    consumer-group creation in ``start()``, the consume
+    loop, and the reaper loop. Without this factory a
+    caller that relied on the env var would still see
+    the WorkerManager open its consumer group on the
+    unprefixed root (DEBT §2.35 follow-up #3).
+
+    ``event_log`` is required (the manager constructor
+    takes it positionally). The other keyword arguments
+    mirror :class:`WorkerManager.__init__` 1:1 so a
+    caller that already knows the manager's signature
+    can pass the same values here.
+
+    ``redis=None`` builds a fresh
+    :class:`RedisPool` from ``Settings``; ``redis=`` is
+    the seam for tests and external lifecycle owners.
+    """
+    return WorkerManager(
+        redis=_resolve_client(settings, redis),
+        event_log=event_log,
+        group_name=group_name,
+        consumer_name=consumer_name,
+        reaper_interval=reaper_interval,
+        reaper_idle_time=reaper_idle_time,
+        heartbeat_interval_seconds=heartbeat_interval_seconds,
+        key_prefix=_resolve_key_prefix(settings, key_prefix),
+        max_pool_workers=max_pool_workers,
+    )
+
+
 __all__ = [
     "create_api_key_storage",
     "create_continuity_storage",
@@ -296,4 +409,6 @@ __all__ = [
     "create_profile_storage",
     "create_session_storage",
     "create_solution_storage",
+    "create_tool_router",
+    "create_worker_manager",
 ]

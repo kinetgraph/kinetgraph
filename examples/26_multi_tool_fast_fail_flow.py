@@ -34,12 +34,12 @@ from typing import Any
 from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import DomainComponent, World, domain_component
+from kntgraph.infra.config import fresh_settings
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools import tool_worker
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 
 # ---------------------------------------------------------------------------
 # Domain Component & Projection
@@ -264,7 +264,9 @@ async def main() -> None:
         print("ℹ️  Running with Real Redis (port 6379, db=15)")
 
     event_log = EventLog(RedisEventLogAdapter(client=redis))
-    tool_router = ToolRouter(redis)
+    tool_router = create_tool_router(
+        settings=fresh_settings(), client=redis
+    )
 
     dispatcher = ReactiveDispatcher(
         log=event_log,
@@ -277,7 +279,8 @@ async def main() -> None:
         heartbeat_interval_seconds=0.0,
     )
 
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis,
         event_log=event_log,
         reaper_interval=0.1,

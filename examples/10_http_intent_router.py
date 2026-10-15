@@ -51,7 +51,8 @@ from kntgraph.api import create_app
 from kntgraph.api.auth import AuthError
 from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, Result
-from kntgraph.tools.manager import WorkerManager
+from kntgraph.infra.config import fresh_settings
+from kntgraph.infra.redis._factory import create_worker_manager
 from kntgraph.tools.worker import tool_worker
 
 # ---------------------------------------------------------------------------
@@ -144,7 +145,8 @@ def build_app() -> TestClient:
 
     redis_mock = MagicMock()
     redis_mock.xack = AsyncMock()
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis_mock,
         event_log=InMemoryEventLog(),  # type: ignore[arg-type]
     )

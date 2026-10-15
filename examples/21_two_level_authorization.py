@@ -110,13 +110,13 @@ from kntgraph.core.event import (
 from kntgraph.core.result import Ok, Result
 from kntgraph.core.world import World
 from kntgraph.core.world.component import domain_component
+from kntgraph.infra.config import fresh_settings
 from kntgraph.infra.redis import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.security import PrincipalLevel
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.acl import ToolACL
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
 
@@ -479,7 +479,9 @@ async def main() -> None:
     # The business system owns the chat_llm tool.
     chat_system = ChatSystem(persona="Você é um assistente técnico conciso.")
 
-    tool_router = ToolRouter(redis_client)
+    tool_router = create_tool_router(
+        settings=fresh_settings(), client=redis_client
+    )
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[chat_system],
@@ -491,7 +493,8 @@ async def main() -> None:
         wake_on_event=False,
     )
 
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis_client,
         event_log=event_log,
     )

@@ -4532,57 +4532,67 @@
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_client": {
       "complexity": 2,
-      "lineno": 51,
+      "lineno": 65,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_global_maxlen": {
       "complexity": 4,
-      "lineno": 105,
+      "lineno": 119,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_key_prefix": {
       "complexity": 3,
-      "lineno": 61,
+      "lineno": 75,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:_resolve_stream_maxlen": {
       "complexity": 4,
-      "lineno": 83,
+      "lineno": 97,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_api_key_storage": {
       "complexity": 1,
-      "lineno": 261,
+      "lineno": 275,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_continuity_storage": {
       "complexity": 3,
-      "lineno": 194,
+      "lineno": 208,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_dlq_storage": {
       "complexity": 1,
-      "lineno": 217,
+      "lineno": 231,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_event_log_storage": {
       "complexity": 1,
-      "lineno": 125,
+      "lineno": 139,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_profile_storage": {
       "complexity": 3,
-      "lineno": 171,
+      "lineno": 185,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_session_storage": {
       "complexity": 3,
-      "lineno": 148,
+      "lineno": 162,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py:function:create_solution_storage": {
       "complexity": 3,
-      "lineno": 237,
+      "lineno": 251,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_factory.py:function:create_tool_router": {
+      "complexity": 2,
+      "lineno": 305,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_factory.py:function:create_worker_manager": {
+      "complexity": 1,
+      "lineno": 355,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/_adapter.py:class:ShortMemoryStorage": {
@@ -9355,7 +9365,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py": {
-      "mi": 68.56105415588056,
+      "mi": 66.21731220731684,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_memory/__init__.py": {

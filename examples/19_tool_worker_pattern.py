@@ -40,11 +40,11 @@ from kntgraph.core.event import (
 )
 from kntgraph.core.result import Ok, Result, ToolError
 from kntgraph.core.world import World
+from kntgraph.infra.config import fresh_settings
 from kntgraph.infra.redis import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 from kntgraph.tools.system import ToolAwareSystem
 from kntgraph.tools.worker import tool_worker
 
@@ -174,7 +174,12 @@ async def main():
     # 3. Setup the ReactiveDispatcher with the ToolRouter (Fan-Out).
     # project_tool_calls is applied by default in _fold_with_filter
     # (ADR-036 §2.3) -- no subclassing is needed.
-    tool_router = ToolRouter(redis_client)
+    # The factory honours ``KNT_REDIS_KEY_PREFIX`` so an
+    # operator who runs two services on one Redis keeps
+    # tool queues out of each other's namespace.
+    tool_router = create_tool_router(
+        settings=fresh_settings(), client=redis_client
+    )
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[WeatherSystem(event_log)],
@@ -184,7 +189,8 @@ async def main():
     )
 
     # 4. Setup the WorkerManager with the registered tool
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis_client,
         event_log=event_log,
     )

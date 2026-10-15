@@ -39,12 +39,12 @@ from kntgraph.concordos.fsm import (
 from kntgraph.core.event import Event, correlation_middleware
 from kntgraph.core.result import Err, Ok, Result, ToolError
 from kntgraph.core.world import DomainComponent, World, domain_component
+from kntgraph.infra.config import fresh_settings
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+from kntgraph.infra.redis._factory import create_tool_router, create_worker_manager
 from kntgraph.runner.reactive import ReactiveDispatcher
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools import tool_worker
-from kntgraph.tools.manager import WorkerManager
-from kntgraph.tools.router import ToolRouter
 
 # ===========================================================================
 # SCENARIO 1: Multi-Tool Fast-Fail FSM Components & Tools
@@ -267,7 +267,7 @@ async def run_scenario_1(redis) -> None:
     print("-------------------------------------------------------------------------")
 
     event_log = EventLog(RedisEventLogAdapter(client=redis))
-    tool_router = ToolRouter(redis)
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis)
 
     concordo = BusinessFSMConcordo(multi_tool_fsm_config)
 
@@ -283,7 +283,8 @@ async def run_scenario_1(redis) -> None:
     )
     concordo.install(dispatcher)
 
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis,
         event_log=event_log,
         reaper_interval=5.0,
@@ -365,7 +366,7 @@ async def run_scenario_2(redis) -> None:
     print("-------------------------------------------------------------------------")
 
     event_log = EventLog(RedisEventLogAdapter(client=redis))
-    tool_router = ToolRouter(redis)
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis)
 
     concordo = BusinessFSMConcordo(interleaved_fsm_config)
 
@@ -381,7 +382,8 @@ async def run_scenario_2(redis) -> None:
     )
     concordo.install(dispatcher)
 
-    worker_manager = WorkerManager(
+    worker_manager = create_worker_manager(
+        settings=fresh_settings(),
         redis=redis,
         event_log=event_log,
         reaper_interval=5.0,
