@@ -43,6 +43,18 @@ class MathDoublerTool:
         return Ok({"result": number * 2})
 
 
+# A **sync** invoke tool — the only shape that needs a process
+# boundary. Defined at module level so ``spawn`` can pickle it.
+# ADR-078 §12.4: registering it without a factory requires the
+# operator to pass ``legacy_pool=True``.
+@tool_worker(name="sync_doubler", max_concurrency=1, retries=1)
+class SyncDoublerTool:
+    def invoke(self, *, idempotency_key: str, number: int) -> Result[dict, str]:
+        if number < 0:
+            return Err("Negative numbers not allowed")
+        return Ok({"result": number * 3})
+
+
 # For simulating a poison pill (crashes hard)
 @tool_worker(name="poison_pill", max_concurrency=1, retries=2)
 class PoisonPillTool:
@@ -144,6 +156,65 @@ async def test_worker_manager_legacy_pool_uses_spawn(clean_redis):
         assert manager._pool is not None
         assert manager._mp_context is not None
         assert manager._mp_context.get_start_method() == "spawn"
+    finally:
+        await manager.stop()
+
+
+async def test_worker_manager_legacy_pool_runs_sync_tool(clean_redis):
+    """ADR-078 §12.4: the ``legacy_pool=True`` escape hatch must
+    actually run a sync tool end-to-end.
+
+    The registration gate exempts sync tools when the operator
+    opts in, and ``dispatch_to_tool`` then hands
+    ``default_factory_for`` the Manager's ``_pool``. This test
+    pins the whole chain — register → start → consume → spawn
+    worker → ``tool.<name>.completed`` — so a future refactor
+    that leaves the flag exempt-but-unreachable fails here
+    instead of in production.
+    """
+    from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
+
+    log = EventLog(RedisEventLogAdapter(clean_redis))
+    manager = WorkerManager(
+        clean_redis,
+        event_log=log,
+        legacy_pool=True,
+        max_pool_workers=1,
+    )
+    # No ``executor_factory``: the sync tool relies on the
+    # deprecated internal pool for the rest of the migration window.
+    manager.register(SyncDoublerTool, acl=None)
+
+    agent_id = f"a-{uuid.uuid4()}"
+    request_event = Event.create(
+        event_type="tool.requested",
+        agent_id=agent_id,
+        event_class="domain",
+        data={"tool": "sync_doubler", "params": {"number": 14}},
+        correlation=CorrelationContext.new(correlation_id=uuid.uuid4()),
+    )
+    await clean_redis.xadd(
+        "knt:tools:sync_doubler:queue", {"payload": json.dumps(request_event.to_dict())}
+    )
+
+    with pytest.warns(PoolDeprecationWarning):
+        await manager.start()
+    try:
+        success = False
+        for _ in range(60):
+            events = await log.read(agent_id)
+            for e in events:
+                if e.event_type == "tool.sync_doubler.completed":
+                    assert e.data["result"] == 42
+                    assert e.causation_id == request_event.event_id
+                    success = True
+                    break
+            if success:
+                break
+            await asyncio.sleep(0.1)
+
+        assert success, "legacy pool did not run the sync tool"
     finally:
         await manager.stop()
 

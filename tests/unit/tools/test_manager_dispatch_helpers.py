@@ -119,11 +119,12 @@ class TestStrictStrategyGate(unittest.TestCase):
     instead of raising. These tests pin the corrected contract.
     """
 
-    def _manager(self) -> WorkerManager:
+    def _manager(self, *, legacy_pool: bool = False) -> WorkerManager:
         mgr = WorkerManager.__new__(WorkerManager)
         mgr._tools = {}
         mgr._acls = {}
         mgr._executors = {}
+        mgr._legacy_pool = legacy_pool
         return mgr
 
     def test_sync_tool_without_factory_raises(self) -> None:
@@ -185,6 +186,61 @@ class TestStrictStrategyGate(unittest.TestCase):
         mgr = self._manager()
         mgr.register(AsyncDoublerTool, acl=None)
         self.assertIn("async_doubler", mgr)
+
+    def test_legacy_pool_exempts_sync_tool_from_the_gate(self) -> None:
+        """ADR-078 §12.4: ``legacy_pool=True`` is the documented
+        escape hatch for an unmigrated caller.
+
+        Without this exemption the pool opened in ``start()``
+        could never receive anything — the gate rejected the very
+        tools the flag exists to serve, leaving the escape hatch
+        inert for sync ``invoke``.
+        """
+
+        class LegacySync:
+            def invoke(self, *, idempotency_key: str, number: int) -> int:
+                return number * 2
+
+        LegacySync.name = "legacy_sync"
+        LegacySync.description = "legacy"
+        LegacySync.input_schema = {}
+        LegacySync.__tool_worker_max_concurrency__ = 1
+        LegacySync.__tool_worker_retries__ = 0
+
+        mgr = self._manager(legacy_pool=True)
+        mgr.register(LegacySync, acl=None)
+
+        self.assertIn("legacy_sync", mgr)
+        # The tool has no factory; dispatch must fall through to
+        # ``default_factory_for(tool_cls, pool=...)``, which the
+        # Manager feeds with ``self._pool``.
+        self.assertIsNone(mgr._executors["legacy_sync"])
+
+    def test_legacy_pool_still_rejects_undecorated_class(self) -> None:
+        """The exemption narrows the *strategy* gate only; the
+        ``@tool_worker`` TypeError must still fire."""
+
+        class NotDecorated:
+            def invoke(self, *, idempotency_key: str) -> None: ...
+
+        mgr = self._manager(legacy_pool=True)
+        with self.assertRaises(TypeError):
+            mgr.register(NotDecorated, acl=None)
+
+    def test_error_message_names_the_legacy_pool_escape(self) -> None:
+        """An operator who hits the gate must be told the opt-in
+        exists, not just that the marker stopped working."""
+
+        class Unmigrated:
+            def invoke(self, *, idempotency_key: str) -> None: ...
+
+        Unmigrated.name = "unmigrated"
+        Unmigrated.description = ""
+        Unmigrated.input_schema = {}
+
+        with self.assertRaises(WorkerStrategyError) as ctx:
+            self._manager().register(Unmigrated, acl=None)
+        self.assertIn("legacy_pool=True", str(ctx.exception))
 
 
 class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):

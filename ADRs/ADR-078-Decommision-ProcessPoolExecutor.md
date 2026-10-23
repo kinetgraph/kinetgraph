@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-078: Decommission the internal `ProcessPoolExecutor`; make execution strategy a per-tool decision
 
-- **Status:** Accepted (ratified 2026-10-20, v0.18 default switch implemented — see §12)
+- **Status:** Accepted (ratified 2026-10-20, v0.18 default switch implemented — see §12; §12.7 records two post-ratification fixes)
 - **Date:** 2026-10-09
 - **Author:** kinetgraph architecture team (proposed by the backoffice engineering team, see §1.4)
 - **Supersedes:** [ADR-054](./ADR-054-WorkerManager-Transport-Evaluation.md) — WorkerManager transport evaluation; "keep `ProcessPoolExecutor`". The reopening criterion stated in ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s at a time") was met by the post-mortem of 2026-10-07 (§1.4).
@@ -750,6 +750,7 @@ Acceptance:
 
 - **2026-10-09** — Initial draft (this version). Promotes `docs/adr-069-pluggable-executor-factory.md` to a formal ADR; supersedes ADR-054; ships built-in factories; inverts the v0.18 default; plans a 3-release migration window.
 - **2026-10-20** — Ratified. §12 records the implementation and corrects the §4.4 gate.
+- **2026-10-23** — §12.7: two post-ratification defects closed — the `legacy_pool` escape hatch exempted nothing, and `_invoke_tool_sync` could not run a sync `invoke`.
 
 ---
 
@@ -860,3 +861,63 @@ integration test now declares one and the docstring of
 `max_pool_workers` is now dead weight for every caller that
 does not pass `legacy_pool=True`. It is kept until v0.19 for
 signature stability and is removed with the pool, per §5.6.
+
+### 12.7 The `legacy_pool` exemption — two defects closed after ratification
+
+The ratified v0.18 shipped with two defects that made the
+migration path §5.2 promises unusable. Both were found by
+writing the end-to-end test the ADR never had (§10.4 lists
+`tests/integration/tools/test_executor_factory.py` but no
+case for "sync tool on the legacy pool").
+
+**Defect 1 — the escape hatch was inert.** §12.4 presents
+`legacy_pool=True` as restoring the previous behaviour, but the
+registration gate keyed solely on `executor_factory is None`
+and ignored `_legacy_pool`. A sync tool therefore failed to
+register *with the pool open*, so the pool built in
+`_maybe_open_deprecated_pool` could never receive anything —
+the flag served no purpose for precisely the tools it exists
+to keep alive. Every existing test missed it because all of
+them register `async def invoke` tools.
+
+Resolved: the gate now reads
+`executor_factory is None and not self._legacy_pool`. The
+trade-off is bounded and deliberate — the OOM of §1.4 returns
+only if an operator explicitly re-opts in, and boot already
+warns once. `WorkerStrategyError` now names the flag so an
+operator who trips the gate sees the escape hatch rather than
+concluding the pool was removed.
+
+**Defect 2 — the worker boundary could not run a sync
+`invoke`.** `_invoke_tool_sync` drove every tool through
+`loop.run_until_complete(tool.invoke(...))`. For a **sync**
+`def invoke` that raises
+`TypeError: An asyncio.Future, a coroutine or an awaitable is
+required` inside the worker, which surfaced as
+`worker.tool.hard_crash` and left the message in the PEL for
+the reaper. The shape `ProcessPoolFactory` and the legacy pool
+exist to run was the one shape the boundary could not run.
+
+Resolved: `_call_invoke` branches on the *declared* shape.
+A sync `invoke` is called directly — being in a worker process
+is the point, so there is no loop to drive. An `async def
+invoke` still gets a fresh loop. The branch reads
+`inspect.iscoroutinefunction` rather than inspecting the
+returned value: calling an `async def invoke` to see what it
+returned would materialise the coroutine outside the loop,
+leaking it as "never awaited" whenever anything raised in
+between.
+
+Coverage added: four unit cases in
+`tests/unit/tools/test_manager_dispatch_helpers.py` (the
+exemption, that it does not widen the `@tool_worker` check,
+and that the message names the flag) plus
+`test_worker_manager_legacy_pool_runs_sync_tool` — an
+end-to-end registration → start → consume → spawn →
+`tool.<name>.completed` pass, with the sync tool defined at
+module level so `spawn` can pickle it.
+
+The gate lives in `tools/_strategy_gate.py` rather than
+inline in `register()`: the operator-facing message is long
+enough that inlining it pushed the Manager's complexity and
+`manager.py`'s maintainability index past the radon baseline.

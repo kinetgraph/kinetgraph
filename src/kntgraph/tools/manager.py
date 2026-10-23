@@ -90,6 +90,7 @@ from kntgraph.tools._message_handlers import (
     reconnect_redis_after_transport_error,
 )
 from kntgraph.tools._result import ToolResult
+from kntgraph.tools._strategy_gate import reject_undeclared_sync_tool
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 from kntgraph.tools.acl import ToolACL, default_acl
 from kntgraph.tools.descriptors import ToolDescriptor, schema_to_json
@@ -321,34 +322,19 @@ class WorkerManager:
         else:
             self._acls[tool_cls.name] = acl
 
-        # ADR-078 §5.5 default switch, applied strictly: a tool with
-        # a sync ``invoke`` MUST declare how it runs. The
-        # ``__tool_worker_cpu_bound__`` marker no longer buys a
-        # fall-through to the internal pool — it only selects a
-        # built-in factory for a caller who already has a pool.
-        # Reason: the marker routed *every* sync ``invoke``
-        # through ``run_in_executor(self._pool, ...)``, so this
-        # gate never fired for the tools it was written to catch
-        # and the OOM of 2026-10-07 kept its default path.
-        if executor_factory is None:
-            import inspect
-
-            invoke = getattr(tool_cls, "invoke", None)
-            if invoke is not None and not inspect.iscoroutinefunction(invoke):
-                from kntgraph.tools.executors import WorkerStrategyError
-
-                raise WorkerStrategyError(
-                    f"Tool {tool_cls.__name__!r} has a sync ``invoke`` "
-                    f"but no ``executor_factory``. Declare how it runs "
-                    f"(ADR-078 v0.18 §5.5): "
-                    f"(a) pass executor_factory=ProcessPoolFactory(your_pool, concurrency=N) "
-                    f"when it needs a process boundary; "
-                    f"(b) convert the tool to ``async def invoke`` for I/O-bound work; "
-                    f"(c) pass executor_factory=AsyncInProcFactory() if it is "
-                    f"genuinely non-blocking. "
-                    f"Setting __tool_worker_cpu_bound__ or max_pool_workers no longer "
-                    f"supplies a pool implicitly (removed in v0.19)."
-                )
+        # ADR-078 §5.5: a sync ``invoke`` MUST declare how it runs.
+        # The ``__tool_worker_cpu_bound__`` marker no longer buys
+        # a fall-through — ``is_cpu_bound`` classified every sync
+        # ``invoke`` as cpu-bound, so the gate never fired for the
+        # tools it targeted and the 2026-10-07 OOM kept its path.
+        #
+        # ``legacy_pool=True`` exempts the tool: the pool opened
+        # in ``start()`` would otherwise be unreachable for the
+        # very tools the flag exists to serve (ADR-078 §12.4).
+        # The OOM returns only if the operator re-opts in
+        # explicitly, and boot already warns once.
+        if executor_factory is None and not self.__dict__.get("_legacy_pool", False):
+            reject_undeclared_sync_tool(tool_cls)
 
         # ADR-069: optional per-tool dispatch override. The
         # factory replaces the internal ``ProcessPoolExecutor``

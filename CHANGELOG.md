@@ -47,10 +47,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`legacy_pool=True` on `WorkerManager(...)`** restores the
     previous behaviour for one more minor and emits a single
     `PoolDeprecationWarning` at boot. It is removed in v0.19
-    with the pool.
+    with the pool. It also exempts a sync tool from the
+    registration gate, so an unmigrated caller keeps working:
+    `register(SyncTool)` succeeds when the flag is set, the
+    pool opens in `start()`, and dispatch reaches it through
+    `default_factory_for(tool_cls, pool=...)`.
 
   - **`max_pool_workers` no longer creates a pool**, only sizes
     one when `legacy_pool=True`.
+
+  - **`_invoke_tool_sync` honours both `invoke` shapes.** The
+    boundary ran every tool through
+    `loop.run_until_complete(tool.invoke(...))`, which raises
+    `TypeError: An asyncio.Future, a coroutine or an awaitable is
+    required` for a **sync** `def invoke` — the exact shape
+    `ProcessPoolFactory` and the legacy pool exist to run. It now
+    branches on the declared shape: a sync `invoke` is called
+    directly (no loop to drive — being in a worker process is
+    the point), an `async def invoke` is still driven on a fresh
+    loop. The branch reads `inspect.iscoroutinefunction` rather
+    than inspecting the returned value, so an `async def
+    invoke` is never materialised outside the loop.
 
   - **The legacy dispatch branch is deleted.** `_dispatch.py` no
     longer routes cpu-bound tools through
