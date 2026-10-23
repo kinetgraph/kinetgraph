@@ -507,7 +507,7 @@ record**. When in doubt, read the ADR.
 | [ADR-066](../ADRs/ADR-066-Single-Tool-Path.md) | Three-gate ACL; orthogonal to types | (cross-cutting) |
 | [ADR-067](../ADRs/ADR-067-derived-component-ownership-and-implicit-materialisation.md) | `JsonValue` discipline; this ADR is the wire primitive anchor | §3.1 |
 | [ADR-069](../ADRs/ADR-069-Agent-Concordo-Foundation.md) | Concordos foundation (FSM + Saga) | §1.1 (`concordos/` is framework-tier) |
-| [ADR-078](../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md) | Decommission the internal `ProcessPoolExecutor`; `executor_factory` opt-in | (cross-cutting — type discipline independent) |
+| [ADR-078](../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md) | Decommission the internal `ProcessPoolExecutor`; per-tool execution strategy is mandatory from v0.18 | §9 |
 | [ADR-079](../ADRs/ADR-079-Frozen-Dataclass-In-Place-Of-TypedDict.md) | Frozen dataclass in place of `TypedDict`; drop `MappingProxyType`; `ToolResult` primitive; refined dict-construction rules | §3.2, §3.3, §5.4, §5.5, §5.6 |
 | [ADR-080](../ADRs/ADR-080-Drop-Type-Any-In-ECS-Bag.md) | Drop `type[Any]` in the ECS bag key; `value: Any` stays as the documented exception | §3.5, §5.3 |
 
@@ -610,16 +610,22 @@ does not replace per-commit application of the rule.
 
 `WorkerManager` exposes a single dispatch surface for
 every tool message. The dispatch decision tree (in
-`kntgraph.tools._dispatch.dispatch_to_tool`) has three
+`kntgraph.tools._dispatch.dispatch_to_tool`) has **two**
 strategies, in preference order:
 
 | Strategy | When it fires | What it does |
 |---|---|---|
 | 1. `executor_factory` (per-tool) | A factory was registered for the tool via `WorkerManager.register(executor_factory=...)` | Awaits `factory(_invoke_tool_sync, idempotency_key, tool_params)` — the factory decides how to run the tool (its own pool, a sidecar, a remote API, etc.) |
-| 2. CPU-bound pool (legacy) | `is_cpu_bound(tool_cls, tool_instance)` returns True AND the internal `ProcessPoolExecutor` is set | `loop.run_in_executor(pool, _invoke_tool_sync, ...)` |
-| 3. Async (default) | Otherwise | `await tool_instance.invoke(idempotency_key=..., **tool_params)` |
+| 2. `default_factory_for(tool_cls, *, pool=None)` | No factory was registered | Picks `AsyncInProcFactory` for `async def invoke`; picks `ProcessPoolFactory` for sync / `__tool_worker_cpu_bound__` tools, which **requires** `pool` and raises `WorkerStrategyError` without one |
 
-### Built-in factories (ADR-078 v0.17.0 step 1)
+The pre-v0.18 third branch (`is_cpu_bound` → `run_in_executor(self._pool, ...)`)
+is **deleted**, and so is `is_cpu_bound` itself (per the
+deprecation policy: removed, not kept as a shim). Its absence
+is load-bearing — with `pool=None` that call would silently
+fall back to the event loop's default *thread* executor and
+stall the Manager's loop on a blocking tool. See ADR-078 §12.1.
+
+### Built-in factories (ADR-078)
 
 The framework ships two built-in `ExecutorFactory`
 implementations in `kntgraph.tools.executors` so callers
@@ -629,9 +635,9 @@ default pick) when registering a tool.
 
 | Factory | Use when | What it does |
 |---|---|---|
-| `AsyncInProcFactory()` | Tool's `invoke` is `async def` (the default) | Invokes the tool in the loop's default executor via `asyncio.to_thread`. **No extra process pool.** Warns once with `PoolDeprecationWarning` (a `UserWarning` subclass). |
-| `ProcessPoolFactory(pool, concurrency=1)` | Tool is CPU-bound or blocks I/O | Runs the tool in a caller-owned `ProcessPoolExecutor` with a per-tool `asyncio.Semaphore` cap (`concurrency=0` disables the cap). |
-| `default_factory_for(tool_cls)` | Helper — picks one of the two above based on `__tool_worker_cpu_bound__` and the async-ness of `invoke`. | Raises `WorkerStrategyError` for sync tools without the marker (the framework's v0.18+ default switch). |
+| `AsyncInProcFactory()` | Tool's `invoke` is `async def` (the default — no factory needed) | Awaits `tool_cls().invoke(...)` **directly on the Manager's event loop**. No thread, no process. Warns once per (tool, process) with `PoolDeprecationWarning` when the tool was auto-promoted rather than declared. |
+| `ProcessPoolFactory(pool, concurrency=1)` | Tool is CPU-bound, has a sync `def invoke`, or can crash its own process | Runs the tool in a **caller-owned** `ProcessPoolExecutor` with a per-tool `asyncio.Semaphore` cap (`concurrency=0` disables the cap). |
+| `default_factory_for(tool_cls, *, pool=None)` | Helper — picks one of the two above from `__tool_worker_cpu_bound__` and the async-ness of `invoke`. | Raises `WorkerStrategyError` for sync / cpu-bound tools when `pool is None`. |
 
 Example — typical async tool:
 
@@ -709,12 +715,23 @@ v0.18 default switch.
 ### Ratchet impact
 
 When a new tool is added:
-- Async tool → register with `executor_factory=AsyncInProcFactory()`
-  (or rely on the v0.18 default switch). **No extra cost.**
+- Async tool → **register nothing extra.** `AsyncInProcFactory`
+  is the default; `register(MyAsyncTool)` is correct. Declaring
+  `executor_factory=AsyncInProcFactory()` explicitly also works
+  and silences the auto-promotion warning. **No extra cost.**
 - Sync / CPU-bound tool → register with
   `executor_factory=ProcessPoolFactory(pool, concurrency=1)`
-  and a caller-owned pool. **No process-pool import cost**
-  beyond the pool itself.
+  and a caller-owned pool, **or** pass
+  `legacy_pool=True` + `max_pool_workers=N` to
+  `WorkerManager(...)` to stay on the deprecated internal pool
+  for the rest of the v0.18 window. **No process-pool import
+  cost** beyond the pool itself.
+- Tool that can crash its own process (`os._exit`, `sys.exit`,
+  `SIGKILL`, a native segfault) → **must** declare a
+  `ProcessPoolFactory`. Under `AsyncInProcFactory` it runs on
+  the Manager's event loop, so the crash takes down the
+  Manager: no consume loop, no reaper, no `XAUTOCLAIM`, and the
+  pending message is never recovered. ADR-078 §12.5.
 - ML / DL tool → **must** register a custom `ExecutorFactory`
   to pin model loading to a single process. The default
   `ProcessPoolExecutor` was sized at `max_pool_workers` and
@@ -725,19 +742,24 @@ When a new tool is added:
 
 The factory is the future; the internal pool is the past:
 
-- **v0.17.0** (this release): built-in factories shipped;
-  `executor_factory=None` path unchanged (legacy pool still
-  fires when no factory is registered). `PoolDeprecationWarning`
-  fires once when a manager boots with `max_pool_workers` set
-  (symbol retained through v0.18 and removed in v0.19).
-- **v0.18.0**: `register(executor_factory=None)` is no longer
-  a silent fallback. Async tools get `AsyncInProcFactory`
-  automatically (warns-once-per-tool); sync tools without a
-  factory raise `WorkerStrategyError`. The `max_pool_workers`
-  kwarg is deprecated (still accepted, still warns at boot,
-  still creates the pool).
-- **v0.19.0** (hard removal): `max_pool_workers` kwarg and
-  `__tool_worker_cpu_bound__` attribute are removed; every
-  tool must register an `executor_factory` or rely on one
-  of the two built-ins.
+- **v0.17.0**: built-in factories shipped. Bit-for-bit
+  backwards compatible — `executor_factory=None` still fell
+  back to the internal pool for sync tools.
+- **v0.18.0** (current): `register(executor_factory=None)` is
+  no longer a silent fallback. Async tools get
+  `AsyncInProcFactory` automatically (warns once per tool per
+  process); a sync tool with no factory raises
+  `WorkerStrategyError` **at registration time**. Two things
+  changed inside that gate since ratification (ADR-078 §12.7):
+  the `__tool_worker_cpu_bound__` marker no longer exempts a
+  sync tool (it only hints `default_factory_for` which built-in
+  to pick), and `legacy_pool=True` *does* exempt one.
+  `max_pool_workers` no longer **creates** a pool — it only
+  sizes one when `legacy_pool=True` is also set.
+- **v0.19.0** (hard removal): `max_pool_workers`,
+  `legacy_pool`, `self._pool`, `compute_max_workers` and
+  `__tool_worker_cpu_bound__` are removed;
+  `PoolDeprecationWarning` survives one more release (v0.20)
+  so downstream `warnings.filterwarnings` policies still have a
+  category to filter.
 

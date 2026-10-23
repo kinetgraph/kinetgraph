@@ -197,9 +197,9 @@ async def main() -> None:
     manager.register(LiteLLMToolWorker)
     await manager.start()
 
-    # The worker exposes a synchronous ``invoke`` API
-    # (it runs in a ProcessPoolExecutor). The
-    # result is a JSON-serialisable dict.
+    # ``LiteLLMToolWorker.invoke`` is ``async def``, so it runs
+    # in-proc on the Manager's event loop — no factory needed.
+    # The result is a JSON-serialisable dict.
     result = await manager.invoke(
         "chat_llm",
         idempotency_key="k1",

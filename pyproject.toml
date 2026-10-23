@@ -27,8 +27,10 @@ classifiers = [
     "Typing :: Typed",
 ] 
 dependencies = [
+    "certifi>=2026.10.19",
     "deal>=4.24",
     "immutables>=0.21",
+    "opentelemetry-api>=1.45.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "redis>=5.0",

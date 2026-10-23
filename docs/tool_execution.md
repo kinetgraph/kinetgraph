@@ -4,21 +4,23 @@ SPDX-FileCopyrightText: 2026 kinetgraph
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# Tool execution: the `ExecutorFactory` cookbook (ADR-069, ADR-078)
+# Tool execution: the `ExecutorFactory` cookbook (ADR-078)
 
-The Kinetgraph framework ships a per-tool pluggable execution
-strategy via the `ExecutorFactory` callable type alias
-(ADR-069). Each tool worker can register a custom factory
-that decides how the tool's `invoke` runs — in the loop's
-default executor, in a dedicated thread pool, in a separate
-process pool, in a sidecar, or anywhere else.
+The Kinetgraph framework gives every tool worker an explicit
+execution strategy. An ``async def invoke`` runs in-proc on
+the Manager's event loop by default; a **sync** ``def invoke``
+must declare how it runs — via ``executor_factory=`` on
+``register()``, or by opting back into the deprecated internal
+pool. There is no silent fallback, because the old implicit
+path spawned one interpreter per tool and was the cause of the
+2026-10-07 OOM (ADR-078 §1.4).
 
 This document is the user-facing cookbook: when to use the
-built-in factories, when to write a custom one, and the
-contract every factory must satisfy. Pair it with the
+built-in factories, when to write a custom one, the contract
+every factory must satisfy, and what to do when you hit
+``WorkerStrategyError``. Pair it with the
 ``kntgraph-type-discipline`` skill §9 for the framework-level
-rationale (the ratchet that keeps the codebase improving as we
-go).
+rationale.
 
 ## 1. The contract
 
@@ -54,7 +56,7 @@ The factory returns an awaitable that resolves to a
 ``ToolResult`` (the discriminated union per ADR-079: ``ToolResult.ok(value)``
 or ``ToolResult.err(error)``).
 
-## 2. Built-in factories (ADR-078 v0.17.0 step 1)
+## 2. Built-in factories (ADR-078)
 
 The framework ships two built-in factories in
 ``kntgraph.tools.executors`` so callers do not have to write
@@ -62,36 +64,61 @@ a custom factory for the common cases.
 
 ### 2.1 ``AsyncInProcFactory()`` — async tools
 
-Use when the tool's ``invoke`` is ``async def`` (the default).
-Runs the tool in the loop's default executor via
-``asyncio.to_thread`` — **no extra process pool** is spawned.
-Warns once per factory instance with
-``PoolDeprecationWarning`` (a ``UserWarning`` subclass) so
-the operator knows the legacy path is being used.
+Use when the tool's ``invoke`` is ``async def`` — which is
+the default, so **you normally do not register a factory at
+all**. Awaits ``tool_cls().invoke(...)`` **directly on the
+Manager's event loop**: no thread, no process, no extra RAM,
+no cold-start import cost.
+
+When a tool is *auto-promoted* to this factory (registered
+with no ``executor_factory``) it warns once per (tool,
+process) with ``PoolDeprecationWarning`` so the operator
+knows the strategy was picked implicitly rather than
+declared. Registering explicitly silences that warning.
 
 ```python
 from kntgraph.tools.executors import AsyncInProcFactory
 
+# usually unnecessary — this is already the default:
+manager.register(MyAsyncTool)
+
+# explicit, self-documenting, no warning:
 manager.register(MyAsyncTool, executor_factory=AsyncInProcFactory())
 ```
 
-This is the default factory for any async tool. Pick it
-explicitly when the operator wants the call to be
-self-documenting.
+:::caution
+
+Running on the Manager's event loop is what makes this
+factory cheap, but it means **a tool that crashes its own
+process takes the Manager down with it**. If the tool calls
+``os._exit``, ``sys.exit``, raises ``SIGKILL``, or hits a
+segfault in a native extension, you **must** register a
+``ProcessPoolFactory`` — see §2.2. Under this factory there
+is no consume loop, no reaper, no ``XAUTOCLAIM``, and the
+pending message is never recovered. ADR-078 §12.5.
+
+:::
 
 ### 2.2 ``ProcessPoolFactory(pool, concurrency=1)`` — sync / CPU-bound tools
 
-Use when the tool is CPU-bound or blocks I/O. Runs the tool
-in a caller-owned ``ProcessPoolExecutor`` with a per-tool
+Use when the tool has a **sync ``def invoke``**, is CPU-bound,
+or can crash its own process. Runs the tool in a
+**caller-owned** ``ProcessPoolExecutor`` with a per-tool
 ``asyncio.Semaphore`` cap (``concurrency=0`` disables the
 cap; positive integers cap the number of in-flight
-invocations).
+invocations). You own the pool's lifecycle — start it, shut it
+down; the Manager does not.
 
 ```python
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
+
 from kntgraph.tools.executors import ProcessPoolFactory
 
-pool = ProcessPoolExecutor(max_workers=2)
+pool = ProcessPoolExecutor(
+    max_workers=1,
+    mp_context=multiprocessing.get_context("spawn"),
+)
 manager.register(
     MyCpuBoundTool,
     executor_factory=ProcessPoolFactory(pool, concurrency=1),
@@ -100,49 +127,60 @@ manager.register(
 
 Pick this when:
 
+- The tool has a sync ``def invoke``. Since v0.18 this is
+  **mandatory**: a sync tool registered without a factory
+  raises ``WorkerStrategyError`` (§4.2).
 - The tool wraps a model loader (PyTorch, GLiNER2, Docling)
   that should not be re-imported by every fork of the
   Manager's pool.
 - The tool wraps a blocking I/O library that should not
   contend with the async event loop.
-- The tool needs a sidecar process (e.g. a dedicated browser
-  process for Playwright).
+- The tool can crash its own process (see the caution above).
 
-### 2.3 ``default_factory_for(tool_cls)`` — the helper
+``concurrency`` is the cap on **concurrent invocations** of
+this factory, independent of the pool's ``max_workers``. A
+pool with ``max_workers=1`` and ``concurrency=8`` is fine —
+the pool just serialises the eight callers through one worker.
 
-A helper that picks the right factory based on the tool's
-class-level markers. It is the default fallback used by the
-manager in v0.18+; in v0.17 it is opt-in.
+### 2.3 ``default_factory_for(tool_cls, *, pool=None)`` — the helper
+
+Picks the right factory from the tool's class-level markers.
+It is the fallback the Manager uses when no factory was
+registered.
 
 ```python
 from kntgraph.tools.executors import default_factory_for
 
-factory = default_factory_for(MyTool)
-manager.register(MyTool, executor_factory=factory)
+factory = default_factory_for(MyAsyncTool)
+manager.register(MyAsyncTool, executor_factory=factory)
 ```
 
 Rules:
 
 - If ``tool_cls.__tool_worker_cpu_bound__`` is ``True`` →
-  ``ProcessPoolFactory`` (caller-supplied pool required;
-  raises ``WorkerStrategyError`` when the caller has no pool
-  in v0.18+).
-- Else if ``inspect.iscoroutinefunction(tool_cls.invoke)`` is
-  ``True`` → ``AsyncInProcFactory``.
-- Else → ``ProcessPoolFactory`` (the factory is a hint that
-  this is a sync tool that needs a pool; the manager raises
-  ``WorkerStrategyError`` in v0.18+ when the caller has no
-  pool).
+  ``ProcessPoolFactory`` (a pool is **required**; raises
+  ``WorkerStrategyError`` when ``pool`` is ``None``).
+- Else if ``inspect.iscoroutinefunction(tool_cls.invoke)`` →
+  ``AsyncInProcFactory`` (never touches ``pool``).
+- Else → ``ProcessPoolFactory`` (a pool is **required**).
+
+Since v0.18 the ``__tool_worker_cpu_bound__`` marker no
+longer exempts a sync tool from the registration gate. It
+only *hints* this helper about which built-in to pick for a
+caller who already owns a pool. ADR-078 §12.3.
 
 ### 2.4 When NOT to register a factory
 
-For the common case (async tool, no heavy model), the
-default async path is correct and cheap. Registering a
-factory "just to be safe" wraps the call in an extra
-awaitable and adds no value. In v0.17 you can also let the
-legacy ``__tool_worker_cpu_bound__ = True`` marker route the
-tool through the internal pool (the path the framework
-decommissions in v0.19).
+For the common case — an ``async def invoke`` with no heavy
+model — register nothing:
+
+```python
+manager.register(MyAsyncTool, acl=None)  # correct as-is
+```
+
+Registering ``AsyncInProcFactory()`` explicitly is fine when
+you want the call site to be self-documenting, but it is not
+required and adds nothing at runtime.
 
 ## 3. Custom factories
 
@@ -267,56 +305,102 @@ in the module's global state.
 ## 4. Migration window (ADR-078 §5)
 
 The ``ExecutorFactory`` pattern is the future; the internal
-``ProcessPoolExecutor`` (managed by ``max_pool_workers=``) is
-the past. The framework decommissions the internal pool over
-three releases:
+``ProcessPoolExecutor`` is the past. The framework
+decommissions the internal pool over three releases:
 
-- **v0.17.0** (this release): built-in factories ship; the
-  legacy internal pool still fires when no factory is
-  registered; ``PoolDeprecationWarning`` warns once per tool
-  when ``max_pool_workers`` is set; ``WorkerStrategyError`` is
-  exported but not raised.
-- **v0.18.0** (next release): ``register(executor_factory=None)``
-  is no longer a silent fallback. Async tools get
-  ``AsyncInProcFactory`` automatically (warns-once-per-tool);
-  sync tools without a factory raise ``WorkerStrategyError``.
-  The ``max_pool_workers`` kwarg is deprecated.
-- **v0.19.0** (hard removal): ``max_pool_workers`` kwarg and
-  ``__tool_worker_cpu_bound__`` attribute are removed; every
-  tool must register an explicit ``ExecutorFactory`` or rely
-  on one of the two built-ins.
+- **v0.17.0**: built-in factories shipped. Bit-for-bit
+  backwards compatible — a sync tool with no factory still
+  fell back to the internal pool.
+- **v0.18.0** (current): a tool **must** declare how it runs.
+  Async tools default to ``AsyncInProcFactory``; a sync tool
+  with no factory raises ``WorkerStrategyError`` at
+  registration time. The internal pool is opt-in via
+  ``legacy_pool=True`` and ``max_pool_workers`` only *sizes*
+  it — it no longer creates one on its own.
+- **v0.19.0** (hard removal): ``max_pool_workers``,
+  ``legacy_pool``, and ``__tool_worker_cpu_bound__`` are
+  removed. Every tool must declare a factory or rely on one of
+  the two built-ins.
 
-The ratchet (skill §8) means each commit should leave the
-codebase better than it found it. Apply the executor factory
-pattern now — the v0.18 default switch is a few months away
-and the migration window is generous.
+### 4.1 Staying on the legacy pool for now
+
+If a migration is not yet possible, opt back in explicitly.
+The pool opens in ``start()``, warns once at boot, and runs
+your sync tools as before:
+
+```python
+manager = WorkerManager(
+    redis, event_log=log, legacy_pool=True, max_pool_workers=4,
+)
+manager.register(MyUnmigratedSyncTool)  # no factory needed
+```
+
+:::caution
+
+This restores the execution path that caused the 2026-10-07
+OOM (ADR-078 §1.4): one spawned interpreter per pool worker,
+each importing the full Python environment. Use the smallest
+``max_pool_workers`` that keeps your throughput, and treat this
+as a stopgap to remove before v0.19.
+
+:::
+
+### 4.2 What ``WorkerStrategyError`` means
+
+Raised at ``register()`` when a tool has a **sync ``def
+invoke``** and no ``executor_factory``. It is not a runtime
+failure — nothing was dispatched. The message names every
+exit. In short:
+
+```python
+# (a) needs a process boundary — own the pool:
+pool = ProcessPoolExecutor(max_workers=1, mp_context=mp.get_context("spawn"))
+manager.register(MyTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
+
+# (b) I/O-bound — make it async, no factory needed:
+#     async def invoke(...)
+
+# (c) non-blocking despite being sync:
+manager.register(MyTool, executor_factory=AsyncInProcFactory())
+
+# (d) not migrated yet — see §4.1
+manager = WorkerManager(redis, log, legacy_pool=True, max_pool_workers=4)
+```
 
 ## 5. Troubleshooting
 
 ### 5.1 "Factory is not picklable"
 
-The factory is sent across the multiprocessing boundary
-(when the manager uses the legacy internal pool). If the
-factory is defined inside a test method or a local closure
-that captures a non-picklable object (e.g. a connection
-pool, a logger), pickling fails.
+The factory is sent across the multiprocessing boundary when
+it runs the tool in a process pool. If the factory — or the
+tool class it closes over — is defined inside a test method or
+a local closure that captures a non-picklable object (e.g. a
+connection pool, a logger), pickling fails.
 
-Fix: move the factory to a module-level function or use a
-``__main__`` import-safe container (a ``dataclass`` with
-``@dataclass(frozen=True)`` and primitive fields).
+Note this also applies to the **tool class itself**: under
+``spawn`` the class must be importable at module level, not
+defined inside a test function. Define test tools at module
+scope, as ``tests/integration/tools/test_worker_manager.py``
+does.
+
+Fix: move the factory and the tool to module level, or use an
+import-safe container (a ``@dataclass(frozen=True)`` with
+primitive fields).
 
 ### 5.2 "Factory ignored"
 
 The factory is registered per tool. The manager looks up
-``self._executors[tool_name]`` in ``_dispatch_to_tool``. If
-you register the factory against a different name (e.g. with
-a typo or against the class instead of the registered
+``executors[tool_name]`` in ``dispatch_to_tool``. If you
+register the factory against a different name (e.g. with a
+typo or against the class instead of the registered
 ``@tool_worker(name=...)``), the lookup misses and the manager
-falls through to the default async path or the legacy pool.
+falls through to ``default_factory_for(tool_cls, pool=...)`` —
+which returns ``AsyncInProcFactory`` for async tools and
+**raises** ``WorkerStrategyError`` for a sync tool with no
+pool.
 
 Fix: verify the ``name`` kwarg in ``@tool_worker(name=...)``
-matches the ``tool_name`` you pass to
-``manager.register``.
+matches the registered tool name.
 
 ### 5.3 "Pool is full"
 
@@ -331,23 +415,37 @@ Fix: increase the cap (``concurrency=N``) or scale the pool
 
 ### 5.4 "Tool hangs at startup"
 
-The factory is called inside the manager's event loop. If the
+The factory is awaited inside the Manager's event loop. If the
 factory is itself async (e.g. it awaits a connection), the
-dispatch path is ``async`` and the manager's ``_dispatch_to_tool``
-awaits it. This is correct — the tool itself runs in the pool
-or the default executor, NOT in the manager's event loop.
+manager awaits it — correct, since the tool itself runs in the
+pool or in-proc, not in the Manager's loop.
 
 If your tool hangs at startup, check the factory's
 initialization (the sidecar / model load), not the manager.
 
+:::danger
+
+A **blocking** ``def invoke`` registered under
+``AsyncInProcFactory`` runs *on the Manager's event loop* and
+will stall every other tool's consume loop, the reaper, and
+the heartbeat. If a sync tool feels like it hangs the whole
+worker, this is why — give it a ``ProcessPoolFactory``.
+
+:::
+
 ## 6. Reference
 
+- [ADR-078](../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md)
+  — the decommissioning plan (v0.17 / v0.18 / v0.19); §12 is the
+  implementation record and §12.7 the two post-ratification fixes
 - ADR-069 — the original ``ExecutorFactory`` proposal
-- ADR-078 — the decommissioning plan (v0.17 / v0.18 / v0.19)
+  (superseded; kept at ``docs/adr-069-pluggable-executor-factory.md``)
 - ``kntgraph-type-discipline`` skill §9 — the framework-level
   ratchet (the four axes: corrections, coverage, complexity,
   typing)
-- ``kntgraph/tools/executors.py`` — the source of the built-in
-  factories
-- ``tests/unit/tools/test_executors.py`` — 13 tests covering
-  the built-in factories and the ``default_factory_for`` helper
+- ``kntgraph/tools/executors.py`` — the built-in factories
+- ``kntgraph/tools/_strategy_gate.py`` — the registration gate
+- ``tests/unit/tools/test_executors.py`` — the built-in factories
+  and the ``default_factory_for`` helper
+- ``tests/integration/tools/test_worker_manager.py`` — end-to-end,
+  including a sync tool on the legacy pool
