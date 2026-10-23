@@ -34,7 +34,7 @@ import pytest
 
 from kntgraph.infra.redis._errors import (
     MemoryDecodeError,
-    MemoryError,
+    MemoryError,  # noqa: A004
     MemoryMiss,
     MemorySerializationError,
 )

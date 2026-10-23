@@ -52,7 +52,7 @@ from ...infra.redis._dlq import (
     DLQStorage,
     idem_key_for,
 )
-from ...infra.redis._errors import MemoryError
+from ...infra.redis._errors import MemoryError as RedisMemoryError
 from ...infra.redis._translation import (
     translate_redis_call,
 )
@@ -194,7 +194,7 @@ class DeadLetterQueue:
         """Step 2 of ``append``: bump the per-reason counter.
 
         ``DLQStorage.bump_reason_counter`` returns
-        ``Result[None, MemoryError]``; the typed ``Result``
+        ``Result[None, RedisMemoryError]``; the typed ``Result``
         channel is consumed by :func:`translate_redis_call`
         which logs the ``Err`` and returns ``None`` (fail-soft
         — the counter is a hint, not a durability
@@ -203,7 +203,7 @@ class DeadLetterQueue:
         result = await translate_redis_call(
             self._storage.bump_reason_counter(reason, 1),
             op_name="dlq_storage.bump_reason_counter.append",
-            error_cls=MemoryError,
+            error_cls=RedisMemoryError,
             key=DLQ_AGENT_INDEX,  # log context: namespace
             event_id=event_id,
             reason=reason,
@@ -212,10 +212,8 @@ class DeadLetterQueue:
             # The helper has already logged the
             # ``dlq_storage.bump_reason_counter.redis_error``
             # event. We do not propagate the Err to the
-            # caller -- the counter is a hint (the
-            # operator's ``dlq.get_stats`` will see a
-            # stale count, which is self-correcting on
-            # the next ``purge``).
+            # caller -- the counter is a hint (a stale
+            # count is self-correcting on the next ``purge``).
             return
         return
 
@@ -243,7 +241,7 @@ class DeadLetterQueue:
         result = await translate_redis_call(
             client.hsetnx(DLQ_AGENT_INDEX, agent_id, stream_id),
             op_name="dlq_storage.set_agent_head.append",
-            error_cls=MemoryError,
+            error_cls=RedisMemoryError,
             key=DLQ_AGENT_INDEX,
             agent_id=agent_id,
             event_id=event_id,

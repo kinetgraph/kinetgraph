@@ -264,9 +264,7 @@ async def main() -> None:
         print("ℹ️  Running with Real Redis (port 6379, db=15)")
 
     event_log = EventLog(RedisEventLogAdapter(client=redis))
-    tool_router = create_tool_router(
-        settings=fresh_settings(), client=redis
-    )
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis)
 
     dispatcher = ReactiveDispatcher(
         log=event_log,

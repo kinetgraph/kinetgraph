@@ -125,6 +125,15 @@ def step_syntax() -> Step:
 
 
 def step_lint() -> Step:
+    """Lint ``src/`` and ``tests/`` with the project's rule set.
+
+    The rules come from ``pyproject.toml`` → ``[tool.ruff.lint]
+    select`` (E, F, W, I, UP, B, A, C4, SIM) — NOT from a
+    ``--select`` flag here. Declaring them in one place is what
+    keeps an editor's ``ruff check`` and this gate in agreement;
+    they drifted apart once, and the gate reported "lint green"
+    while the documented rules went unenforced.
+    """
     return Step(
         "lint (ruff)",
         (

@@ -351,10 +351,14 @@ def assert_all_correlation_ids(
         if isinstance(expected, CorrelationContext)
         else expected
     )
-    offenders = [e for e in events if e.correlation.correlation_id != expected_id]
+    offenders = [
+        (e.event_type, e.event_id, e.correlation.correlation_id)
+        for e in events
+        if e.correlation.correlation_id != expected_id
+    ]
     assert not offenders, (
         f"Audit trail broken: {len(offenders)} of {len(events)} "
         f"events carry a different correlation_id than the "
         f"entry ({expected_id}); offenders: "
-        f"{[(e.event_type, e.event_id, e.correlation.correlation_id) for e in offenders]}"
+        f"{offenders}"
     )

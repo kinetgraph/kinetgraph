@@ -505,10 +505,7 @@ def _has_supervisor_artifact(context_name: str) -> bool:
     agents_dir = Path("src") / package / "contexts" / context_name / "agents"
     if not agents_dir.is_dir():
         return False
-    for f in agents_dir.iterdir():
-        if f.is_file() and "_supervisor" in f.stem:
-            return True
-    return False
+    return any(f.is_file() and "_supervisor" in f.stem for f in agents_dir.iterdir())
 
 
 # ------------------------------------------------------------------

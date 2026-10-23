@@ -36,13 +36,13 @@ def _fake_redis():
     redis.hdel = AsyncMock(return_value=1)
     redis.hincrby = AsyncMock(return_value=1)
     redis.hlen = AsyncMock(return_value=0)
-    redis.hscan_iter = MagicMock(return_value=aiter([]))
+    redis.hscan_iter = MagicMock(return_value=_aiter([]))
     redis.xinfo_stream = AsyncMock(return_value={"length": 0})
     redis.delete = AsyncMock(return_value=1)
     return redis
 
 
-async def aiter(items):
+async def _aiter(items):
     for x in items:
         yield x
 
@@ -88,7 +88,7 @@ class TestRedisDLQStorage:
 
     async def test_append_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.xadd = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -124,7 +124,7 @@ class TestRedisDLQStorage:
 
     async def test_read_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.xrange = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -145,7 +145,7 @@ class TestRedisDLQStorage:
 
     async def test_list_for_agent_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.hget = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -156,7 +156,7 @@ class TestRedisDLQStorage:
 
     async def test_find_by_event_id_returns_err_on_hscan_failure(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.hscan_iter = MagicMock(
@@ -169,7 +169,7 @@ class TestRedisDLQStorage:
 
     async def test_purge_returns_err_on_delete_failure(self):
         from kntgraph.infra.redis._dlq import RedisDLQStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))

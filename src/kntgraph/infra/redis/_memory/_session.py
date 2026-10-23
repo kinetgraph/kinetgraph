@@ -37,7 +37,7 @@ from .._client import RedisLike
 from .._codec import decode_value
 from .._errors import (
     MemoryDecodeError,
-    MemoryError,
+    MemoryError,  # noqa: A004
     MemoryMiss,
     MemorySerializationError,
 )

@@ -283,11 +283,15 @@ async def test_factory_exception_routes_to_hard_crash(clean_redis):
         await manager.stop()
 
 
-async def test_no_factory_uses_internal_pool(clean_redis):
-    """
-    Regression guard: tools registered WITHOUT ``executor_factory=``
-    still go through the internal ``ProcessPoolExecutor`` path.
-    This is the bit-for-bit compat promise of ADR-069.
+async def test_no_factory_uses_in_proc_for_async_tools(clean_redis):
+    """ADR-078 §4.4: a tool registered WITHOUT
+    ``executor_factory=`` that has an ``async def invoke`` runs
+    in-process via ``AsyncInProcFactory`` — no pool is created,
+    and no process boundary is involved.
+
+    This replaces the pre-0.18 promise that a factory-less tool
+    would use the internal ``ProcessPoolExecutor``. An async
+    tool that needs a process boundary must say so.
     """
     from kntgraph.infra.redis._event_log import RedisEventLogAdapter
     from kntgraph.tools.manager import WorkerManager
@@ -295,8 +299,9 @@ async def test_no_factory_uses_internal_pool(clean_redis):
     agent_id = f"a-{uuid.uuid4()}"
     log = EventLog(RedisEventLogAdapter(clean_redis))
     manager = WorkerManager(clean_redis, event_log=log)
-    # NO executor_factory — the default path must still work.
-    manager.register(MathDoublerTool)
+    # NO executor_factory — the async default path must work,
+    # and it must not create a pool.
+    manager.register(MathDoublerTool, acl=None)
 
     request_event = Event.create(
         event_type="tool.requested",
@@ -312,6 +317,7 @@ async def test_no_factory_uses_internal_pool(clean_redis):
 
     await manager.start()
     try:
+        assert manager._pool is None, "async default must not create a pool"
         completed = False
         for _ in range(20):
             for e in await log.read(agent_id):
@@ -321,6 +327,6 @@ async def test_no_factory_uses_internal_pool(clean_redis):
             if completed:
                 break
             await asyncio.sleep(0.1)
-        assert completed, "No-factory path must still work (compat)"
+        assert completed, "No-factory async path must still work"
     finally:
         await manager.stop()

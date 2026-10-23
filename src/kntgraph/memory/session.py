@@ -47,7 +47,11 @@ import structlog
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
 from ..core.result import Err, Ok, PersistenceError, Result
-from ..infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
+from ..infra.redis._errors import (
+    MemoryDecodeError,
+    MemoryError,  # noqa: A004
+    MemoryMiss,
+)
 from ..infra.redis._memory import ShortMemoryStorage
 from ..stream.event_log import EventLog
 from .base import BaseShortTermMemory
@@ -393,7 +397,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
                 break
         return Ok(out)
 
-    # ------------------------------------------------------------------ base hooks (cache)
+    # ---------------------------------------------------- base hooks (cache)
 
     async def _read_cache(
         self, key: str, *key_parts: str
@@ -448,7 +452,7 @@ class SessionManager(BaseShortTermMemory[SessionState]):
             "ended_at": state.ended_at,
         }
 
-    # ------------------------------------------------------------------ base hooks (fold)
+    # ---------------------------------------------------- base hooks (fold)
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, session_id: str

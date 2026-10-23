@@ -37,6 +37,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -68,6 +69,30 @@ class TestWorkerManagerACL:
             event_log=event_log_mock,
         )
         return manager, redis_mock, event_log_mock
+
+    @staticmethod
+    def _stub_factory(value: Mapping[str, Any]) -> Any:
+        """An ``executor_factory`` that returns ``value``
+        without touching the tool.
+
+        The ACL tests care about the gate that runs *before*
+        invocation, not about invocation itself. Registering an
+        explicit factory (ADR-078 §4.4) is the supported way to
+        keep a tool out of a real process / event loop; the
+        previous approach patched the private
+        ``_invoke_tool_sync`` symbol, which the async default
+        path never calls.
+        """
+
+        async def _factory(
+            sync_fn: Any,
+            idempotency_key: str,
+            tool_params: Mapping[str, Any],
+        ) -> ToolResult:
+            del sync_fn, idempotency_key, tool_params
+            return ToolResult.ok(dict(value))
+
+        return _factory
 
     def _make_request(self, *, producer_principal_id: str | None = None) -> Any:
         """Build a minimal request event shaped like
@@ -111,27 +136,21 @@ class TestWorkerManagerACL:
         from kntgraph.agents.tools.llm import LiteLLMToolWorker
 
         manager, _redis_mock, event_log_mock = self._make_manager()
-        manager.register(LiteLLMToolWorker, acl=None)
+        manager.register(
+            LiteLLMToolWorker,
+            acl=None,
+            executor_factory=self._stub_factory({"ok": True}),
+        )
 
         request = self._make_request(producer_principal_id="tenant-a.agent-1")
         message_id, data = self._stream_message(request)
 
-        # Stub the tool invocation so the test
-        # doesn't need a real Worker process. We
-        # patch ``_invoke_tool_sync`` on the
-        # manager's module path.
-        from unittest.mock import patch
-
-        with patch(
-            "kntgraph.tools._dispatch._invoke_tool_sync",
-            return_value=ToolResult.ok({"ok": True}),
-        ):
-            await manager._process_message(
-                "chat_llm",
-                "knt:tools:chat_llm:queue",
-                message_id,
-                data,
-            )
+        await manager._process_message(
+            "chat_llm",
+            "knt:tools:chat_llm:queue",
+            message_id,
+            data,
+        )
 
         # ACL was not set; the request was invoked
         # (success path).
@@ -148,23 +167,21 @@ class TestWorkerManagerACL:
         from kntgraph.tools.acl import default_acl
 
         manager, _redis_mock, event_log_mock = self._make_manager()
-        manager.register(LiteLLMToolWorker, acl=default_acl())
+        manager.register(
+            LiteLLMToolWorker,
+            acl=default_acl(),
+            executor_factory=self._stub_factory({"ok": True}),
+        )
 
         request = self._make_request(producer_principal_id="tenant-a.agent-1")
         message_id, data = self._stream_message(request)
 
-        from unittest.mock import patch
-
-        with patch(
-            "kntgraph.tools._dispatch._invoke_tool_sync",
-            return_value=ToolResult.ok({"ok": True}),
-        ):
-            await manager._process_message(
-                "chat_llm",
-                "knt:tools:chat_llm:queue",
-                message_id,
-                data,
-            )
+        await manager._process_message(
+            "chat_llm",
+            "knt:tools:chat_llm:queue",
+            message_id,
+            data,
+        )
 
         # The request was invoked; the completed
         # event was appended.

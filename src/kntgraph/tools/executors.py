@@ -35,8 +35,24 @@ Symbols
   that still pass ``max_pool_workers`` to ``WorkerManager``
   (the internal pool is being decommissioned).
 - ``WorkerStrategyError``: raised by ``register()`` in v0.18+
-  when a sync tool has no factory and no pool. The error
-  message names the three exits (factory / async / pool).
+  when a sync tool has no ``executor_factory``. Also raised by
+  ``default_factory_for`` when a sync / cpu-bound tool reaches
+  it without a caller-supplied pool.
+
+v0.18 breaking change
+---------------------
+The Manager no longer creates a ``ProcessPoolExecutor``
+implicitly. A tool with a sync ``invoke`` **must** declare its
+strategy:
+
+    manager.register(AsyncTool)              # still fine
+    manager.register(SyncTool)               # WorkerStrategyError
+    manager.register(SyncTool,
+                     executor_factory=ProcessPoolFactory(pool, 1))  # ok
+
+Pass ``legacy_pool=True`` to ``WorkerManager(...)`` to restore
+the old behaviour for one more minor (removed in v0.19). See
+ADR-078 §12.
 """
 
 from __future__ import annotations
@@ -154,7 +170,10 @@ class AsyncInProcFactory:
     """
 
     def __init__(self) -> None:
-        self._seen: set[type] = set()
+        """The factory is stateless: the warning dedup lives at
+        module level (``_WARNED_AUTO_PROMOTION``) so it survives
+        the fresh instance the default path builds per dispatch.
+        """
 
     async def __call__(
         self,
@@ -163,36 +182,40 @@ class AsyncInProcFactory:
         tool_params: Mapping[str, JsonValue],
     ) -> ToolResult:
         # ``sync_fn`` is the dispatcher's generic
-        # ``_invoke_tool_sync`` (the sync wrapper that opens
-        # a fresh event loop in a thread). For async tools
-        # we don't need that wrapper — we invoke the tool's
-        # coroutine directly on the running event loop.
+        # ``_invoke_tool_sync``. For async tools we invoke the
+        # tool's coroutine directly on the running event loop.
         del sync_fn  # explicit acknowledgement: ignored
         tool_cls = _extract_tool_cls(tool_params)
-        self._warn_once_per_tool(tool_cls)
+        _warn_auto_promoted_once(tool_cls)
         result = await tool_cls().invoke(
             idempotency_key=idempotency_key,
             **_strip_internal_keys(tool_params),
         )
         return _result_to_tool_result(result)
 
-    def _warn_once_per_tool(self, tool_cls: type) -> None:
-        """Emit the ADR-078 ``PoolDeprecationWarning`` once
-        per tool class (per factory instance). Idempotent;
-        the ``_seen`` set is the dedup key.
-        """
-        if tool_cls in self._seen:
-            return
-        self._seen.add(tool_cls)
-        warnings.warn(
-            (
-                "Tool uses AsyncInProcFactory by default; "
-                "register executor_factory= explicitly to "
-                "pin the strategy (ADR-078)."
-            ),
-            PoolDeprecationWarning,
-            stacklevel=3,
-        )
+
+# ``PoolDeprecationWarning`` must fire once per (tool, process),
+# not once per factory instance (ADR-078 §7.4): the default path
+# builds a fresh factory on every dispatch, so an instance-scoped
+# dedup warned on every message.
+_WARNED_AUTO_PROMOTION: set[type] = set()
+
+
+def _warn_auto_promoted_once(tool_cls: type) -> None:
+    """Warn once per tool class per process that the tool
+    reached ``AsyncInProcFactory`` without declaring it."""
+    if tool_cls in _WARNED_AUTO_PROMOTION:
+        return
+    _WARNED_AUTO_PROMOTION.add(tool_cls)
+    warnings.warn(
+        (
+            "Tool uses AsyncInProcFactory by default; "
+            "register executor_factory= explicitly to "
+            "pin the strategy (ADR-078)."
+        ),
+        PoolDeprecationWarning,
+        stacklevel=3,
+    )
 
 
 class ProcessPoolFactory:
@@ -203,6 +226,15 @@ class ProcessPoolFactory:
     cap. ``concurrency=0`` is the legacy "disable TTL"
     sentinel (no concurrency limit); positive integers cap
     the number of in-flight invocations.
+
+    Required for any tool that can kill its own process
+    (``os._exit``, ``sys.exit``, ``SIGKILL``, a segfault in a
+    native extension). Under ``AsyncInProcFactory`` such a tool
+    runs on the Manager's event loop, so the crash takes down
+    the Manager: no consume loop, no reaper, no ``XAUTOCLAIM``,
+    and the pending message is never recovered. In a pool, the
+    worker dies and the Manager reaps the message
+    (ADR-078 §12.5).
     """
 
     def __init__(
@@ -248,51 +280,64 @@ class ProcessPoolFactory:
         return _runner()
 
 
-def default_factory_for(tool_cls: type) -> ExecutorFactory:
+def default_factory_for(
+    tool_cls: type, *, pool: ProcessPoolExecutor | None = None
+) -> ExecutorFactory:
     """Pick the right factory for a given tool class.
 
     Rules:
 
       - If ``tool_cls.__tool_worker_cpu_bound__`` is True →
-        ``ProcessPoolFactory`` (caller-supplied pool required).
+        ``ProcessPoolFactory`` (``pool`` required).
       - Else if ``inspect.iscoroutinefunction(tool_cls.invoke)``
         is True → ``AsyncInProcFactory``.
-      - Else → ``ProcessPoolFactory`` (the factory is a hint
-        that this is a sync tool that needs a pool; the
-        Manager raises ``WorkerStrategyError`` in v0.18+ when
-        the caller has no pool).
+      - Else → ``ProcessPoolFactory`` (``pool`` required).
 
-    In v0.17.0 the helper exists for the skill §7 ratchet and
-    for test fixtures; the Manager's
-    ``_dispatch_to_tool`` does not yet call it (the legacy
-    pool path still fires; v0.18 will switch the default).
+    ``pool`` is the caller-owned executor handed to the
+    ``ProcessPoolFactory``. There is no implicit pool to
+    inherit: as of ADR-078 v0.18 the Manager's internal
+    ``ProcessPoolExecutor`` is opt-in, so a sync or cpu-bound
+    tool reaching this helper without one raises
+    ``WorkerStrategyError`` naming the fix. Callers without a
+    pool reach this helper only for async tools, which never
+    touch the pool argument.
     """
-    if getattr(tool_cls, "__tool_worker_cpu_bound__", False):
-        return ProcessPoolFactory(pool=_require_pool(), concurrency=1)
+    if _needs_process_pool(tool_cls):
+        return ProcessPoolFactory(pool=_require_pool(pool), concurrency=1)
+    # v0.18 default: async tools do NOT need a pool
+    # (the ``AsyncInProcFactory`` invokes the tool's
+    # coroutine directly on the Manager's event loop).
+    return AsyncInProcFactory()
+
+
+def _needs_process_pool(tool_cls: type) -> bool:
+    """True when the tool must run in a separate process: an
+    explicit ``__tool_worker_cpu_bound__`` marker, or a sync
+    ``invoke``.
+    """
     import inspect
 
-    if inspect.iscoroutinefunction(getattr(tool_cls, "invoke", None)):
-        # v0.18 default: async tools do NOT need a pool
-        # (the ``AsyncInProcFactory`` invokes the tool's
-        # coroutine directly on the Manager's event loop).
-        # Only sync / CPU-bound tools require a
-        # caller-supplied pool via ``ProcessPoolFactory``.
-        return AsyncInProcFactory()
-    return ProcessPoolFactory(pool=_require_pool(), concurrency=1)
+    if getattr(tool_cls, "__tool_worker_cpu_bound__", False):
+        return True
+    return not inspect.iscoroutinefunction(getattr(tool_cls, "invoke", None))
 
 
-def _require_pool() -> ProcessPoolExecutor:
-    """Helper for ``default_factory_for`` — the caller must
-    supply a pool. Used in the test path where the Manager's
-    internal pool is None; the test fixture provides one.
+def _require_pool(pool: ProcessPoolExecutor | None) -> ProcessPoolExecutor:
+    """A sync or cpu-bound tool needs a caller-supplied
+    ``ProcessPoolExecutor``. Since ADR-078 v0.18 the Manager
+    no longer creates one implicitly, so a missing pool is a
+    registration-time mistake, not something to paper over.
     """
-    raise WorkerStrategyError(
-        "default_factory_for requires a ProcessPoolExecutor; "
-        "the test fixture must supply one. In production, "
-        "callers pass an explicit "
-        "executor_factory=ProcessPoolFactory(your_pool, 1) "
-        "or convert the tool to async def invoke."
-    )
+    if pool is None:
+        raise WorkerStrategyError(
+            "A sync or CPU-bound tool needs an explicit "
+            "ProcessPoolExecutor. Pass "
+            "executor_factory=ProcessPoolFactory(your_pool, 1) to "
+            "WorkerManager.register() and own the pool's lifecycle "
+            "(ADR-078 §3.2), or convert the tool to `async def invoke` "
+            "if it is I/O-bound."
+        )
+    return pool
 
 
 __all__ = [

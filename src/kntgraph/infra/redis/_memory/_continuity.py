@@ -30,7 +30,7 @@ from kntgraph.core.result import Err, Ok, Result
 from ....core._typing import JsonValue
 from .._client import RedisLike
 from .._codec import decode_dict, decode_value
-from .._errors import MemoryError, MemoryMiss, MemorySerializationError
+from .._errors import MemoryError, MemoryMiss, MemorySerializationError  # noqa: A004
 from .._translation import translate_redis_call
 from ._adapter import CacheRecord
 

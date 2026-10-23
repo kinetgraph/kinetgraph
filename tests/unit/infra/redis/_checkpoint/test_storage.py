@@ -106,7 +106,7 @@ class TestRedisCheckpointStorage:
 
     async def test_load_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._checkpoint import RedisCheckpointStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.hget = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -134,7 +134,7 @@ class TestRedisCheckpointStorage:
 
     async def test_save_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._checkpoint import RedisCheckpointStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.hset = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -195,7 +195,7 @@ class TestRedisCheckpointStorage:
 
     async def test_clear_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._checkpoint import RedisCheckpointStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.hdel = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -218,7 +218,7 @@ class TestRedisCheckpointStorage:
 
     async def test_clear_all_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._checkpoint import RedisCheckpointStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))

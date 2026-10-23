@@ -26,7 +26,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from kntgraph.infra.redis._errors import (
-    MemoryError,
+    MemoryError,  # noqa: A004
     MemoryMiss,
     MemorySerializationError,
 )

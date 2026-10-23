@@ -35,7 +35,7 @@ The gate runs 9 steps in order:
 | Step        | Tool             | Description                              |
 | ----------- | ---------------- | ---------------------------------------- |
 | `syntax`    | `py_compile`     | Compiles every `.py` in `src/` and `tests/` |
-| `lint`      | `ruff check`     | Lints with the rules `E, F, W, I, UP, B, A, C4, SIM` |
+| `lint`      | `ruff check`     | Lints `src/` and `tests/` with the rules `E, F, W, I, UP, B, A, C4, SIM` (declared in `pyproject.toml` → `[tool.ruff.lint] select`) |
 | `format`    | `ruff format --check` | Verifies the canonical format (zero diffs) |
 | `complexity` | `radon cc/mi`  | CC ≤ 10 per block, MI ≥ 20 per file, no regression |
 | `reuse`     | `REUSE 3.3`      | License compliance (SPDX headers + `LICENSES/`) |

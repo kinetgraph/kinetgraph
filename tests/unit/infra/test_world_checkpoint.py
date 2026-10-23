@@ -9,7 +9,7 @@ from redis import exceptions as redis_exceptions
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 from kntgraph.infra.redis._world_checkpoint._redis import (
     RedisWorldCheckpointStorage,
     storage_key,
@@ -63,7 +63,7 @@ class _FakePipeline:
         return self
 
     async def execute(self) -> list:
-        for key, value, ex in self._queued:
+        for key, value, _ex in self._queued:
             self._client.data[key] = value
         return [True] * len(self._queued)
 
@@ -138,7 +138,7 @@ async def test_world_checkpoint_store_handles_save_and_discard_errors():
 
 
 @pytest.mark.asyncio
-async def test_world_checkpoint_storage_load_returns_error_for_unexpected_payload_type():
+async def test_world_checkpoint_storage_load_returns_error_for_unexpected_payload():
     client = FakeRedisClient()
     client.data[storage_key("agent-1")] = "not-bytes"
     storage = RedisWorldCheckpointStorage(client=client)

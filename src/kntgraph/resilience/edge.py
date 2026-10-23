@@ -121,15 +121,9 @@ def build_cors_middleware(*, allow_origins: str = "") -> type[ASGIMiddleware] | 
 
     from starlette.middleware.cors import CORSMiddleware
 
-    if origins == ["*"]:
-        # The user explicitly opted into any-origin
-        # mode (typical for local development). We
-        # disable credentials in that case because
-        # ``Access-Control-Allow-Origin: *`` is rejected
-        # by browsers when credentials are present.
-        allow_credentials = False
-    else:
-        allow_credentials = True
+    # Browsers reject ``Access-Control-Allow-Origin: *``
+    # when credentials are present.
+    allow_credentials = origins != ["*"]
 
     class _Bound(CORSMiddleware):
         def __init__(self, app: ASGIApp) -> None:

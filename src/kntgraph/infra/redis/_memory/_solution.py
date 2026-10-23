@@ -370,10 +370,7 @@ class RedisSolutionStore:
             # runtime check makes the adapter tolerant to
             # both shapes; production Redis always returns
             # the tuple form.
-            if isinstance(entry, tuple):
-                field = entry[0]
-            else:
-                field = entry
+            field = entry[0] if isinstance(entry, tuple) else entry
             decoded = decode_value(field)
             if decoded:
                 yield decoded

@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import contextvars
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Protocol, TypeVar, runtime_checkable
 
 from kntgraph.core._typing import JsonValue
@@ -64,7 +64,7 @@ from kntgraph.core._typing import JsonValue
 ComparableT = TypeVar("ComparableT")
 
 
-class PrincipalLevel(str, Enum):
+class PrincipalLevel(StrEnum):
     """
     RBAC permission on a :class:`Principal` (ADR-060 §2.0).
 
@@ -322,7 +322,7 @@ def _optional_scalar(value: JsonValue) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-class Action(str, Enum):
+class Action(StrEnum):
     """What a principal wants to do."""
 
     read = "read"  # read state (events, tools, agents)

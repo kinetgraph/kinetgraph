@@ -405,7 +405,7 @@ class TestWakeUpSpinLoopFix:
     async def test_wake_once_sleeps_poll_interval_when_no_subscribable_agents(
         self,
     ):
-        """When _has_subscribable_agents() is False, _wake_once() sleeps _interval before returning."""
+        """When _has_subscribable_agents() is False, _wake_once() sleeps."""
         client = _make_client()
         log = EventLog(
             storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
@@ -434,8 +434,7 @@ class TestWakeUpSpinLoopFix:
             await client.aclose()
 
     async def test_loop_does_not_spin_when_no_subscribable_agents(self):
-        """Verifies that in push-first mode with no subscribable agents, _loop() does not spin,
-        calling dispatch_once() at most 1 time in a 50ms window with poll_interval=0.1s."""
+        """Verifies push-first mode does not spin without subscribable agents."""
         client = _make_client()
         log = EventLog(
             storage=RedisEventLogAdapter(client=client, key_prefix="test_wakeup:")
@@ -470,7 +469,7 @@ class TestWakeUpSpinLoopFix:
             await asyncio.sleep(0.05)
             await dispatcher.stop()
 
-            # With poll_interval=0.1s and fix in place, dispatch_once is called at most 1 time in 50ms.
+            # With poll_interval=0.1s, dispatch_once is called at most 1 time in 50ms.
             assert dispatch_count <= 2
         finally:
             await client.aclose()
@@ -478,9 +477,7 @@ class TestWakeUpSpinLoopFix:
     async def test_wake_once_uses_block_ms_safety_margin_below_socket_timeout(
         self,
     ):
-        """Validates that _wake_once() passes a block_ms parameter strictly less than
-        fallback_interval * 1000 (e.g. 4500ms for a 5s fallback interval) to prevent socket
-        timeout collision and eliminate false subscribe_failed warnings."""
+        """Validates _wake_once() passes block_ms below the socket timeout."""
         from unittest.mock import AsyncMock
 
         client = _make_client()
@@ -509,7 +506,7 @@ class TestWakeUpSpinLoopFix:
             assert log.subscribe.called
             _, kwargs = log.subscribe.call_args
             block_ms = kwargs.get("block_ms")
-            # For 5s fallback interval, block_ms must be strictly less than 5000ms (e.g. 4500ms)
+            # For a 5s fallback interval, block_ms must be less than 5000ms.
             assert block_ms < 5000
             assert block_ms == 4500
         finally:

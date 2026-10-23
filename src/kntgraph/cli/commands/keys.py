@@ -52,6 +52,8 @@ def generate(
         out_path = Path(out_dir)
         out_path.mkdir(parents=True, exist_ok=True)
 
+        # File names are derived from the agent id so one
+        # directory can hold a keypair per agent.
         priv_file = out_path / f"{agent_id}_private.pem"
         pub_file = out_path / f"{agent_id}_public.pem"
 
@@ -59,7 +61,7 @@ def generate(
         pub_file.write_bytes(public_pem)
 
         console.print(
-            f"[green]Success![/green] Keys generated for agent '{agent_id}' at {out_path}"
+            f"[green]Success![/green] Keys generated at {out_path} for '{agent_id}'"
         )
     else:
         # Print directly to stdout without rich formatting so it can be piped safely

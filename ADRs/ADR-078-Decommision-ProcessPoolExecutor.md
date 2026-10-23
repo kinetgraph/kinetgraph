@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-078: Decommission the internal `ProcessPoolExecutor`; make execution strategy a per-tool decision
 
-- **Status:** Proposed
+- **Status:** Accepted (ratified 2026-10-20, v0.18 default switch implemented — see §12; §12.7 records two post-ratification fixes)
 - **Date:** 2026-10-09
 - **Author:** kinetgraph architecture team (proposed by the backoffice engineering team, see §1.4)
 - **Supersedes:** [ADR-054](./ADR-054-WorkerManager-Transport-Evaluation.md) — WorkerManager transport evaluation; "keep `ProcessPoolExecutor`". The reopening criterion stated in ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s at a time") was met by the post-mortem of 2026-10-07 (§1.4).
@@ -110,6 +110,7 @@ It is **not**:
 ```python
 # src/kntgraph/tools/manager.py — _dispatch_to_tool (post-ADR-078)
 
+
 async def _dispatch_to_tool(self, *, tool_name, tool_cls, idempotency_key, tool_params):
     factory = self._executors.get(tool_name)
     if factory is None:
@@ -169,6 +170,7 @@ The warning cadence is one per (tool, process) — `_warnings_registry[tool_name
 ```python
 # src/kntgraph/tools/_executors/async_inproc.py
 
+
 class AsyncInProcFactory:
     """Default factory for tools whose ``invoke`` is ``async def``.
 
@@ -208,6 +210,7 @@ class AsyncInProcFactory:
 
 ```python
 # src/kntgraph/tools/_executors/process_pool.py
+
 
 class ProcessPoolFactory:
     """Opt-in factory backed by a caller-owned
@@ -255,6 +258,7 @@ The doc `adr-069-pluggable-executor-factory.md` §"Usage example (backoffice)" s
 ```python
 # backoffice/infra/model_worker_pool.py (sketch, non-normative)
 
+
 class ModelWorkerPool:
     """Singleton pool for tools with heavy ML deps."""
 
@@ -270,14 +274,18 @@ class ModelWorkerPool:
 
     def factory_for(self, tool_cls: type) -> ExecutorFactory:
         pool = self._pool  # capture
-        sem = self._sem   # capture
+        sem = self._sem  # capture
 
         async def factory(sync_fn, idempotency_key, tool_params):
             tool_params = {**tool_params, "__tool_cls__": tool_cls}
             loop = asyncio.get_running_loop()
             async with sem:
                 return await loop.run_in_executor(
-                    pool, sync_fn, tool_cls, idempotency_key, tool_params,
+                    pool,
+                    sync_fn,
+                    tool_cls,
+                    idempotency_key,
+                    tool_params,
                 )
 
         return factory
@@ -319,8 +327,8 @@ def __init__(
     ...
     self._max_pool_workers: int | None = max_pool_workers
     self._pool: ProcessPoolExecutor | None = None  # only constructed when
-                                                   # `_maybe_open_deprecated_pool`
-                                                   # returns truthy (see §5.2).
+    # `_maybe_open_deprecated_pool`
+    # returns truthy (see §5.2).
     self._deprecated_pool_opened: bool = False
 ```
 
@@ -387,16 +395,21 @@ async def start(self) -> None:
     for tool_name in self._tools:
         stream_key = self._stream_key(tool_name)
         try:
-            await self._redis.xgroup_create(stream_key, self._group_name, id="0", mkstream=True)
+            await self._redis.xgroup_create(
+                stream_key, self._group_name, id="0", mkstream=True
+            )
         except Exception as e:
             if "BUSYGROUP" not in str(e):
-                logger.exception("worker.xgroup_create.failed", tool=tool_name, error=str(e))
+                logger.exception(
+                    "worker.xgroup_create.failed", tool=tool_name, error=str(e)
+                )
 
         task = asyncio.create_task(self._consume_loop(tool_name))
         self._tasks.append(task)
 
         reaper_task = asyncio.create_task(self._reaper_loop(tool_name))
         self._tasks.append(reaper_task)
+
 
 def _maybe_open_deprecated_pool(self) -> bool:
     """Open the internal ProcessPoolExecutor only when
@@ -510,6 +523,7 @@ ExecutorFactory = Callable[
     [Callable[[type, str, dict[str, Any]], dict[str, Any]], str, dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+
 
 class WorkerManager:
     def register(
@@ -749,3 +763,177 @@ Acceptance:
 ## 11. Revision history
 
 - **2026-10-09** — Initial draft (this version). Promotes `docs/adr-069-pluggable-executor-factory.md` to a formal ADR; supersedes ADR-054; ships built-in factories; inverts the v0.18 default; plans a 3-release migration window.
+- **2026-10-20** — Ratified. §12 records the implementation and corrects the §4.4 gate.
+- **2026-10-23** — §12.7: two post-ratification defects closed — the `legacy_pool` escape hatch exempted nothing, and `_invoke_tool_sync` could not run a sync `invoke`.
+
+---
+
+## 12. Implementation record (v0.18, ratified 2026-10-20)
+
+This section records what actually landed and supersedes §4.4's
+draft gate. §1–§11 are unchanged as the design rationale.
+
+### 12.1 §4.4's gate was unsafe as drafted — corrected
+
+§4.4 proposed gating the internal pool on
+`max_pool_workers is None`:
+
+```python
+# DRAFT — NOT IMPLEMENTED (see §12.1)
+def _maybe_open_deprecated_pool(self) -> bool:
+    if self._max_pool_workers is None:
+        return False
+```
+
+**Rejected.** `max_pool_workers=None` is the *default*, and its
+documented meaning is "size the pool with the legacy formula"
+(`max(1, min(32, sum(max_concurrency)))`), i.e. *I want the
+pool*. Gating on it would silently disable the pool for every
+caller that never passed the knob.
+
+Worse, §4.4 was only safe if the §2.2 dispatch rewrite landed
+in the same change. While `_dispatch.py` still had its
+`is_cpu_bound` → `run_in_executor(self._pool, ...)` branch,
+`pool=None` fell back to `loop.run_in_executor(None, ...)` —
+the event loop's default **thread** executor. A blocking tool
+(docling, GLiNER) would then stall the Manager's loop
+*silently*, which is a worse failure than the OOM this ADR set
+out to fix. The gate and the dispatch rewrite are therefore
+**atomic**: the pool may only become opt-in once nothing
+depends on it being implicit.
+
+### 12.2 What shipped
+
+| Change | Site |
+|---|---|
+| **Strict registration gate.** A sync `invoke` with no `executor_factory` raises `WorkerStrategyError`. The `__tool_worker_cpu_bound__` marker no longer exempts it. | `manager.py` `register()` |
+| **Legacy dispatch branch deleted.** `is_cpu_bound` → `run_in_executor(pool)` removed; `pool=None` can no longer mean "use the loop's thread executor". | `_dispatch.py` |
+| **New explicit opt-in flag** `legacy_pool: bool = False`. The internal pool opens only when set. `max_pool_workers` still *sizes* it; it no longer *creates* it. | `manager.py` `__init__` / `_maybe_open_deprecated_pool` |
+| **`is_cpu_bound` deleted** (last production caller gone). Per the deprecation policy it is removed, not kept as a shim. | `_dispatch_helpers.py` |
+| **`default_factory_for(tool_cls, *, pool=None)`** now takes the caller's pool instead of raising unconditionally. | `executors.py` |
+| **Warning dedup moved to module level**, keyed by tool class, so it fires once per (tool, process) rather than once per factory instance. | `executors.py` `_WARNED_AUTO_PROMOTION` |
+
+### 12.3 Why the registration gate was previously a no-op
+
+The v0.17 draft gate read:
+
+```python
+if executor_factory is None and not getattr(tool_cls, "__tool_worker_cpu_bound__", False):
+    ...raise WorkerStrategyError...
+```
+
+and `is_cpu_bound` returned `True` for **every** sync `invoke`
+(`not inspect.iscoroutinefunction(...)`). A tool that set the
+marker therefore always reached the internal pool instead of
+raising. The gate could only ever fire on a sync tool that
+neither declared a factory nor set the marker — and that tool
+had no path to the pool anyway. In practice the OOM of
+§1.4 kept its default path through the marker, unnoticed.
+
+The corrected gate keys solely on `executor_factory is None`.
+The marker is now only a *hint to `default_factory_for`* about
+which built-in factory to select for a caller who already owns a
+pool.
+
+### 12.4 Operator-visible behaviour change
+
+A sync / CPU-bound tool that today runs via the implicit pool
+must now declare its strategy:
+
+```python
+# before (worked, and was the OOM vector)
+manager.register(DoclingTool)
+
+# after
+pool = ProcessPoolExecutor(
+    max_workers=1, mp_context=multiprocessing.get_context("spawn")
+)
+manager.register(DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
+```
+
+Async tools are unaffected — `AsyncInProcFactory` remains the
+default and no factory is required.
+
+### 12.5 A tool that kills its own process MUST declare a pool
+
+Surfaced by `tests/integration/tools/test_worker_manager.py::
+test_worker_manager_dlq_on_hard_crash`. A tool that does
+`os.kill(os.getpid(), signal.SIGKILL)` to simulate a crash used
+to kill a *pool worker* while the Manager survived and the
+reaper recovered the message. Under `AsyncInProcFactory` the
+same tool runs on the Manager's event loop, so the `SIGKILL`
+takes down the **Manager** — no consumer loop, no reaper, no
+`XAUTOCLAIM`, and the agent blocks forever.
+
+This is not a framework bug but it is a sharp edge, so it is
+recorded here: any tool that crashes its own process (or calls
+`sys.exit`, `os._exit`, `KeyboardInterrupt`, or triggers a
+segfault) **must** register a `ProcessPoolFactory`. The
+integration test now declares one and the docstring of
+`ProcessPoolFactory` carries the same warning.
+
+### 12.6 Follow-up not done here
+
+`max_pool_workers` is now dead weight for every caller that
+does not pass `legacy_pool=True`. It is kept until v0.19 for
+signature stability and is removed with the pool, per §5.6.
+
+### 12.7 The `legacy_pool` exemption — two defects closed after ratification
+
+The ratified v0.18 shipped with two defects that made the
+migration path §5.2 promises unusable. Both were found by
+writing the end-to-end test the ADR never had (§10.4 lists
+`tests/integration/tools/test_executor_factory.py` but no
+case for "sync tool on the legacy pool").
+
+**Defect 1 — the escape hatch was inert.** §12.4 presents
+`legacy_pool=True` as restoring the previous behaviour, but the
+registration gate keyed solely on `executor_factory is None`
+and ignored `_legacy_pool`. A sync tool therefore failed to
+register *with the pool open*, so the pool built in
+`_maybe_open_deprecated_pool` could never receive anything —
+the flag served no purpose for precisely the tools it exists
+to keep alive. Every existing test missed it because all of
+them register `async def invoke` tools.
+
+Resolved: the gate now reads
+`executor_factory is None and not self._legacy_pool`. The
+trade-off is bounded and deliberate — the OOM of §1.4 returns
+only if an operator explicitly re-opts in, and boot already
+warns once. `WorkerStrategyError` now names the flag so an
+operator who trips the gate sees the escape hatch rather than
+concluding the pool was removed.
+
+**Defect 2 — the worker boundary could not run a sync
+`invoke`.** `_invoke_tool_sync` drove every tool through
+`loop.run_until_complete(tool.invoke(...))`. For a **sync**
+`def invoke` that raises
+`TypeError: An asyncio.Future, a coroutine or an awaitable is
+required` inside the worker, which surfaced as
+`worker.tool.hard_crash` and left the message in the PEL for
+the reaper. The shape `ProcessPoolFactory` and the legacy pool
+exist to run was the one shape the boundary could not run.
+
+Resolved: `_call_invoke` branches on the *declared* shape.
+A sync `invoke` is called directly — being in a worker process
+is the point, so there is no loop to drive. An `async def
+invoke` still gets a fresh loop. The branch reads
+`inspect.iscoroutinefunction` rather than inspecting the
+returned value: calling an `async def invoke` to see what it
+returned would materialise the coroutine outside the loop,
+leaking it as "never awaited" whenever anything raised in
+between.
+
+Coverage added: four unit cases in
+`tests/unit/tools/test_manager_dispatch_helpers.py` (the
+exemption, that it does not widen the `@tool_worker` check,
+and that the message names the flag) plus
+`test_worker_manager_legacy_pool_runs_sync_tool` — an
+end-to-end registration → start → consume → spawn →
+`tool.<name>.completed` pass, with the sync tool defined at
+module level so `spawn` can pickle it.
+
+The gate lives in `tools/_strategy_gate.py` rather than
+inline in `register()`: the operator-facing message is long
+enough that inlining it pushed the Manager's complexity and
+`manager.py`'s maintainability index past the radon baseline.

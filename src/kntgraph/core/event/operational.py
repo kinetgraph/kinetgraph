@@ -28,10 +28,10 @@ the event_type string, not the phase enum.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class OperationalEventType(str, Enum):
+class OperationalEventType(StrEnum):
     """
     The closed set of operational event types the framework emits.
 

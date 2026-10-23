@@ -24,6 +24,7 @@ ratchet).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -140,15 +141,27 @@ class TestAsyncInProcFactory:
         assert result.status == "ok"
         assert result.value == {"echo": "k-1"}
 
-    def test_warning_fires_once_per_instance(self) -> None:
-        """The ``PoolDeprecationWarning`` is fired once per
-        ``AsyncInProcFactory`` instance (idempotent).
+    def test_warning_fires_once_per_tool_across_instances(self) -> None:
+        """ADR-078 §7.4: the ``PoolDeprecationWarning`` fires
+        once per (tool, process), NOT once per factory
+        instance.
+
+        The dedup used to live on the instance, and
+        ``default_factory_for`` builds a fresh
+        ``AsyncInProcFactory`` on every dispatch — so the
+        warning fired on every single message. The dedup is
+        now module-level, keyed by tool class.
         """
-        factory = AsyncInProcFactory()
+        from kntgraph.tools import executors as executors_mod
+
+        executors_mod._WARNED_AUTO_PROMOTION.discard(AsyncEcho)
 
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
+            # A fresh factory per call, mirroring the default
+            # dispatch path.
             for _ in range(3):
+                factory = AsyncInProcFactory()
                 params: dict[str, Any] = {"__tool_cls__": AsyncEcho}
                 asyncio.run(factory(_ok_sync_fn, "k", params))
 
@@ -156,6 +169,26 @@ class TestAsyncInProcFactory:
             w for w in caught if issubclass(w.category, PoolDeprecationWarning)
         ]
         assert len(pool_warns) == 1
+
+    def test_warning_fires_once_per_distinct_tool(self) -> None:
+        """Two distinct tools each warn once; a repeat of one
+        tool does not warn again."""
+        from kntgraph.tools import executors as executors_mod
+
+        executors_mod._WARNED_AUTO_PROMOTION.discard(AsyncEcho)
+        executors_mod._WARNED_AUTO_PROMOTION.discard(AsyncFailingEcho)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            for cls in (AsyncEcho, AsyncFailingEcho, AsyncEcho):
+                params: dict[str, Any] = {"__tool_cls__": cls}
+                with contextlib.suppress(RuntimeError):
+                    asyncio.run(AsyncInProcFactory()(_ok_sync_fn, "k", params))
+
+        pool_warns = [
+            w for w in caught if issubclass(w.category, PoolDeprecationWarning)
+        ]
+        assert len(pool_warns) == 2
 
     def test_propagates_exceptions_from_invoke(self) -> None:
         """If the tool's ``invoke`` raises, the exception
@@ -238,26 +271,21 @@ class SyncEchoWithMarker(SyncEcho):
 class TestDefaultFactoryFor:
     def test_cpu_bound_marker_wins(self) -> None:
         """``__tool_worker_cpu_bound__ = True`` selects the
-        process pool factory. We pass a real ``ThreadPoolExecutor``
-        as the ``_require_pool`` injection (the default_factory
-        helper calls this for CPU-bound tools).
+        process pool factory. The pool is passed as the
+        ``pool=`` argument — ADR-078 §4.4 removed the implicit
+        Manager-owned pool, so there is nothing to inject.
         """
         pool = ThreadPoolExecutor(max_workers=1)
-        # ``_require_pool`` is an internal module-level helper
-        # that we patch via the import path (NOT
-        # ``unittest.mock.patch`` — the skill §1.3 ratchet
-        # prefers real instances where possible, and this is
-        # the boundary at which a real pool is needed).
-        import kntgraph.tools.executors as exec_module
-
-        original = exec_module._require_pool
-        exec_module._require_pool = lambda: pool
-        try:
-            factory = default_factory_for(SyncEchoWithMarker)
-        finally:
-            exec_module._require_pool = original
+        factory = default_factory_for(SyncEchoWithMarker, pool=pool)
         assert isinstance(factory, ProcessPoolFactory)
         assert factory._pool is pool  # type: ignore[attr-defined]
+
+    def test_sync_tool_requires_explicit_pool(self) -> None:
+        """A sync tool reaching the default path with no pool
+        raises ``WorkerStrategyError`` naming the fix, instead
+        of silently falling back to a thread (ADR-078 §4.4)."""
+        with pytest.raises(WorkerStrategyError, match="ProcessPoolExecutor"):
+            default_factory_for(SyncEcho)
 
     def test_async_invoke_selects_async_factory(self) -> None:
         """Tools with an async ``invoke`` default to the async
@@ -265,15 +293,6 @@ class TestDefaultFactoryFor:
         """
         factory = default_factory_for(AsyncEcho)
         assert isinstance(factory, AsyncInProcFactory)
-
-    def test_sync_without_marker_raises(self) -> None:
-        """A sync tool without ``__tool_worker_cpu_bound__`` has
-        no clear default — the manager raises
-        ``WorkerStrategyError`` in v0.18+. ``default_factory_for``
-        surfaces the same error for symmetry.
-        """
-        with pytest.raises(WorkerStrategyError, match="executor_factory"):
-            default_factory_for(SyncEcho)
 
 
 # ---------------------------------------------------------------------------

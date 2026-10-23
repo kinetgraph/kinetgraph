@@ -10,8 +10,7 @@ Profiles are long-lived (no TTL by default) and have a
 two-part identity (``tenant_id``, ``user_id``).
 
 This module is part of Iteration 2 (ADR-019). The base
-class ``BaseShortTermMemory`` consumes it via the
-``ShortMemoryStorage`` Protocol.
+class ``BaseShortTermMemory`` consumes it via the ``ShortMemoryStorage`` Protocol.
 
 Result contract (AGENTS.md §6): see ``ShortMemoryStorage``
 docstring for the full contract.
@@ -29,7 +28,7 @@ from kntgraph.core.result import Err, Ok, Result
 from ....core._typing import JsonValue
 from .._client import RedisLike
 from .._codec import decode_dict, decode_value
-from .._errors import MemoryError, MemoryMiss, MemorySerializationError
+from .._errors import MemoryError, MemoryMiss, MemorySerializationError  # noqa: A004
 from .._translation import translate_redis_call
 from ._adapter import CacheRecord
 

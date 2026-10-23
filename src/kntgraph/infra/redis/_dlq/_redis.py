@@ -45,7 +45,7 @@ from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike, safe_xrange
 from .._codec import decode_dict, decode_value
-from .._errors import MemoryError
+from .._errors import MemoryError  # noqa: A004
 from .._prefix import namespaced
 from .._translation import translate_redis_call
 

@@ -92,7 +92,7 @@ class TestExtractionPackageNoLeak:
             # No kntgraph.agents.knowledge.argument_extractor
             # should be loadable (it was deleted).
             try:
-                import kntgraph.agents.knowledge.argument_extractor  # noqa: F401  # pyright: ignore[reportMissingImports]
+                import kntgraph.agents.knowledge.argument_extractor  # noqa: F401,E501
                 print("LEAKED: vertical re-imported")
                 sys.exit(1)
             except ModuleNotFoundError:

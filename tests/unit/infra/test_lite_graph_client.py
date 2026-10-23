@@ -30,6 +30,7 @@ exercised manually in dev environments.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -259,10 +260,8 @@ class TestLiteGraphAdapterQuery:
         # raising a specific RuntimeError inside the
         # sync function if it's still on the loop.
         def _block_loop(*args: Any, **kwargs: Any) -> Any:
-            try:
+            with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop()
-            except RuntimeError:
-                pass
             result = MagicMock()
             result.result_set = []
             result.headers = []

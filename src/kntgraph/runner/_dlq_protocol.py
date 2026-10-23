@@ -44,7 +44,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from ..core._typing import JsonValue
@@ -66,7 +66,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-class DLQReason(str, Enum):
+class DLQReason(StrEnum):
     """Why an event ended up in the DLQ.
 
     Reasons 0-5 cover worker-side failures (the worker

@@ -408,9 +408,7 @@ async def main() -> None:
     )
     recorder_system = SessionRecorderRoleBridge()
 
-    tool_router = create_tool_router(
-        settings=fresh_settings(), client=redis_client
-    )
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis_client)
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[chat_system, recorder_system],

@@ -15,6 +15,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **ADR-078 ratified — the `WorkerManager` no longer creates an
+  internal `ProcessPoolExecutor` implicitly.** This is a
+  **breaking change** for any tool with a sync `invoke`.
+
+  - **A tool must now declare how it runs.** `register()` raises
+    `WorkerStrategyError` for a sync tool with no
+    `executor_factory`. The `__tool_worker_cpu_bound__` marker
+    no longer exempts it — the previous gate was a no-op,
+    because `is_cpu_bound` classified *every* sync `invoke` as
+    cpu-bound, so the marker always reached the implicit pool
+    instead of raising. Migration:
+
+    ```python
+    # before
+    manager.register(DoclingTool)
+
+    # after — own the pool
+    pool = ProcessPoolExecutor(
+        max_workers=1, mp_context=multiprocessing.get_context("spawn")
+    )
+    manager.register(DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
+    ```
+
+    Async tools are unaffected: `AsyncInProcFactory` remains the
+    default and needs no factory.
+
+  - **`legacy_pool=True` on `WorkerManager(...)`** restores the
+    previous behaviour for one more minor and emits a single
+    `PoolDeprecationWarning` at boot. It is removed in v0.19
+    with the pool. It also exempts a sync tool from the
+    registration gate, so an unmigrated caller keeps working:
+    `register(SyncTool)` succeeds when the flag is set, the
+    pool opens in `start()`, and dispatch reaches it through
+    `default_factory_for(tool_cls, pool=...)`.
+
+  - **`max_pool_workers` no longer creates a pool**, only sizes
+    one when `legacy_pool=True`.
+
+  - **`_invoke_tool_sync` honours both `invoke` shapes.** The
+    boundary ran every tool through
+    `loop.run_until_complete(tool.invoke(...))`, which raises
+    `TypeError: An asyncio.Future, a coroutine or an awaitable is
+    required` for a **sync** `def invoke` — the exact shape
+    `ProcessPoolFactory` and the legacy pool exist to run. It now
+    branches on the declared shape: a sync `invoke` is called
+    directly (no loop to drive — being in a worker process is
+    the point), an `async def invoke` is still driven on a fresh
+    loop. The branch reads `inspect.iscoroutinefunction` rather
+    than inspecting the returned value, so an `async def
+    invoke` is never materialised outside the loop.
+
+  - **The legacy dispatch branch is deleted.** `_dispatch.py` no
+    longer routes cpu-bound tools through
+    `run_in_executor(self._pool, ...)`; with no implicit pool
+    that call would have silently fallen back to the event loop's
+    default *thread* executor, stalling the Manager's loop on a
+    blocking tool. This also required correcting §4.4 of the ADR,
+    which gated the pool on `max_pool_workers is None` — the
+    default value, whose documented meaning is "size the pool".
+
+  - **`is_cpu_bound` removed** (last production caller gone)
+    rather than kept as a shim.
+
+  - **`default_factory_for(tool_cls, *, pool=None)`** now takes
+    the caller's pool.
+
+  - **`PoolDeprecationWarning` for auto-promoted async tools now
+    fires once per (tool, process)** rather than once per factory
+    instance; the default path built a fresh factory per
+    dispatch, so it warned on every single message.
+
+  - **Tools that crash their own process must declare a pool.**
+    A tool calling `os._exit`, `sys.exit`, `SIGKILL`, or hitting
+    a native segfault used to kill a pool worker while the
+    Manager survived and the reaper recovered the message. Under
+    `AsyncInProcFactory` it runs on the Manager's event loop, so
+    the crash takes down the Manager: no consume loop, no
+    reaper, no `XAUTOCLAIM`, and the pending message is never
+    recovered. Such tools must register a `ProcessPoolFactory`.
+
 ### Added
 - **ADR-082 — Redis transport defense-in-depth.** Closes
   the loop on the 2026-10-07 post-mortem

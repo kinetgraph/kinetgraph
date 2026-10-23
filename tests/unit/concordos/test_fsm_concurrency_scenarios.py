@@ -16,7 +16,7 @@ Tests two key FSM concurrency scenarios against a live/fake Redis event log:
    state at t ~ 0.1s without blocking on the 10-second tool.
 
 2. test_fsm_non_blocking_interleaved_tools:
-   An FSM in state 'executing' receives 2 tool requests (slow 3.0s tool & fast 0.05s tool).
+   An FSM in state 'executing' receives 2 tool requests (slow and fast tools).
    The FSM transitions on 'tool.fast_005s_tool.completed' to 'partially_completed'
    at t < 0.5s while the 3-second tool is still running in background, proving the
    FSM agent never freezes waiting for slow tools.
@@ -388,7 +388,7 @@ async def test_fsm_parallel_multi_tool_fast_fail() -> None:
 
 async def test_fsm_non_blocking_interleaved_tools() -> None:
     """Test 2: FSM executes 2 tools (slow 3.0s and fast 0.05s).
-    The FSM transitions from 'executing' to 'partially_completed' on fast tool completion
+    The FSM transitions from 'executing' to 'partially_completed' on fast completion
     at t < 0.5s while the slow tool is still running in background, and then reaches
     'fully_completed' at t ~ 3.0s."""
     redis = FakeRedis(decode_responses=False)
@@ -475,7 +475,8 @@ async def test_fsm_non_blocking_interleaved_tools() -> None:
         "FSM did NOT transition to 'partially_completed' while slow tool was running!"
     )
     assert partially_completed_time < 0.5, (
-        f"FSM transition to 'partially_completed' took {partially_completed_time}s, expected < 0.5s."
+        f"FSM transition to 'partially_completed' took {partially_completed_time}s, "
+        f"expected < 0.5s."
     )
 
     # Step 2: Now wait for full completion at ~3.0s
@@ -507,7 +508,8 @@ async def test_fsm_non_blocking_interleaved_tools() -> None:
     # Delta assertion: Fast transition happened ~2.7s before full completion!
     delta = round(fully_completed_time - partially_completed_time, 2)
     assert delta > 2.0, (
-        f"Fast transition was only {delta}s before slow tool completion, expected > 2.0s."
+        f"Fast transition was only {delta}s before slow tool completion, "
+        f"expected > 2.0s."
     )
 
     # Audit trail invariant (ADR-037 §1.1): every event the
@@ -574,8 +576,8 @@ five_orders_fsm_config = FSMConfig(
 )
 async def test_fsm_five_concurrent_process_executions() -> None:
     """Test 3: 5 distinct agent processes execute against the same FSM concurrently.
-    Direct registration of FSMSystem & FSMProjection on ReactiveDispatcher (no .install()).
-    Verifies all 5 processes complete their state lifecycle independently without interference."""
+    Direct registration of FSMSystem & FSMProjection on ReactiveDispatcher.
+    Verifies all 5 processes complete their state lifecycle independently."""
     redis = FakeRedis(decode_responses=False)
     event_log = EventLog(RedisEventLogAdapter(client=redis))
     tool_router = ToolRouter(redis)
@@ -658,7 +660,8 @@ async def test_fsm_five_concurrent_process_executions() -> None:
 
     # 🚨 ASSERTIONS
     assert len(completed_agents) == 5, (
-        f"Expected all 5 FSM agents to reach 'completed', got {len(completed_agents)} ({completed_agents})."
+        f"Expected all 5 FSM agents to reach 'completed', "
+        f"got {len(completed_agents)} ({completed_agents})."
     )
 
     for agent_id in agent_ids:

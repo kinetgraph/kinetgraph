@@ -211,7 +211,8 @@ async def _drive_agents(
                 failed_appends += 1
                 if failed_appends <= 3:
                     print(
-                        f"DEBUG append FAILED for {agent_id}/{tool_name}: {result.err_value()}"
+                        f"DEBUG append FAILED for {agent_id}/{tool_name}: "
+                        f"{result.err_value()}"
                     )
             total += 1
             correlation_middleware.clear()

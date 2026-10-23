@@ -209,10 +209,7 @@ class RedisEventLogAdapter:
     async def read_with_cursor(
         self, agent_id: str, cursor: str
     ) -> tuple[list[Event], str]:
-        if cursor == "-" or cursor == "0-0":
-            start = "-"
-        else:
-            start = f"({cursor}"
+        start = "-" if cursor == "-" or cursor == "0-0" else f"({cursor}"
 
         messages = await safe_xrange(
             self.client,

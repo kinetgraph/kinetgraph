@@ -70,7 +70,7 @@ import time
 from dataclasses import dataclass
 
 from kntgraph.core.result import Ok, Result
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
 from ._adapter import APIKeyStorage
 
@@ -80,8 +80,7 @@ class _CacheEntry:
     """Stored cache entry: the raw bytes + insertion time.
 
     Using ``time.monotonic()`` so the TTL is robust to
-    wall-clock adjustments. Tests inject a custom
-    clock via the ``time_fn`` argument.
+    wall-clock adjustments. Tests inject a custom clock via the ``time_fn`` argument.
     """
 
     value: bytes | None

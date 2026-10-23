@@ -50,7 +50,11 @@ import structlog
 from ..core._typing import JsonValue
 from ..core.event import Event, correlation_middleware
 from ..core.result import Err, Ok, PersistenceError, Result
-from ..infra.redis._errors import MemoryDecodeError, MemoryError, MemoryMiss
+from ..infra.redis._errors import (
+    MemoryDecodeError,
+    MemoryError,  # noqa: A004
+    MemoryMiss,
+)
 from ..infra.redis._memory import ShortMemoryStorage
 from ..stream.event_log import EventLog
 from .base import BaseShortTermMemory
@@ -352,7 +356,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
         return Ok(out)
         return Ok(out)
 
-    # ------------------------------------------------------------------ base hooks (cache)
+    # ---------------------------------------------------- base hooks (cache)
 
     async def _read_cache(
         self, key: str, *key_parts: str
@@ -409,7 +413,7 @@ class ProfileManager(BaseShortTermMemory[ProfileState]):
             mapping[f"pref:{k}"] = str(v)
         return mapping
 
-    # ------------------------------------------------------------------ base hooks (fold)
+    # ---------------------------------------------------- base hooks (fold)
 
     async def _fold_from_log(  # type: ignore[reportIncompatibleMethodOverride]
         self, tenant_id: str, user_id: str

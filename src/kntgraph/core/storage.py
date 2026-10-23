@@ -183,7 +183,7 @@ class ArchetypeStorage[ComponentT]:
         superset of the queried types.
         """
         if not component_types:
-            for arch_id, table in self._archetypes.items():
+            for _arch_id, table in self._archetypes.items():
                 for eid, comps in table.items():
                     yield eid, comps
             return

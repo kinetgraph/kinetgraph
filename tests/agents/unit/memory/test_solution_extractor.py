@@ -197,7 +197,7 @@ class TestSolutionExtractorSystemNoIOPure:
         import kntgraph.agents.memory.solution_extractor as mod
 
         source = mod.__file__
-        with open(source, "r", encoding="utf-8") as f:
+        with open(source, encoding="utf-8") as f:
             content = f.read()
         # No I/O module imports.
         for forbidden in (

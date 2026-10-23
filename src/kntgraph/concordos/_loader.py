@@ -273,16 +273,16 @@ def _build_fsm_config(fsm: FSMConfigSchema, bundle_id: str | None) -> FSMConfig:
     """
     from kntgraph.concordos.fsm import FSMConfig, FSMTransition
 
-    component_class_raw = _resolve_dotted_path(
-        fsm.component, "business_fsm.component", bundle_id
-    )
-    if not isinstance(component_class_raw, type):
+    # The dotted path must resolve to a class (the FSM's
+    # domain component), not to an instance or a function.
+    resolved = _resolve_dotted_path(fsm.component, "business_fsm.component", bundle_id)
+    if not isinstance(resolved, type):
         raise ConcordoBundleError(
             bundle_id=bundle_id,
             path=fsm.component,
-            message=f"resolved object is not a class: {type(component_class_raw).__name__}",
+            message=f"resolved object is not a class: {type(resolved).__name__}",
         )
-    component_class = component_class_raw
+    component_class = resolved
 
     transitions: dict[str, dict[str, FSMTransition]] = {}
     for t in fsm.transitions:

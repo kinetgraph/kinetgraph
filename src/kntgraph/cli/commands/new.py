@@ -21,6 +21,24 @@ def camel_to_snake(name: str) -> str:
     return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
 
+def _require_target(target: str, kind: str, example: str) -> tuple[str, str]:
+    """Split a ``<context>.<Name>`` target into its two parts.
+
+    Exits with code 1 (after printing the reason) when the
+    target is missing the context part. ``kind`` and
+    ``example`` only shape the error message; they never
+    change the validation.
+    """
+    if "." not in target:
+        console.print(
+            f"[red]Error:[/red] Target must be in the format "
+            f"<context>.<{kind}> (e.g., {example})"
+        )
+        raise typer.Exit(code=1)
+    context_name, name = target.split(".", 1)
+    return context_name, name
+
+
 def _get_package_name() -> str:
     """
     Naively infer the project's package name by looking inside the src/ directory.
@@ -29,7 +47,8 @@ def _get_package_name() -> str:
     src_dir = Path("src")
     if not src_dir.is_dir():
         console.print(
-            "[red]Error:[/red] Could not find 'src/' directory. Are you in the project root?"
+            "[red]Error:[/red] Could not find 'src/' directory. "
+            "Are you in the project root?"
         )
         raise typer.Exit(code=1)
 
@@ -51,13 +70,9 @@ def system(
     """
     Generate a pure WorldSystem artifact.
     """
-    if "." not in target:
-        console.print(
-            "[red]Error:[/red] Target must be in the format <context>.<SystemName> (e.g., sales.CheckoutSystem)"
-        )
-        raise typer.Exit(code=1)
-
-    context_name, system_name = target.split(".", 1)
+    context_name, system_name = _require_target(
+        target, "SystemName", "sales.CheckoutSystem"
+    )
     package_name = _get_package_name()
 
     snake_case_name = camel_to_snake(system_name)
@@ -101,13 +116,9 @@ def component(
     """
     Generate an immutable ECS Component artifact.
     """
-    if "." not in target:
-        console.print(
-            "[red]Error:[/red] Target must be in the format <context>.<ComponentName> (e.g., sales.CartItem)"
-        )
-        raise typer.Exit(code=1)
-
-    context_name, component_name = target.split(".", 1)
+    context_name, component_name = _require_target(
+        target, "ComponentName", "sales.CartItem"
+    )
     package_name = _get_package_name()
 
     snake_case_name = camel_to_snake(component_name)
@@ -147,13 +158,7 @@ def event(
     """
     Generate a domain Event factory artifact.
     """
-    if "." not in target:
-        console.print(
-            "[red]Error:[/red] Target must be in the format <context>.<EventName> (e.g., sales.OrderPlaced)"
-        )
-        raise typer.Exit(code=1)
-
-    context_name, event_name = target.split(".", 1)
+    context_name, event_name = _require_target(target, "EventName", "sales.OrderPlaced")
     package_name = _get_package_name()
 
     snake_case_name = camel_to_snake(event_name)
@@ -195,13 +200,9 @@ def tool(
     """
     Generate an impure Tool artifact.
     """
-    if "." not in target:
-        console.print(
-            "[red]Error:[/red] Target must be in the format <context>.<ToolName> (e.g., sales.ProcessPayment)"
-        )
-        raise typer.Exit(code=1)
-
-    context_name, tool_name = target.split(".", 1)
+    context_name, tool_name = _require_target(
+        target, "ToolName", "sales.ProcessPayment"
+    )
     package_name = _get_package_name()
 
     snake_case_name = camel_to_snake(tool_name)
@@ -242,13 +243,9 @@ def agent(
     """
     Generate an Agent orchestration file (wiring Systems and Tools).
     """
-    if "." not in target:
-        console.print(
-            "[red]Error:[/red] Target must be in the format <context>.<AgentName> (e.g., sales.CheckoutAgent)"
-        )
-        raise typer.Exit(code=1)
-
-    context_name, agent_name = target.split(".", 1)
+    context_name, agent_name = _require_target(
+        target, "AgentName", "sales.CheckoutAgent"
+    )
     package_name = _get_package_name()
 
     snake_case_name = camel_to_snake(agent_name)
@@ -326,5 +323,6 @@ def context(
 
     dispatcher_file.write_text(tmpl.render(ctx))
     console.print(
-        f"[green]Success![/green] Generated Bounded Context '{context_name}' at {target_dir}"
+        f"[green]Success![/green] Generated Bounded Context "
+        f"'{context_name}' at {target_dir}"
     )

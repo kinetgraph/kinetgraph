@@ -5,9 +5,9 @@
 """
 Integration test for multi-tool parallel execution with fast-fail behavior (ADR-069).
 
-Validates that an entry event triggering 3 parallel tool requests (fast success, fast failure,
-slow 10s execution) fails fast on the first tool failure (at ~0.1s) without waiting for the
-10-second tool to complete.
+Validates that an entry event triggering 3 parallel tool requests (fast success,
+fast failure, slow execution) fails fast on the first tool failure (at ~0.1s)
+without waiting for the slow tool to complete.
 """
 
 from __future__ import annotations
@@ -196,7 +196,7 @@ class FastFailOrchestratorSystem:
 
 
 async def test_multi_tool_fast_fail_pipeline() -> None:
-    """Verify 3 parallel tools (1 success, 1 failure, 1 slow) fail fast immediately on failure."""
+    """Verify 3 parallel tools (1 success, 1 failure, 1 slow) fail fast."""
     from fakeredis.aioredis import FakeRedis
 
     redis_client = FakeRedis(decode_responses=False)

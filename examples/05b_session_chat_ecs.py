@@ -633,9 +633,7 @@ async def main() -> None:
 
     chat_system = SessionChatSystem()
 
-    tool_router = create_tool_router(
-        settings=fresh_settings(), client=redis_client
-    )
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis_client)
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[chat_system],

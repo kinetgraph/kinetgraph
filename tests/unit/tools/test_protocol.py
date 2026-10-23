@@ -69,7 +69,13 @@ class _OmittedIdempotentTool:
         "properties": {"id": {"type": "string"}},
     }
 
-    async def invoke(self, *, idempotency_key: str, id: str, **kwargs):
+    async def invoke(
+        self,
+        *,
+        idempotency_key: str,
+        id: str,  # noqa: A002 — domain term for the tool input id
+        **kwargs,
+    ):
         return Ok({"id": id})
 
 

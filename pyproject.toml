@@ -27,8 +27,10 @@ classifiers = [
     "Typing :: Typed",
 ] 
 dependencies = [
+    "certifi>=2026.10.19",
     "deal>=4.24",
     "immutables>=0.21",
+    "opentelemetry-api>=1.45.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "redis>=5.0",
@@ -103,6 +105,20 @@ include = ["kntgraph*"]
 [tool.ruff] 
 line-length = 88
 target-version = "py312"
+
+# The rule set the CI gate applies. Declared here (rather than
+# passed as ``--select`` on the command line) so ``ruff check``
+# from an editor or a pre-commit hook enforces the SAME set as
+# ``scripts/ci.py`` — the two drifting apart is what let the
+# gate report "lint green" while the documented rules went
+# unenforced.
+#
+# Keep in sync with:
+# - ``scripts/ci.py`` → ``step_lint``
+# - ``.agents/skills/kntgraph-ci-gate/SKILL.md``
+# - ``CONTRIBUTING.md``
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "A", "C4", "SIM"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = [

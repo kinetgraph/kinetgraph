@@ -47,7 +47,7 @@ from typing import Protocol, runtime_checkable
 
 from kntgraph.core.result import Result
 
-from .._errors import MemoryError
+from .._errors import MemoryError  # noqa: A004
 
 
 @runtime_checkable

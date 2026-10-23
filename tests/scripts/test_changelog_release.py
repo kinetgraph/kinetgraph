@@ -196,7 +196,8 @@ class TestMain:
     def test_main_refuses_empty_unreleased(self, tmp_path: Path) -> None:
         empty = _write_changelog(
             tmp_path,
-            "# Changelog\n\n---\n\n## [Unreleased]\n\n## [0.10.0] — 2026-07-30\n\n### Added\n- x.\n",
+            "# Changelog\n\n---\n\n## [Unreleased]\n\n"
+            "## [0.10.0] — 2026-07-30\n\n### Added\n- x.\n",
         )
         module = _load_script_module()
         saved_argv = sys.argv

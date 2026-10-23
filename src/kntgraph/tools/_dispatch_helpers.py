@@ -3,22 +3,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Pure helpers for ``WorkerManager`` dispatch sizing and CPU
-classification.
+Pure helpers for ``WorkerManager`` dispatch sizing.
 
 Extracted from ``src/kntgraph/tools/manager.py`` to keep that
 file's LOC under the maintainability gate (ADR-019: MI ≥ 20
-per file). The functions are pure (no ``self`` access); the
+per file). The function is pure (no ``self`` access); the
 ``_dispatch_to_tool`` method stays on the Manager because it
 needs ``self._pool`` and ``self._executors`` state.
 
-Both helpers are exercised by
-``tests/unit/tools/test_manager_dispatch_helpers.py``.
+``is_cpu_bound`` used to live here too. ADR-078 §4.4 removed
+its last production caller (the implicit-pool dispatch branch
+in ``_dispatch.py``): cpu-bound tools now declare a factory at
+registration, and ``default_factory_for`` reads
+``inspect.iscoroutinefunction`` directly. The heuristic is gone
+rather than kept as an unused shim, per the deprecation policy.
+
+Exercised by ``tests/unit/tools/test_manager_dispatch_helpers.py``.
 """
 
 from __future__ import annotations
-
-import inspect
 
 # ``max_concurrency`` is the per-tool semaphore knob. When a tool
 # is registered with ``max_concurrency=N`` the Manager creates an
@@ -65,49 +68,4 @@ def compute_max_workers(
                 for t in tools.values()
             ),
         ),
-    )
-
-
-def is_cpu_bound(tool_cls: type, tool_instance: object) -> bool:
-    """A tool is CPU-bound if it is explicitly marked
-    (``__tool_worker_cpu_bound__ = True``), wraps a non-async
-    ``invoke`` (``inspect.iscoroutinefunction`` returns ``False``
-    for a regular ``def`` and for ``None`` when ``invoke`` is
-    missing), or runs against a wrapped (non-original) sync
-    helper. Same heuristic as the pre-refactor inline check;
-    extracted so the caller is a single boolean expression and
-    ``_process_message``'s cyclomatic complexity stays under 10.
-    """
-    return (
-        getattr(tool_cls, "__tool_worker_cpu_bound__", False)
-        or not inspect.iscoroutinefunction(getattr(tool_instance, "invoke", None))
-        or _is_wrapped_sync_helper()
-    )
-
-
-def _is_wrapped_sync_helper() -> bool:
-    """True when ``_invoke_tool_sync`` has been monkey-patched
-    or replaced (the test-instrumentation path in
-    ``tests/integration/tools/test_worker_manager.py`` and
-    ``tests/unit/tools/test_worker_manager_acl.py``). When
-    True, even an ``async def invoke`` should run through the
-    process pool because the wrapped helper is sync.
-
-    Implementation note
-    -------------------
-    The identity check (``_invoke_tool_sync is not
-    _ORIGINAL_INVOKE_TOOL_SYNC``) reads the *current binding*
-    of ``_invoke_tool_sync`` in the modules that import it.
-    The dispatch is now in ``_dispatch.py`` (ADR-069), so we
-    check both the legacy ``manager`` binding and the new
-    ``_dispatch`` binding — test patches may target either
-    path. Reading the name via ``getattr`` on the module
-    object is the robust path.
-    """
-    from kntgraph.tools import _dispatch as _dispatch_mod
-    from kntgraph.tools import manager as _manager
-
-    return (
-        _manager._invoke_tool_sync is not _manager._ORIGINAL_INVOKE_TOOL_SYNC
-        or _dispatch_mod._invoke_tool_sync is not _manager._ORIGINAL_INVOKE_TOOL_SYNC
     )

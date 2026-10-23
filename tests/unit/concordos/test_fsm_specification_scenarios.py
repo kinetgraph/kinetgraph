@@ -11,11 +11,11 @@ Tests the 3 concurrency and parallel execution scenarios with composable Specifi
 1. test_fsm_spec_parallel_multi_tool_fast_fail:
    Transition 'processing' -> 'approved' guarded by:
      ProfileTierIs("vip").and_(OrderAmountValid(min_amount=10, max_amount=1000))
-   FSM receives 'tool.fast_failure_tool.failed' and transitions to 'rejected' fast (~0.1s).
+   FSM receives the fast failure and transitions to 'rejected' (~0.1s).
 
 2. test_fsm_spec_non_blocking_interleaved_tools:
    Transitions guarded by composable Specifications (ContinuityToolUsed, DomainStateIs).
-   Fast tool completes at t < 0.5s and transitions FSM while 3s slow tool runs in background.
+   Fast tool completes at t < 0.5s while the 3s slow tool runs in background.
 
 3. test_fsm_spec_five_concurrent_process_executions:
    5 distinct agent process executions governed by the same FSM, where every transition
@@ -169,7 +169,8 @@ class MultiToolSpecDispatchSystem:
 
 
 # Transition guard using composed Specifications:
-# (DomainStateIs("stage", "created") OR DomainStateIs("stage", "draft")) AND OrderAmountValid(10, 1000)
+# (DomainStateIs("stage", "created") OR DomainStateIs("stage", "draft"))
+# AND OrderAmountValid(10, 1000)
 spec_multi_tool_guard = (
     DomainStateIs("stage", "created").or_(DomainStateIs("stage", "draft"))
 ).and_(OrderAmountValid(min_amount=10, max_amount=1000))
@@ -361,7 +362,7 @@ five_orders_spec_fsm_config = FSMConfig(
 
 
 async def test_fsm_spec_parallel_multi_tool_fast_fail() -> None:
-    """Test 1: FSM multi-tool fast fail with transition guard powered by composed Specifications."""
+    """Test 1: FSM multi-tool fast fail with composed Specification guard."""
     redis = FakeRedis(decode_responses=False)
     event_log = EventLog(RedisEventLogAdapter(client=redis))
     tool_router = ToolRouter(redis)
@@ -550,8 +551,8 @@ async def test_fsm_spec_non_blocking_interleaved_tools() -> None:
     ),
 )
 async def test_fsm_spec_five_concurrent_process_executions() -> None:
-    """Test 3: 5 concurrent agent process executions governed by the same Specification-guarded FSM.
-    Each agent carries a ProfileComponent(tier="vip") to satisfy ProfileTierIs("vip") Specification guard."""
+    """Test 3: 5 concurrent executions governed by the same Specification FSM.
+    Each agent carries a ProfileComponent(tier="vip") to satisfy its guard."""
     redis = FakeRedis(decode_responses=False)
     event_log = EventLog(RedisEventLogAdapter(client=redis))
     tool_router = ToolRouter(redis)
@@ -593,7 +594,7 @@ async def test_fsm_spec_five_concurrent_process_executions() -> None:
             )
         )
 
-        # Hydrate ProfileComponent(tier="vip") so ProfileTierIs("vip") Specification is satisfied
+        # Hydrate ProfileComponent(tier="vip") to satisfy its Specification.
         await event_log.append(
             Event.create(
                 event_type="profile.updated",
@@ -646,7 +647,8 @@ async def test_fsm_spec_five_concurrent_process_executions() -> None:
     await worker_manager.stop()
 
     assert len(completed_agents) == 5, (
-        f"Expected all 5 Specification-guarded FSM agents to reach 'completed', got {len(completed_agents)}."
+        f"Expected all 5 Specification-guarded FSM agents to reach 'completed', "
+        f"got {len(completed_agents)}."
     )
 
     for agent_id in agent_ids:

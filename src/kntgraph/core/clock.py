@@ -17,10 +17,10 @@ and the ``now or utcnow`` fallback by hand.
 Clock rule
 ----------
 
-| Use | Clock | Injected? | Persisted? |
-|-----|-------|-----------|------------|
-| Absolute instants, event timestamps, guards, saga deadlines | ``utcnow`` (wall-clock) | Yes | Yes |
-| Pure duration on a hot path (resilience) | ``monotonic()`` | No | No |
+| Use | Clock | Injected | Persisted |
+|-----|-------|----------|-----------|
+| Absolute instants, timestamps, guards, deadlines | ``utcnow`` | Yes | Yes |
+| Pure duration on a hot path | ``monotonic()`` | No | No |
 
 Wall-clock (``utcnow``) is injectable so a replayed log
 re-evaluates guards / timeouts with the same ``now`` as

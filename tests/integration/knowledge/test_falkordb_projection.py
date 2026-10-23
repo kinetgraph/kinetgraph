@@ -18,6 +18,7 @@ Run with:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import uuid
 from collections.abc import Iterator
@@ -44,16 +45,23 @@ def _falkordb_available() -> bool:
 if not _falkordb_available():
     pytest.skip("falkordb not installed", allow_module_level=True)
 
-import redis.asyncio as aioredis
+# The imports below stay under the module-level skip guard on
+# purpose: when ``falkordb`` is not installed the whole module is
+# skipped *before* the optional runtime dependencies are imported,
+# so the run reports a clean skip instead of a collection error.
+# Each one carries a per-line ``E402`` suppression marking that
+# deliberate placement.
 
-from kntgraph.core.event import CorrelationContext, Event
-from kntgraph.infra.graph import (
+import redis.asyncio as aioredis  # noqa: E402
+
+from kntgraph.core.event import CorrelationContext, Event  # noqa: E402
+from kntgraph.infra.graph import (  # noqa: E402
     GraphPool,
 )
-from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector
-from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever
-from kntgraph.stream.event_log import EventLog
-from kntgraph.testing import FakeEmbeddingProvider
+from kntgraph.knowledge.falkordb.adapter import FalkorDBProjector  # noqa: E402
+from kntgraph.knowledge.graphrag.retriever import GraphRAGRetriever  # noqa: E402
+from kntgraph.stream.event_log import EventLog  # noqa: E402
+from kntgraph.testing import FakeEmbeddingProvider  # noqa: E402
 
 # Mark all tests in this module as asyncio (the conftest-style
 # async fixture `event_log` requires an async context).
@@ -84,16 +92,16 @@ async def clean_falkordb_graph(falkordb_client: GraphPool):
     tenant = f"test-{uuid.uuid4().hex[:8]}"
     graph = falkordb_client.graph(tenant)
     # Clean BEFORE the test in case a previous run left state
-    try:
+    with contextlib.suppress(
+        ConnectionError, OSError, TimeoutError, ValueError, RuntimeError
+    ):
         await graph.query("MATCH (n) DETACH DELETE n")
-    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
-        pass
     yield tenant, graph
     # Cleanup AFTER
-    try:
+    with contextlib.suppress(
+        ConnectionError, OSError, TimeoutError, ValueError, RuntimeError
+    ):
         await graph.query("MATCH (n) DETACH DELETE n")
-    except (ConnectionError, OSError, TimeoutError, ValueError, RuntimeError):
-        pass
 
 
 @pytest_asyncio.fixture
@@ -272,16 +280,10 @@ class TestFalkorDBProjector:
             assert not r.result_set
         finally:
             for tid in (tenant_a, tenant_b):
-                try:
-                    await falkordb_client.graph(tid).query("MATCH (n) DETACH DELETE n")
-                except (
-                    ConnectionError,
-                    OSError,
-                    TimeoutError,
-                    ValueError,
-                    RuntimeError,
+                with contextlib.suppress(
+                    ConnectionError, OSError, TimeoutError, ValueError, RuntimeError
                 ):
-                    pass
+                    await falkordb_client.graph(tid).query("MATCH (n) DETACH DELETE n")
 
 
 class TestGraphRAGRetriever:

@@ -343,7 +343,7 @@ class TestConcurrentRequestsDistinctFlows:
         # dispatcher will see them as ONE batch per agent).
         entries: list[Event] = []
         for i, (agent_id, flow_id) in enumerate(
-            zip(["a-1", "a-2", "a-3"], flow_ids), start=1
+            zip(["a-1", "a-2", "a-3"], flow_ids, strict=False), start=1
         ):
             entry = Event.create(
                 event_type="request.received",
@@ -402,7 +402,7 @@ class TestConcurrentRequestsDistinctFlows:
         #    for multiple agents in the same tick, the
         #    middleware SETS itself per-agent via
         #    ``continue_from(entry)``.
-        for entry, agent_id in zip(entries, ["a-1", "a-2", "a-3"]):
+        for entry, agent_id in zip(entries, ["a-1", "a-2", "a-3"], strict=False):
             assert observed[agent_id] == entry.correlation.correlation_id, (
                 f"agent {agent_id}: system saw correlation_id "
                 f"{observed[agent_id]}, "
@@ -441,13 +441,19 @@ class TestConcurrentRequestsDistinctFlows:
         # 4. THE FULL TRANSACTION's audit query: for each flow,
         # the "events with this correlation_id" set contains
         # exactly the entry.
-        for fid, entry in zip(flow_ids, entries):
+        for fid, entry in zip(flow_ids, entries, strict=False):
             flow_events_full = [
                 e for e in events if e.correlation.correlation_id == fid
             ]
             assert len(flow_events_full) == 1, (
                 f"audit query for flow {fid} returned "
                 f"{len(flow_events_full)} events; expected 1 (the entry). "
-                f"Events: {[(e.event_type, e.correlation.correlation_id) for e in flow_events_full]}"
+                "Events: "
+                + str(
+                    [
+                        (e.event_type, e.correlation.correlation_id)
+                        for e in flow_events_full
+                    ]
+                )
             )
             assert flow_events_full[0].event_id == entry.event_id

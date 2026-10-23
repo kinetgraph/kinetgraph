@@ -226,7 +226,7 @@ def register_post_intent(
         try:
             idempotency_key = _sanitize_idempotency_key(idempotency_key)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         # 1. Resolve target.
         if body.type == "tool.invoke":
             if not body.tool:

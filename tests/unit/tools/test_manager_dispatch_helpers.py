@@ -3,17 +3,16 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for ``WorkerManager._compute_max_workers`` and
-``WorkerManager._is_cpu_bound`` — the two helpers extracted
-from ``start()`` and ``_dispatch_to_tool`` (ADR-019 CC ≤ 10
-refactor; ADR-069 dispatch primitive).
+Unit tests for ``WorkerManager._compute_max_workers`` — the
+helper extracted from ``start()`` (ADR-019 CC ≤ 10 refactor).
 
 These are pure functions on the Manager's state, so they
 run as ``unittest.TestCase`` without a Redis fixture. The
 behaviour tests in
 ``tests/integration/tools/test_executor_factory.py`` cover
 the ``executor_factory`` happy path; these tests cover the
-two extracted helpers in isolation.
+extracted helper and the ADR-078 §4.4 registration gate in
+isolation.
 """
 
 from __future__ import annotations
@@ -21,10 +20,8 @@ from __future__ import annotations
 import unittest
 
 from kntgraph.core.result import Ok
-from kntgraph.tools._dispatch_helpers import (
-    compute_max_workers,
-    is_cpu_bound,
-)
+from kntgraph.tools._dispatch_helpers import compute_max_workers
+from kntgraph.tools.executors import WorkerStrategyError
 from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.worker import tool_worker
 
@@ -41,14 +38,12 @@ class CpuDoublerTool:
         return Ok({"result": number * 2})
 
 
-# ``__tool_worker_cpu_bound__`` is an internal marker consumed by
-# ``_is_cpu_bound`` in ``manager.py``. The ``@tool_worker``
-# decorator does not expose it; tools set it directly when they
-# need to opt into the process-pool path. This mirrors the
-# production pattern for tools that wrap blocking C extensions.
-# Set via a descriptor so the attribute survives the decorator's
-# class mutation in both ``is_cpu_bound`` checks and the
-# ``run_in_executor`` branch in ``_dispatch_to_tool``.
+# ``__tool_worker_cpu_bound__`` is an internal marker read by
+# ``default_factory_for`` (``executors.py``). The
+# ``@tool_worker`` decorator does not expose it; tools set it
+# directly when they wrap a blocking C extension and need the
+# process-pool factory selected. It no longer exempts a sync
+# tool from supplying a pool — see ``TestStrictStrategyGate``.
 CpuDoublerTool.__tool_worker_cpu_bound__ = True
 
 
@@ -114,66 +109,138 @@ class TestComputeMaxWorkers(unittest.TestCase):
         self.assertEqual(mgr._compute_max_workers(), 4)
 
 
-class TestIsCpuBound(unittest.TestCase):
-    """``_is_cpu_bound`` decides between the async and the
-    ``run_in_executor`` branches in ``_dispatch_to_tool``.
-    Three conditions qualify: ``__tool_worker_cpu_bound__`` flag,
-    sync (non-coroutine) ``invoke``, or a wrapped (non-original)
-    sync helper."""
+class TestStrictStrategyGate(unittest.TestCase):
+    """ADR-078 §4.4: a tool must declare how it runs.
 
-    def test_explicit_cpu_bound_flag(self) -> None:
-        tool = CpuDoublerTool()
-        self.assertTrue(is_cpu_bound(CpuDoublerTool, tool))
+    Before this change the gate was defeated by the
+    ``__tool_worker_cpu_bound__`` marker — ``is_cpu_bound``
+    returned True for *every* sync ``invoke``, so a sync tool
+    with no factory always reached the implicit process pool
+    instead of raising. These tests pin the corrected contract.
+    """
 
-    def test_async_tool_is_not_cpu_bound(self) -> None:
-        tool = AsyncDoublerTool()
-        self.assertFalse(is_cpu_bound(AsyncDoublerTool, tool))
+    def _manager(self, *, legacy_pool: bool = False) -> WorkerManager:
+        mgr = WorkerManager.__new__(WorkerManager)
+        mgr._tools = {}
+        mgr._acls = {}
+        mgr._executors = {}
+        mgr._legacy_pool = legacy_pool
+        return mgr
 
-    def test_sync_invoke_is_treated_as_cpu_bound(self) -> None:
-        """A tool whose ``invoke`` is a plain ``def`` (not a
-        coroutine) still runs through the process pool. Same
-        heuristic as the pre-refactor inline check."""
-
+    def test_sync_tool_without_factory_raises(self) -> None:
         class SyncDoubler:
-            __tool_worker_cpu_bound__ = False  # not flagged
+            def invoke(self, *, idempotency_key: str, number: int) -> int:
+                return number * 2
+
+        SyncDoubler.name = "sync_doubler"
+        SyncDoubler.description = "doubles"
+        SyncDoubler.input_schema = {}
+        SyncDoubler.__tool_worker_max_concurrency__ = 1
+        SyncDoubler.__tool_worker_retries__ = 0
+
+        with self.assertRaises(WorkerStrategyError) as ctx:
+            self._manager().register(SyncDoubler, acl=None)
+        self.assertIn("executor_factory", str(ctx.exception))
+
+    def test_cpu_bound_marker_no_longer_buys_an_implicit_pool(self) -> None:
+        """The marker selects a built-in factory for a caller
+        who already owns a pool; it does not exempt a sync tool
+        from declaring one."""
+
+        class MarkedSync:
+            __tool_worker_cpu_bound__ = True
 
             def invoke(self, *, idempotency_key: str, number: int) -> int:
                 return number * 2
 
-        SyncDoubler.__tool_worker_name__ = "sync_doubler"
+        MarkedSync.name = "marked_sync"
+        MarkedSync.description = "marked"
+        MarkedSync.input_schema = {}
+        MarkedSync.__tool_worker_max_concurrency__ = 1
+        MarkedSync.__tool_worker_retries__ = 0
+
+        with self.assertRaises(WorkerStrategyError):
+            self._manager().register(MarkedSync, acl=None)
+
+    def test_sync_tool_with_factory_registers(self) -> None:
+        class SyncDoubler:
+            def invoke(self, *, idempotency_key: str, number: int) -> int:
+                return number * 2
+
+        SyncDoubler.name = "sync_doubler"
+        SyncDoubler.description = "doubles"
+        SyncDoubler.input_schema = {}
         SyncDoubler.__tool_worker_max_concurrency__ = 1
         SyncDoubler.__tool_worker_retries__ = 0
-        instance = SyncDoubler()
-        self.assertTrue(is_cpu_bound(SyncDoubler, instance))
 
-    def test_class_without_invoke_attribute_is_treated_as_cpu_bound(self) -> None:
-        """Edge case: a class without ``invoke`` (e.g. someone
-        registered a non-@tool_worker class by accident). The
-        heuristic ``not inspect.iscoroutinefunction(None) = True``
-        makes such classes fall into the CPU-bound branch; the
-        actual ``invoke`` call later raises ``AttributeError``,
-        which the existing hard_crash handler converts to a
-        ``tool.<name>.failed`` event. Same behaviour as the
-        pre-refactor inline check; we lock it in here to detect
-        drift if anyone tries to special-case it."""
+        async def factory(sync_fn, idempotency_key, tool_params):
+            return {"status": "ok", "value": None}
 
-        class NoInvoke:
-            __tool_worker_cpu_bound__ = False
+        mgr = self._manager()
+        mgr.register(SyncDoubler, acl=None, executor_factory=factory)
+        self.assertIn("sync_doubler", mgr)
 
-        NoInvoke.__tool_worker_name__ = "no_invoke"
-        NoInvoke.__tool_worker_max_concurrency__ = 1
-        NoInvoke.__tool_worker_retries__ = 0
-        instance = NoInvoke()
-        self.assertTrue(is_cpu_bound(NoInvoke, instance))
+    def test_async_tool_without_factory_registers(self) -> None:
+        """Async tools still need no factory — they default to
+        ``AsyncInProcFactory`` (the v0.18 default)."""
+        mgr = self._manager()
+        mgr.register(AsyncDoublerTool, acl=None)
+        self.assertIn("async_doubler", mgr)
 
-    def test_is_cpu_bound_called_via_free_function(self) -> None:
-        """The ``is_cpu_bound`` helper is the free function in
-        ``_dispatch_helpers.py``; the WorkerManager method
-        was removed when the dispatch was extracted to
-        ``dispatch_to_tool`` (the call site in the free
-        function imports it directly)."""
-        tool = CpuDoublerTool()
-        self.assertTrue(is_cpu_bound(CpuDoublerTool, tool))
+    def test_legacy_pool_exempts_sync_tool_from_the_gate(self) -> None:
+        """ADR-078 §12.4: ``legacy_pool=True`` is the documented
+        escape hatch for an unmigrated caller.
+
+        Without this exemption the pool opened in ``start()``
+        could never receive anything — the gate rejected the very
+        tools the flag exists to serve, leaving the escape hatch
+        inert for sync ``invoke``.
+        """
+
+        class LegacySync:
+            def invoke(self, *, idempotency_key: str, number: int) -> int:
+                return number * 2
+
+        LegacySync.name = "legacy_sync"
+        LegacySync.description = "legacy"
+        LegacySync.input_schema = {}
+        LegacySync.__tool_worker_max_concurrency__ = 1
+        LegacySync.__tool_worker_retries__ = 0
+
+        mgr = self._manager(legacy_pool=True)
+        mgr.register(LegacySync, acl=None)
+
+        self.assertIn("legacy_sync", mgr)
+        # The tool has no factory; dispatch must fall through to
+        # ``default_factory_for(tool_cls, pool=...)``, which the
+        # Manager feeds with ``self._pool``.
+        self.assertIsNone(mgr._executors["legacy_sync"])
+
+    def test_legacy_pool_still_rejects_undecorated_class(self) -> None:
+        """The exemption narrows the *strategy* gate only; the
+        ``@tool_worker`` TypeError must still fire."""
+
+        class NotDecorated:
+            def invoke(self, *, idempotency_key: str) -> None: ...
+
+        mgr = self._manager(legacy_pool=True)
+        with self.assertRaises(TypeError):
+            mgr.register(NotDecorated, acl=None)
+
+    def test_error_message_names_the_legacy_pool_escape(self) -> None:
+        """An operator who hits the gate must be told the opt-in
+        exists, not just that the marker stopped working."""
+
+        class Unmigrated:
+            def invoke(self, *, idempotency_key: str) -> None: ...
+
+        Unmigrated.name = "unmigrated"
+        Unmigrated.description = ""
+        Unmigrated.input_schema = {}
+
+        with self.assertRaises(WorkerStrategyError) as ctx:
+            self._manager().register(Unmigrated, acl=None)
+        self.assertIn("legacy_pool=True", str(ctx.exception))
 
 
 class TestDispatchToToolNonFactoryPath(unittest.IsolatedAsyncioTestCase):

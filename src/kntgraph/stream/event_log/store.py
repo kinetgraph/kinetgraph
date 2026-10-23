@@ -404,10 +404,7 @@ class EventLog:
             return await self._storage.read_with_cursor(agent_id, cursor)  # type: ignore
 
         # Fallback (never used in practice but good for type checkers)
-        if cursor == "-" or cursor == "0-0":
-            start = "-"
-        else:
-            start = f"({cursor}"
+        start = "-" if cursor in ("-", "0-0") else f"({cursor}"
         events = await self.read(agent_id, start=start, end="+")
         if not events:
             return [], cursor
@@ -487,7 +484,7 @@ def _current_principal():
 
 
 class _StorageError(Exception):
-    """Internal: surfaces a storage-level PersistenceError through the dispatch layer."""
+    """Internal: surfaces a storage-level PersistenceError to the dispatch layer."""
 
     def __init__(self, persistence_error) -> None:
         super().__init__(str(persistence_error))
