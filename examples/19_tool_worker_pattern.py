@@ -177,9 +177,7 @@ async def main():
     # The factory honours ``KNT_REDIS_KEY_PREFIX`` so an
     # operator who runs two services on one Redis keeps
     # tool queues out of each other's namespace.
-    tool_router = create_tool_router(
-        settings=fresh_settings(), client=redis_client
-    )
+    tool_router = create_tool_router(settings=fresh_settings(), client=redis_client)
     dispatcher = ReactiveDispatcher(
         log=event_log,
         systems=[WeatherSystem(event_log)],

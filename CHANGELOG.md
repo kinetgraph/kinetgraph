@@ -36,9 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     pool = ProcessPoolExecutor(
         max_workers=1, mp_context=multiprocessing.get_context("spawn")
     )
-    manager.register(
-        DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1)
-    )
+    manager.register(DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
     ```
 
     Async tools are unaffected: `AsyncInProcFactory` remains the

@@ -27,9 +27,7 @@ The `Any` audit of `src/kntgraph/` (run 2026-10-10) shows 14 occurrences of the 
 
 ```python
 # core/storage.py:67 (representative)
-self._archetypes: dict[
-    ArchetypeId, dict[str, dict[str | type[Any], ComponentT]]
-] = {}
+self._archetypes: dict[ArchetypeId, dict[str, dict[str | type[Any], ComponentT]]] = {}
 ```
 
 The pattern has two distinct parts:

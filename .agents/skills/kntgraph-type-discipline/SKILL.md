@@ -142,6 +142,7 @@ Canonical pattern:
 ```python
 from kntgraph.core._typing import JsonValue
 
+
 def tool_emit(
     request_event: Event,
 ) -> Event:
@@ -149,7 +150,10 @@ def tool_emit(
         event_type="tool.requested",
         agent_id=request_event.agent_id,
         event_class="domain",
-        data={"tool": "weather", "params": {"city": "São Paulo"}},  # dict[str, JsonValue]
+        data={
+            "tool": "weather",
+            "params": {"city": "São Paulo"},
+        },  # dict[str, JsonValue]
         correlation=request_event.correlation,
     )
 ```
@@ -184,9 +188,10 @@ Canonical pattern:
 ```python
 from collections.abc import Mapping
 
+
 @dataclass(frozen=True, slots=True)
 class SagaProgressComponent(DomainComponent):
-    step_states: Mapping[str, str]   # ADR-079 §3.2
+    step_states: Mapping[str, str]  # ADR-079 §3.2
     step_results: Mapping[str, JsonValue]
 ```
 
@@ -257,6 +262,7 @@ Defined in `src/kntgraph/core/_typing.py:85`. The
 
 ```python
 from kntgraph.core._typing import ComponentT
+
 
 class ArchetypeStorage[ComponentT]:
     def __init__(self) -> None:
@@ -370,8 +376,10 @@ def emit() -> Event:
         data={"foo": 1},  # dict[str, Any]
     )
 
+
 # FIX
 from kntgraph.core._typing import JsonValue
+
 
 def emit() -> Event:
     return Event.create(
@@ -389,6 +397,7 @@ Anchor: `core/event/event.py:120` (`Event.data: Mapping[str, JsonValue]`).
 class SagaProgressComponent(DomainComponent):
     step_results: MappingProxyType[str, JsonValue]
 
+
 # FIX (current state)
 class SagaProgressComponent(DomainComponent):
     step_results: Mapping[str, JsonValue]
@@ -400,14 +409,14 @@ Anchor: `concordos/saga/_components.py` (post-ADR-079).
 
 ```python
 # VIOLATION (pre-ADR-080)
-def get_components(self, entity_id: str) -> dict[str | type[Any], Any] | None:
-    ...
+def get_components(self, entity_id: str) -> dict[str | type[Any], Any] | None: ...
+
 
 # FIX (current state)
 from kntgraph.core._typing import ComponentT  # the framework's TypeVar
 
-def get_components(self, entity_id: str) -> dict[str | type, ComponentT] | None:
-    ...
+
+def get_components(self, entity_id: str) -> dict[str | type, ComponentT] | None: ...
 ```
 
 Anchor: `core/storage.py:87` (post-ADR-080).
@@ -418,6 +427,7 @@ Anchor: `core/storage.py:87` (post-ADR-080).
 # VIOLATION
 def make_response(value: int) -> dict[str, Any]:
     return {"status": "ok", "value": value}
+
 
 # FIX
 @dataclass(frozen=True, slots=True)
@@ -430,6 +440,7 @@ class ToolResult:
         if self.status == "ok":
             return {"status": "ok", "value": self.value}
         return {"status": "err", "error": self.error}
+
 
 def make_response(value: int) -> ToolResult:
     return ToolResult.ok(value)
@@ -460,6 +471,7 @@ class ToolResult(TypedDict, total=False):
     status: Literal["ok", "err"]
     value: JsonValue
     error: str
+
 
 # FIX
 @dataclass(frozen=True, slots=True)

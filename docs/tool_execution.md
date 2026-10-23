@@ -225,12 +225,14 @@ class SidecarConnection:
     """A persistent gRPC connection to the sidecar
     service. Owned by the manager; one per process.
     """
+
     host: str
     port: int
 
 
 def sidecar_factory(conn: SidecarConnection):
     """Closure factory: captures the sidecar connection."""
+
     async def _factory(
         sync_fn: ToolSyncInvoke,
         idempotency_key: str,
@@ -243,6 +245,7 @@ def sidecar_factory(conn: SidecarConnection):
             tool_params=tool_params,
         )
         return ToolResult.ok(result)
+
     return _factory
 
 
@@ -330,7 +333,10 @@ your sync tools as before:
 
 ```python
 manager = WorkerManager(
-    redis, event_log=log, legacy_pool=True, max_pool_workers=4,
+    redis,
+    event_log=log,
+    legacy_pool=True,
+    max_pool_workers=4,
 )
 manager.register(MyUnmigratedSyncTool)  # no factory needed
 ```

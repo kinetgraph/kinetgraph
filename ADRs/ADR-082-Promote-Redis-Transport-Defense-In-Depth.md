@@ -264,6 +264,7 @@ with the helper signature tightened from `redis: Any` to
 ```python
 # src/kntgraph/tools/_message_handlers.py (post-ADR-082)
 
+
 async def reconnect_redis_after_transport_error(redis: RedisLike) -> None:
     """Tear down the current Redis client connection and
     force a reconnect on the next ``xreadgroup``.
@@ -391,6 +392,7 @@ class EventLogStorage(Protocol):
 ```python
 # infra/redis/_event_log/__init__.py — RedisEventLogAdapter
 
+
 async def close_transport(self) -> None:
     """Forward to ``RedisPool.aclose`` if the adapter
     owns one. ``self._pool`` is the adapter's
@@ -402,6 +404,7 @@ async def close_transport(self) -> None:
 
 ```python
 # stream/event_log/store.py — EventLog forwarder
+
 
 async def close_transport(self) -> None:
     """Forward to the storage adapter. See
@@ -472,6 +475,7 @@ minor cycle and is `git rm`'d in the next, per
 # src/kntgraph/tools/_message_handlers.py (post-ADR-082)
 
 import warnings
+
 
 async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
     """Deprecated. Use
@@ -572,6 +576,7 @@ and fails on the next command — a textbook half-open scenario.
 
 ```python
 # src/kntgraph/infra/config/_redis.py:44-58 — post-ADR-082
+
 
 class RedisSettingsMixin(BaseSettings):
     redis_url: str = Field(default="redis://localhost:6379")

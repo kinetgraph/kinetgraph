@@ -66,6 +66,7 @@ class ToolResult:
     success; ``error`` is set on failure. The on-wire shape
     (Redis / EventLog) is produced by ``to_wire()``.
     """
+
     status: Literal["ok", "err"]
     value: JsonValue | None = None
     error: str | None = None

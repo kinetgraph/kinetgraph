@@ -110,6 +110,7 @@ It is **not**:
 ```python
 # src/kntgraph/tools/manager.py — _dispatch_to_tool (post-ADR-078)
 
+
 async def _dispatch_to_tool(self, *, tool_name, tool_cls, idempotency_key, tool_params):
     factory = self._executors.get(tool_name)
     if factory is None:
@@ -169,6 +170,7 @@ The warning cadence is one per (tool, process) — `_warnings_registry[tool_name
 ```python
 # src/kntgraph/tools/_executors/async_inproc.py
 
+
 class AsyncInProcFactory:
     """Default factory for tools whose ``invoke`` is ``async def``.
 
@@ -208,6 +210,7 @@ class AsyncInProcFactory:
 
 ```python
 # src/kntgraph/tools/_executors/process_pool.py
+
 
 class ProcessPoolFactory:
     """Opt-in factory backed by a caller-owned
@@ -255,6 +258,7 @@ The doc `adr-069-pluggable-executor-factory.md` §"Usage example (backoffice)" s
 ```python
 # backoffice/infra/model_worker_pool.py (sketch, non-normative)
 
+
 class ModelWorkerPool:
     """Singleton pool for tools with heavy ML deps."""
 
@@ -270,14 +274,18 @@ class ModelWorkerPool:
 
     def factory_for(self, tool_cls: type) -> ExecutorFactory:
         pool = self._pool  # capture
-        sem = self._sem   # capture
+        sem = self._sem  # capture
 
         async def factory(sync_fn, idempotency_key, tool_params):
             tool_params = {**tool_params, "__tool_cls__": tool_cls}
             loop = asyncio.get_running_loop()
             async with sem:
                 return await loop.run_in_executor(
-                    pool, sync_fn, tool_cls, idempotency_key, tool_params,
+                    pool,
+                    sync_fn,
+                    tool_cls,
+                    idempotency_key,
+                    tool_params,
                 )
 
         return factory
@@ -319,8 +327,8 @@ def __init__(
     ...
     self._max_pool_workers: int | None = max_pool_workers
     self._pool: ProcessPoolExecutor | None = None  # only constructed when
-                                                   # `_maybe_open_deprecated_pool`
-                                                   # returns truthy (see §5.2).
+    # `_maybe_open_deprecated_pool`
+    # returns truthy (see §5.2).
     self._deprecated_pool_opened: bool = False
 ```
 
@@ -387,16 +395,21 @@ async def start(self) -> None:
     for tool_name in self._tools:
         stream_key = self._stream_key(tool_name)
         try:
-            await self._redis.xgroup_create(stream_key, self._group_name, id="0", mkstream=True)
+            await self._redis.xgroup_create(
+                stream_key, self._group_name, id="0", mkstream=True
+            )
         except Exception as e:
             if "BUSYGROUP" not in str(e):
-                logger.exception("worker.xgroup_create.failed", tool=tool_name, error=str(e))
+                logger.exception(
+                    "worker.xgroup_create.failed", tool=tool_name, error=str(e)
+                )
 
         task = asyncio.create_task(self._consume_loop(tool_name))
         self._tasks.append(task)
 
         reaper_task = asyncio.create_task(self._reaper_loop(tool_name))
         self._tasks.append(reaper_task)
+
 
 def _maybe_open_deprecated_pool(self) -> bool:
     """Open the internal ProcessPoolExecutor only when
@@ -510,6 +523,7 @@ ExecutorFactory = Callable[
     [Callable[[type, str, dict[str, Any]], dict[str, Any]], str, dict[str, Any]],
     Awaitable[dict[str, Any]],
 ]
+
 
 class WorkerManager:
     def register(
@@ -831,7 +845,9 @@ must now declare its strategy:
 manager.register(DoclingTool)
 
 # after
-pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+pool = ProcessPoolExecutor(
+    max_workers=1, mp_context=multiprocessing.get_context("spawn")
+)
 manager.register(DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
 ```
 

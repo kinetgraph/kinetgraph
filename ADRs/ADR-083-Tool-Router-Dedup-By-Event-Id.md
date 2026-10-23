@@ -111,12 +111,15 @@ index size per tool; long enough to cover the re-emit window of
 any sane reactive dispatcher.
 """
 
+
 def tool_event_id_key(prefix: str, tool_name: str, event_id: str) -> str:
     """Build the dedup index key under ``prefix``. Empty
     ``prefix`` returns the unprefixed key (``"knt:tools:echo:idem:abc-123"``);
     non-empty prefix composes via :func:`namespaced` so the
     multi-service isolation from ADR-076 holds."""
-    return namespaced(prefix, TOOL_EVENT_ID_INDEX.format(tool_name=tool_name, event_id=event_id))
+    return namespaced(
+        prefix, TOOL_EVENT_ID_INDEX.format(tool_name=tool_name, event_id=event_id)
+    )
 ```
 
 The key is in a different Redis namespace (`knt:tools:<name>:idem:<id>`) from the EventLog (`knt:eventids:<id>`) so the two dedup indices do not collide under a shared Redis (the ADR-076 multi-service scenario).
@@ -130,17 +133,22 @@ The helper mirrors `infra/redis/_event_log/_idempotency.py:claim_event_id_slot` 
 # raises IdempotencyConflict if a placeholder is in flight.
 async def _check_phase(redis, idem_key) -> str | None: ...
 
+
 # Phase 2: XADD + SET placeholder (NX, EX) in one pipeline.
 # The NX is the atomic guard against two writers on the same key.
 async def _claim_phase(redis, stream_key, payload, maxlen, idem_key) -> str: ...
 
+
 # Phase 3: replace the placeholder with the final stream_id.
 async def _finalize_phase(redis, idem_key, stream_id, ttl_seconds) -> None: ...
+
 
 # Public orchestrator: returns Ok(stream_id) on first write,
 # Err(PersistenceError("tool_queue_dedup_hit")) on dedup hit,
 # Err(PersistenceError("redis: ...")) on transport error.
-async def claim_tool_queue_slot(redis, *, idem_key, stream_key, payload, maxlen, ttl_seconds) -> Result[str, PersistenceError]: ...
+async def claim_tool_queue_slot(
+    redis, *, idem_key, stream_key, payload, maxlen, ttl_seconds
+) -> Result[str, PersistenceError]: ...
 ```
 
 The `PersistenceError("tool_queue_dedup_hit")` is **NOT** a failure — it is the desired outcome. The `ToolRouter` maps it to a `worker.router.skipped_dedup` debug log line and continues; the EventLog already uses this same `PersistenceError` wrapper for `IdempotencyConflict` and the existing `RedisEventLogAdapter` swallows it (no, actually it returns `Err(PersistenceError(...))` to the caller — but the `ToolRouter` interprets the `dedup_hit` reason as success-with-skip, distinct from the EventLog's `concurrent_insert_in_flight` reason).
@@ -175,7 +183,9 @@ try:
     if self._dedup:
         result = await claim_tool_queue_slot(
             self._redis,
-            idem_key=tool_event_id_key(self._key_prefix, tool_name, str(event.event_id)),
+            idem_key=tool_event_id_key(
+                self._key_prefix, tool_name, str(event.event_id)
+            ),
             stream_key=stream_key,
             payload=payload_dict,
             maxlen=None,

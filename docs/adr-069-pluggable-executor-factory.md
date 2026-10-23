@@ -109,8 +109,8 @@ ExecutorFactory = Callable[
     Awaitable[dict[str, Any]],
 ]
 
-class WorkerManager:
 
+class WorkerManager:
     def register(
         self,
         tool_cls: type,
@@ -174,6 +174,7 @@ else:
 ```python
 # backoffice/infra/model_worker_pool.py
 
+
 class ModelWorkerPool:
     """Singleton pool for tools with heavy ML deps."""
 
@@ -200,7 +201,9 @@ class ModelWorkerPool:
                     idempotency_key,
                     tool_params,
                 )
+
         return factory
+
 
 # backoffice/main.py
 
@@ -208,7 +211,10 @@ model_pool = ModelWorkerPool(max_concurrency=1)
 await model_pool.start()
 
 worker_manager = WorkerManager(
-    redis=redis, event_log=log, group_name=..., key_prefix=...,
+    redis=redis,
+    event_log=log,
+    group_name=...,
+    key_prefix=...,
     max_pool_workers=4,
 )
 
@@ -261,7 +267,7 @@ The wiring in `manager.py`:
 idempotency_key = str(request_event.event_id)
 
 # lines 649, 709, 720, 762: causation_id derived from ik
-causation_id=uuid.UUID(idempotency_key)
+causation_id = uuid.UUID(idempotency_key)
 ```
 
 The Redis `message_id` (e.g., `1791460835580-0`) is **just a
