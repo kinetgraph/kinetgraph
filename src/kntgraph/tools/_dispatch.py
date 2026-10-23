@@ -37,13 +37,11 @@ dispatch concerns).
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ProcessPoolExecutor
 from typing import cast
 
 from kntgraph.core._typing import JsonValue
-from kntgraph.tools._dispatch_helpers import is_cpu_bound
 from kntgraph.tools._result import ToolResult
 from kntgraph.tools._worker_invocation import _invoke_tool_sync
 
@@ -73,55 +71,36 @@ async def dispatch_to_tool(
     executors: Mapping[str, ExecutorFactory],
     pool: ProcessPoolExecutor | None,
 ) -> ToolResult:
-    """The three-strategy dispatch decision tree (ADR-069).
+    """The dispatch decision tree (ADR-078).
 
-    See ``WorkerManager._dispatch_to_tool`` for the strategy
-    rationale. This free function is testable in isolation
-    (a fake ``executors`` mapping + a fake ``pool`` is enough);
-    the Manager method that calls it is a thin wrapper that
-    gathers the state from ``self``.
+    Two strategies: the per-tool ``executor_factory`` registered
+    at ``register(executor_factory=...)``, else
+    ``default_factory_for(tool_cls)`` — ``AsyncInProcFactory``
+    for async tools, ``ProcessPoolFactory`` (caller-owned pool)
+    for sync / cpu-bound ones.
 
-    The function does NOT perform ACL checks, observability
-    updates, or Redis XACK. Those side effects stay on the
-    Manager side (they are not dispatch concerns).
+    The pre-v0.18 branch that routed cpu-bound tools through
+    ``loop.run_in_executor(self._pool, ...)`` is gone: it let
+    ``pool=None`` fall back to the event loop's default *thread*
+    executor, so a blocking tool stalled the Manager's loop
+    instead of erroring. ``pool`` is the Manager's deprecated
+    internal executor, present only under ``legacy_pool=True``.
+
+    Does NOT perform ACL checks, observability updates, or
+    Redis XACK — those stay on the Manager side.
     """
     # 1. Per-tool ``executor_factory`` override (preferred).
     factory: ExecutorFactory | None = executors.get(tool_name)
     if factory is not None:
         return await factory(_invoke_tool_sync, idempotency_key, tool_params)
 
-    # 2. CPU-bound: run the sync wrapper in the shared process pool.
-    # ``pool`` may be ``None`` (e.g. when tests construct the
-    # Manager via ``WorkerManager(redis, event_log)`` without
-    # calling ``start()``); ``run_in_executor(None, ...)`` uses
-    # the loop's default executor, which is the correct behavior
-    # for the test path (the patch on ``_invoke_tool_sync`` then
-    # runs the patched sync function in the loop's thread).
-    tool_instance = tool_cls()
-    if is_cpu_bound(tool_cls, tool_instance):
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            pool,
-            _invoke_tool_sync,
-            tool_cls,
-            idempotency_key,
-            tool_params,
-        )
-
-    # 3. v0.18.0 default switch — use the
-    # ``default_factory_for`` fallback (which selects
-    # ``AsyncInProcFactory`` for async tools) instead of
-    # calling the tool's ``invoke`` directly. The factory
-    # route preserves the ``ExecutorFactory`` contract for
-    # any custom factory the user might register in the
-    # future (per ADR-078 v0.18).
+    # 2. v0.18.0 default switch. Inject ``__tool_cls__`` into
+    # the params dict so the factory can extract the class: the
+    # contract is ``__call__(sync_fn, idempotency_key, params)``
+    # and the helper reads tool_cls from that dict.
     from kntgraph.tools.executors import default_factory_for as _default_factory_for
 
-    default_factory = _default_factory_for(tool_cls)
-    # Inject __tool_cls__ into the params dict so the dispatcher's
-    # ``_invoke_tool_sync`` helper can extract it. The factory
-    # contract is ``__call__(sync_fn, idempotency_key, tool_params)``
-    # — the helper reads tool_cls from the params dict.
+    default_factory = _default_factory_for(tool_cls, pool=pool)
     params_with_cls: dict[str, JsonValue] = {
         **dict(tool_params),
         "__tool_cls__": cast(type, tool_cls),  # type: ignore[arg-type]

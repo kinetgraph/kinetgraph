@@ -7,7 +7,7 @@ Integration test for the parallel-tool starvation bug.
 
 The bug
 -------
-``WorkerManager`` invokes each tool via
+``WorkerManager`` used to invoke each tool via
 ``asyncio.to_thread(_invoke_tool_sync)``, where
 ``_invoke_tool_sync`` creates a fresh event loop, runs the
 tool's ``invoke`` coroutine, and closes the loop. When two
@@ -17,13 +17,26 @@ milliseconds in the WorkerManager environment, pushing the
 fast tool's completion past the 0.5s test poll window used
 by ``test_fsm_non_blocking_interleaved_tools``.
 
-The bug is a fakeredis-specific artifact (in-process
+The bug was a fakeredis-specific artifact (in-process
 serialised locks + a fresh event loop in a worker thread
 starve the fast tool's ``asyncio.sleep``); against a real
-Redis the same code path passes 5/5. The reproduction is
-kept under ``tests/integration/`` so the fakeredis flake
-does not block the unit-test CI gate, and so the bug is
-still pinned for any future fix.
+Redis the same code path passed 5/5.
+
+Current mechanism
+-----------------
+ADR-078 §3.1 replaced the thread hop with
+``AsyncInProcFactory``, which awaits ``tool.invoke`` directly
+on the Manager's event loop — no worker thread, no nested
+loop. The fakeredis starvation therefore cannot occur on this
+path. The test is kept as a latency guard: it still asserts
+that a slow and a fast tool registered on the same Manager
+interleave, and that the fast tool is not delayed behind the
+slow one.
+
+It lives under ``tests/integration/`` because it needs a real
+Redis (the fakeredis flake this file was written for no longer
+applies, but the timing assertion is only meaningful against
+the real transport).
 
 This test amplifies the symptom by re-running the parallel
 slow+fast pair 8 times in a row; the median and max

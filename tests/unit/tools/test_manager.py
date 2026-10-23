@@ -49,6 +49,7 @@ from kntgraph.core.event import (
 )
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools import WorkerManager, tool_worker
+from kntgraph.tools.executors import PoolDeprecationWarning
 
 pytestmark = pytest.mark.asyncio
 
@@ -178,16 +179,40 @@ class TestLifecycle:
         with pytest.raises(TypeError, match="@tool_worker"):
             manager.register(_NotDecorated, acl=None)
 
-    async def test_start_initialises_pool_and_groups(self, manager, redis_mock):
+    async def test_start_creates_no_pool_by_default(self, manager, redis_mock):
+        """ADR-078 §4.4: the internal pool is opt-in.
+
+        ``start()`` must not create a ``ProcessPoolExecutor``
+        unless the operator passed ``legacy_pool=True``. The
+        pool was the OOM vector of 2026-10-07 (ADR-078 §1.4).
+        """
         manager.register(_EchoTool, acl=None)
 
         await manager.start()
         try:
             assert manager._running is True
-            assert manager._pool is not None
+            assert manager._pool is None
+            assert manager._deprecated_pool_opened is False
             redis_mock.xgroup_create.assert_awaited_once()
         finally:
             await manager.stop()
+
+    async def test_start_opens_pool_when_legacy_opt_in(self, manager, redis_mock):
+        legacy = WorkerManager(
+            manager._redis,
+            manager._event_log,
+            legacy_pool=True,
+        )
+        legacy.register(_EchoTool, acl=None)
+
+        with pytest.warns(PoolDeprecationWarning, match="removed in v0.19"):
+            await legacy.start()
+        try:
+            assert legacy._pool is not None
+            assert legacy._deprecated_pool_opened is True
+            redis_mock.xgroup_create.assert_awaited_once()
+        finally:
+            await legacy.stop()
 
     async def test_start_is_idempotent(self, manager, redis_mock):
         manager.register(_EchoTool, acl=None)
@@ -199,15 +224,23 @@ class TestLifecycle:
         finally:
             await manager.stop()
 
-    async def test_start_min_two_workers(self, manager):
-        manager.register(_EchoTool, acl=None)
+    async def test_legacy_pool_sizes_from_max_pool_workers(self, manager):
+        """``max_pool_workers`` sizes the pool when the legacy
+        path is explicitly enabled (ADR-078 §4.4)."""
+        legacy = WorkerManager(
+            manager._redis,
+            manager._event_log,
+            max_pool_workers=3,
+            legacy_pool=True,
+        )
 
-        await manager.start()
+        with pytest.warns(PoolDeprecationWarning):
+            await legacy.start()
         try:
-            assert manager._pool is not None
-            assert manager._pool._max_workers >= 2
+            assert legacy._pool is not None
+            assert legacy._pool._max_workers == 3
         finally:
-            await manager.stop()
+            await legacy.stop()
 
     async def test_start_uses_spawn_context(self, manager):
         """
@@ -216,15 +249,21 @@ class TestLifecycle:
         stalls ``xreadgroup`` in container runtimes
         (see manager.py:start and ADR-054 lines 269-273).
         """
-        manager.register(_EchoTool, acl=None)
+        legacy = WorkerManager(
+            manager._redis,
+            manager._event_log,
+            legacy_pool=True,
+        )
+        legacy.register(_EchoTool, acl=None)
 
-        await manager.start()
+        with pytest.warns(PoolDeprecationWarning):
+            await legacy.start()
         try:
-            assert manager._pool is not None
-            assert manager._mp_context is not None
-            assert manager._mp_context.get_start_method() == "spawn"
+            assert legacy._pool is not None
+            assert legacy._mp_context is not None
+            assert legacy._mp_context.get_start_method() == "spawn"
         finally:
-            await manager.stop()
+            await legacy.stop()
 
     async def test_start_swallows_busygroup_error(self, manager, redis_mock, caplog):
         redis_mock.xgroup_create = AsyncMock(
@@ -256,10 +295,24 @@ class TestLifecycle:
         manager.register(_EchoTool, acl=None)
 
         await manager.start()
-        pool = manager._pool
         await manager.stop()
         assert manager._running is False
         assert manager._pool is None
+        assert manager._deprecated_pool_opened is False
+
+    async def test_stop_shuts_down_legacy_pool(self, manager):
+        legacy = WorkerManager(
+            manager._redis,
+            manager._event_log,
+            legacy_pool=True,
+        )
+        legacy.register(_EchoTool, acl=None)
+
+        with pytest.warns(PoolDeprecationWarning):
+            await legacy.start()
+        pool = legacy._pool
+        await legacy.stop()
+        assert legacy._pool is None
         # ProcessPoolExecutor does not expose a public
         # "is shut down" flag in py3.12; ``shutdown(wait=True)``
         # is idempotent and ``submit`` after ``shutdown``
@@ -504,46 +557,29 @@ class TestProcessMessageParseError:
 
 class TestProcessMessageHardCrash:
     async def test_hard_crash_acks_only_after_retry_budget_exhausted(
-        self, manager, redis_mock, event_log_mock
+        self, manager, redis_mock, event_log_mock, monkeypatch
     ):
+        """After 5 deliveries against a retry budget of 3, the
+        framework escalates: a ``tool.echo.failed`` event with
+        ``error_class="permanent"`` is appended and the message
+        is acked.
+
+        As in the below-budget case, the crash is injected on the
+        tool's ``invoke`` so the test exercises the live dispatch
+        path (``AsyncInProcFactory`` since ADR-078 §4.4).
+        """
         manager.register(_EchoTool, acl=None)
+
+        async def _crash(*_args, **_kwargs):
+            raise RuntimeError("worker process died")
+
+        monkeypatch.setattr(_EchoTool, "invoke", _crash)
 
         request = _make_request_event()
         _, data = _stream_message(request)
 
-        # Force ``_invoke_tool_sync`` to raise by
-        # monkeypatching the symbol the manager
-        # imported (``from kntgraph.tools._worker_invocation
-        # import _invoke_tool_sync``); the canonical
-        # implementation now lives in ``_worker_invocation``
-        # but ``manager.py`` re-exports it via its
-        # ``__all__`` so the dispatch path's binding can
-        # still be patched in place. (The
-        # ProcessPoolExecutor ``run_in_executor`` path
-        # is hard to mock from the outside; we replace
-        # the bound function with a coroutine that
-        # raises — the manager awaits
-        # ``run_in_executor(...)`` which is itself an
-        # awaitable, so patching the
-        # ``_invoke_tool_sync`` symbol the manager
-        # imported is enough for the dispatch path.)
-        from kntgraph.tools import manager as mgr_mod
-
-        def raise_then_crash(*_args, **_kwargs):
-            raise RuntimeError("worker process died")
-
-        from kntgraph.tools import _dispatch as dispatch_mod
-
-        original = mgr_mod._invoke_tool_sync
-        original_dispatch = dispatch_mod._invoke_tool_sync
-        mgr_mod._invoke_tool_sync = raise_then_crash
-        dispatch_mod._invoke_tool_sync = raise_then_crash
-        try:
-            redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 5}])
-            await manager._process_message("echo", "stream", "1-0", data)
-        finally:
-            mgr_mod._invoke_tool_sync = original
-            dispatch_mod._invoke_tool_sync = original_dispatch
+        redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 5}])
+        await manager._process_message("echo", "stream", "1-0", data)
 
         # After 5 deliveries (>3 retries), a failed event
         # is appended and the message is acked.
@@ -559,30 +595,30 @@ class TestProcessMessageHardCrash:
         redis_mock.xack.assert_awaited_once()
 
     async def test_hard_crash_below_budget_does_not_ack(
-        self, manager, redis_mock, event_log_mock
+        self, manager, redis_mock, event_log_mock, monkeypatch
     ):
+        """A tool whose ``invoke`` raises models a hard crash
+        (worker process death / OOM).
+
+        The crash is simulated on the tool itself rather than by
+        patching ``_invoke_tool_sync``: since ADR-078 §4.4 the
+        default path for an async tool is ``AsyncInProcFactory``,
+        which invokes ``tool.invoke`` directly on the event loop
+        and never touches the sync helper. Patching the helper
+        would silently stop exercising the dispatch path.
+        """
         manager.register(_EchoTool, acl=None)
+
+        async def _crash(*_args, **_kwargs):
+            raise RuntimeError("worker process died")
+
+        monkeypatch.setattr(_EchoTool, "invoke", _crash)
 
         request = _make_request_event()
         _, data = _stream_message(request)
 
-        from kntgraph.tools import manager as mgr_mod
-
-        def raise_then_crash(*_args, **_kwargs):
-            raise RuntimeError("worker process died")
-
-        from kntgraph.tools import _dispatch as dispatch_mod
-
-        original = mgr_mod._invoke_tool_sync
-        original_dispatch = dispatch_mod._invoke_tool_sync
-        mgr_mod._invoke_tool_sync = raise_then_crash
-        dispatch_mod._invoke_tool_sync = raise_then_crash
-        try:
-            redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
-            await manager._process_message("echo", "stream", "1-0", data)
-        finally:
-            mgr_mod._invoke_tool_sync = original
-            dispatch_mod._invoke_tool_sync = original_dispatch
+        redis_mock.xpending_range = AsyncMock(return_value=[{"times_delivered": 1}])
+        await manager._process_message("echo", "stream", "1-0", data)
 
         # Below the retry budget: no failed event, no ack
         # (the reaper will retry via xautoclaim).

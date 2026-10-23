@@ -181,6 +181,7 @@ class WorkerManager:
         *,
         key_prefix: str = "",
         max_pool_workers: int | None = None,
+        legacy_pool: bool = False,
     ):
         # ADR-076 / DEBT §2.35: namespace prefix for
         # every Redis key the manager writes or reads
@@ -221,6 +222,14 @@ class WorkerManager:
         # memory caps, this is the lever that prevents the OOM
         # described in the post-mortem 2026-10-07.
         self._max_pool_workers: int | None = max_pool_workers
+        # ADR-078 §4.4: opt-in to the deprecated internal pool.
+        # ``False`` (default) means ``start()`` creates no pool at
+        # all and tools must declare their own strategy via
+        # ``register(executor_factory=...)``. ``max_pool_workers``
+        # sizes the pool when this flag is set; it does not create
+        # one on its own.
+        self._legacy_pool = legacy_pool
+        self._deprecated_pool_opened = False
 
         # Per-tool ``asyncio.Semaphore`` (``max_concurrency``) — populated
         # em ``_consume_loop`` e consumido pelo ``_reaper_loop`` para
@@ -312,15 +321,16 @@ class WorkerManager:
         else:
             self._acls[tool_cls.name] = acl
 
-        # v0.18+ default switch (ADR-078 §5.5): raise
-        # ``WorkerStrategyError`` when a sync tool has no
-        # factory. The ``executor_factory`` is the v0.18+ way
-        # to route execution; for backward compatibility
-        # (v0.17), the legacy ``__tool_worker_cpu_bound__``
-        # marker still works through the internal pool.
-        if executor_factory is None and not getattr(
-            tool_cls, "__tool_worker_cpu_bound__", False
-        ):
+        # ADR-078 §5.5 default switch, applied strictly: a tool with
+        # a sync ``invoke`` MUST declare how it runs. The
+        # ``__tool_worker_cpu_bound__`` marker no longer buys a
+        # fall-through to the internal pool — it only selects a
+        # built-in factory for a caller who already has a pool.
+        # Reason: the marker routed *every* sync ``invoke``
+        # through ``run_in_executor(self._pool, ...)``, so this
+        # gate never fired for the tools it was written to catch
+        # and the OOM of 2026-10-07 kept its default path.
+        if executor_factory is None:
             import inspect
 
             invoke = getattr(tool_cls, "invoke", None)
@@ -329,12 +339,15 @@ class WorkerManager:
 
                 raise WorkerStrategyError(
                     f"Tool {tool_cls.__name__!r} has a sync ``invoke`` "
-                    f"but no ``executor_factory`` and no "
-                    f"``__tool_worker_cpu_bound__`` marker. "
-                    f"Three exits (ADR-078 v0.18 §5.5): "
-                    f"(a) pass executor_factory=ProcessPoolFactory(your_pool, concurrency=N); "
-                    f"(b) convert the tool to ``async def invoke``; "
-                    f"(c) set max_pool_workers=N at WorkerManager.__init__."
+                    f"but no ``executor_factory``. Declare how it runs "
+                    f"(ADR-078 v0.18 §5.5): "
+                    f"(a) pass executor_factory=ProcessPoolFactory(your_pool, concurrency=N) "
+                    f"when it needs a process boundary; "
+                    f"(b) convert the tool to ``async def invoke`` for I/O-bound work; "
+                    f"(c) pass executor_factory=AsyncInProcFactory() if it is "
+                    f"genuinely non-blocking. "
+                    f"Setting __tool_worker_cpu_bound__ or max_pool_workers no longer "
+                    f"supplies a pool implicitly (removed in v0.19)."
                 )
 
         # ADR-069: optional per-tool dispatch override. The
@@ -454,6 +467,41 @@ class WorkerManager:
         in ``start()`` (preserves the existing call site)."""
         return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
 
+    def _maybe_open_deprecated_pool(self) -> bool:
+        """Open the internal ``ProcessPoolExecutor`` only when the
+        operator explicitly opted in via ``legacy_pool=True``
+        (ADR-078 §4.4). Emits one ``PoolDeprecationWarning`` at
+        boot. Returns ``True`` when a pool was created.
+        """
+        if not self._legacy_pool:
+            return False
+        import warnings
+
+        from kntgraph.tools.executors import PoolDeprecationWarning
+
+        max_workers = self._compute_max_workers()
+        # Always ``spawn``: a parent that imported ``threading`` +
+        # ``ssl`` + ``redis.asyncio`` before this point corrupts
+        # the forked child's ``_RLock`` / ``select`` state and
+        # stalls ``xreadgroup`` forever in container runtimes
+        # (ADR-054 lines 269-273).
+        self._mp_context = multiprocessing.get_context(_SPAWN_METHOD)
+        self._pool = ProcessPoolExecutor(
+            max_workers=max_workers,
+            mp_context=self._mp_context,
+        )
+        warnings.warn(
+            (
+                f"WorkerManager opened the internal ProcessPoolExecutor "
+                f"(max_workers={max_workers}). Deprecated; removed in v0.19 "
+                f"(ADR-078 §5). Register "
+                f"executor_factory=ProcessPoolFactory(...) instead."
+            ),
+            PoolDeprecationWarning,
+            stacklevel=3,
+        )
+        return True
+
     async def _reconnect_after_transport_error(self) -> None:
         """Delegate to ``reconnect_redis_after_transport_error``
         in ``_message_handlers`` (ADR-082 §3.1). Kept as a
@@ -468,37 +516,13 @@ class WorkerManager:
 
         self._running = True
 
-        # Calculate max workers across all registered tools. The
-        # explicit ``max_pool_workers`` cap (set in ``__init__``)
-        # takes priority — useful in memory-capped environments
-        # (Fargate 4 GB) where multiple concurrent workers would
-        # load heavy ML models in parallel and OOM. The default
-        # formula ``max(1, min(32, sum(max_concurrency)))`` keeps
-        # one worker per tool at most, which is what most callers
-        # want. The post-mortem 2026-10-07 scenario in the
-        # backoffice is what motivated the ``max(1, ...)`` floor
-        # (was ``max(2, ...)``). Extracted to ``_compute_max_workers``
-        # so ``start()``'s CC stays under 10 (ADR-019).
-        max_workers = self._compute_max_workers()
-
-        # Always use ``spawn`` — container runtimes (and
-        # any process that has imported ``threading`` +
-        # ``ssl`` + ``cryptography`` + ``redis.asyncio``
-        # + ``pydantic`` + ``litellm`` before this point)
-        # corrupt the forked child's ``threading._RLock``
-        # / ``select`` state under the default ``fork``
-        # start method and stall the Redis consumer loop
-        # (``xreadgroup`` never returns). ``spawn`` starts
-        # a fresh interpreter per worker; the cost is a
-        # ~50-200ms import overhead per cold worker, the
-        # gain is a deadlock-free execution path. See
-        # ADRs/ADR-054-WorkerManager-Transport-Evaluation.md
-        # lines 269-273 for the prior art.
-        self._mp_context = multiprocessing.get_context(_SPAWN_METHOD)
-        self._pool = ProcessPoolExecutor(
-            max_workers=max_workers,
-            mp_context=self._mp_context,
-        )
+        # ADR-078 §4.4: the internal pool is opt-in via
+        # ``legacy_pool=True``. It is NOT inferred from
+        # ``max_pool_workers is None``: ``None`` is the default
+        # and means "size the pool with the legacy formula", so
+        # gating on it would silently disable the pool for every
+        # caller that never passed the knob.
+        self._deprecated_pool_opened = self._maybe_open_deprecated_pool()
 
         for tool_name in self._tools:
             # Ensure Consumer Group exists

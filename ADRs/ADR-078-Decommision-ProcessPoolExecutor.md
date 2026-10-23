@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-078: Decommission the internal `ProcessPoolExecutor`; make execution strategy a per-tool decision
 
-- **Status:** Proposed
+- **Status:** Accepted (ratified 2026-10-20, v0.18 default switch implemented — see §12)
 - **Date:** 2026-10-09
 - **Author:** kinetgraph architecture team (proposed by the backoffice engineering team, see §1.4)
 - **Supersedes:** [ADR-054](./ADR-054-WorkerManager-Transport-Evaluation.md) — WorkerManager transport evaluation; "keep `ProcessPoolExecutor`". The reopening criterion stated in ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s at a time") was met by the post-mortem of 2026-10-07 (§1.4).
@@ -749,3 +749,114 @@ Acceptance:
 ## 11. Revision history
 
 - **2026-10-09** — Initial draft (this version). Promotes `docs/adr-069-pluggable-executor-factory.md` to a formal ADR; supersedes ADR-054; ships built-in factories; inverts the v0.18 default; plans a 3-release migration window.
+- **2026-10-20** — Ratified. §12 records the implementation and corrects the §4.4 gate.
+
+---
+
+## 12. Implementation record (v0.18, ratified 2026-10-20)
+
+This section records what actually landed and supersedes §4.4's
+draft gate. §1–§11 are unchanged as the design rationale.
+
+### 12.1 §4.4's gate was unsafe as drafted — corrected
+
+§4.4 proposed gating the internal pool on
+`max_pool_workers is None`:
+
+```python
+# DRAFT — NOT IMPLEMENTED (see §12.1)
+def _maybe_open_deprecated_pool(self) -> bool:
+    if self._max_pool_workers is None:
+        return False
+```
+
+**Rejected.** `max_pool_workers=None` is the *default*, and its
+documented meaning is "size the pool with the legacy formula"
+(`max(1, min(32, sum(max_concurrency)))`), i.e. *I want the
+pool*. Gating on it would silently disable the pool for every
+caller that never passed the knob.
+
+Worse, §4.4 was only safe if the §2.2 dispatch rewrite landed
+in the same change. While `_dispatch.py` still had its
+`is_cpu_bound` → `run_in_executor(self._pool, ...)` branch,
+`pool=None` fell back to `loop.run_in_executor(None, ...)` —
+the event loop's default **thread** executor. A blocking tool
+(docling, GLiNER) would then stall the Manager's loop
+*silently*, which is a worse failure than the OOM this ADR set
+out to fix. The gate and the dispatch rewrite are therefore
+**atomic**: the pool may only become opt-in once nothing
+depends on it being implicit.
+
+### 12.2 What shipped
+
+| Change | Site |
+|---|---|
+| **Strict registration gate.** A sync `invoke` with no `executor_factory` raises `WorkerStrategyError`. The `__tool_worker_cpu_bound__` marker no longer exempts it. | `manager.py` `register()` |
+| **Legacy dispatch branch deleted.** `is_cpu_bound` → `run_in_executor(pool)` removed; `pool=None` can no longer mean "use the loop's thread executor". | `_dispatch.py` |
+| **New explicit opt-in flag** `legacy_pool: bool = False`. The internal pool opens only when set. `max_pool_workers` still *sizes* it; it no longer *creates* it. | `manager.py` `__init__` / `_maybe_open_deprecated_pool` |
+| **`is_cpu_bound` deleted** (last production caller gone). Per the deprecation policy it is removed, not kept as a shim. | `_dispatch_helpers.py` |
+| **`default_factory_for(tool_cls, *, pool=None)`** now takes the caller's pool instead of raising unconditionally. | `executors.py` |
+| **Warning dedup moved to module level**, keyed by tool class, so it fires once per (tool, process) rather than once per factory instance. | `executors.py` `_WARNED_AUTO_PROMOTION` |
+
+### 12.3 Why the registration gate was previously a no-op
+
+The v0.17 draft gate read:
+
+```python
+if executor_factory is None and not getattr(tool_cls, "__tool_worker_cpu_bound__", False):
+    ...raise WorkerStrategyError...
+```
+
+and `is_cpu_bound` returned `True` for **every** sync `invoke`
+(`not inspect.iscoroutinefunction(...)`). A tool that set the
+marker therefore always reached the internal pool instead of
+raising. The gate could only ever fire on a sync tool that
+neither declared a factory nor set the marker — and that tool
+had no path to the pool anyway. In practice the OOM of
+§1.4 kept its default path through the marker, unnoticed.
+
+The corrected gate keys solely on `executor_factory is None`.
+The marker is now only a *hint to `default_factory_for`* about
+which built-in factory to select for a caller who already owns a
+pool.
+
+### 12.4 Operator-visible behaviour change
+
+A sync / CPU-bound tool that today runs via the implicit pool
+must now declare its strategy:
+
+```python
+# before (worked, and was the OOM vector)
+manager.register(DoclingTool)
+
+# after
+pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+manager.register(DoclingTool, executor_factory=ProcessPoolFactory(pool, concurrency=1))
+```
+
+Async tools are unaffected — `AsyncInProcFactory` remains the
+default and no factory is required.
+
+### 12.5 A tool that kills its own process MUST declare a pool
+
+Surfaced by `tests/integration/tools/test_worker_manager.py::
+test_worker_manager_dlq_on_hard_crash`. A tool that does
+`os.kill(os.getpid(), signal.SIGKILL)` to simulate a crash used
+to kill a *pool worker* while the Manager survived and the
+reaper recovered the message. Under `AsyncInProcFactory` the
+same tool runs on the Manager's event loop, so the `SIGKILL`
+takes down the **Manager** — no consumer loop, no reaper, no
+`XAUTOCLAIM`, and the agent blocks forever.
+
+This is not a framework bug but it is a sharp edge, so it is
+recorded here: any tool that crashes its own process (or calls
+`sys.exit`, `os._exit`, `KeyboardInterrupt`, or triggers a
+segfault) **must** register a `ProcessPoolFactory`. The
+integration test now declares one and the docstring of
+`ProcessPoolFactory` carries the same warning.
+
+### 12.6 Follow-up not done here
+
+`max_pool_workers` is now dead weight for every caller that
+does not pass `legacy_pool=True`. It is kept until v0.19 for
+signature stability and is removed with the pool, per §5.6.

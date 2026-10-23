@@ -27,6 +27,7 @@ import pytest
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.stream.event_log.store import EventLog
+from kntgraph.tools.executors import PoolDeprecationWarning
 from kntgraph.tools.worker import tool_worker
 
 # The WorkerManager will be implemented in kntgraph.tools.manager
@@ -89,15 +90,13 @@ async def test_worker_manager_happy_path(clean_redis):
 
     # 3. Start the manager (runs in background)
     await manager.start()
-    # Guard: the pool must be built with the ``spawn``
-    # start method to avoid the fork+threading+openssl
-    # deadlock in container runtimes (see ADR-054
-    # lines 269-273). If a future refactor drops the
-    # ``mp_context=`` kwarg, fail loudly here before
-    # the consume loop hangs.
-    assert manager._mp_context is not None
-    assert manager._pool is not None
-    assert manager._mp_context.get_start_method() == "spawn"
+    # ADR-078 §4.4: no internal pool by default. The tool is
+    # async, so it runs in-proc via ``AsyncInProcFactory`` and
+    # needs no process boundary. The spawn-start-method guard
+    # below moved to
+    # ``test_worker_manager_legacy_pool_uses_spawn``.
+    assert manager._pool is None
+    assert manager._mp_context is None
 
     try:
         # Wait for the worker to process the message and emit the completed event
@@ -116,6 +115,35 @@ async def test_worker_manager_happy_path(clean_redis):
             await asyncio.sleep(0.1)
 
         assert success, "Worker did not process the event and output to EventLog"
+    finally:
+        await manager.stop()
+
+
+async def test_worker_manager_legacy_pool_uses_spawn(clean_redis):
+    """ADR-078 §4.4: the deprecated internal pool, when the
+    operator opts in with ``legacy_pool=True``, must still use
+    the ``spawn`` start method.
+
+    ``fork`` corrupts the child's ``threading._RLock`` /
+    ``select`` state after the parent imported ``threading`` +
+    ``ssl`` + ``cryptography`` + ``redis.asyncio``, which stalls
+    ``xreadgroup`` forever in container runtimes (ADR-054 lines
+    269-273). If a future refactor drops ``mp_context=``, fail
+    loudly here rather than hanging the consume loop.
+    """
+    from kntgraph.infra.redis._event_log import RedisEventLogAdapter
+    from kntgraph.tools.manager import WorkerManager
+
+    log = EventLog(RedisEventLogAdapter(clean_redis))
+    manager = WorkerManager(clean_redis, event_log=log, legacy_pool=True)
+    manager.register(MathDoublerTool, acl=None)
+
+    with pytest.warns(PoolDeprecationWarning):
+        await manager.start()
+    try:
+        assert manager._pool is not None
+        assert manager._mp_context is not None
+        assert manager._mp_context.get_start_method() == "spawn"
     finally:
         await manager.stop()
 
@@ -148,8 +176,9 @@ async def test_worker_manager_railway_error(clean_redis):
     )
 
     await manager.start()
-    assert manager._mp_context is not None
-    assert manager._mp_context.get_start_method() == "spawn"
+    # ADR-078 §4.4: async tool, no internal pool is created.
+    assert manager._pool is None
+    assert manager._mp_context is None
     try:
         success = False
         for _ in range(20):
@@ -187,7 +216,22 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
         reaper_interval=0.5,  # run reaper frequently for test
         reaper_idle_time=1.0,  # consider pending for 1s as crashed
     )
-    manager.register(PoisonPillTool)
+    # A tool that kills its own process MUST declare a process
+    # pool (ADR-078 §4.4). Under the default ``AsyncInProcFactory``
+    # the tool runs on the Manager's event loop, so the SIGKILL
+    # would take down the Manager itself and no reaper would ever
+    # run. Declaring the pool is exactly the contract a
+    # crash-prone tool has to honour.
+    from concurrent.futures import ProcessPoolExecutor
+
+    from kntgraph.tools.executors import ProcessPoolFactory
+
+    pool = ProcessPoolExecutor(max_workers=1)
+    manager.register(
+        PoisonPillTool,
+        acl=None,
+        executor_factory=ProcessPoolFactory(pool, concurrency=1),
+    )
 
     request_event = Event.create(
         event_type="tool.requested",
@@ -202,14 +246,12 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
     )
 
     await manager.start()
-    assert manager._mp_context is not None
-    assert manager._mp_context.get_start_method() == "spawn"
 
     try:
-        # The tool crashes on invoke.
-        # The reaper will run, wait 1s, claim it, and push it back.
-        # It retries up to 'retries=2' times.
-        # Then it DLQs and emits tool.poison_pill.failed.
+        # The tool kills its pool worker on invoke. The Manager
+        # survives, the reaper runs, waits 1s, claims the message
+        # via XAUTOCLAIM, and retries up to 'retries=2' times.
+        # Then it escalates to tool.poison_pill.failed.
 
         success = False
         # We wait up to 10 seconds because it has to fail, wait 1s, fail, wait 1s, fail.
@@ -217,7 +259,10 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
             events = await log.read(agent_id)
             for e in events:
                 if e.event_type == "tool.poison_pill.failed":
-                    assert "Max retries exceeded" in e.data["error"]
+                    # The framework escalates once the PEL
+                    # delivery count exceeds ``retries=2``.
+                    assert "Retry budget exhausted" in e.data["error"]
+                    assert e.data["error_class"] == "permanent"
                     success = True
                     break
             if success:
@@ -227,3 +272,4 @@ async def test_worker_manager_dlq_on_hard_crash(clean_redis):
         assert success, "WorkerManager did not recover from poison pill via DLQ"
     finally:
         await manager.stop()
+        pool.shutdown(wait=False, cancel_futures=True)
