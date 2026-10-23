@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-intent_router.middleware_setup -- Install B5 (rate limit) + B4 (CORS / TrustedHost / HTTPSRedirect).
+intent_router.middleware_setup -- install B5 (rate limit) + B4 (CORS/TrustedHost/HTTPS).
 
 `configure_middlewares(app)` installs the per-deployment
 middleware stack on the FastAPI app. Each factory

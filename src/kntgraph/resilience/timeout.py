@@ -178,7 +178,7 @@ def _strip_cancelled(
     )
 
 
-class TimeoutError(builtins.TimeoutError):
+class TimeoutError(builtins.TimeoutError):  # noqa: A001
     """Raised when an operation exceeds its timeout.
 
     Inherits from builtin ``TimeoutError`` / ``asyncio.TimeoutError``
@@ -218,10 +218,9 @@ async def with_timeout[R](
     try:
         result = fn()
         if not inspect.isawaitable(result):
-            # Sync result: return immediately. The
-            # timeout is "best-effort" — we cannot cancel
-            # a sync function mid-flight. We document this
-            # in the docstring.
+            # Sync result: return immediately. The timeout
+            # is "best-effort" — a sync function cannot be
+            # cancelled mid-flight.
             return result
         return await asyncio.wait_for(result, timeout=timeout_seconds)
     except builtins.TimeoutError:
@@ -403,9 +402,8 @@ async def _sleep_with_backoff(
     delay = min(base_delay * (2**attempt), max_delay)
     # Backoff jitter — uniform in [0.5, 1.0] of the
     # computed delay so concurrent retries do not
-    # lockstep. ``random.random()`` is fine here: this is
-    # not a security boundary, only an attempt-spreading
-    # heuristic.
+    # lockstep. Not a security boundary, only an
+    # attempt-spreading heuristic.
     jittered = delay * (0.5 + random.random() * 0.5)  # nosec B311 - backoff jitter, not crypto
     if deadline is not None:
         remaining = deadline - time.monotonic()

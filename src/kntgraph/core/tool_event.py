@@ -16,8 +16,8 @@ Centralising the parse here kills the four near-identical
 implementations that grew in:
 
   - ``kntgraph.agents/tools/invoker/_invoker.py`` — ``_tool_name_from_request``
-  - ``kntgraph.agents/memory/solutions/_extractor.py`` (and siblings) — ``_tool_name_from_event_type`` +
-    ``_is_tool_requested``/``.completed``/``.failed``
+  - ``kntgraph.agents/memory/solutions/_extractor.py`` (and siblings) —
+    ``_tool_name_from_event_type`` + ``_is_tool_requested``/``.completed``/``.failed``
   - ``knowledge/falkordb/adapter.py`` — two inline
     ``startswith("tool.") and endswith(".completed"|.failed)``
   - ``kntgraph.agents/memory/solutions/__init__.py`` — public wrappers
@@ -39,11 +39,11 @@ the convention documented in ADR-013 §2.2.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import NamedTuple
 
 
-class ToolEventKind(str, Enum):
+class ToolEventKind(StrEnum):
     """
     The four states a tool call can reach in the event log.
 

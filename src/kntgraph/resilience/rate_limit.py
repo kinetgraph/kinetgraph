@@ -347,10 +347,7 @@ def _make_middleware_class() -> type:
             remaining = max(0, self._limiter.rpm - 1)
             stats = self.stats()
             buckets = stats.get("buckets", {})
-            if isinstance(buckets, dict):
-                bucket_size = buckets.get(bucket_key)
-            else:
-                bucket_size = None
+            bucket_size = buckets.get(bucket_key) if isinstance(buckets, dict) else None
             if isinstance(bucket_size, int):
                 remaining = max(0, self._limiter.rpm - bucket_size)
 

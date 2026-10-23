@@ -25,7 +25,7 @@ import pytest
 from kntgraph.core.result import Err, Ok, Result
 from kntgraph.infra.redis._auth import APIKeyStorage
 from kntgraph.infra.redis._auth._cache import APIKeyCacheAdapter
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,7 +266,7 @@ class TestWriteInvalidates:
         assert binding.lookup_calls == ["d", "d"]
 
     async def test_store_does_not_invalidate_on_error(self):
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         class _FailingStore(_MockAPIKeyStorage):
             async def store(self, digest: str, payload: bytes):
@@ -298,7 +298,7 @@ class TestWriteInvalidates:
         assert binding.lookup_calls == ["d", "d"]
 
     async def test_delete_does_not_invalidate_on_error(self):
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         class _FailingDeleteStore(_MockAPIKeyStorage):
             async def delete(self, digest: str):

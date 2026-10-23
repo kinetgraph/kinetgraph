@@ -174,7 +174,9 @@ class TestBumpArithmetic:
         _make_temp_git_repo(tmp_path, tag="v1.2.3")
         result = _run_bump(tmp_path, "--level", "patch", "--dry-run")
         assert result.returncode == 0, (
-            f"returncode={result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+            f"returncode={result.returncode}\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
         )
         m = RE_NEXT.search(result.stdout)
         assert m is not None, f"could not parse next: {result.stdout}"

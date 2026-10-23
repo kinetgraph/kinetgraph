@@ -91,7 +91,7 @@ class TestRedisAPIKeyStorage:
 
     async def test_lookup_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._auth import RedisAPIKeyStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.get = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -112,7 +112,7 @@ class TestRedisAPIKeyStorage:
 
     async def test_store_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._auth import RedisAPIKeyStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.set = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -132,7 +132,7 @@ class TestRedisAPIKeyStorage:
 
     async def test_delete_returns_err_on_redis_failure(self):
         from kntgraph.infra.redis._auth import RedisAPIKeyStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
@@ -167,7 +167,7 @@ class TestRedisAPIKeyStorageUnexpectedReturn:
 
     async def test_lookup_unexpected_return_type(self):
         from kntgraph.infra.redis._auth import RedisAPIKeyStorage
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
         redis.get = AsyncMock(return_value=12345)

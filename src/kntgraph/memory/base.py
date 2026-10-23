@@ -135,7 +135,8 @@ from ..core.result import Err, Ok, PersistenceError, Result
 from ..stream.event_log import EventLog
 
 if TYPE_CHECKING:
-    from ..infra.redis._errors import MemoryDecodeError, MemoryError
+    from ..infra.redis._errors import MemoryDecodeError
+    from ..infra.redis._errors import MemoryError as RedisMemoryError
     from ..infra.redis._memory import ShortMemoryStorage
 
 logger = structlog.get_logger()
@@ -452,14 +453,14 @@ class BaseShortTermMemory[StateT](ABC):
         """
         return key + FOLD_CURSOR_SUFFIX
 
-    async def _read_fold_cursor(self, key: str) -> Result[str | None, MemoryError]:
+    async def _read_fold_cursor(self, key: str) -> Result[str | None, RedisMemoryError]:
         """
         Read the fold cursor stored at the parallel key.
 
         Per ADR-077: the storage Protocol returns
-        ``Result[str | None, MemoryError]`` — ``Ok(None)``
+        ``Result[str | None, RedisMemoryError]`` — ``Ok(None)``
         is a clean miss (caller falls back to the cold
-        path); ``Err(MemoryError)`` is a transport failure
+        path); ``Err(RedisMemoryError)`` is a transport failure
         (propagates to the public ``refresh_cache`` API).
         The cursor is a plain string value (NOT a Hash
         field and NOT a JSON entry); the parallel-key
@@ -472,7 +473,7 @@ class BaseShortTermMemory[StateT](ABC):
 
     async def _write_fold_cursor(
         self, key: str, cursor: str
-    ) -> Result[None, MemoryError]:
+    ) -> Result[None, RedisMemoryError]:
         """
         Persist the fold cursor on the parallel key.
 
@@ -485,10 +486,10 @@ class BaseShortTermMemory[StateT](ABC):
         is the honest contract.
 
         Per ADR-077: the storage Protocol returns
-        ``Result[None, MemoryError]``; the consumer
+        ``Result[None, RedisMemoryError]``; the consumer
         trusts the Protocol and propagates ``Err``
         unchanged to the public API (which then maps
-        ``MemoryError`` to ``PersistenceError`` so the
+        ``RedisMemoryError`` to ``PersistenceError`` so the
         public surface keeps the broader error type
         the framework exposes for the EventLog).
         """

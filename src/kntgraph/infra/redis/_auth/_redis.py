@@ -22,9 +22,8 @@ service B's at ``crm:knt:api:keys:<digest>``. Empty
 format byte-for-byte.
 
 The legacy module-level :func:`storage_key` function is
-preserved as a thin helper for the migration script and
-external code; the canonical composition lives on the
-storage instance.
+preserved as a thin helper for the migration script and external
+code; the canonical composition lives on the storage instance.
 
 Result contract (AGENTS.md §6): see ``APIKeyStorage``
 docstring for the full contract.
@@ -39,7 +38,7 @@ import structlog
 from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
-from .._errors import MemoryError
+from .._errors import MemoryError  # noqa: A004
 from .._prefix import namespaced, validate_prefix
 from .._translation import translate_redis_call
 

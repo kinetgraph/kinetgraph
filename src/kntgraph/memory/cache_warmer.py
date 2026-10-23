@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Literal
 import structlog
 
 from ..core.result import Ok, Result
-from ..infra.redis._errors import MemoryError
+from ..infra.redis._errors import MemoryError as RedisMemoryError
 from .profile import ProfileManager
 from .session import SessionManager
 
@@ -60,7 +60,7 @@ class PumpOutcome:
 
     ok: int = 0
     failed: int = 0
-    errors: tuple[MemoryError, ...] = field(default_factory=tuple)
+    errors: tuple[RedisMemoryError, ...] = field(default_factory=tuple)
 
 
 CacheRefreshKind = Literal["session", "profile", "continuity"]
@@ -165,7 +165,7 @@ class CacheWarmer:
         # adicional em `pump_once`. Veja ADR-014.
         self._continuity = continuity_manager
 
-    async def pump_once(self) -> Result[PumpOutcome, MemoryError]:
+    async def pump_once(self) -> Result[PumpOutcome, RedisMemoryError]:
         """
         Drain the bus and apply all pending requests.
 
@@ -179,11 +179,11 @@ class CacheWarmer:
         dispatcher does not need to carry a cursor on
         the request — the cache owns that state.
 
-        Returns a ``Result[PumpOutcome, MemoryError]``
+        Returns a ``Result[PumpOutcome, RedisMemoryError]``
         wrapping the per-batch outcome. ``Ok(PumpOutcome)``
         always reports ``ok + failed == len(requests)``
         (or both zero when the bus was empty).
-        ``Err(MemoryError)`` surfaces when the bus
+        ``Err(RedisMemoryError)`` surfaces when the bus
         itself reports a failure — at the moment the
         bus is an in-memory ``deque`` that cannot
         fail, so the ``Err`` branch is reserved for
@@ -195,7 +195,7 @@ class CacheWarmer:
 
         The per-request resilience is the same one the
         legacy ``except Exception`` provided, but the
-        failure payload is now typed (``MemoryError``)
+        failure payload is now typed (``RedisMemoryError``)
         and propagated via the ``Result`` channel
         instead of lost in a logger warning.
         """
@@ -204,7 +204,7 @@ class CacheWarmer:
             return Ok(PumpOutcome())
 
         successes = 0
-        failures: list[MemoryError] = []
+        failures: list[RedisMemoryError] = []
         for req in requests:
             try:
                 if req.kind == "session":
@@ -236,13 +236,13 @@ class CacheWarmer:
                         id2=req.id2,
                     )
                     failures.append(
-                        MemoryError(f"unknown CacheRefreshKind {req.kind!r}")
+                        RedisMemoryError(f"unknown CacheRefreshKind {req.kind!r}")
                     )
                     continue
             except asyncio.CancelledError:
                 raise
             except (
-                MemoryError,
+                RedisMemoryError,
                 ValueError,
                 TypeError,
                 AttributeError,
@@ -251,7 +251,7 @@ class CacheWarmer:
             ) as exc:
                 # Defensive: a buggy implementation might raise
                 # instead of returning Err. Convert to a typed
-                # ``MemoryError`` so the per-batch outcome stays
+                # ``RedisMemoryError`` so the per-batch outcome stays
                 # consistent and the dispatch loop never aborts.
                 logger.warning(
                     "cache_warmer.refresh_raised",
@@ -261,7 +261,7 @@ class CacheWarmer:
                     error=str(exc),
                 )
                 failures.append(
-                    MemoryError(
+                    RedisMemoryError(
                         f"refresh_cache_incremental for "
                         f"({req.kind}, {req.id1!r}, {req.id2!r}) "
                         f"raised: {exc}"
@@ -273,11 +273,9 @@ class CacheWarmer:
                 err = result.err_value()
                 # The base layer wraps storage errors as
                 # ``PersistenceError``; the warmer's public
-                # contract says ``MemoryError``. The two are
-                # distinguishable but both belong in the
-                # warm-side error channel -- use the bare
-                # ``MemoryError`` text for the metrics sink
-                # and let the dashboard dedupe.
+                # contract says ``RedisMemoryError``. Both belong
+                # in the warm-side error channel -- the metrics
+                # sink gets the bare ``RedisMemoryError`` text.
                 logger.warning(
                     "cache_warmer.refresh_failed",
                     kind=req.kind,
@@ -286,7 +284,7 @@ class CacheWarmer:
                     error=str(err),
                 )
                 failures.append(
-                    MemoryError(
+                    RedisMemoryError(
                         f"refresh_cache_incremental for "
                         f"({req.kind}, {req.id1!r}, {req.id2!r}) "
                         f"failed: {err}"

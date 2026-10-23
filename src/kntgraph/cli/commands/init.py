@@ -17,7 +17,7 @@ same name without one swallowing the other).
 from __future__ import annotations
 
 import os
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 
 import typer
@@ -33,7 +33,7 @@ console = Console()
 # hand-written error message. Typer auto-lists the
 # valid choices in ``--help`` and rejects unknown
 # values with the standard ``Invalid value`` error.
-class RoutingMode(str, Enum):
+class RoutingMode(StrEnum):
     """The canonical intent-routing scaffold modes.
 
     Values match the file names in

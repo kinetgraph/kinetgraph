@@ -18,11 +18,16 @@ EventLog + DLQ.
 Three redaction levels
 ----------------------
 
-| Level | Mechanism | Catches | Cost |
-|-------|-----------|---------|------|
-| 1 (default) | Regex (PT + EN) | CPF, CNPJ, e-mail, telefone, CEP, chave PIX | < 1ms |
-| 2 (opt-in) | ``EntityExtractor`` (heuristic OR GLiNER2-based) | + NER-derived names/addresses | ~20ms |
-| 3 (opt-in) | GLiNER2 v1.5 with ``task="pii"`` (async batch audit) | + remaining semantic PII | batch |
+Level 1 (default) — Regex (PT + EN); cost ``< 1ms``
+    Catches CPF, CNPJ, e-mail, telefone, CEP, chave PIX.
+
+Level 2 (opt-in) — ``EntityExtractor`` (heuristic OR GLiNER2-based);
+cost ``~20ms``
+    Catches the level-1 set plus NER-derived names/addresses.
+
+Level 3 (opt-in) — GLiNER2 v1.5 with ``task="pii"`` (async batch
+audit); cost ``batch``
+    Catches the level-2 set plus remaining semantic PII.
 
 The level is set by the constructor (``level=1`` default)
 or by the env ``KNT_PII_LEVEL``. The default label set

@@ -91,12 +91,9 @@ class _FakeEventLog:
         self, agent_id: str, cursor: str
     ) -> tuple[list[Event], str]:
         pending = self._agents.get(agent_id, [])
-        if cursor in ("-", "-1"):
-            # First call for this agent — return the seed
-            # event(s) if any. After that, never re-emit.
-            events = list(pending)
-        else:
-            events = []
+        # First call for this agent — return the seed
+        # event(s) if any. After that, never re-emit.
+        events = list(pending) if cursor in ("-", "-1") else []
         if events:
             new_cursor = "1-0"
             # Mark them consumed.

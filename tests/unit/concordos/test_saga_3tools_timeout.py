@@ -7,15 +7,15 @@ Unit tests for WorkflowSaga with 3 tools where step 2 fails due to timeout (ADR-
 
 Scenario:
   Saga has 3 sequential tool steps:
-    1. 'reserve_payment' (tool='payment_reserver', compensate_tool='payment_releaser')
-    2. 'lock_inventory' (tool='inventory_locker', compensate_tool='inventory_unlocker', timeout_ms=3000)
-    3. 'schedule_shipping' (tool='shipping_scheduler', compensate_tool='shipping_canceller')
+    1. 'reserve_payment' (tool='payment_reserver')
+    2. 'lock_inventory' (tool='inventory_locker', timeout_ms=3000)
+    3. 'schedule_shipping' (tool='shipping_scheduler')
 
 Flow:
   - Step 1 ('reserve_payment') completes successfully.
   - Step 2 ('lock_inventory') times out.
   - Step 3 ('schedule_shipping') is NEVER executed.
-  - Saga enters compensation and dispatches Step 1's compensate_tool ('payment_releaser') to roll back Step 1.
+  - Saga enters compensation and dispatches Step 1's compensate_tool to roll it back.
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation
 
     req_eid = str(uuid4())
 
-    # Build agent view where Step 1 is completed and Step 2 receives timed_out completion
+    # Build agent view where Step 1 completed and Step 2 timed out.
     view = (
         AgentViewBuilder("agent-3-tools")
         .with_component(
@@ -106,7 +106,11 @@ async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation
                 saga_name="order_fulfillment",
                 current_step="lock_inventory",
                 direction="forward",
-                step_order=("reserve_payment", "lock_inventory", "schedule_shipping"),
+                step_order=(
+                    "reserve_payment",
+                    "lock_inventory",
+                    "schedule_shipping",
+                ),
                 step_states={
                     "reserve_payment": "completed",
                     "lock_inventory": "timed_out",
@@ -153,7 +157,7 @@ async def test_saga_step2_timeout_prevents_step3_and_triggers_step1_compensation
 
     # Verify: Step 1 compensation tool (payment_releaser) IS requested
     assert "tool.payment_releaser.requested" in event_types, (
-        "Step 1 compensation tool (payment_releaser) was NOT requested on step 2 timeout!"
+        "Step 1 compensation tool was NOT requested on step 2 timeout!"
     )
 
     # Verify data passed to payment_releaser contains step 1 results
@@ -219,9 +223,7 @@ class ShippingSchedulerTool:
         state: str = "",
         **kwargs: Any,
     ) -> Result[dict, ToolError]:
-        pytest.fail(
-            "Step 3 (ShippingSchedulerTool) should NEVER be invoked when Step 2 times out!"
-        )
+        pytest.fail("Step 3 should NEVER be invoked when Step 2 times out!")
 
 
 async def test_e2e_saga_3tools_step2_timeout_scenario() -> None:

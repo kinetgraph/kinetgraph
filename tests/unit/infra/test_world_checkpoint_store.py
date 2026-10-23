@@ -39,7 +39,7 @@ from kntgraph.infra.checkpoint import (
     ReactiveCheckpoint,
     utcnow,
 )
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
 pytestmark = pytest.mark.asyncio
 

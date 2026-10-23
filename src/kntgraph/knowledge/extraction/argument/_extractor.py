@@ -157,7 +157,7 @@ class SchemaArgumentExtractor(ArgumentExtractor):
         """
         out_fields: dict[str, ExtractedValue] = {}
         out_confs: dict[str, float] = {}
-        for spec, res in zip(fields, results):
+        for spec, res in zip(fields, results, strict=False):
             if not isinstance(res, tuple):
                 # Either ``None`` (no match) or an
                 # ``Exception`` (finder raised). Both

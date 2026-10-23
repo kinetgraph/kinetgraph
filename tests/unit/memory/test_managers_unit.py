@@ -275,7 +275,7 @@ class TestProfileManagerReadThrough:
 
 
 # ---------------------------------------------------------------------------
-# ContinuityManager (basic shape — depth is in tests/unit/memory/test_continuity_fold.py)
+# ContinuityManager (basic shape — depth is in test_continuity_fold.py)
 # ---------------------------------------------------------------------------
 
 

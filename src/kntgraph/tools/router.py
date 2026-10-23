@@ -230,5 +230,6 @@ class ToolRouter:
                     ValueError,
                 ) as e:
                     logger.error(
-                        f"Failed to route tool.{tool_name}.requested {event.event_id} to {stream_key}: {e}"
+                        f"Failed to route tool.{tool_name}.requested "
+                        f"{event.event_id} to {stream_key}: {e}"
                     )

@@ -31,13 +31,11 @@ Why this split? `Event` is the framework's most
 reused type; isolating it in its own module keeps
 the import graph shallow. The wire codec and id
 helpers are independently testable and rarely
-change together with the dataclass fields, so they
-deserve their own modules.
+change together with the dataclass fields, so they deserve their own modules.
 
 `Event.__post_init__` consults `constants.ALLOWED_EVENT_CLASSES`
 to reject malformed wire data. `Event.create` calls
-the validators explicitly for early-fail with a
-clearer stack trace.
+the validators explicitly for early-fail with a clearer stack trace.
 """
 
 from __future__ import annotations
@@ -241,7 +239,7 @@ class Event:
         cls,
         *,
         agent_id: str,
-        type: OperationalEventType,
+        type: OperationalEventType,  # noqa: A002 — domain term for the event type
         data: Mapping[str, JsonValue] | None = None,
         correlation: CorrelationContext | None = None,
         causation_id: UUID | None = None,
@@ -280,7 +278,7 @@ class Event:
         cls,
         *,
         agent_id: str,
-        type: str,
+        type: str,  # noqa: A002 — domain term for the event type
         data: Mapping[str, JsonValue] | None = None,
         correlation: CorrelationContext | None = None,
         causation_id: UUID | None = None,

@@ -32,7 +32,7 @@ class IdempotencyConflict(RedisAdapterError):
         self.idem_key = idem_key
 
 
-class MemoryError(RedisAdapterError):
+class MemoryError(RedisAdapterError):  # noqa: A001 — domain error, not the builtin
     """Base for short-memory cache errors.
 
     ``ShortMemoryStorage.get_record`` /

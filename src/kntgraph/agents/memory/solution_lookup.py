@@ -416,7 +416,7 @@ class SolutionLookupSystem(ToolAwareSystem):
             ],
             return_exceptions=True,
         )
-        for (req, agent_id), result in zip(batch, results):
+        for (req, agent_id), result in zip(batch, results, strict=False):
             if isinstance(result, BaseException):
                 # A failed lookup is logged and skipped;
                 # the LLM path will run for this request.

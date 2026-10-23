@@ -567,7 +567,9 @@ async def _astream_litellm_inner(
 
 @tool_worker(
     name="chat_llm",
-    description="Generic LLM completion via LiteLLM (Ollama, OpenAI, Anthropic, Google, etc.).",
+    description=(
+        "Generic LLM completion via LiteLLM (Ollama, OpenAI, Anthropic, Google, etc.)."
+    ),
     max_concurrency=10,
     retries=3,
 )

@@ -431,18 +431,25 @@ def test_main_template_passes_redis_and_tool_router_to_dispatcher() -> None:
     # If the operator uncomments, the call is correct.
     # The placeholder is ``build_<context>_dispatcher(log, redis, tool_router)``
     # (positional args, not keyword args).
-    placeholder_call = next(
+    #
+    # The call may span several lines (a trailing
+    # ``key_prefix=`` argument pushed it over the line
+    # limit once), so the assertion matches the whole
+    # call block rather than a single line.
+    lines = rendered.splitlines()
+    call_start = next(
         (
-            line
-            for line in rendered.splitlines()
-            if "build_sales_dispatcher(" in line and "tool_router" in line
+            index
+            for index, line in enumerate(lines)
+            if "build_sales_dispatcher(" in line
         ),
         None,
     )
-    assert placeholder_call is not None, (
+    assert call_start is not None, (
         "main.py.jinja must include the placeholder "
         "build_sales_dispatcher(...) call (as a comment) "
         "that passes redis and tool_router."
     )
+    placeholder_call = "\n".join(lines[call_start : call_start + 3])
     assert "redis" in placeholder_call
     assert "tool_router" in placeholder_call

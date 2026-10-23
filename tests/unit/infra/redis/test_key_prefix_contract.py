@@ -148,7 +148,12 @@ class FakeRedisClient:
             return {}
         return {b"length": len(self.streams[key])}
 
-    async def xgroup_create(self, key: str, group: str, id: str = "$") -> None:
+    async def xgroup_create(
+        self,
+        key: str,
+        group: str,
+        id: str = "$",  # noqa: A002 — mirrors the redis-py keyword
+    ) -> None:
         return None
 
     async def expire(self, key: str, seconds: int) -> None:

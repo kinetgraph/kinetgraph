@@ -98,6 +98,7 @@ wiring is a deployment concern.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from kntgraph.knowledge.extraction.base import (
@@ -197,11 +198,9 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
         if not text:
             return []
         results = await self._run_model(text)
-        # Tolerate two shapes from subclasses:
-        #   - tuples `(Entity, offset)` (the canonical shape)
-        #   - `None` (malformed span dropped by `_convert_span`)
-        # We extract the Entity in both cases and drop
-        # anything that is not an Entity.
+        # Tolerate two shapes from subclasses: tuples
+        # `(Entity, offset)` (the canonical shape) and `None`
+        # (malformed span dropped by `_convert_span`).
         entities: list[Entity] = []
         for r in results:
             if isinstance(r, tuple) and len(r) == 2:
@@ -292,10 +291,8 @@ class GlinerEntityAdapter(EntityExtractorWithMentions):
                 offset = None
         attrs: dict[str, ExtractedValue] = {}
         if score is not None:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 attrs["gliner_score"] = float(cast(float, score))
-            except (TypeError, ValueError):
-                pass
         return (
             Entity(
                 name=str(span_text),

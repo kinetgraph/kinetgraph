@@ -33,7 +33,7 @@ import pytest_asyncio
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.result import Result
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 from kntgraph.infra.redis._event_log import RedisEventLogAdapter
 from kntgraph.infra.redis._memory import (
     RedisContinuityStorage,

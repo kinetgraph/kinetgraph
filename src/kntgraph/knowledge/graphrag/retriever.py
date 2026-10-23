@@ -131,7 +131,7 @@ class GraphRAGRetriever:
         self._embedding = embedding
         self._tenant_id = tenant_id
 
-    # ------------------------------------------------------------------ Document sub-graph (legacy)
+    # ------------------------------------------------------ Document sub-graph (legacy)
 
     async def vector_search(
         self,
@@ -191,7 +191,7 @@ class GraphRAGRetriever:
         emb = await self._embedding.embed(query)
         return await self.vector_search(emb, k=k)
 
-    # ------------------------------------------------------------------ Solution sub-graph
+    # ------------------------------------------------------ Solution sub-graph
 
     async def find_solutions_by_problem(
         self,

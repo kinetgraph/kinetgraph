@@ -40,6 +40,7 @@ its effects apply in the next tick.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 
 import structlog
@@ -198,10 +199,8 @@ class Runner:
         self._running = False
         if self._task is not None:
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
             self._task = None
         logger.info("runner.stop", final_tick=self._tick)
 

@@ -40,9 +40,12 @@ def _get_package_name() -> str:
     src_dir = Path("src")
     if not src_dir.is_dir():
         console.print(
-            "[red]Error:[/red] Could not find 'src/' directory. Are you in the project root?"
+            "[red]Error:[/red] Could not find 'src/' directory. "
+            "Are you in the project root?"
         )
         raise typer.Exit(code=1)
+    # The package is the first directory under ``src/``;
+    # ``__pycache__`` is build residue, not a package.
     packages = [d for d in src_dir.iterdir() if d.is_dir() and d.name != "__pycache__"]
     if not packages:
         console.print("[red]Error:[/red] No package found inside 'src/'.")

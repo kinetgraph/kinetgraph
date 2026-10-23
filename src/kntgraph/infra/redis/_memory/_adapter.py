@@ -14,8 +14,7 @@ Three tiers share the same pattern:
 
 The Protocol abstracts the storage-format-agnostic surface:
 ``get_record``, ``put_record``, ``delete_record``, ``iter_keys``.
-The concrete Redis impls pick the right primitive (SET vs
-HSET, JSON vs Hash) per tier.
+The concrete Redis impls pick the right primitive (SET vs HSET, JSON vs Hash) per tier.
 
 Why "Short" prefix
 ------------------
@@ -63,7 +62,7 @@ from typing import Protocol, runtime_checkable
 from kntgraph.core.result import Result
 
 from ....core._typing import JsonValue
-from .._errors import MemoryError
+from .._errors import MemoryError  # noqa: A004
 
 # ``CacheRecord`` is the wire shape accepted by ``put_record``.
 # Two flavours:

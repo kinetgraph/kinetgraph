@@ -32,7 +32,7 @@ import structlog
 from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
-from .._errors import MemoryDecodeError, MemoryError
+from .._errors import MemoryDecodeError, MemoryError  # noqa: A004
 from .._translation import translate_redis_call
 
 logger = structlog.get_logger()

@@ -694,7 +694,8 @@ class WorkerManager:
                 result=result,
             )
 
-            # Acknowledge the message since it was processed (success or explicit failure)
+            # Acknowledge the message since it was processed (success or
+            # explicit failure)
             await self._redis.xack(stream_key, self._group_name, message_id)
 
         except Exception as e:
@@ -710,7 +711,8 @@ class WorkerManager:
 
             # If the process pool itself broke, we can't do much but we must not XACK.
             # We let the Reaper pick it up via XAUTOCLAIM.
-            # But we can proactively check delivery count via XPENDING to see if it exceeded retries.
+            # But we can proactively check delivery count via XPENDING to see if it
+            # exceeded retries.
             escalated = await escalate_on_retry_budget_exceeded(
                 redis=self._redis,
                 stream_key=stream_key,

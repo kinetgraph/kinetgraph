@@ -137,7 +137,7 @@ async def run_fsm_telemetry_benchmark(
     num_processes: int = 100,
     max_wait_seconds: float = 10.0,
 ) -> dict[str, str | float | int]:
-    """Run Business FSM for num_processes unique process executions and return telemetry."""
+    """Run Business FSM for unique process executions and return telemetry."""
     event_log = EventLog(RedisEventLogAdapter(client=redis))
     tool_router = ToolRouter(redis)
 
@@ -250,7 +250,8 @@ async def run_fsm_telemetry_benchmark(
     }
 
     assert completed_processes == num_processes, (
-        f"Expected all {num_processes} processes to complete, got {completed_processes}."
+        f"Expected all {num_processes} processes to complete, "
+        f"got {completed_processes}."
     )
 
     stream_key = f"knt:tools:{tool_name}:queue"
@@ -364,10 +365,12 @@ async def _run_benchmark_cli():
     print("=========================================================================")
     print("Scenario 1: Tool Completing Fast (Success)")
     print(
-        f"  - Process Executions Completed : {m_succ['completed_processes']} / {m_succ['total_processes']}"
+        f"  - Process Executions Completed : {m_succ['completed_processes']} / "
+        f"{m_succ['total_processes']}"
     )
     print(
-        f"  - Process Throughput           : {m_succ['process_throughput_sec']} processes/sec"
+        f"  - Process Throughput           : "
+        f"{m_succ['process_throughput_sec']} processes/sec"
     )
     print(f"  - Peak FSM Transitions (TPS)   : {m_succ['peak_tps']} TPS")
     print(f"  - Total Tool Completions       : {m_succ['completions']}")
@@ -375,10 +378,12 @@ async def _run_benchmark_cli():
     print("-------------------------------------------------------------------------")
     print("Scenario 2: Tool Failing Fast (Error)")
     print(
-        f"  - Process Executions Completed : {m_fail['completed_processes']} / {m_fail['total_processes']}"
+        f"  - Process Executions Completed : {m_fail['completed_processes']} / "
+        f"{m_fail['total_processes']}"
     )
     print(
-        f"  - Process Throughput           : {m_fail['process_throughput_sec']} processes/sec"
+        f"  - Process Throughput           : "
+        f"{m_fail['process_throughput_sec']} processes/sec"
     )
     print(f"  - Peak FSM Transitions (TPS)   : {m_fail['peak_tps']} TPS")
     print(f"  - Total Tool Failures          : {m_fail['failures']}")

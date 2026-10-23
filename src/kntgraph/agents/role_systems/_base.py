@@ -227,7 +227,9 @@ class _BaseRoleSystem(ToolAwareSystem):
     def _build_completion_event(
         self,
         rid: str,
-        comp: Any,  # ToolCallCompletion (frozen dataclass); ``Any`` per ADR-081 §3.4 (tool-completion envelope exception)
+        # ToolCallCompletion (frozen dataclass); ``Any`` per ADR-081 §3.4
+        # (tool-completion envelope exception)
+        comp: Any,
         pending_input: str,
         pending_agent: str,
     ) -> Event:

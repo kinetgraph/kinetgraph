@@ -36,7 +36,7 @@ from redis import exceptions as redis_exceptions
 
 from kntgraph.core.result import Result
 from kntgraph.infra.redis._dlq import RedisDLQStorage
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
 
 class FailingRedisDLQStorage(RedisDLQStorage):

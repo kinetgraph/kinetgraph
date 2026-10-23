@@ -18,7 +18,7 @@ import structlog
 from kntgraph.core.result import Err, Ok, Result
 
 from .._client import RedisLike
-from .._errors import MemoryError
+from .._errors import MemoryError  # noqa: A004
 from .._prefix import namespaced, validate_prefix
 from .._translation import translate_redis_call
 
@@ -266,8 +266,7 @@ class RedisWorldCheckpointStorage:
         wasteful for the dispatcher's binary stuck/unstuck
         decision.
 
-        Per ADR-077: the catch is fail-open (same as
-        :meth:`queue_length`).
+        Per ADR-077: the catch is fail-open (same as :meth:`queue_length`).
         """
         from .._translation import translate_redis_call_fall_back
 

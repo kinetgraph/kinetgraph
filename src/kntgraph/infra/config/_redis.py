@@ -46,7 +46,8 @@ class RedisSettingsMixin(BaseSettings):
 
     redis_url: str = Field(default="redis://localhost:6379")
     redis_max_connections: int = Field(default=50)
-    # Socket read timeout (seconds); must exceed block_ms to prevent socket timeout collisions
+    # Socket read timeout (seconds); must exceed block_ms to prevent
+    # socket timeout collisions
     redis_socket_timeout: float = Field(default=15.0)
     # ADR-082 §3.4: PING idle connections before reuse
     # (seconds). redis-py default is 0 (disabled). The

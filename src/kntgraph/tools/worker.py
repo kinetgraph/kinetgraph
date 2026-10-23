@@ -55,7 +55,8 @@ def tool_worker(
         # Validate idempotency_key
         if "idempotency_key" not in sig.parameters:
             raise TypeError(
-                f"Tool {cls.__name__}.invoke must accept 'idempotency_key' as a keyword-only argument."
+                f"Tool {cls.__name__}.invoke must accept 'idempotency_key' "
+                "as a keyword-only argument."
             )
         idemp_param = sig.parameters["idempotency_key"]
         if idemp_param.kind not in (
@@ -63,7 +64,8 @@ def tool_worker(
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
         ):
             raise TypeError(
-                f"Tool {cls.__name__}.invoke parameter 'idempotency_key' must be passable as keyword."
+                f"Tool {cls.__name__}.invoke parameter 'idempotency_key' "
+                "must be passable as keyword."
             )
 
         # Build dynamic Pydantic model to extract schema

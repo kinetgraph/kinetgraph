@@ -24,6 +24,7 @@ ratchet).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -181,10 +182,8 @@ class TestAsyncInProcFactory:
             warnings.simplefilter("always")
             for cls in (AsyncEcho, AsyncFailingEcho, AsyncEcho):
                 params: dict[str, Any] = {"__tool_cls__": cls}
-                try:
+                with contextlib.suppress(RuntimeError):
                     asyncio.run(AsyncInProcFactory()(_ok_sync_fn, "k", params))
-                except RuntimeError:
-                    pass
 
         pool_warns = [
             w for w in caught if issubclass(w.category, PoolDeprecationWarning)

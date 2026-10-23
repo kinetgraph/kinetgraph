@@ -44,7 +44,7 @@ def test_tool_worker_decorator_adds_describable_metadata():
     assert MyTool.__tool_worker_max_concurrency__ == 5
     assert MyTool.__tool_worker_retries__ == 2
 
-    # The schema should be inferred from the invoke signature (excluding self and idempotency_key)
+    # The schema is inferred from the invoke signature (excluding self and key).
     schema = MyTool.input_schema
     assert schema["type"] == "object"
     assert "user_id" in schema["properties"]
@@ -92,7 +92,7 @@ def test_tool_worker_with_pydantic_model():
 
 def test_tool_worker_missing_invoke_method():
     """
-    If the class doesn't have an invoke method, the decorator should raise an error early.
+    If the class has no invoke method, the decorator should raise an error early.
     """
     with pytest.raises(TypeError, match="must implement an 'invoke' method"):
 
@@ -106,7 +106,8 @@ def test_tool_worker_missing_idempotency_key():
     If the invoke method doesn't accept idempotency_key, it should raise an error.
     """
     with pytest.raises(
-        TypeError, match="must accept 'idempotency_key' as a keyword-only argument"
+        TypeError,
+        match="must accept 'idempotency_key' as a keyword-only argument",
     ):
 
         @tool_worker(name="bad_tool", description="...")

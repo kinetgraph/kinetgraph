@@ -141,15 +141,15 @@ class RedisLike(Protocol):
     async def xrange(
         self,
         name: str,
-        min: str,
-        max: str,
+        min: str,  # noqa: A002 — mirrors the redis-py keyword
+        max: str,  # noqa: A002 — mirrors the redis-py keyword
         count: int | None = None,
     ) -> list: ...
     async def xrevrange(
         self,
         name: str,
-        max: str,
-        min: str,
+        max: str,  # noqa: A002 — mirrors the redis-py keyword
+        min: str,  # noqa: A002 — mirrors the redis-py keyword
         count: int | None = None,
     ) -> list: ...
     async def xinfo_stream(self, name: str) -> dict: ...
@@ -173,7 +173,7 @@ class RedisLike(Protocol):
         self,
         name: str,
         groupname: str,
-        id: str = "$",
+        id: str = "$",  # noqa: A002 — mirrors the redis-py keyword
         mkstream: bool = False,
     ) -> None: ...
     async def xreadgroup(
@@ -189,8 +189,8 @@ class RedisLike(Protocol):
         self,
         name: str,
         groupname: str,
-        min: str,
-        max: str,
+        min: str,  # noqa: A002 — mirrors the redis-py keyword
+        max: str,  # noqa: A002 — mirrors the redis-py keyword
         count: int,
         consumername: str | None = None,
     ) -> list: ...
@@ -222,8 +222,8 @@ async def safe_xrange(
     client: RedisLike,
     name: str,
     *,
-    min: str = "-",
-    max: str = "+",
+    min: str = "-",  # noqa: A002 — mirrors the redis-py keyword
+    max: str = "+",  # noqa: A002 — mirrors the redis-py keyword
     count: int | None = None,
 ) -> list:
     """``xrange`` wrapper that upholds the ``RedisLike``
@@ -248,8 +248,8 @@ async def safe_xrevrange(
     client: RedisLike,
     name: str,
     *,
-    max: str = "+",
-    min: str = "-",
+    max: str = "+",  # noqa: A002 — mirrors the redis-py keyword
+    min: str = "-",  # noqa: A002 — mirrors the redis-py keyword
     count: int | None = None,
 ) -> list:
     """``xrevrange`` wrapper that upholds the ``RedisLike``

@@ -40,7 +40,7 @@ from kntgraph.events.dlq import (
     DLQReason,
 )
 from kntgraph.infra.redis._dlq import RedisDLQStorage
-from kntgraph.infra.redis._errors import MemoryError
+from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
 pytestmark = pytest.mark.asyncio
 
@@ -363,7 +363,7 @@ class TestErrorBranches:
 
     async def test_append_warns_when_counter_bump_fails(self, queue, monkeypatch):
         from kntgraph.infra.redis._dlq import PLACEHOLDER
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         async def failing_bump(self, *_args, **_kwargs):
             return Err(MemoryError("counter down"))
@@ -613,7 +613,7 @@ class TestFailingStorageBranches:
 
     async def test_discard_returns_err_when_find_entry_errs(self, failing_storage):
         from kntgraph.core.result import Err
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         failing_storage.make_find_return(Err(MemoryError("find down")))
         actions = DeadLetterActions(storage=failing_storage)
@@ -623,7 +623,7 @@ class TestFailingStorageBranches:
 
     async def test_discard_returns_err_when_drop_entry_errs(self, fake_redis):
         from kntgraph.core.result import Err
-        from kntgraph.infra.redis._errors import MemoryError
+        from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
         from tests.unit.events._fakes import FailingRedisDLQStorage
 
         # Build a queue that uses the fake end-to-end so

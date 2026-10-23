@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Integration test verifying agent non-blocking execution under interleaved slow/fast tools.
+Integration test verifying agent non-blocking execution under interleaved tools.
 
 Scenario:
   Two tool requests arrive for the SAME agent simultaneously:
@@ -12,7 +12,8 @@ Scenario:
 
 Invariants Validated:
   - The agent DOES NOT block/freeze waiting for the slow tool to finish.
-  - 'tool.fast_005s_tool.completed' is processed by the dispatcher and folded into the agent's DomainComponent at t < 0.3s.
+  - 'tool.fast_005s_tool.completed' is processed and folded into the agent's
+    DomainComponent at t < 0.3s.
   - The fast tool completion is fully processed ~2.7s BEFORE the slow tool finishes.
 """
 
@@ -249,7 +250,8 @@ async def test_agent_does_not_block_on_slow_tool() -> None:
 
     # 🚨 CRITICAL ASSERTION 1: Fast tool MUST be completed and processed in < 0.5s
     assert fast_processed_time is not None, (
-        "Agent was BLOCKED! Fast tool completion was not processed while slow tool was running."
+        "Agent was BLOCKED! Fast tool completion was not processed while "
+        "slow tool was running."
     )
     assert fast_processed_time < 0.5, (
         f"Fast tool completion took {fast_processed_time}s, expected < 0.5s."
@@ -287,5 +289,6 @@ async def test_agent_does_not_block_on_slow_tool() -> None:
     # Delta assertion: Fast tool was processed ~2.7s before slow tool finished!
     delta = round(slow_processed_time - fast_processed_time, 2)
     assert delta > 2.0, (
-        f"Fast tool was processed only {delta}s before slow tool, expected > 2.0s difference."
+        f"Fast tool was processed only {delta}s before slow tool, "
+        f"expected > 2.0s difference."
     )
