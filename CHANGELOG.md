@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-24
+
 ### Changed
 - **ADR-084 ratified — one Redis connection pool per process,
   owned by the caller.** This is a **breaking change** for any
@@ -666,6 +668,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documents why the cast is safe (the singleton
   is a stable instance across the process
   lifetime).
+
 
 ## [0.16.3] — 2026-09-26
 
