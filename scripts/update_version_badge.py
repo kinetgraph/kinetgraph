@@ -25,7 +25,6 @@ it appends the badge after the pyright badge
 
 from __future__ import annotations
 
-import argparse
 import re
 import sys
 from pathlib import Path
@@ -56,36 +55,13 @@ def main() -> int:
     """Read the README, find (or insert) the
     version badge, replace it with the current
     version, and write back.
-
-    ``--version`` overrides the installed
-    ``kntgraph.__version__``. The release workflow needs
-    it: the badge update runs **before** the tag is
-    created, so the install still reflects the previous
-    version at that point.
     """
-    parser = argparse.ArgumentParser(
-        prog="update_version_badge",
-        description=(
-            "Keep the README version badge in sync with the released version (ADR-051)."
-        ),
-    )
-    parser.add_argument(
-        "--version",
-        default=None,
-        help=(
-            "The version to write into the badge (e.g. "
-            "'0.17.0'). Defaults to the installed "
-            "kntgraph.__version__."
-        ),
-    )
-    args = parser.parse_args()
-
-    new_badge = _version_badge(args.version)
+    new_badge = _version_badge()
     if not new_badge:
         print(
-            "update_version_badge: could not derive a "
-            "version badge. Run 'uv sync' first, or pass "
-            "--version explicitly.",
+            "update_version_badge: kntgraph.__version__ "
+            "is the '0.0.0+unknown' fallback; no "
+            "badge to insert. Run 'uv sync' first.",
             file=sys.stderr,
         )
         return 1

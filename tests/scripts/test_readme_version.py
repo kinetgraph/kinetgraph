@@ -93,18 +93,3 @@ class TestVersionBadge:
         assert ".dev" not in badge, (
             f"badge must not carry the '.devN' pre-release suffix; got: {badge!r}"
         )
-
-    def test_explicit_version_overrides_the_derived_one(self) -> None:
-        """The release workflow passes the new version explicitly.
-
-        The badge is refreshed **before** the tag is created, so
-        neither the clean tag nor the install reflects the new
-        version at that point — the workflow has to supply it.
-        """
-        badge = _version_badge("0.17.0")
-
-        assert "version-0.17.0-blue" in badge, (
-            f"the explicit version must win; got: {badge!r}"
-        )
-        # The ``v`` prefix is tolerated.
-        assert "version-0.17.0-blue" in _version_badge("v0.17.0")

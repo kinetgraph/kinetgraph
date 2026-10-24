@@ -134,23 +134,6 @@ jobs:
               --new-version "${{ steps.bump.outputs.new_version }}" \
               $date_arg
 
-      - name: Update the README version badge
-        # The badge (shields.io "version-X.Y.Z") had been
-        # refreshed by hand in the release PRs, which is why it
-        # drifted: v0.16.2 and v0.16.3 shipped with the badge
-        # still reading 0.16.0. The script derives the version
-        # from the git tag, so it must run **after** the tag
-        # exists — but the tag is created further down, on the
-        # new version.
-        #
-        # The version is therefore taken from the bump step's
-        # output rather than from ``kntgraph.__version__``
-        # (which still reflects the pre-tag install at this
-        # point in the run).
-        run: |
-          uv run python scripts/update_version_badge.py \
-              --version "${{ steps.bump.outputs.new_version }}"
-
       - name: Commit the CHANGELOG update
         # The tag points at HEAD; the CHANGELOG
         # update must land **before** the tag, so
@@ -166,7 +149,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email \
               "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md README.md
+          git add CHANGELOG.md
           git commit \
               -m "chore(release): v${{ steps.bump.outputs.new_version }}" \
               -m "ADR-051 release automation." \
