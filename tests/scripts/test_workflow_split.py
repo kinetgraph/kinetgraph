@@ -232,6 +232,69 @@ class TestReleaseWorkflow:
             "had no [0.11.0] section)."
         )
 
+    def test_release_pushes_the_commit_to_main(self) -> None:
+        # The release commit (the dated CHANGELOG section + the
+        # README badge) must reach ``main``, not only the tag.
+        #
+        # Without the push, the commit is reachable from the tag
+        # but absent from the branch, and the next squash-merge
+        # discards it. That is how the ``0.16.2`` and ``0.16.3``
+        # CHANGELOG sections were lost: their release commits
+        # were cut on branches that never reached ``main``, so
+        # the history had two holes for releases that are on
+        # PyPI.
+        #
+        # It also leaves ``git describe --tags --abbrev=0``
+        # resolving to the *previous* tag on ``main``, so the
+        # ``check_version`` CI step validates against the wrong
+        # version.
+        #
+        # The push must carry the same commit the tag points
+        # at — ``git describe`` only resolves the tag when HEAD
+        # is that exact object. Pushing ``HEAD:main`` is
+        # correct: the workflow commits the CHANGELOG and then
+        # tags HEAD, so the branch tip and the tag share the
+        # commit.
+        text = RELEASE_YML.read_text()
+        assert "git push origin HEAD:main" in text, (
+            "release.yml must push the release commit to "
+            "main (git push origin HEAD:main). Without it "
+            "the dated CHANGELOG section and the README "
+            "badge live only on the tag and are lost at the "
+            "next squash-merge — the 0.16.2 / 0.16.3 "
+            "regression."
+        )
+
+    def test_release_pushes_main_after_the_tag(self) -> None:
+        # The ``main`` push must come **after** the tag push:
+        # if it came first and the tag push failed, ``main``
+        # would carry a release commit for a tag that does
+        # not exist.
+        text = RELEASE_YML.read_text()
+        lines = text.splitlines()
+        tag_push = None
+        main_push = None
+        for i, line in enumerate(lines, start=1):
+            if (
+                tag_push is None
+                and "git push origin" in line
+                and "HEAD:main" not in line
+            ):
+                tag_push = i
+            if main_push is None and "git push origin HEAD:main" in line:
+                main_push = i
+        assert tag_push is not None, (
+            "release.yml must push the tag; the test is sanity-checking the file."
+        )
+        assert main_push is not None, (
+            "release.yml must push the release commit to main."
+        )
+        assert tag_push < main_push, (
+            "the tag push must come before the main push — "
+            "otherwise main can carry a release commit for a "
+            "tag that was never pushed."
+        )
+
 
 class TestPublishWorkflow:
     """The publish workflow (``publish.yml``) builds

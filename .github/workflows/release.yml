@@ -230,6 +230,39 @@ jobs:
           git push origin \
               "${{ steps.bump.outputs.new_tag }}"
 
+      - name: Push the release commit to main
+        # The release commit (the dated CHANGELOG section + the
+        # README badge) must land on ``main`` too — not only on
+        # the tag. Without this the commit stays reachable from
+        # the tag but absent from the branch, and the next
+        # squash-merge discards it. That is exactly how the
+        # ``0.16.2`` and ``0.16.3`` CHANGELOG sections were
+        # lost: their release commits were cut on branches that
+        # never reached ``main``, so the history had two holes
+        # for releases that are published on PyPI.
+        #
+        # It also leaves ``git describe --tags --abbrev=0``
+        # resolving to the *previous* tag on ``main``, which
+        # makes the ``check_version`` CI step validate against
+        # the wrong version.
+        #
+        # The push must carry the **same commit** the tag points
+        # at: ``git describe`` only resolves the tag when HEAD
+        # is that exact object. Pushing the branch tip is
+        # correct here because the workflow committed the
+        # CHANGELOG and then tagged HEAD — so the branch tip
+        # and the tag share the commit.
+        #
+        # The push is a fast-forward: the workflow started from
+        # ``main`` and only added the release commit on top. If
+        # it is not (a human pushed to ``main`` while the
+        # workflow ran), the push fails loudly and the release
+        # tag — already pushed — stands on its own. The tag is
+        # the artefact that matters; the ``main`` commit is the
+        # branch's bookkeeping.
+        run: |
+          git push origin HEAD:main
+
       - name: Open the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
