@@ -356,13 +356,25 @@ class RedisEventLogAdapter:
         return _flatten_xread_response(response, self.key_prefix)
 
     async def close_transport(self) -> None:
-        """Best-effort ``aclose`` (ADR-082 §3.2).
+        """Close the sockets so the next command reconnects
+        (ADR-082 §3.2).
+
+        Deliberately does NOT close the connection pool: the pool
+        may be shared with sibling adapters that are still healthy,
+        and closing it takes them down too (ADR-084 §1.4).
+
+        ``client.aclose()`` is not sufficient — it releases the
+        connection *object* back to the pool WITHOUT closing the
+        socket, so the next command reuses the same (possibly
+        half-open) TCP and the "force the next op to reconnect"
+        promise is not kept. ``pool.disconnect()`` closes the
+        socket while leaving the pool usable (ADR-084 §3.3).
 
         Swallows transport exceptions on the close path
         (mirrors ``RedisPool.aclose``).
         """
         try:
-            await self.client.aclose()
+            await self.client.connection_pool.disconnect(inuse_connections=True)
         except (
             redis_exceptions.RedisError,
             ConnectionError,

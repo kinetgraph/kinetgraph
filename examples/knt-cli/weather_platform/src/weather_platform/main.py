@@ -38,12 +38,16 @@ class StaticAPIKeyVerifier(APIKeyVerifier):
 # 1. Global variables for background components
 worker_manager = None
 weather_dispatcher = None
+# The process-wide Redis connection pool (ADR-084). Created in
+# ``build_monolith``, closed in ``lifespan``.
+redis_pool = None
 
 
 @asynccontextmanager
 async def lifespan(app):
     global worker_manager
     global weather_dispatcher
+    global redis_pool
     print("\n[Lifespan] Starting Background Dispatchers and Workers...")
 
     # Start both components and AWAIT their ``start()`` so any
@@ -62,15 +66,22 @@ async def lifespan(app):
     print("\n[Lifespan] Stopping Background components...")
     await weather_dispatcher.stop()
     await worker_manager.stop()
+    # Close the connection pool this process owns (ADR-084).
+    await redis_pool.aclose()
 
 
 def build_monolith():
     global worker_manager
     global weather_dispatcher
+    global redis_pool
 
-    # Use framework connection pool
+    # One connection pool for the whole process (ADR-084). The
+    # framework will not build a pool the caller cannot close,
+    # so the pool is created here and its client is shared by
+    # every component below. The pool is closed in ``lifespan``.
     settings = Settings(redis_url="redis://:redispassword@localhost:6379")
-    redis = create_redis_pool(settings).client
+    redis_pool = create_redis_pool(settings)
+    redis = redis_pool.client
     log = EventLog(RedisEventLogAdapter(client=redis))
 
     tool_router = create_tool_router(settings=settings, client=redis)

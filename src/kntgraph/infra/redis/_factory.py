@@ -59,16 +59,22 @@ from ._memory import (
     RedisSolutionStore,
     ShortMemoryStorage,
 )
-from ._pool import RedisPool
 
 
 def _resolve_client(
     settings: Settings | None,
     client: RedisLike | None,
 ) -> RedisLike:
+    """Return the caller-owned Redis client (ADR-084 §3.2)."""
     if client is None:
-        pool = RedisPool.from_settings(settings)
-        return pool.client
+        from ._errors import RedisClientRequiredError
+
+        raise RedisClientRequiredError(
+            "a Redis client is required: create one with "
+            "create_redis_pool(settings) and pass client=pool.client. "
+            "The framework will not build a connection pool it cannot "
+            "close (ADR-084 §3.2)."
+        )
     return client
 
 
@@ -336,9 +342,9 @@ def create_tool_router(
     :data:`kntgraph.infra.redis._tools.DEDUP_TTL_SECONDS_DEFAULT`
     (1h).
 
-    ``client=None`` builds a fresh
-    :class:`RedisPool` from ``Settings``; ``client=`` is
-    the seam for tests and external lifecycle owners.
+    ``client=`` is required (ADR-084 §3.2): the framework will
+    not build a connection pool the caller cannot close. Create
+    the pool with :func:`create_redis_pool` and pass its client.
     """
     from kntgraph.infra.redis._tools import DEDUP_TTL_SECONDS_DEFAULT
 
@@ -384,9 +390,9 @@ def create_worker_manager(
     caller that already knows the manager's signature
     can pass the same values here.
 
-    ``redis=None`` builds a fresh
-    :class:`RedisPool` from ``Settings``; ``redis=`` is
-    the seam for tests and external lifecycle owners.
+    ``redis=`` is required (ADR-084 §3.2): the framework will
+    not build a connection pool the caller cannot close. Create
+    the pool with :func:`create_redis_pool` and pass its client.
     """
     return WorkerManager(
         redis=_resolve_client(settings, redis),

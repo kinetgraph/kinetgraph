@@ -704,9 +704,15 @@ class TestConsumeLoop:
         self, manager, redis_mock
     ):
         """Validates that when WorkerManager._consume_loop encounters a
-        RuntimeError (e.g. closed transport / dead socket), it invokes
-        aclose/close on the Redis client to release dead resources and
-        records the error state."""
+        RuntimeError (e.g. closed transport / dead socket), it
+        disconnects the pool's sockets to release dead resources and
+        records the error state.
+
+        ADR-084 §3.3: the reconnect path calls ``pool.disconnect()``
+        (which closes the sockets) instead of the client's
+        ``aclose()`` (which only releases the connection object back
+        to the pool, leaving the socket open).
+        """
         manager.register(_EchoTool, acl=None)
         redis_mock.aclose = AsyncMock()
         redis_mock.xreadgroup = AsyncMock(
@@ -721,7 +727,7 @@ class TestConsumeLoop:
         finally:
             await manager.stop()
 
-        redis_mock.aclose.assert_called_once()
+        redis_mock.connection_pool.disconnect.assert_called_once()
         assert "RuntimeError" in manager._last_error
 
     async def test_consume_loop_reconnects_on_redis_connection_error(
@@ -746,7 +752,7 @@ class TestConsumeLoop:
         finally:
             await manager.stop()
 
-        redis_mock.aclose.assert_called_once()
+        redis_mock.connection_pool.disconnect.assert_called_once()
 
     async def test_consume_loop_reconnects_on_os_error(self, manager, redis_mock):
         """ADR-082 §3.1 + §5.3: builtin ``OSError`` (``EPIPE`` /
@@ -766,7 +772,7 @@ class TestConsumeLoop:
         finally:
             await manager.stop()
 
-        redis_mock.aclose.assert_called_once()
+        redis_mock.connection_pool.disconnect.assert_called_once()
 
     async def test_consume_loop_reconnects_on_busy_loading(self, manager, redis_mock):
         """ADR-082 §3.1 + §5.3: ``redis.exceptions.BusyLoadingError``
@@ -788,7 +794,7 @@ class TestConsumeLoop:
         finally:
             await manager.stop()
 
-        redis_mock.aclose.assert_called_once()
+        redis_mock.connection_pool.disconnect.assert_called_once()
 
     async def test_consume_loop_does_not_reconnect_on_data_error(
         self, manager, redis_mock

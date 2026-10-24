@@ -39,6 +39,9 @@ historical records).
   keys, RBAC, ACL.
 - [Checkpoints](checkpoints.md) — durable commit
   points in the `ReactiveDispatcher`.
+- [Redis connection lifecycle](redis_connection_lifecycle.md)
+  — one pool per process, who owns it, how to size it, and
+  how to close it.
 
 ## Capabilities
 

@@ -332,30 +332,40 @@ async def reconnect_redis_after_runtime_error(redis: RedisLike) -> None:
     await reconnect_redis_after_transport_error(redis)
 
 
+def next_saturation_backoff(
+    current: float,
+    ceiling: float,
+) -> float:
+    """The delay for the next saturation event (ADR-084 §3.4).
+
+    Doubles on each consecutive saturation, up to ``ceiling``.
+    The caller resets ``current`` to the initial delay after a
+    successful read.
+    """
+    return min(current * 2, ceiling)
+
+
 async def reconnect_redis_after_transport_error(redis: RedisLike) -> None:
-    """Tear down the Redis client on transport-class failure
+    """Close the Redis sockets on transport-class failure
     (ADR-082 §3.1) so the next ``xreadgroup`` reconnects.
+
+    The pool is **not** closed: it may be shared with sibling
+    consumers that are still healthy, and closing it takes them
+    down too (ADR-084 §1.4, §3.3).
+
+    The client's ``aclose()`` is skipped deliberately — it
+    releases the connection object back to the pool WITHOUT
+    closing the socket, so the next command would reuse the same
+    (possibly half-open) TCP. ``pool.disconnect()`` closes the
+    socket and leaves the pool usable.
 
     Best-effort: swallows transport exceptions on the close
     path.
     """
-    close_fn = getattr(redis, "aclose", None) or getattr(redis, "close", None)
-    if close_fn:
-        try:
-            res = close_fn()
-            if asyncio.iscoroutine(res):
-                await res
-        except (
-            redis_exceptions.RedisError,
-            AttributeError,
-            OSError,
-            TimeoutError,
-        ):
-            pass
     pool = getattr(redis, "connection_pool", None)
     if pool and hasattr(pool, "disconnect"):
         try:
-            dis_res = pool.disconnect()
+            dis_res = pool.disconnect(inuse_connections=True)
             if asyncio.iscoroutine(dis_res):
                 await dis_res
         except (

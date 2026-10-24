@@ -31,6 +31,17 @@ from __future__ import annotations
 
 import redis.exceptions as redis_exceptions
 
+# Pool exhaustion is NOT a transport failure (ADR-084 §2.4).
+# redis-py raises this immediately — it does not queue — so it
+# needs its own classification: the sockets are fine, there are
+# simply not enough of them. Treating it as a transport failure
+# makes the consumer tear the pool down, which kills every
+# sibling consumer's socket and turns a momentary burst into a
+# reconnect storm (ADR-084 §1.5).
+SATURATION_ERRORS: tuple[type[BaseException], ...] = (
+    redis_exceptions.MaxConnectionsError,
+)
+
 TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     redis_exceptions.ConnectionError,
     redis_exceptions.TimeoutError,
@@ -48,6 +59,38 @@ TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def is_saturation_error(e: BaseException) -> bool:
+    """True when ``e`` is a pool-exhaustion failure.
+
+    ``MaxConnectionsError`` inherits from redis-py's
+    ``ConnectionError``, so ``is_transport_error`` would
+    otherwise match it. The two need different responses:
+    saturation calls for back-pressure, a broken transport calls
+    for a reconnect (ADR-084 §2.4, §3.4).
+    """
+    return isinstance(e, SATURATION_ERRORS)
+
+
+def _effective_transport_errors(e: BaseException) -> tuple[type[BaseException], ...]:
+    """The transport classes that still apply to ``e``.
+
+    Pool saturation is excluded (ADR-084 §2.4): the sockets are
+    healthy, so reconnecting does not help — it makes it worse.
+    A saturated exception therefore matches no transport class
+    at all, and the caller — :func:`is_transport_error` — needs
+    only a single membership test to classify it.
+
+    The exclusion is per-exception rather than a static filter on
+    ``TRANSPORT_ERRORS`` because ``MaxConnectionsError`` is a
+    *subclass* of redis-py's ``ConnectionError``: dropping the
+    parent from the tuple would also drop every genuine transport
+    failure that shares it.
+    """
+    if is_saturation_error(e):
+        return ()
+    return TRANSPORT_ERRORS
+
+
 def is_transport_error(e: BaseException) -> bool:
     """True when ``e`` is a transport-class failure that
     requires proactive reconnect (ADR-082 §3.1).
@@ -63,8 +106,18 @@ def is_transport_error(e: BaseException) -> bool:
     ``ResponseError``, ``DataError``) are excluded by
     design — those indicate a wrong command, not a
     transport failure (ADR-077 §4.3).
+
+    Pool saturation is excluded (ADR-084 §2.4): the sockets are
+    healthy, so reconnecting does not help — it makes it worse.
+    The classification stays a single membership test, so the
+    predicate has one decision point.
     """
-    return isinstance(e, TRANSPORT_ERRORS)
+    return isinstance(e, _effective_transport_errors(e))
 
 
-__all__ = ["TRANSPORT_ERRORS", "is_transport_error"]
+__all__ = [
+    "SATURATION_ERRORS",
+    "TRANSPORT_ERRORS",
+    "is_saturation_error",
+    "is_transport_error",
+]
