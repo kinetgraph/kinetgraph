@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-084: One Redis connection pool per process; the caller owns its lifecycle
 
-- **Status:** Accepted (ratified 2026-10-23)
+- **Status:** Accepted (ratified 2026-10-23; shipped in v0.17.0 — §6.4 carries the version-label correction)
 - **Date:** 2026-10-23
 - **Author:** kinetgraph architecture team (raised by the operator, "as conexões estão ficando presas")
 - **Related to:**
@@ -554,8 +554,17 @@ is one minor release:
 
 | Version | State |
 |---|---|
-| **v0.18.x** | `client=None` raises `RedisClientRequiredError` with a migration message. `RedisPool.aclose()` closes the pool. |
+| **v0.17.0** | `client=None` raises `RedisClientRequiredError` with a migration message. `RedisPool.aclose()` closes the pool. |
 | **v0.19.0** | The `redis=None` kwarg on `create_worker_manager` / `create_tool_router` is removed entirely (they keep only the required form). |
+
+> **Note (2026-10-24).** This table originally assigned the
+> `RedisClientRequiredError` to "v0.18.x". The ADR was ratified
+> on 2026-10-23 and shipped in **v0.17.0** — the release level was
+> chosen before this ADR's own timeline was reconciled with the
+> version numbering. The behaviour and the removal targets are
+> unchanged; only the version label moved. The same correction
+> applies to ADR-078 §5.1, whose "soft warning" step was also
+> never released on its own (see ADR-078 §12.8).
 
 ---
 
@@ -602,3 +611,7 @@ is one minor release:
 
 - **2026-10-23** — Initial draft. Ratifies the caller-owns-the-pool lifecycle
   after measuring three connection-lifecycle defects against a live Redis.
+- **2026-10-24** — §6.4: the version label for the
+  `RedisClientRequiredError` moved from "v0.18.x" to "v0.17.0",
+  the release it actually shipped in. Behaviour and removal
+  targets unchanged.

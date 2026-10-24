@@ -6,7 +6,21 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-078: Decommission the internal `ProcessPoolExecutor`; make execution strategy a per-tool decision
 
-- **Status:** Accepted (ratified 2026-10-20, v0.18 default switch implemented — see §12; §12.7 records two post-ratification fixes)
+> **How to read the version numbers in this document.**
+> §1–§11 are the design rationale **as drafted on 2026-10-09**, before
+> the ADR was ratified. They describe a three-release migration window
+> (v0.17 soft warning → v0.18 default switch → v0.19 hard removal).
+> **The plan changed: v0.17.0 shipped the v0.18.0 default switch**, so
+> the planned "soft warning" step never existed as a release. §12 is
+> the implementation record and is authoritative for what actually
+> shipped; §12.8 states the correction in full.
+>
+> Concretely: every "v0.18" reference below that describes the
+> **default switch** or the **`WorkerStrategyError` gate** means
+> **v0.17.0** as released. Every "v0.19" reference still stands —
+> the hard removal has not happened.
+
+- **Status:** Accepted (ratified 2026-10-20; the default switch shipped in **v0.17.0** — see §12 and §12.8, which corrects the §5.1 timeline; §12.7 records two post-ratification fixes)
 - **Date:** 2026-10-09
 - **Author:** kinetgraph architecture team (proposed by the backoffice engineering team, see §1.4)
 - **Supersedes:** [ADR-054](./ADR-054-WorkerManager-Transport-Evaluation.md) — WorkerManager transport evaluation; "keep `ProcessPoolExecutor`". The reopening criterion stated in ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s at a time") was met by the post-mortem of 2026-10-07 (§1.4).
@@ -444,6 +458,15 @@ If `_deprecated_pool_opened`, `stop()` calls `self._pool.shutdown(wait=True)` as
 
 ### 5.1 Timeline (the "no surprise" rule)
 
+> **Correction (2026-10-24, §12.8).** The timeline below is the
+> *plan* as drafted on 2026-10-09. It was **not** followed to
+> the letter: the **v0.17.0** release shipped the **v0.18.0**
+> "default switch", not the "soft warning" this table assigns
+> to it. The two steps collapsed into one release. The
+> hard-removal row (v0.19.0) is unaffected and still stands.
+> Read this table as "what was planned"; §12.8 records what
+> actually shipped and why.
+
 | Version | State | What ships |
 |---|---|---|
 | **v0.17.0** (next minor) | **soft warning** | `register()` accepts `executor_factory=None`; `_dispatch_to_tool` consults the registered factory (or falls back to the **existing** internal pool); `PoolDeprecationWarning` is emitted once per Manager boot when `max_pool_workers` is set; sync `def invoke` without factory and without pool STILL fails loud at `register()`. The `WorkerManager(max_pool_workers=N)` knob is preserved bit-for-bit. |
@@ -765,6 +788,7 @@ Acceptance:
 - **2026-10-09** — Initial draft (this version). Promotes `docs/adr-069-pluggable-executor-factory.md` to a formal ADR; supersedes ADR-054; ships built-in factories; inverts the v0.18 default; plans a 3-release migration window.
 - **2026-10-20** — Ratified. §12 records the implementation and corrects the §4.4 gate.
 - **2026-10-23** — §12.7: two post-ratification defects closed — the `legacy_pool` escape hatch exempted nothing, and `_invoke_tool_sync` could not run a sync `invoke`.
+- **2026-10-24** — §12.8: the §5.1 version timeline is corrected. v0.17.0 shipped the v0.18.0 default switch; the planned "soft warning" step never existed as a release. The v0.19.0 hard-removal row is unaffected.
 
 ---
 
@@ -937,3 +961,67 @@ The gate lives in `tools/_strategy_gate.py` rather than
 inline in `register()`: the operator-facing message is long
 enough that inlining it pushed the Manager's complexity and
 `manager.py`'s maintainability index past the radon baseline.
+
+### 12.8 The version timeline collapsed — v0.17.0 shipped the v0.18.0 switch
+
+Discovered while preparing the **v0.17.0** release (2026-10-24):
+the release that went out carries the **v0.18.0 "default
+switch"**, not the "soft warning" §5.1 assigns to v0.17.0. The
+two planned steps collapsed into one release.
+
+**What shipped in v0.17.0** (verified against the tag):
+
+- `register()` raises `WorkerStrategyError` for a sync `invoke`
+  with no `executor_factory` — the §5.1 **v0.18.0** row, not the
+  v0.17.0 one.
+- Async tools default to `AsyncInProcFactory` — also the
+  v0.18.0 row.
+- `max_pool_workers` is deprecated but still accepted — the
+  v0.18.0 row.
+
+So the "soft warning" step never existed as a release. The
+§5.1 v0.17.0 row describes a state the project passed through
+only on the branch, never on PyPI.
+
+**Why it happened.** The §5.1 timeline was drafted on 2026-10-09,
+before the ADR was ratified. Commit `3d2533f` (2026-10-12)
+explicitly reverted the v0.18.0 changes "to restore v0.17.0",
+with the note that *"the actual v0.18.0 default switch will land
+as a separate commit on the v0.18.0 development branch"*. The
+ADR was then ratified on 2026-10-20 and the switch was
+implemented on `main` (PR #74, 2026-10-23) — not on a separate
+branch. By the time the release was cut, the mainline code
+*was* the v0.18.0 behaviour, and the release level was chosen
+from the semantic-versioning rule without cross-checking the
+table.
+
+**Why it was not fixed by re-cutting the tag.** Two options
+existed: publish the same code as `v0.18.0`, or leave `v0.17.0`
+and correct the documentation. The second was chosen, because:
+
+1. The **code is correct** — the v0.18.0 behaviour is what the
+   ratified ADR intends, and it is what the CHANGELOG for
+   `0.17.0` documents ("This is a **breaking change** for any
+   tool with a sync `invoke`"). The tag and the PyPI release are
+   internally consistent; nothing is mis-declared to users.
+2. The project is at `0.x`, where a minor release may already
+   break per PEP 440. `0.17.0` carrying a breaking change is
+   within the project's versioning contract.
+3. Re-tagging as `v0.18.0` would leave `0.17.0` on PyPI with
+   behaviour its own release notes did not describe — a worse
+   outcome than a coherent `0.17.0` plus an honest ADR.
+
+**What this section changes.** §5.1's table is annotated as the
+*plan*; this section is the record of what shipped. The
+**v0.19.0 hard-removal row is unaffected** — `max_pool_workers`,
+`legacy_pool`, `self._pool`, `compute_max_workers`,
+`is_cpu_bound` and `__tool_worker_cpu_bound__` are all still
+present in v0.17.0 and still scheduled for removal.
+
+**Process note.** The failure was not in the code or in the
+release automation — it was that nobody reconciled the release
+level with the ADR's own timeline. `bump_version.py` computes
+`minor` → `0.17.0` mechanically; choosing the level is a human
+decision, and that decision did not consult §5.1. **Before
+cutting a release, check the ADRs of the features in
+`[Unreleased]` for a timeline that names versions.**
