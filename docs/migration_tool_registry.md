@@ -16,11 +16,12 @@ to ``Event`` for principal provenance, and ships the
 migration path in three minors (v0.16 / v0.17 /
 v0.18).
 
-This guide covers **v0.16** — the slice that lands in
-this release: the ACL hook on ``WorkerManager``,
+This guide covers **v0.16** — the slice that landed in
+that release: the ACL hook on ``WorkerManager``,
 ``WorkerManager.acl_for(name)``, and the
-``Event.producer_principal_id`` schema change. v0.17
-and v0.18 are covered in a follow-up.
+``Event.producer_principal_id`` schema change. The v0.17
+step (the ``DeprecationWarning``) shipped in **v0.17.0**;
+the v0.18 removal has not happened yet.
 
 ---
 

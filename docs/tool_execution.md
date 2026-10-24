@@ -127,9 +127,9 @@ manager.register(
 
 Pick this when:
 
-- The tool has a sync ``def invoke``. Since v0.18 this is
+- The tool has a sync ``def invoke``. Since v0.17 this is
   **mandatory**: a sync tool registered without a factory
-  raises ``WorkerStrategyError`` (§4.2).
+  raises ``WorkerStrategyError`` (§4.2).</path>
 - The tool wraps a model loader (PyTorch, GLiNER2, Docling)
   that should not be re-imported by every fork of the
   Manager's pool.
@@ -164,7 +164,7 @@ Rules:
   ``AsyncInProcFactory`` (never touches ``pool``).
 - Else → ``ProcessPoolFactory`` (a pool is **required**).
 
-Since v0.18 the ``__tool_worker_cpu_bound__`` marker no
+Since v0.17 the ``__tool_worker_cpu_bound__`` marker no
 longer exempts a sync tool from the registration gate. It
 only *hints* this helper about which built-in to pick for a
 caller who already owns a pool. ADR-078 §12.3.
@@ -309,17 +309,20 @@ in the module's global state.
 
 The ``ExecutorFactory`` pattern is the future; the internal
 ``ProcessPoolExecutor`` is the past. The framework
-decommissions the internal pool over three releases:
+decommissions the internal pool over the remaining releases:
 
-- **v0.17.0**: built-in factories shipped. Bit-for-bit
-  backwards compatible — a sync tool with no factory still
-  fell back to the internal pool.
-- **v0.18.0** (current): a tool **must** declare how it runs.
+- **v0.17.0** (current): a tool **must** declare how it runs.
   Async tools default to ``AsyncInProcFactory``; a sync tool
   with no factory raises ``WorkerStrategyError`` at
   registration time. The internal pool is opt-in via
   ``legacy_pool=True`` and ``max_pool_workers`` only *sizes*
   it — it no longer creates one on its own.
+
+  The built-in factories (``AsyncInProcFactory``,
+  ``ProcessPoolFactory``, ``default_factory_for``) shipped in
+  the same release. There was no separate "soft warning"
+  release: the planned three-step window collapsed into two.
+  See ADR-078 §12.8.
 - **v0.19.0** (hard removal): ``max_pool_workers``,
   ``legacy_pool``, and ``__tool_worker_cpu_bound__`` are
   removed. Every tool must declare a factory or rely on one of
@@ -442,8 +445,9 @@ worker, this is why — give it a ``ProcessPoolFactory``.
 ## 6. Reference
 
 - [ADR-078](../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md)
-  — the decommissioning plan (v0.17 / v0.18 / v0.19); §12 is the
-  implementation record and §12.7 the two post-ratification fixes
+  — the decommissioning plan; §12 is the implementation record,
+  §12.7 the two post-ratification fixes, and §12.8 the corrected
+  version timeline
 - ADR-069 — the original ``ExecutorFactory`` proposal
   (superseded; kept at ``docs/adr-069-pluggable-executor-factory.md``)
 - ``kntgraph-type-discipline`` skill §9 — the framework-level
