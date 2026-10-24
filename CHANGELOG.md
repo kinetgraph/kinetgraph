@@ -16,6 +16,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **ADR-084 ratified — one Redis connection pool per process,
+  owned by the caller.** This is a **breaking change** for any
+  caller that builds a Redis-backed component without passing
+  `client=`.
+
+  - **`RedisPool.aclose()` now closes the pool it built.**
+    redis-py only closes the connection pool when the *client*
+    owns it, and `from_settings` passes the pool explicitly — so
+    `client.aclose()` left the pool open. The connections leaked
+    for the life of the process. Measured against a live Redis:
+    the server still reported the same connected-client count
+    after `aclose()`.
+
+  - **`create_*` factories require `client=`.** Calling one
+    without it now raises `RedisClientRequiredError` instead of
+    silently building a pool the caller cannot reach. Before,
+    three factories meant three connection pools for one Redis
+    (3 × `redis_max_connections` potential sockets), none of
+    which could be closed. Migration:
+
+    ```python
+    # before
+    log = create_event_log_storage(settings)
+
+    # after — one pool, shared, closed by the caller
+    pool = create_redis_pool(settings)
+    log = create_event_log_storage(settings, client=pool.client)
+    # ... at shutdown:
+    await pool.aclose()
+    ```
+
+  - **`close_transport()` closes the sockets, not the pool.**
+    `client.aclose()` releases the connection *object* back to
+    the pool **without closing its socket**, so the next command
+    reused the same (possibly half-open) TCP — the ADR-082
+    "force the next op to reconnect" promise was not kept.
+    `pool.disconnect()` closes the socket and leaves the pool
+    usable, so a sibling adapter no longer loses its transport.
+
+  - **Pool saturation is no longer a transport failure.**
+    `MaxConnectionsError` inherits from redis-py's
+    `ConnectionError`, so the consumer loop treated a saturated
+    pool as a broken transport and tore the pool down — every
+    sibling consumer lost its socket and raised the same error.
+    A momentary burst became a reconnect storm. Saturation now
+    backs off (0.25 s, doubling to a 2 s ceiling) and logs
+    `worker.pool_saturated`; the pool is left alone.
+
+  - **New documentation** —
+    `docs/redis_connection_lifecycle.md` covers the ownership
+    rule, the `KNT_REDIS_MAX_CONNECTIONS` sizing rule, and the
+    shutdown path.
+
 - **ADR-078 ratified — the `WorkerManager` no longer creates an
   internal `ProcessPoolExecutor` implicitly.** This is a
   **breaking change** for any tool with a sync `invoke`.

@@ -56,15 +56,30 @@ class TestRedisPool:
         assert "client" in dir(RedisPool)
 
     async def test_pool_aclose_releases_connection(self):
+        """``aclose()`` must close the client AND the pool it built.
+
+        ADR-084 §1.2: redis-py only closes the connection pool when
+        the client owns it, and ``from_settings`` builds the pool
+        explicitly — so the framework, which created it, must close
+        it.
+        """
         from kntgraph.infra.redis import RedisPool
 
         pool = RedisPool.__new__(RedisPool)
 
         # Inject a fake client to verify aclose is awaited.
         # RedisPool is frozen, so use object.__setattr__ to bypass.
+        class FakePool:
+            def __init__(self):
+                self.closed = False
+
+            async def aclose(self):
+                self.closed = True
+
         class FakeClient:
             def __init__(self):
                 self.closed = False
+                self.connection_pool = FakePool()
 
             async def aclose(self):
                 self.closed = True
@@ -73,6 +88,9 @@ class TestRedisPool:
         object.__setattr__(pool, "_client", fake)
         await pool.aclose()
         assert fake.closed
+        assert fake.connection_pool.closed, (
+            "the connection pool was not closed — its sockets leak (ADR-084 §1.2)"
+        )
 
     async def test_pool_passes_health_check_interval_from_settings(self):
         """ADR-082 §3.4: ``redis_health_check_interval`` is

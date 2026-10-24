@@ -19,6 +19,23 @@ class RedisUnavailableError(RedisAdapterError):
     """Connection lost, timeout, or pool exhausted."""
 
 
+class RedisClientRequiredError(RedisAdapterError):
+    """A factory was called without the ``client=`` it needs.
+
+    The framework will not build a connection pool the caller
+    cannot close: a pool created inside a factory is unreachable
+    from outside it, so its sockets leak for the life of the
+    process (ADR-084 §1.3, §3.2).
+
+    The caller creates the pool and passes its client:
+
+        pool = create_redis_pool(settings)
+        log = create_event_log_storage(settings, client=pool.client)
+        ...
+        await pool.aclose()
+    """
+
+
 class IdempotencyConflict(RedisAdapterError):
     """A concurrent writer holds the placeholder for this key.
 

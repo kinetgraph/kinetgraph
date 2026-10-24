@@ -16,6 +16,11 @@ framework actually uses appear here. Adding a new method
 to the call sites must be followed by declaring it in this
 Protocol.
 
+The pool behind the client is declared separately, as
+``ConnectionPoolLike`` (see :mod:`._connection_pool`): the
+client's surface is driven by the framework's Redis commands,
+the pool's by the connection-lifecycle policy (ADR-084).
+
 Why ``@runtime_checkable``
 --------------------------
 
@@ -30,60 +35,34 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-
-@runtime_checkable
-class PipelineLike(Protocol):
-    """Subset of ``redis.asyncio.client.Pipeline`` used by
-    the EventLog + the short-memory adapters.
-
-    Method coverage was audited against all module-level
-    call sites that consume the result of
-    ``client.pipeline()`` (the EventLog idempotency
-    claim, the Session/Profile/Continuity cache writers,
-    the tool cache adapter). Adding a new pipeline op at
-    a call site must be followed by declaring it here.
-    """
-
-    def xadd(
-        self,
-        name: str,
-        fields: dict,
-        maxlen: int | None = None,
-    ) -> PipelineLike: ...
-
-    def set(
-        self,
-        key: str,
-        value: str | bytes,
-        *,
-        nx: bool = False,
-        ex: int | None = None,
-    ) -> PipelineLike: ...
-
-    def delete(self, *keys: str) -> PipelineLike: ...
-
-    def hset(
-        self,
-        key: str,
-        field: str | None = None,
-        value: str | None = None,
-        mapping: dict | None = None,
-    ) -> PipelineLike: ...
-
-    def expire(self, key: str, seconds: int) -> PipelineLike: ...
-
-    async def execute(self) -> list: ...
+from ._connection_pool import ConnectionPoolLike
+from ._pipeline import PipelineLike
 
 
 @runtime_checkable
 class RedisLike(Protocol):
     """Async Redis client — framework-level view.
 
-    The framework treats this as opaque. Methods not listed
-    here are not part of the framework's contract.
+    The framework treats this as opaque: the concrete
+    ``redis.asyncio.Redis`` never leaks past the adapter layer.
+
+    Method groups, in the order they appear:
+
+      - **String / key-value** — the short-memory tier (session,
+        profile, continuity) reads and writes one JSON blob per
+        entity. ``set(..., nx=True)`` is the idempotency claim.
+      - **Hash** — the auth key-binding table (ADR-076).
+      - **Streams** — the EventLog (one stream per agent) and the
+        tool queues (one stream per tool), trimmed with ``maxlen``.
+      - **Scan** — key enumeration for the DLQ and the sweeper.
+      - **Pipelines** — the transactional path used by the
+        EventLog idempotency claim.
+      - **Lifecycle** — ``aclose()`` plus ``connection_pool``.
     """
 
-    # String / key-value
+    # String / key-value. The short-memory tier (session, profile,
+    # continuity) reads and writes JSON blobs under one key per
+    # entity; ``set(..., nx=True)`` is the idempotency claim.
     async def get(self, key: str) -> bytes | str | None: ...
     async def set(
         self,
@@ -97,7 +76,8 @@ class RedisLike(Protocol):
     async def expire(self, key: str, seconds: int) -> bool: ...
     async def unlink(self, *keys: str) -> int: ...
 
-    # Hash
+    # Hash. The auth key-binding table (ADR-076) maps a digest to
+    # its principal and tenant scope.
     async def hset(
         self,
         key: str,
@@ -120,21 +100,21 @@ class RedisLike(Protocol):
         count: int | None = None,
     ) -> AsyncIterator: ...
 
-    # Streams
+    # Streams. The EventLog stores one stream per agent; the tool
+    # queues are one stream per tool. Both are trimmed with
+    # ``maxlen`` (ADR-077's per-tenant cap).
     async def xadd(
         self,
         name: str,
         fields: dict,
         maxlen: int | None = None,
     ) -> bytes | str: ...
-    # The framework's Protocol guarantees ``list`` for both
-    # ``xrange`` and ``xrevrange``. The underlying redis-py
-    # library types them as ``StreamRangeResponse | None``
-    # because a Redis server can reply with ``*0\r\n``
-    # (encoded as Python ``None`` by some client bindings).
-    # Adapters MUST route through :func:`safe_xrange` /
-    # :func:`safe_xrevrange` to uphold the Protocol — direct
-    # ``self.client.xrange(...)`` calls would expose the
+    # The Protocol guarantees ``list`` for both ``xrange`` and
+    # ``xrevrange``; redis-py types them as ``StreamRangeResponse
+    # | None`` because a server can reply ``*0\r\n`` (encoded as
+    # Python ``None`` by some client bindings). Adapters MUST
+    # route through :func:`safe_xrange` / :func:`safe_xrevrange`
+    # to uphold the Protocol — a direct call would expose the
     # ``None`` case to the framework and break the consumer
     # contract (``for mid, mdata in messages`` would raise
     # ``TypeError``).
@@ -167,8 +147,7 @@ class RedisLike(Protocol):
         block: int | None = None,
     ) -> list: ...
 
-    # Streams -- Consumer Groups (ADR-036 / Tool Worker Pattern).
-    # Method coverage matches ``redis.asyncio.Redis`` v7.x.
+    # Consumer groups (ADR-036).
     async def xgroup_create(
         self,
         name: str,
@@ -217,6 +196,9 @@ class RedisLike(Protocol):
     # Lifecycle
     async def aclose(self) -> None: ...
 
+    @property
+    def connection_pool(self) -> ConnectionPoolLike: ...
+
 
 async def safe_xrange(
     client: RedisLike,
@@ -235,10 +217,7 @@ async def safe_xrange(
     promises ``list``; this helper enforces that promise by
     converting ``None`` to ``[]`` before returning.
 
-    Every adapter call site MUST route ``xrange`` through
-    this helper rather than calling ``self.client.xrange``
-    directly — see the Protocol docstring above for the
-    contract.
+    Adapters must route ``xrange`` through this helper.
     """
     result = await client.xrange(name, min=min, max=max, count=count)
     return result if result is not None else []

@@ -110,17 +110,17 @@ class RedisPool:
         return self._key_prefix
 
     async def aclose(self) -> None:
-        """Close all connections in the pool. Idempotent.
+        """Close the pool and every connection it holds. Idempotent.
 
-        Per ADR-077: the catch is narrow
-        (``redis_exceptions.RedisError, ConnectionError,
-        TimeoutError, OSError``); ``asyncio.CancelledError``
-        propagates. ``aclose`` is best-effort (the
-        process is shutting down); a transport error
-        is logged at ``warning`` but does not raise.
+        redis-py only closes the pool when the client owns it; this wrapper
+        owns it (ADR-084 §1.2).
+
+        Per ADR-077 the catch is narrow and ``CancelledError`` propagates.
+        The close is best-effort: a transport error is logged, not raised.
         """
         try:
             await self._client.aclose()
+            await self._client.connection_pool.aclose()
         except (
             redis_exceptions.RedisError,
             ConnectionError,

@@ -25,12 +25,16 @@ from kntgraph.tools.manager import WorkerManager
 # 1. Global variables for background components (the lifespan
 #    task scheduler reads them at startup).
 worker_manager = None
+# The process-wide Redis connection pool (ADR-084). Created in
+# ``build_monolith``, closed in ``lifespan``.
+redis_pool = None
 # sales_dispatcher = None
 
 
 @asynccontextmanager
 async def lifespan(app):
     global worker_manager
+    global redis_pool
     # global sales_dispatcher
     logging.info("[Lifespan] Starting Background Dispatchers and Workers...")
     # AWAIT ``start()`` so initialization errors (e.g. a failing
@@ -47,10 +51,16 @@ async def lifespan(app):
         logging.info("[Lifespan] Stopping Background components...")
         # await sales_dispatcher.stop()
         await worker_manager.stop()
+        # Close the connection pool this process owns (ADR-084).
+        # One pool serves every component above; closing it
+        # releases the sockets instead of leaking them for the
+        # life of the process.
+        await redis_pool.aclose()
 
 
 def build_monolith():
     global worker_manager
+    global redis_pool
     # global sales_dispatcher
 
     # Resolve the Redis key namespace prefix (ADR-076) so
@@ -59,7 +69,12 @@ def build_monolith():
     # preserves the pre-076 wire format byte-for-byte.
     key_prefix = fresh_settings().redis_key_prefix
 
-    redis = create_redis_pool().client
+    # One connection pool for the whole process (ADR-084). The
+    # framework will not build a pool the caller cannot close,
+    # so the pool is created here and its client is shared by
+    # every component below. The pool is closed in ``lifespan``.
+    redis_pool = create_redis_pool()
+    redis = redis_pool.client
     log = EventLog(RedisEventLogAdapter(client=redis, key_prefix=key_prefix))
 
     tool_router = ToolRouter(redis, key_prefix=key_prefix)

@@ -7,11 +7,11 @@ Unit tests for ``infra/redis/_factory.py``.
 Closes the infra/redis/_factory coverage gap (DEBT §3,
 67% → 100%). The module exports 5 ``create_*`` factory
 functions that build the framework's storage adapters
-from ``Settings`` + an optional Redis client. The
-factories are pure (no I/O — they instantiate the
-adapters and return them) so the tests assert on the
-adapter's class + the ``maxlen`` / ``ttl_seconds``
-attribute that was resolved from the settings.
+from ``Settings`` + a Redis client. The factories are
+pure (no I/O — they instantiate the adapters and return
+them) so the tests assert on the adapter's class + the
+``maxlen`` / ``ttl_seconds`` attribute that was resolved
+from the settings.
 
 The uncovered branches were the "ttl from settings"
 path in the three ShortMemoryStorage factories
@@ -19,6 +19,12 @@ path in the three ShortMemoryStorage factories
 does not pass ``ttl_seconds=`` explicitly, the
 factory reads the field from ``Settings`` and
 forwards it to the adapter.
+
+ADR-084 §3.2 changed one contract: the ``client=`` is now
+**required**. The framework will not build a connection pool
+the caller cannot close, so ``client=None`` raises
+``RedisClientRequiredError`` instead of silently opening an
+unreachable pool.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import pytest
 from kntgraph.infra.config import Settings
 from kntgraph.infra.redis._client import RedisLike
 from kntgraph.infra.redis._dlq import RedisDLQStorage
+from kntgraph.infra.redis._errors import RedisClientRequiredError
 from kntgraph.infra.redis._event_log import (
     MAXLEN_DEFAULT,
     RedisEventLogAdapter,
@@ -85,16 +92,11 @@ class TestCreateEventLogStorage:
         storage = create_event_log_storage(settings=settings, client=client)
         assert storage.maxlen == 500
 
-    def test_with_settings_no_client_uses_pool(self, settings: Settings) -> None:
-        # No client → factory goes through
-        # ``RedisPool.from_settings``. We assert on
-        # the adapter's class and the resolved
-        # ``maxlen``; the underlying pool's client is
-        # not asserted (the pool is faked by ``Settings``
-        # defaults in the test environment).
-        storage = create_event_log_storage(settings=settings)
-        assert isinstance(storage, RedisEventLogAdapter)
-        assert storage.maxlen == 500
+    def test_without_client_raises(self, settings: Settings) -> None:
+        # ADR-084 §3.2: the factory will not build a connection
+        # pool the caller cannot close. The client is required.
+        with pytest.raises(RedisClientRequiredError, match="create_redis_pool"):
+            create_event_log_storage(settings=settings)
 
     def test_with_negative_maxlen_falls_back_to_default(
         self, client: RedisLike
@@ -108,14 +110,10 @@ class TestCreateEventLogStorage:
         storage = create_event_log_storage(settings=bad, client=client)
         assert storage.maxlen == MAXLEN_DEFAULT
 
-    def test_without_settings_or_client_uses_pool(self) -> None:
-        # No settings, no client → pool + fresh
-        # settings (the ``stream_maxlen`` fallback
-        # path). Asserts on the adapter class and the
-        # default ``maxlen``.
-        storage = create_event_log_storage()
-        assert isinstance(storage, RedisEventLogAdapter)
-        assert storage.maxlen == MAXLEN_DEFAULT
+    def test_without_settings_or_client_raises(self) -> None:
+        # ADR-084 §3.2: no client → error, whatever the settings.
+        with pytest.raises(RedisClientRequiredError):
+            create_event_log_storage()
 
 
 # ---------------------------------------------------------------------------
@@ -139,10 +137,11 @@ class TestCreateSessionStorage:
         storage = create_session_storage(settings=settings, client=client)
         assert storage.ttl_seconds == 3600
 
-    def test_with_settings_resolves_ttl_no_client(self, settings: Settings) -> None:
-        storage = create_session_storage(settings=settings)
-        assert isinstance(storage, RedisSessionStorage)
-        assert storage.ttl_seconds == 3600
+    def test_without_client_raises(self, settings: Settings) -> None:
+        # ADR-084 §3.2: the factory will not build a connection
+        # pool the caller cannot close.
+        with pytest.raises(RedisClientRequiredError):
+            create_session_storage(settings=settings)
 
 
 # ---------------------------------------------------------------------------
@@ -166,10 +165,11 @@ class TestCreateProfileStorage:
         storage = create_profile_storage(settings=settings, client=client)
         assert storage.ttl_seconds is None  # explicit None
 
-    def test_with_settings_resolves_ttl_no_client(self, settings: Settings) -> None:
-        storage = create_profile_storage(settings=settings)
-        assert isinstance(storage, RedisProfileStorage)
-        assert storage.ttl_seconds is None
+    def test_without_client_raises(self, settings: Settings) -> None:
+        # ADR-084 §3.2: the factory will not build a connection
+        # pool the caller cannot close.
+        with pytest.raises(RedisClientRequiredError):
+            create_profile_storage(settings=settings)
 
 
 # ---------------------------------------------------------------------------
@@ -193,10 +193,11 @@ class TestCreateContinuityStorage:
         storage = create_continuity_storage(settings=settings, client=client)
         assert storage.ttl_seconds == 86_400
 
-    def test_with_settings_resolves_ttl_no_client(self, settings: Settings) -> None:
-        storage = create_continuity_storage(settings=settings)
-        assert isinstance(storage, RedisContinuityStorage)
-        assert storage.ttl_seconds == 86_400
+    def test_without_client_raises(self, settings: Settings) -> None:
+        # ADR-084 §3.2: the factory will not build a connection
+        # pool the caller cannot close.
+        with pytest.raises(RedisClientRequiredError):
+            create_continuity_storage(settings=settings)
 
 
 # ---------------------------------------------------------------------------

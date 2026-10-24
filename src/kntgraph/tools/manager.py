@@ -5,51 +5,36 @@
 """
 Worker Manager - orchestrates the Tool Worker Pattern (ADR-036).
 
-The ``WorkerManager`` is the single tool execution path
-(ADR-066 §3.1: ``ToolRegistry`` is removed). Each
-``register(tool_cls, *, acl=None)`` call optionally
-attaches a ``ToolACL`` that ``_process_message``
-consults before invoking the worker (gate-1 of the
-three-gate ACL model, ADR-060 §3.0). On ACL denial
-the worker emits ``tool.<name>.failed`` with reason
-``acl_denied`` and acks the message — the request
-fails fast without consuming a worker slot.
-
-The ``acl_for(name)`` accessor mirrors the
-``ToolRegistry.acl_for`` surface so the existing
-``WorkerManager`` callers (test fixtures, CLI
-scaffolds) can switch with a one-line rename. The
-canonical ACL home stays ``kntgraph.tools.acl``;
-``WorkerManager`` re-exports ``ToolACL`` and
-``default_acl`` for discoverability.
+The ``WorkerManager`` is the single tool execution path (ADR-066 §3.1:
+``ToolRegistry`` is removed). Each ``register(tool_cls, *, acl=None)`` call
+optionally attaches a ``ToolACL`` that ``_process_message`` consults before
+invoking the worker (gate-1 of the three-gate ACL model, ADR-060 §3.0). On
+ACL denial the worker emits ``tool.<name>.failed`` with reason ``acl_denied``
+and acks the message — the request fails fast without consuming a worker
+slot.
 
 ACL semantics
 -------------
 
-  - ``register(tool_cls)`` (legacy, no ``acl=``):
-     **no constraint** — the tool is invoked for
-     every request. This preserves backward
-     compatibility for callers that registered
-     tools before v0.16. The migration path is to
-     re-register with ``acl=default_acl()`` (the
-     framework baseline: ``PrincipalLevel.agent``,
-     tenant unpinned) or a stricter ``ToolACL``.
-   - ``register(tool_cls, acl=default_acl())``
-     (explicit baseline): every request is checked
-     against ``PrincipalLevel.agent``. The worker refuses the
-    request if the principal's role is below
-    ``agent`` or the tenant does not match.
-  - ``register(tool_cls, acl=ToolACL(...))``
-    (custom): the caller's custom policy. The
-    worker refuses the request if ``acl.check(p)``
-    returns ``False``.
+  - ``register(tool_cls)`` (legacy, no ``acl=``): **no constraint** — the tool
+    is invoked for every request. Callers that registered tools before v0.16
+    keep working; they migrate by re-registering with ``acl=default_acl()`` or a
+    stricter ``ToolACL``.
+  - ``register(tool_cls, acl=default_acl())`` (explicit baseline): every request
+    is checked against ``PrincipalLevel.agent``. The worker refuses the request
+    if the principal's role is below ``agent`` or the tenant does not match.
+  - ``register(tool_cls, acl=ToolACL(...))`` (custom): the caller's custom
+    policy. The worker refuses the request if ``acl.check(p)`` is ``False``.
 
-The ``producer_principal_id`` stamped on the event
-at the request boundary (per ADR-066 §4.1) is the
-input to ``acl.check``. Events that predate v0.16
-(``producer_principal_id=None``) are denied when
-``acl`` is set — the audit trail records
-``acl_denied_no_principal``.
+The ``producer_principal_id`` stamped on the event at the request boundary
+(per ADR-066 §4.1) is the input to ``acl.check``. Events that predate v0.16
+(``producer_principal_id=None``) are denied when ``acl`` is set — the audit
+trail records ``acl_denied_no_principal``.
+
+The ``acl_for(name)`` accessor mirrors the ``ToolRegistry.acl_for`` surface so
+the existing ``WorkerManager`` callers can switch with a one-line rename. The
+canonical ACL home stays ``kntgraph.tools.acl``; ``WorkerManager`` re-exports
+``ToolACL`` and ``default_acl`` for discoverability.
 """
 
 from __future__ import annotations
@@ -72,7 +57,7 @@ from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
-from kntgraph.infra.redis._transport import is_transport_error
+from kntgraph.infra.redis._transport import is_saturation_error, is_transport_error
 from kntgraph.stream.event_log.store import EventLog
 from kntgraph.tools._dispatch import ExecutorFactory, dispatch_to_tool
 from kntgraph.tools._dispatch_helpers import (
@@ -86,6 +71,7 @@ from kntgraph.tools._message_handlers import (
     escalate_on_retry_budget_exceeded,
     evaluate_acl,
     log_acl_denial,
+    next_saturation_backoff,
     parse_request_payload,
     reconnect_redis_after_transport_error,
 )
@@ -99,57 +85,41 @@ _ORIGINAL_INVOKE_TOOL_SYNC = _invoke_tool_sync
 
 logger = structlog.get_logger()
 
-# Sentinel used to differentiate "the caller did not
-# pass ``acl=``" (legacy, no constraint) from "the
-# caller passed ``acl=None`` explicitly" (the new
-# default-allow-with-no-policy contract). The legacy
-# path is preserved at the API level: omitting
-# ``acl=`` keeps the pre-v0.16 behaviour. Passing
-# ``acl=None`` is reserved for future use (e.g. the
-# v0.17 step flips the default to ``default_acl()``
-# and uses this sentinel to detect the explicit opt
-# out).
+# Sentinel used to differentiate "the caller did not pass ``acl=``" (legacy, no
+# constraint) from "the caller passed ``acl=None`` explicitly" (the new
+# default-allow-with-no-policy contract). The legacy path is preserved at the API
+# level: omitting ``acl=`` keeps the pre-v0.16 behaviour. Passing ``acl=None`` is
+# reserved for future use (e.g. the v0.17 step flips the default to
+# ``default_acl()`` and uses this sentinel to detect the explicit opt out).
 _UNSET: object = object()
 
 
 # ADR-078: pluggable executor factory. A tool registered with
-# ``executor_factory=`` (see ``WorkerManager.register``) gets
-# this callable invoked once per message in place of the
-# internal ``ProcessPoolExecutor``. The factory receives the
-# sync ``_invoke_tool_sync`` (or compatible), the message's
-# idempotency key (which is the event_id), and the parsed
-# tool params; it returns a coroutine that resolves with
-# the standard ``result_dict`` (status "ok" or "err"). The
-# Manager remains the owner of consumer loop / XACK / reaper
-# / ACL / observability; the factory is a black-box dispatch
-# hook that lets callers route heavy tools (ML models,
-# sidecars, GPU pins) to dedicated pools without forking
-# the framework. The original design draft (proposed 2026-10-08)
-# lives at ``docs/adr-069-pluggable-executor-factory.md``;
-# it was promoted to a formal ADR when the criterion of
-# ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s")
-# was met by the backoffice post-mortem of 2026-10-07.
+# ``executor_factory=`` (see ``WorkerManager.register``) gets this callable invoked
+# once per message in place of the internal ``ProcessPoolExecutor``. The factory
+# receives the sync ``_invoke_tool_sync`` (or compatible), the message's
+# idempotency key (which is the event_id), and the parsed tool params; it returns
+# a coroutine that resolves with the standard ``result_dict`` (status "ok" or
+# "err"). The Manager remains the owner of consumer loop / XACK / reaper / ACL /
+# observability; the factory is a black-box dispatch hook that lets callers route
+# heavy tools (ML models, sidecars, GPU pins) to dedicated pools without forking
+# the framework. The ADR was promoted from a design draft when the criterion of
+# ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s") was met by the
+# backoffice post-mortem of 2026-10-07.
 #
-# Parameter and result shapes: ``tool_params`` is the value of
-# ``Event.data`` typed as ``Mapping[str, JsonValue]`` (ADR-067
-# §1.1). The result shape is the frozen ``ToolResult`` dataclass
-# (ADR-079); callers that need the wire dict call
-# ``result.to_wire()`` at the EventLog boundary
-# (ADR-079 §3.3).
-# Type aliases (ToolSyncInvoke, ExecutorFactory) live in
-# ``_dispatch.py`` (ADR-069). They were moved out of this
-# file to break the circular import: ``_dispatch.py`` imports
-# the alias from here, and ``manager.py`` imports the
+# Parameter and result shapes: ``tool_params`` is the value of ``Event.data`` typed
+# as ``Mapping[str, JsonValue]`` (ADR-067 §1.1). The result shape is the frozen
+# ``ToolResult`` dataclass (ADR-079); callers that need the wire dict call
+# ``result.to_wire()`` at the EventLog boundary (ADR-079 §3.3).
+# Type aliases (ToolSyncInvoke, ExecutorFactory) live in ``_dispatch.py``
+# (ADR-069). They were moved out of this file to break the circular import:
+# ``_dispatch.py`` imports the alias from here, and ``manager.py`` imports the
 # ``dispatch_to_tool`` free function from ``_dispatch.py``.
-# Importing the alias from here into ``_dispatch.py`` would
-# re-introduce the cycle.
 
-# ``_invoke_tool_sync`` is re-exported here for the test
-# suite (which historically monkey-patched it on
-# ``kntgraph.tools.manager``) and for any external code
-# that relied on the symbol. The canonical definition
-# lives in ``_worker_invocation`` so the ``spawn`` start
-# method can pickle the callable by reference without
+# ``_invoke_tool_sync`` is re-exported here for the test suite (which historically
+# monkey-patched it on ``kntgraph.tools.manager``) and for any external code that
+# relied on the symbol. The canonical definition lives in ``_worker_invocation``
+# so the ``spawn`` start method can pickle the callable by reference without
 # pulling the rest of the package into the worker.
 __all__ = [
     "ToolACL",
@@ -161,6 +131,12 @@ __all__ = [
 
 
 _SPAWN_METHOD = "spawn"
+
+# Pool-saturation back-off (ADR-084 §3.4). The first saturation waits this long; each
+# consecutive one doubles, up to the ceiling. Short enough that a brief burst is
+# barely noticeable, long enough that a sustained overload does not spin.
+_SATURATION_BACKOFF_SECONDS = 0.25
+_SATURATION_BACKOFF_CEILING_SECONDS = 2.0
 
 
 class WorkerManager:
@@ -184,14 +160,11 @@ class WorkerManager:
         max_pool_workers: int | None = None,
         legacy_pool: bool = False,
     ):
-        # ADR-076 / DEBT §2.35: namespace prefix for
-        # every Redis key the manager writes or reads
-        # (``knt:tools:<tool>:queue`` -- the consumer
-        # group creation, the consume loop, and the
-        # reaper loop all flow through ``_stream_key``
-        # so the prefix is applied consistently).
-        # Empty string (default) is byte-for-byte
-        # identical to the pre-076 wire format.
+        # ADR-076 / DEBT §2.35: namespace prefix for every Redis key the manager
+        # writes or reads (``knt:tools:<tool>:queue`` -- the consumer group
+        # creation, the consume loop, and the reaper loop all flow through
+        # ``_stream_key``). Empty string (default) is byte-for-byte identical to the
+        # pre-076 wire format.
         validate_prefix(key_prefix)
         self._redis = redis
         self._event_log = event_log
@@ -203,66 +176,60 @@ class WorkerManager:
         self._reaper_idle_time = reaper_idle_time
         self._tools: dict[str, type] = {}
         self._pool: ProcessPoolExecutor | None = None
-        # Cached in ``start()``; stored here so tests can
-        # assert on it without re-deriving the default.
+        # Cached in ``start()``; stored here so tests can assert on it
+        # without re-deriving the default.
         self._mp_context: BaseContext | None = None
 
-        # Per-tool executor factory (ADR-069). When ``None`` for a
-        # given tool, the Manager falls back to its internal
-        # ``ProcessPoolExecutor``. When set, the factory is called
-        # once per message in place of ``run_in_executor`` and
-        # returns the standard ``result_dict`` shape. The Manager
-        # remains the owner of XACK / events / reaper / ACL /
+        # Per-tool executor factory (ADR-069). When ``None`` for a given tool, the
+        # Manager falls back to its internal ``ProcessPoolExecutor``. When set, the
+        # factory is called once per message in place of ``run_in_executor``. The
+        # Manager remains the owner of XACK / events / reaper / ACL /
         # observability; the factory is a black-box dispatch hook.
         self._executors: dict[str, ExecutorFactory] = {}
-        # ``max_pool_workers`` is the explicit cap on the internal
-        # ``ProcessPoolExecutor``. ``None`` (default) means "use
-        # the legacy formula ``max(1, sum(max_concurrency))``"; an
-        # integer means "use exactly N workers regardless of the
-        # number of tools". In Fargate-class environments with
-        # memory caps, this is the lever that prevents the OOM
-        # described in the post-mortem 2026-10-07.
+        # Explicit cap on the internal ``ProcessPoolExecutor``. ``None`` (default)
+        # means "use the legacy formula ``max(1, sum(max_concurrency))``"; an
+        # integer means "use exactly N workers regardless of the number of tools".
+        # In Fargate-class environments with memory caps, this is the lever that
+        # prevents the OOM of the post-mortem.
         self._max_pool_workers: int | None = max_pool_workers
-        # ADR-078 §4.4: opt-in to the deprecated internal pool.
-        # ``False`` (default) means ``start()`` creates no pool at
-        # all and tools must declare their own strategy via
-        # ``register(executor_factory=...)``. ``max_pool_workers``
-        # sizes the pool when this flag is set; it does not create
-        # one on its own.
+        # ADR-078 §4.4: opt-in to the deprecated internal pool. ``False`` (default)
+        # means ``start()`` creates no pool at all and tools must declare their own
+        # strategy via ``register(executor_factory=...)``. ``max_pool_workers``
+        # sizes the pool when this flag is set; it does not create one.
         self._legacy_pool = legacy_pool
         self._deprecated_pool_opened = False
 
-        # Per-tool ``asyncio.Semaphore`` (``max_concurrency``) — populated
-        # em ``_consume_loop`` e consumido pelo ``_reaper_loop`` para
-        # honrar o limite de tasks concorrentes por tool. Sem isso, o
-        # reaper bypassa o semáforo e dispara N processamentos em
-        # paralelo (um por mensagem no PEL) → OOM em ambiente com
-        # workers carregando modelos ML pesados. post-mortem 2026-10-07.
+        # Per-tool ``asyncio.Semaphore`` (``max_concurrency``) — populated in
+        # ``_consume_loop`` and consumed by the ``_reaper_loop`` to honour the
+        # per-tool concurrency limit. Without it the reaper bypasses the semaphore
+        # and fires N parallel jobs → OOM where the workers hold heavy ML models.
+        # post-mortem 2026-10-07.
         self._semaphores: dict[str, asyncio.Semaphore] = {}
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
-        # Per-tool ACL (ADR-066 §4.1). The value is
-        # the sentinel ``_UNSET`` when the caller did
-        # not pass ``acl=`` (legacy, no constraint);
-        # the sentinel ``_UNSET`` is filtered out of
-        # ``acl_for`` so the legacy callers see
-        # ``None`` (the pre-v0.16 contract). When the
-        # caller passes ``acl=...``, the value is the
-        # ``ToolACL`` they passed (or ``default_acl()``
-        # for ``acl=None`` explicitly).
+        # Pool-saturation back-off (ADR-084 §3.4). The delay doubles on each
+        # consecutive saturation and resets on the next successful read, so a burst
+        # degrades gracefully instead of spinning on the exhausted pool.
+        self._saturation_backoff_seconds = _SATURATION_BACKOFF_SECONDS
+        self._saturation_backoff_ceiling_seconds = _SATURATION_BACKOFF_CEILING_SECONDS
+        # Per-tool ACL (ADR-066 §4.1). The value is the sentinel ``_UNSET`` when
+        # the caller did not pass ``acl=`` (legacy, no constraint); the sentinel is
+        # filtered out of ``acl_for`` so the legacy callers see ``None`` (the
+        # pre-v0.16 contract). Otherwise the value is the ``ToolACL`` the caller
+        # passed (or ``default_acl()`` for an explicit ``acl=None``).
         self._acls: dict[str, ToolACL | object] = {}
-        # Observability surface: the consume loop updates the
-        # counters and timestamps on every message; the heartbeat
-        # log line is emitted by ``_consume_loop`` itself.
+        # Observability surface: the consume loop updates the counters and
+        # timestamps on every message; the heartbeat log line is emitted by
+        # ``_consume_loop`` itself.
         self._messages_processed_total: int = 0
         self._messages_failed_total: int = 0
         self._last_activity_at: float = time.monotonic()
         self._last_heartbeat_at: float = 0.0
         self._last_error: str | None = None
-        # Disabled when non-positive. The default mirrors the
-        # dispatcher's so an operator looking at tail -f sees a
-        # liveness line from each component on the same cadence.
+        # Disabled when non-positive. The default mirrors the dispatcher's so an
+        # operator looking at tail -f sees a liveness line from each component on
+        # the same cadence.
         self._heartbeat_interval_seconds: float = heartbeat_interval_seconds
 
     def register(
@@ -274,28 +241,20 @@ class WorkerManager:
     ) -> None:
         """Register a class decorated with @tool_worker.
 
-        ``acl`` (ADR-066 §4.1, ADR-061 §5) is the
-        per-tool authorisation consulted by
-        ``_process_message`` before invoking the
-        worker. The default (no ``acl=`` kwarg)
-        preserves the pre-v0.16 behaviour: no
-        constraint. Pass ``acl=default_acl()`` for
-        the framework baseline (``PrincipalLevel.agent``,
-        tenant-unpinned) or a stricter
-        ``ToolACL(tenant_pinned=True, ...)`` for
-        tenant-scoped tools.
+        ``acl`` (ADR-066 §4.1, ADR-061 §5) is the per-tool authorisation
+        consulted by ``_process_message`` before invoking the worker. The
+        default (no ``acl=`` kwarg) preserves the pre-v0.16 behaviour: no
+        constraint. Pass ``acl=default_acl()`` for the framework baseline
+        (``PrincipalLevel.agent``, tenant-unpinned) or a stricter
+        ``ToolACL(tenant_pinned=True, ...)`` for tenant-scoped tools.
         """
         if not hasattr(tool_cls, "name"):
             raise TypeError("Tool must be decorated with @tool_worker")
-        # ADR-066 §4.4: the no-``acl=`` form is
-        # deprecated in v0.17; the legacy path is
-        # ``register(tool_cls)`` with no policy
-        # attached (no constraint). The warning is
-        # scoped to the ``acl is _UNSET`` branch
-        # (caller did not pass ``acl=`` at all).
-        # Passing ``acl=None`` is the explicit
-        # opt-out and does NOT warn (the caller is
-        # acknowledging the policy choice).
+        # ADR-066 §4.4: the no-``acl=`` form is deprecated in v0.17; the legacy
+        # path is ``register(tool_cls)`` with no policy attached (no constraint).
+        # The warning is scoped to the ``acl is _UNSET`` branch (the caller did
+        # not pass ``acl=`` at all). Passing ``acl=None`` is the explicit opt-out
+        # and does NOT warn (the caller acknowledges the policy choice).
         if acl is _UNSET:
             import warnings
 
@@ -312,59 +271,47 @@ class WorkerManager:
                 stacklevel=2,
             )
         self._tools[tool_cls.name] = tool_cls
-        # ``acl`` is the sentinel ``_UNSET`` when the
-        # caller omitted the kwarg (legacy, no
-        # constraint). ``acl=None`` is the EXPLICIT
-        # opt-out (ADR-066 §4.4) — also no constraint.
-        # Otherwise the value is the ``ToolACL``.
+        # ``acl`` is the sentinel ``_UNSET`` when the caller omitted the kwarg
+        # (legacy, no constraint). ``acl=None`` is the EXPLICIT opt-out (ADR-066 §4.4)
+        # — also no constraint. Otherwise the value is the ``ToolACL``.
         if acl is _UNSET or acl is None:
             self._acls[tool_cls.name] = _UNSET
         else:
             self._acls[tool_cls.name] = acl
 
-        # ADR-078 §5.5: a sync ``invoke`` MUST declare how it runs.
-        # The ``__tool_worker_cpu_bound__`` marker no longer buys
-        # a fall-through — ``is_cpu_bound`` classified every sync
-        # ``invoke`` as cpu-bound, so the gate never fired for the
-        # tools it targeted and the 2026-10-07 OOM kept its path.
+        # ADR-078 §5.5: a sync ``invoke`` MUST declare how it runs. The
+        # ``__tool_worker_cpu_bound__`` marker no longer buys a fall-through —
+        # ``is_cpu_bound`` classified every sync ``invoke`` as cpu-bound, so the
+        # gate never fired for the tools it targeted and the 2026-10-07 OOM kept
+        # its path.
         #
-        # ``legacy_pool=True`` exempts the tool: the pool opened
-        # in ``start()`` would otherwise be unreachable for the
-        # very tools the flag exists to serve (ADR-078 §12.4).
-        # The OOM returns only if the operator re-opts in
-        # explicitly, and boot already warns once.
+        # ``legacy_pool=True`` exempts the tool: the pool opened in ``start()``
+        # would otherwise be unreachable for the very tools it exists to serve
+        # (ADR-078 §12.4).
         if executor_factory is None and not self.__dict__.get("_legacy_pool", False):
             reject_undeclared_sync_tool(tool_cls)
 
-        # ADR-069: optional per-tool dispatch override. The
-        # factory replaces the internal ``ProcessPoolExecutor``
-        # path with a custom async callable that returns the
-        # standard ``result_dict`` shape. ``None`` keeps the
-        # legacy path (internal pool, ``run_in_executor``).
-        # Lifecycle of the underlying executor (process pool,
-        # thread pool, sidecar, GPU context, ...) is the
-        # caller's responsibility; the Manager only invokes
-        # the factory once per message.
+        # ADR-069: optional per-tool dispatch override. The factory replaces the
+        # internal ``ProcessPoolExecutor`` path with a custom async callable that
+        # returns the standard ``result_dict`` shape. ``None`` keeps the legacy
+        # path (internal pool, ``run_in_executor``). Lifecycle of the underlying
+        # executor (process pool, thread pool, sidecar, GPU context, ...) is the
+        # caller's responsibility; the Manager only invokes the factory once per
+        # message.
         #
-        # ``__dict__.setdefault`` keeps ``register()`` robust to
-        # ``__new__``-based unit tests that skip ``__init__`` and
-        # only set the attrs they need — adding a new private
-        # attr in the future does not require updating those
-        # tests to seed a third dict.
+        # ``__dict__.setdefault`` keeps ``register()`` robust to ``__new__``-based
+        # unit tests that skip ``__init__``.
         self.__dict__.setdefault("_executors", {})[tool_cls.name] = executor_factory
 
     def acl_for(self, name: str) -> ToolACL | None:
-        """Return the ``ToolACL`` for ``name`` (or
-        ``None`` if the tool is not registered, or
-        was registered without an explicit
-        ``acl=``). The framework reads this at
-        invoke time so the gate-1 ACL check does not
-        need a separate lookup.
+        """Return the ``ToolACL`` for ``name`` (or ``None`` if the tool
+        is not registered, or was registered without an explicit
+        ``acl=``).
 
-        The surface mirrors ``ToolRegistry.acl_for``
-        (removed in v0.18 per ADR-066 §4.4); the
-        rename is a one-line ``r.acl_for(n)``
-        → ``wm.acl_for(n)``.
+        The framework reads this at invoke time so the gate-1 ACL check does not
+        need a separate lookup. The surface mirrors ``ToolRegistry.acl_for``
+        (removed in v0.18 per ADR-066 §4.4); the rename is a one-line
+        ``r.acl_for(n)`` → ``wm.acl_for(n)``.
         """
         stored = self._acls.get(name)
         if stored is _UNSET or stored is None:
@@ -372,57 +319,48 @@ class WorkerManager:
         return stored  # type: ignore[return-value]
 
     def get(self, name: str) -> type | None:
-        """Return the registered ``@tool_worker`` class
-        for ``name`` (or ``None`` if not registered).
+        """Return the registered ``@tool_worker`` class for ``name`` (or
+        ``None`` if not registered).
 
-        Replaces ``ToolRegistry.get(name)`` (removed in
-        v0.18 per ADR-066 §4.4). The returned class
-        carries the ``name`` / ``description`` /
-        ``input_schema`` attributes injected by the
-        ``@tool_worker`` decorator, so callers that
-        previously read ``registry.get(n).input_schema``
-        can read ``wm.get(n).input_schema`` unchanged.
+        Replaces ``ToolRegistry.get(name)`` (removed in v0.18 per ADR-066 §4.4).
+        The returned class carries the ``name`` / ``description`` /
+        ``input_schema`` attributes injected by the ``@tool_worker`` decorator,
+        so callers that previously read ``registry.get(n).input_schema`` can
+        read ``wm.get(n).input_schema`` unchanged.
         """
         return self._tools.get(name)
 
     def _stream_key(self, tool_name: str) -> str:
         """Compose the namespaced Stream key for ``tool_name``.
 
-        ADR-076 / DEBT §2.35: the consumer-group creation
-        in ``start``, the consume loop, and the reaper
-        loop all flow through this helper so the namespace
-        prefix applies uniformly. Empty prefix returns the
-        unprefixed ``knt:tools:<tool>:queue`` key (the
-        pre-076 wire format).
+        ADR-076 / DEBT §2.35: the consumer-group creation in ``start``, the
+        consume loop, and the reaper loop all flow through this helper so the
+        namespace prefix applies uniformly. Empty prefix returns the unprefixed
+        ``knt:tools:<tool>:queue`` key (the pre-076 wire format).
         """
         return tool_queue_key(self._key_prefix, tool_name)
 
     def names(self) -> list[str]:
         """Return the names of every registered tool.
 
-        Replaces ``ToolRegistry.names()`` (removed in
-        v0.18 per ADR-066 §4.4).
+        Replaces ``ToolRegistry.names()`` (removed in v0.18 per
+        ADR-066 §4.4).
         """
         return list(self._tools.keys())
 
     def list_descriptors(self) -> list[ToolDescriptor]:
-        """Return a :class:`ToolDescriptor` for every
-        registered ``@tool_worker``.
+        """Return a :class:`ToolDescriptor` for every registered
+        ``@tool_worker``.
 
-        Replaces ``ToolRegistry.list_descriptors()``
-        (removed in v0.18 per ADR-066 §4.4). Used by
-        the HTTP ``GET /agents/{id}/tools`` endpoint
-        and by the
-        :class:`kntgraph.agents.memory.solutions.SolutionPromoter`
-        to populate ``(:Tool)`` nodes in the Solution
-        sub-graph of FalkorDB.
+        Replaces ``ToolRegistry.list_descriptors()`` (removed in v0.18 per
+        ADR-066 §4.4). Used by the HTTP ``GET /agents/{id}/tools`` endpoint and
+        by the :class:`kntgraph.agents.memory.solutions.SolutionPromoter` to
+        populate ``(:Tool)`` nodes in the Solution sub-graph of FalkorDB.
 
         The serialisation logic lives in
-        :func:`kntgraph.tools.descriptors.schema_to_json`
-        (moved from ``registry.py`` in the same
-        release). A tool whose schema is not
-        serialisable / not round-trippable is skipped
-        (the operator sees a ``warning`` log line).
+        :func:`kntgraph.tools.descriptors.schema_to_json`. A tool whose schema
+        is not serialisable / not round-trippable is skipped (the operator sees
+        a ``warning`` log line).
         """
         out: list[ToolDescriptor] = []
         for name in self.names():
@@ -448,16 +386,16 @@ class WorkerManager:
 
     def _compute_max_workers(self) -> int:
         """Delegate to ``compute_max_workers`` in
-        ``_dispatch_helpers.py``. Kept as a method on the
-        Manager so the caller can stay ``self._compute_max_workers()``
-        in ``start()`` (preserves the existing call site)."""
+        ``_dispatch_helpers.py``. Kept as a method on the Manager so the caller
+        can stay ``self._compute_max_workers()`` in ``start()`` (preserves the
+        existing call site)."""
         return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
 
     def _maybe_open_deprecated_pool(self) -> bool:
         """Open the internal ``ProcessPoolExecutor`` only when the
         operator explicitly opted in via ``legacy_pool=True``
-        (ADR-078 §4.4). Emits one ``PoolDeprecationWarning`` at
-        boot. Returns ``True`` when a pool was created.
+        (ADR-078 §4.4). Emits one ``PoolDeprecationWarning`` at boot.
+        Returns ``True`` when a pool was created.
         """
         if not self._legacy_pool:
             return False
@@ -466,11 +404,10 @@ class WorkerManager:
         from kntgraph.tools.executors import PoolDeprecationWarning
 
         max_workers = self._compute_max_workers()
-        # Always ``spawn``: a parent that imported ``threading`` +
-        # ``ssl`` + ``redis.asyncio`` before this point corrupts
-        # the forked child's ``_RLock`` / ``select`` state and
-        # stalls ``xreadgroup`` forever in container runtimes
-        # (ADR-054 lines 269-273).
+        # Always ``spawn``: a parent that imported ``threading`` + ``ssl`` +
+        # ``redis.asyncio`` before this point corrupts the forked child's ``_RLock``
+        # / ``select`` state and stalls ``xreadgroup`` forever in container
+        # runtimes (ADR-054).
         self._mp_context = multiprocessing.get_context(_SPAWN_METHOD)
         self._pool = ProcessPoolExecutor(
             max_workers=max_workers,
@@ -489,11 +426,48 @@ class WorkerManager:
         return True
 
     async def _reconnect_after_transport_error(self) -> None:
-        """Delegate to ``reconnect_redis_after_transport_error``
-        in ``_message_handlers`` (ADR-082 §3.1). Kept as a
-        method so the ``_consume_loop`` call site stays
+        """Delegate to ``reconnect_redis_after_transport_error`` in
+        ``_message_handlers`` (ADR-082 §3.1). Kept as a method so the
+        ``_consume_loop`` call site stays
         ``await self._reconnect_after_transport_error()``."""
         await reconnect_redis_after_transport_error(self._redis)
+
+    async def _back_off_on_saturation(self, tool_name: str) -> None:
+        """Sleep briefly when the Redis pool is exhausted.
+
+        Pool saturation is not a broken transport (ADR-084 §2.4): the
+        sockets are healthy, there are simply not enough of them.
+        Reconnecting would close the pool — and with it every sibling
+        consumer's socket — turning a momentary burst into a reconnect
+        storm. The delay doubles on each consecutive saturation and
+        resets on the next successful read.
+        """
+        delay = self._saturation_backoff_seconds
+        logger.warning(
+            "worker.pool_saturated",
+            tool=tool_name,
+            backoff_seconds=delay,
+        )
+        await asyncio.sleep(delay)
+        self._saturation_backoff_seconds = next_saturation_backoff(
+            delay, self._saturation_backoff_ceiling_seconds
+        )
+
+    async def _handle_consume_error(self, tool_name: str, e: Exception) -> None:
+        """Classify a consume-loop failure and act on it.
+
+        A saturated pool calls for back-pressure; a broken transport
+        calls for a proactive reconnect (ADR-084 §2.4). The saturation
+        path stops there: the loop is throttling itself on purpose, so
+        it emits no heartbeat.
+        """
+        if is_saturation_error(e):
+            await self._back_off_on_saturation(tool_name)
+            return
+        if is_transport_error(e):
+            await self._reconnect_after_transport_error()
+        await asyncio.sleep(1)
+        self._maybe_emit_heartbeat(tool_name)
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -502,12 +476,11 @@ class WorkerManager:
 
         self._running = True
 
-        # ADR-078 §4.4: the internal pool is opt-in via
-        # ``legacy_pool=True``. It is NOT inferred from
-        # ``max_pool_workers is None``: ``None`` is the default
-        # and means "size the pool with the legacy formula", so
-        # gating on it would silently disable the pool for every
-        # caller that never passed the knob.
+        # ADR-078 §4.4: the internal pool is opt-in via ``legacy_pool=True``. It
+        # is NOT inferred from ``max_pool_workers is None``: ``None`` is the
+        # default and means "size the pool with the legacy formula", so gating on
+        # it would silently disable the pool for every caller that never passed
+        # the knob.
         self._deprecated_pool_opened = self._maybe_open_deprecated_pool()
 
         for tool_name in self._tools:
@@ -552,13 +525,11 @@ class WorkerManager:
         tool_cls = self._tools[tool_name]
         max_concurrency = getattr(tool_cls, "__tool_worker_max_concurrency__", 16)
         sem = asyncio.Semaphore(max_concurrency)
-        # Publica para o ``_reaper_loop`` adquirir o mesmo semáforo quando
-        # reclaimer mensagens do PEL — sem isso, o reaper bypassa o
-        # limite de concorrência e dispara tasks em paralelo que
-        # multiplicam o uso de RAM (uma por worker do pool carregando
-        # modelos ML). post-mortem 2026-10-07.
+        # Published so the ``_reaper_loop`` acquires the same semaphore when it
+        # reclaims PEL messages — without it the reaper bypasses the concurrency
+        # limit and fires parallel tasks that multiply RAM use. post-mortem
+        # 2026-10-07.
         self._semaphores[tool_name] = sem
-        read_batch_size = max(1, min(max_concurrency, 32))
 
         async def _process_with_sem(msg_id: str, msg_data: dict) -> None:
             async with sem:
@@ -573,18 +544,21 @@ class WorkerManager:
                     groupname=self._group_name,
                     consumername=self._consumer_name,
                     streams={stream_key: ">"},
-                    count=read_batch_size,
+                    count=max(1, min(max_concurrency, 32)),
                     block=1000,
                 )
+                # The pool served the request — an empty stream is still a
+                # served one — so the saturation back-off goes back to its
+                # floor (ADR-084 §3.4).
+                self._saturation_backoff_seconds = _SATURATION_BACKOFF_SECONDS
 
                 if not response:
-                    # ``xreadgroup`` returned with no messages. In
-                    # production the upstream ``block=1000`` makes this
-                    # arm rare; under mocks (and any future
-                    # non-blocking xreadgroup path) the loop would
-                    # busy-spin, starving the sibling ``_reaper_loop``
-                    # of the event loop. A zero-second sleep is a
-                    # yield-to-scheduler with no production cost.
+                    # ``xreadgroup`` returned with no messages. In production the
+                    # upstream ``block=1000`` makes this arm rare; under mocks (and
+                    # any future non-blocking xreadgroup path) the loop would
+                    # busy-spin, starving the sibling ``_reaper_loop`` of the event
+                    # loop. A zero-second sleep is a yield-to-scheduler with no
+                    # production cost.
                     await asyncio.sleep(0)
                     self._maybe_emit_heartbeat(tool_name)
                     continue
@@ -597,41 +571,37 @@ class WorkerManager:
                         in_flight.add(task)
                         task.add_done_callback(in_flight.discard)
 
-                # Refresh liveness on every successful read; the
-                # heartbeat distinguishes "loop idle because the
-                # stream is empty" from "loop stuck because Redis
-                # stopped responding".
+                # Refresh liveness on every successful read; the heartbeat
+                # distinguishes "loop idle because the stream is empty" from "loop
+                # stuck because Redis stopped responding".
                 self._last_activity_at = time.monotonic()
                 self._maybe_emit_heartbeat(tool_name)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # ``logger.exception`` routes the full traceback to
-                # the log handler. Without it, an operator who sees
-                # the loop go silent cannot tell whether the consumer
-                # is reconnecting to Redis, choking on a payload
-                # parser, or stuck inside ``_process_message``.
+                # ``logger.exception`` routes the full traceback to the log handler.
+                # Without it, an operator who sees the loop go silent cannot tell
+                # whether the consumer is reconnecting to Redis, choking on a
+                # payload parser, or stuck inside ``_process_message``.
                 logger.exception(
                     "worker.consume_loop.error",
                     tool=tool_name,
                     error=str(e),
                 )
                 self._last_error = repr(e)
-                if is_transport_error(e):
-                    await self._reconnect_after_transport_error()
-                await asyncio.sleep(1)
-                self._maybe_emit_heartbeat(tool_name)
+                # A saturated pool backs off inside the handler and stops there;
+                # every other failure takes the standard one-second delay.
+                await self._handle_consume_error(tool_name, e)
 
         if in_flight:
             await asyncio.gather(*in_flight, return_exceptions=True)
 
     def _maybe_emit_heartbeat(self, tool_name: str) -> None:
         """Emit a structured liveness line on the cadence
-        ``_heartbeat_interval_seconds``. Disabled when the
-        interval is non-positive. The line carries the message
-        counters, the time since the last successful read, and
-        the last error string (if any).
+        ``_heartbeat_interval_seconds``. Disabled when the interval is
+        non-positive. The line carries the message counters, the time since the
+        last successful read, and the last error string (if any).
         """
         if self._heartbeat_interval_seconds <= 0:
             return
@@ -699,7 +669,8 @@ class WorkerManager:
             await self._redis.xack(stream_key, self._group_name, message_id)
 
         except Exception as e:
-            # A hard crash (e.g. process died, OOM, exception in invoke outside Result)
+            # A hard crash (e.g. process died, OOM, exception in invoke
+            # outside Result)
             logger.exception(
                 "worker.tool.hard_crash",
                 tool=tool_name,
@@ -709,10 +680,9 @@ class WorkerManager:
             self._messages_failed_total += 1
             self._last_error = repr(e)
 
-            # If the process pool itself broke, we can't do much but we must not XACK.
-            # We let the Reaper pick it up via XAUTOCLAIM.
-            # But we can proactively check delivery count via XPENDING to see if it
-            # exceeded retries.
+            # If the process pool itself broke, we can't do much but we must not
+            # XACK. We let the Reaper pick it up via XAUTOCLAIM. But we can check
+            # the delivery count via XPENDING to see if it exceeded retries.
             escalated = await escalate_on_retry_budget_exceeded(
                 redis=self._redis,
                 stream_key=stream_key,
@@ -738,16 +708,14 @@ class WorkerManager:
         idempotency_key: str,
         tool_params: Mapping[str, JsonValue],
     ) -> ToolResult:
-        """Thin wrapper that gathers Manager state and delegates
-        to the free function ``dispatch_to_tool`` in
-        :mod:`kntgraph.tools._dispatch` (ADR-069 + ADR-019
-        CC ≤ 10). The dispatch decision tree is fully testable
-        in isolation by injecting a fake ``executors`` mapping
-        and a fake ``pool``.
+        """Thin wrapper that gathers Manager state and delegates to
+        the free function ``dispatch_to_tool`` in
+        :mod:`kntgraph.tools._dispatch` (ADR-069 + ADR-019 CC ≤ 10).
+        The dispatch decision tree is fully testable in isolation by injecting a
+        fake ``executors`` mapping and a fake ``pool``.
 
-        The Manager's side effects (ACL, observability, XACK)
-        stay outside this method — they are not dispatch
-        concerns.
+        The Manager's side effects (ACL, observability, XACK) stay outside this
+        method — they are not dispatch concerns.
         """
         return await dispatch_to_tool(
             tool_name,
@@ -767,10 +735,9 @@ class WorkerManager:
         stream_key: str,
     ) -> Event | None:
         """Delegate to ``parse_request_payload`` in
-        ``_message_handlers``. Kept as a method on the Manager
-        so the call site reads ``self._parse_message_payload(...)``.
-        On ``None`` the caller has already been told to XACK + count
-        the failure.
+        ``_message_handlers``. Kept as a method on the Manager so the call site
+        reads ``self._parse_message_payload(...)``. On ``None`` the caller has
+        already been told to XACK + count the failure.
         """
         request_event = parse_request_payload(message_data)
         if request_event is None:
@@ -815,9 +782,8 @@ class WorkerManager:
         """Emit the ``worker.acl_denied`` log + ``tool.<name>.failed``
         event for an ACL denial, ACK the message, and update the
         failure counter. Delegates to three pure helpers in
-        ``_message_handlers``; the only side effects that
-        remain here are the ``xack`` and the counter increment
-        (the manager owns those).
+        ``_message_handlers``; the only side effects left here are the ``xack``
+        and the counter increment (the manager owns those).
         """
         principal_id = request_event.producer_principal_id
         log_acl_denial(
@@ -845,16 +811,16 @@ class WorkerManager:
         idempotency_key: str,
         result: ToolResult,
     ) -> None:
-        """Map a tool's ``ToolResult`` (ADR-079) to the
-        corresponding domain event (``.completed`` or ``.failed``),
-        append it to the eventlog, and update the counter.
-        Delegates the event construction to ``_message_handlers``;
-        the manager keeps the I/O side effects (append, counter).
+        """Map a tool's ``ToolResult`` (ADR-079) to the corresponding
+        domain event (``.completed`` or ``.failed``), append it to the
+        eventlog, and update the counter.
 
-        The discriminated ``status`` enables mypy/pyright to
-        narrow ``result.value`` (success) vs ``result.error``
-        (failure) inside the branch — the legacy ``result_dict``
-        form was cego.
+        Delegates the event construction to ``_message_handlers``; the manager
+        keeps the I/O side effects (append, counter).
+
+        The discriminated ``status`` enables mypy/pyright to narrow
+        ``result.value`` (success) vs ``result.error`` (failure) inside the
+        branch — the legacy ``result_dict`` form was cego.
         """
         if result.status == "ok":
             event = build_completion_event(
@@ -880,12 +846,6 @@ class WorkerManager:
         stream_key = self._stream_key(tool_name)
         # Idle time is in milliseconds for redis
         idle_time_ms = int(self._reaper_idle_time * 1000)
-        # O semáforo é criado em ``_consume_loop`` quando o loop sobe.
-        # Antes do consume_loop estar pronto, o reaper acorda com sem=None
-        # — nesse caso pulamos o reclaimer (o consume vai drenar tudo de
-        # qualquer forma). Isso evita um TOCTOU entre start() e o loop
-        # efetivo. Quando o semáforo existir, o reaper o honra.
-        sem = self._semaphores.get(tool_name)
 
         while self._running:
             try:
@@ -904,13 +864,14 @@ class WorkerManager:
 
                 # claimed[1] contains the actual messages we claimed
                 messages = claimed[1]
-                # Re-resolve the semaphore aqui (não no topo do loop) porque
-                # o ``_consume_loop`` pode subir depois do reaper — nesse
-                # intervalo queremos usar None para skip.
+                # Re-resolve the semaphore here (not at the top of the loop) because
+                # the ``_consume_loop`` may start after the reaper — in that interval
+                # we want ``None`` to skip. This avoids a TOCTOU between start() and
+                # the effective loop.
                 sem = self._semaphores.get(tool_name)
                 for message_id, message_data in messages:
-                    # By claiming, we become the owner. The delivery_count incremented.
-                    # We process it immediately.
+                    # By claiming, we become the owner. The delivery_count
+                    # incremented. We process it immediately.
                     logger.warning(
                         "worker.reaper.reclaimed",
                         tool=tool_name,
@@ -928,10 +889,9 @@ class WorkerManager:
                                     tool_name, stream_key, _msg_id, _msg_data
                                 )
                         else:
-                            # Fallback enquanto o consume_loop não está
-                            # ativo: processa direto. Aceita concorrência
-                            # momentânea acima do limite, mas só durante
-                            # o startup.
+                            # Fallback while the consume loop is not yet active: process
+                            # directly. Accepts a momentary concurrency above the
+                            # limit, but only during startup.
                             await self._process_message(
                                 tool_name, stream_key, _msg_id, _msg_data
                             )

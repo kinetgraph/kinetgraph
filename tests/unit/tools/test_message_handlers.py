@@ -5,21 +5,26 @@
 Tests for ``tools._message_handlers.reconnect_redis_after_*_error``.
 
 The helper exists to break a tight reconnect loop on the
-consume path: close the client (best-effort) and disconnect
-the pool, so the next ``xreadgroup`` reconnects to a fresh
-connection. ADR-082 §3.1 ratifies it; ADR-082 §3.3
-deprecates the old ``runtime_error`` name in favour of
-``transport_error``.
+consume path: disconnect the pool's sockets so the next
+``xreadgroup`` reconnects to a fresh connection. ADR-082 §3.1
+ratifies it; ADR-082 §3.3 deprecates the old ``runtime_error``
+name in favour of ``transport_error``.
+
+ADR-084 §3.3 narrowed the implementation: the client's
+``aclose()`` releases the connection object back to the pool
+WITHOUT closing its socket, so the next command would reuse
+the same (possibly half-open) TCP. Only ``pool.disconnect()``
+closes the socket, and it leaves the pool usable for the
+sibling consumers.
 
 The tests pin:
 
   - the deprecation warning fires and the old name still
     works (one minor of overlap before the v0.19 ``git rm``);
   - the canonical helper accepts a ``RedisLike`` and
-    returns silently when the object lacks both ``aclose``
-    and ``connection_pool``;
-  - the canonical helper calls both ``aclose`` and
-    ``pool.disconnect`` when the object exposes them.
+    returns silently when the object lacks ``connection_pool``;
+  - the canonical helper calls ``pool.disconnect`` and does
+    NOT call the client's ``aclose``.
 """
 
 from __future__ import annotations
@@ -65,15 +70,23 @@ async def test_reconnect_redis_after_transport_error_signature() -> None:
 
 
 async def test_reconnect_redis_after_transport_error_accepts_redis_like() -> None:
-    """The canonical helper calls both ``aclose`` and
-    ``pool.disconnect`` on a ``RedisLike`` that exposes
-    them."""
+    """The canonical helper calls ``pool.disconnect`` on a
+    ``RedisLike`` that exposes it.
+
+    ADR-084 §3.3 narrowed this path: the client's ``aclose()``
+    releases the connection object back to the pool WITHOUT
+    closing the socket, so the next command reuses the same
+    (possibly half-open) TCP and the ADR-082 promise "force the
+    next op to reconnect" is not kept. ``pool.disconnect()``
+    closes the socket and leaves the pool usable for the sibling
+    consumers.
+    """
 
     class _FakePool:
         def __init__(self) -> None:
             self.disconnect_called = False
 
-        def disconnect(self) -> None:
+        def disconnect(self, inuse_connections: bool = True) -> None:
             self.disconnect_called = True
 
     class _FakeRedis:
@@ -90,8 +103,10 @@ async def test_reconnect_redis_after_transport_error_accepts_redis_like() -> Non
 
     fake = _FakeRedis()
     await reconnect_redis_after_transport_error(fake)  # type: ignore[arg-type]
-    assert fake.aclose_called
     assert fake.pool.disconnect_called
+    # ``aclose()`` is deliberately NOT called: it would release the
+    # connection object without closing its socket.
+    assert not fake.aclose_called
 
 
 async def test_reconnect_redis_after_transport_error_swallows_close_failure() -> None:

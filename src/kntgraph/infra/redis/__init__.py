@@ -29,7 +29,12 @@ from ._dlq import (
     DLQStorage,
     RedisDLQStorage,
 )
-from ._errors import IdempotencyConflict, RedisAdapterError, RedisUnavailableError
+from ._errors import (
+    IdempotencyConflict,
+    RedisAdapterError,
+    RedisClientRequiredError,
+    RedisUnavailableError,
+)
 from ._event_log import (
     AGENT_STREAM_KEY,
     EVENT_ID_INDEX,
@@ -50,6 +55,8 @@ from ._factory import (
     create_profile_storage,
     create_session_storage,
     create_solution_storage,
+    create_tool_router,
+    create_worker_manager,
 )
 from ._memory import (
     SOLUTION_KEY_PREFIX,
@@ -64,7 +71,7 @@ from ._memory import (
 )
 from ._pool import RedisPool, create_redis_pool
 from ._tools import TOOL_QUEUE_KEY_TEMPLATE, tool_queue_key
-from ._transport import is_transport_error
+from ._transport import is_saturation_error, is_transport_error
 
 __all__ = [
     # Keys
@@ -80,6 +87,7 @@ __all__ = [
     "PipelineLike",
     # Errors
     "RedisAdapterError",
+    "RedisClientRequiredError",
     "RedisContinuityStorage",
     "RedisDLQStorage",
     "RedisEventLogAdapter",
@@ -105,12 +113,15 @@ __all__ = [
     "create_redis_pool",
     "create_session_storage",
     "create_solution_storage",
+    "create_tool_router",
+    "create_worker_manager",
     # Codec
     "decode_dict",
     "decode_int_dict",
     "decode_value",
     "event_id_key",
-    # Transport classifier (ADR-082)
+    # Transport classifiers (ADR-082, ADR-084)
+    "is_saturation_error",
     "is_transport_error",
     "parse_agent_id_from_stream_key",
     "stream_key_for_agent",
