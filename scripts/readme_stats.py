@@ -68,8 +68,15 @@ def _tests_loc() -> int:
     return out
 
 
-def _version_badge() -> str:
-    """Render the README version badge from
+def _version_badge(version: str | None = None) -> str:
+    """Render the README version badge.
+
+    ``version`` overrides the derived version. The release
+    workflow needs it: the badge is refreshed **before** the
+    tag is created, so neither the clean tag nor the install
+    reflects the new version at that point.
+
+    Without an override, the version comes from
     ``kntgraph.__version__``.
 
     The badge is a standard shields.io image with
@@ -102,6 +109,11 @@ def _version_badge() -> str:
     3. Otherwise (no tag, e.g. a fresh clone), fall
        back to ``__version__``'s ``base_version``.
     """
+    if version:
+        from packaging.version import Version
+
+        base = Version(version.lstrip("v")).base_version
+        return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
     try:
         # Prefer the clean tag -- "what is the
         # version this commit corresponds to".
