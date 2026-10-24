@@ -318,7 +318,7 @@ class TestDedup:
         redis_mock.get = AsyncMock(side_effect=[None, b"1-0"])
         router = ToolRouter(redis_mock, dedup=True)
         event = _make_canonical_requested("agent-1", "echo")
-        with caplog.at_level(logging.DEBUG, logger="kntgraph.tools.router"):
+        with caplog.at_level(logging.DEBUG, logger="kntgraph.tools._router_dedup"):
             await router.route_batch([event, event])
         # First event wrote the dedup index; second event was
         # a dedup hit (no new pipeline execution for it).

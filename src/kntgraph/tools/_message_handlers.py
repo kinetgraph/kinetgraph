@@ -169,6 +169,39 @@ def log_acl_denial(
     )
 
 
+def build_non_idempotent_failure_event(
+    *,
+    tool_name: str,
+    request_event: Event,
+    idempotency_key: str,
+    principal_id: str | None,
+) -> Event:
+    """Construct the ``tool.<name>.failed`` event for a request
+    the reaper refused to re-run (ADR-085 B').
+
+    The tool's side effects are not idempotent, so the reaper
+    cannot repeat the invocation; it resolves the request with
+    this failure instead. Pure: returns the Event; the caller
+    appends + XACKs.
+    """
+    return Event.create(
+        event_type=f"tool.{tool_name}.failed",
+        agent_id=request_event.agent_id,
+        event_class="domain",
+        causation_id=__import__("uuid").UUID(idempotency_key),
+        data={
+            "error": "non_idempotent_tool_not_rerun",
+            "request_id": idempotency_key,
+            # Permanent: the request is resolved, not retried.
+            # Re-running a non-idempotent tool would repeat its
+            # side effect (a PIX, a bank transfer).
+            "error_class": "permanent",
+        },
+        correlation=request_event.correlation,
+        producer_principal_id=principal_id,
+    )
+
+
 def build_acl_denied_event(
     *,
     tool_name: str,

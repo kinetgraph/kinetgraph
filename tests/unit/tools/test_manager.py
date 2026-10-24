@@ -852,27 +852,31 @@ class TestReaperLoop:
         """
         Exercises the ``except Exception`` arm of the
         reaper loop (``manager.py:299-302``) — a generic
-        ``xautoclaim`` failure must be logged and the
-        loop must keep ticking rather than crash the
-        manager. The fixture uses ``reaper_interval=0.01``
-        so the loop ticks hot; we stop early once we see
-        the first awaited ``xautoclaim`` to avoid the
-        tight spin saturating the scheduler.
+        failure must be logged and the loop must keep
+        ticking rather than crash the manager. The fixture
+        uses ``reaper_interval=0.01`` so the loop ticks
+        hot; we stop early once we see the first awaited
+        call to avoid the tight spin saturating the
+        scheduler.
+
+        ADR-085: the reaper reads the PEL (``XPENDING``)
+        before it claims, so the failure is injected on
+        that first command.
         """
         manager.register(_EchoTool, acl=None)
 
-        redis_mock.xautoclaim = AsyncMock(side_effect=Exception("xautoclaim blip"))
+        redis_mock.xpending_range = AsyncMock(side_effect=Exception("xautoclaim blip"))
         with caplog.at_level(logging.ERROR, logger="kntgraph.tools.manager"):
             await manager.start()
             try:
                 # Bounded wait: first exception is enough —
                 # we just need the ``except`` arm to fire.
                 deadline = asyncio.get_event_loop().time() + 2.0
-                while redis_mock.xautoclaim.await_count < 1 and (
+                while redis_mock.xpending_range.await_count < 1 and (
                     asyncio.get_event_loop().time() < deadline
                 ):
                     await asyncio.sleep(0.01)
-                assert redis_mock.xautoclaim.await_count >= 1
+                assert redis_mock.xpending_range.await_count >= 1
             finally:
                 await manager.stop()
         assert "xautoclaim blip" in caplog.text
@@ -1199,9 +1203,13 @@ class TestKeyPrefix:
     async def test_prefixed_reaper_loop_scans_namespaced_stream(
         self, redis_mock, event_log_mock
     ):
-        """The reaper loop's ``xautoclaim`` targets the
-        prefixed stream key -- otherwise stuck messages on
-        a prefixed queue would never be reclaimed.
+        """The reaper loop's PEL scan targets the prefixed
+        stream key -- otherwise stuck messages on a prefixed
+        queue would never be reclaimed.
+
+        ADR-085: the reaper reads the PEL (``XPENDING``) first;
+        the claim (``XAUTOCLAIM``) follows only for a message
+        that is ready.
         """
         manager = WorkerManager(
             redis_mock, event_log_mock, key_prefix="acme:", reaper_interval=0.01
@@ -1209,18 +1217,19 @@ class TestKeyPrefix:
         manager.register(_EchoTool, acl=None)
 
         redis_mock.xreadgroup = AsyncMock(side_effect=asyncio.CancelledError())
+        redis_mock.xpending_range = AsyncMock(return_value=[])
         redis_mock.xautoclaim = AsyncMock(return_value=("0-0", [], "0-0"))
         await manager.start()
         try:
-            # Bounded wait: the first ``xautoclaim`` is enough
+            # Bounded wait: the first PEL scan is enough
             # to confirm the stream key was passed through.
             deadline = asyncio.get_event_loop().time() + 2.0
-            while redis_mock.xautoclaim.await_count < 1 and (
+            while redis_mock.xpending_range.await_count < 1 and (
                 asyncio.get_event_loop().time() < deadline
             ):
                 await asyncio.sleep(0.01)
-            assert redis_mock.xautoclaim.await_count >= 1
-            assert redis_mock.xautoclaim.await_args.kwargs["name"] == (
+            assert redis_mock.xpending_range.await_count >= 1
+            assert redis_mock.xpending_range.await_args.args[0] == (
                 "acme:knt:tools:echo:queue"
             )
         finally:

@@ -4,17 +4,15 @@
 """
 runner._observability -- ADR-075 Tier 4 read queries.
 
-The four queries that close the gaps flagged in
-ADR-075 §1.3 rows #8–10. They compose on existing primitives
-(``view.tool_requests`` / ``tool_completions`` /
-``DeadLetterQueue.list_*``) — no new event types, no new
-projections, no new system class.
+Four queries that close the gaps flagged in ADR-075 §1.3 rows
+#8-10. They compose existing primitives (``view.tool_requests`` /
+``tool_completions`` / ``DeadLetterQueue.list_*``): no new event
+types, no new projections, no new system class.
 
-Kept separate from ``reactive.py`` so the dispatcher's hot
-path stays under the 500-line guideline (the file was already
-703 lines at extraction time). Module split mirrors the
-saga split pattern (``_system / _compensation / _dispatch /
-_records``).
+Kept separate from ``reactive.py`` so the dispatcher's hot path
+stays under the 500-line guideline (the file was 703 lines at
+extraction time). The split mirrors the saga split pattern
+(``_system / _compensation / _dispatch / _records``).
 """
 
 from __future__ import annotations
@@ -25,6 +23,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import structlog
+
+from kntgraph.core.clock import utcnow
 
 if TYPE_CHECKING:
     from kntgraph.core.world.view import AgentView
@@ -44,12 +44,11 @@ class InFlightTask:
     """A tool task that has been requested but has not yet
     received a terminal event (``completed`` / ``failed``).
 
-    **Read-only view shape** for ADR-075 Tier 4. Materialised
-    from the per-agent ``view.tool_requests`` slot minus the
-    ``view.tool_completions`` slot. The EventLog is the
-    source of truth; ``InFlightTask`` is a cache the
-    dispatcher can answer queries against without forcing
-    a full EventLog scan.
+    **Read-only view shape** for ADR-075 Tier 4, materialised from
+    the per-agent ``view.tool_requests`` slot minus the
+    ``view.tool_completions`` slot. The EventLog is the source of
+    truth; ``InFlightTask`` is a cache the dispatcher queries
+    without scanning the EventLog.
 
     Fields:
     - ``request_event_id``: join key with the tool_events.
@@ -77,12 +76,12 @@ class InFlightTask:
 
     @property
     def is_stale(self) -> bool:
-        """True if the task is past its TTL deadline (now > expires_at).
+        """True if the task is past its TTL deadline
+        (``now > expires_at``).
 
-        Caller passes the current time via the ``now`` parameter
-        on the query; this property compares against
-        ``datetime.now(tz=timezone.utc)``. For deterministic tests
-        use ``now=`` on the query and bypass this property.
+        Compares against the wall clock, so it is not
+        reproducible. A deterministic test passes ``now=`` on the
+        query and reads ``expires_at`` instead of this property.
         """
         return datetime.now(tz=UTC) > self.expires_at
 
@@ -96,10 +95,9 @@ class InFlightTask:
 class RecoveryReport:
     """Output of ``ReactiveDispatcher.detect_and_recover()``.
 
-    A summary that an operator dashboard / cron / alert can
-    persist or page on. Not a guarantee that recovery
-    happened — the sweeper is the recovery path; this report
-    is a structured count of what it did.
+    A count of what the sweeper did, for a dashboard / cron /
+    alert to persist or page on. Not a guarantee that recovery
+    happened: the sweeper is the recovery path.
     """
 
     in_flight_count: int = 0
@@ -121,12 +119,10 @@ def _extract_in_flight(
 ) -> list[InFlightTask]:
     """Compute the in-flight task list for one agent view.
 
-    The split:
-    - For every ``ToolCallRequest`` in ``view.tool_requests``:
-      - if there is **no** matching ``ToolCallCompletion`` in
-        ``view.tool_completions`` keyed by the same
-        ``request_event_id`` ⇒ the task is **in-flight**.
-      - if ``now > request.expires_at`` ⇒ **stale**.
+    A task is in-flight when ``view.tool_requests`` holds a request
+    whose ``request_event_id`` has no sibling in
+    ``view.tool_completions``; it is stale when
+    ``now > request.expires_at``.
 
     Built without copying the dicts: the result holds frozen
     references to the existing view components.
@@ -141,19 +137,17 @@ def _extract_in_flight(
 
     out: list[InFlightTask] = []
     for req in requests_map.values():
-        # Defensive: the slot can contain non-ToolCallRequest
-        # entries (e.g. after a tampered-fold). Skip.
+        # Defensive: the slot can hold non-ToolCallRequest entries
+        # (e.g. after a tampered-fold). Skip.
         req_event_id = getattr(req, "request_event_id", None)
         if req_event_id is None:
             continue
-        # Resolution: completed iff a sibling completion with
-        # the same request_event_id is in completions.
+        # Completed iff a sibling completion carries the same id.
         completed = (
             isinstance(completions_map, Mapping) and req_event_id in completions_map
         )
         if completed:
             continue
-        # Materialise the read shape.
         params = getattr(req, "params", {}) or {}
         corr = getattr(req, "correlation_id", None)
         out.append(
@@ -182,17 +176,14 @@ def in_flight_tasks(
     agent_id: str | None = None,
     now: datetime | None = None,
 ) -> list[InFlightTask]:
-    """Return all in-flight tool tasks across the dispatcher's
-    tracked agents (ADR-075 §2.4 row #8).
+    """Return the in-flight tool tasks of the dispatcher's tracked
+    agents (ADR-075 §2.4 row #8).
 
-    ``agents_to_views`` is the dispatcher's
-    ``world.views``-style mapping (the dispatcher already
-    maintains it as ``self._tracked_agents`` + ``World``).
-
-    ``agent_id=None`` ⇒ all tracked agents. With
+    ``agents_to_views`` is the dispatcher's ``world.views``-style
+    mapping. ``agent_id=None`` scans every tracked agent; with
     ``agent_id`` set, only that agent's view is scanned.
     """
-    now = now or datetime.now(tz=UTC)
+    now = now or utcnow()
     out: list[InFlightTask] = []
     targets = [agent_id] if agent_id is not None else list(agents_to_views)
     for aid in targets:
@@ -215,7 +206,7 @@ def stale_tasks(
     #11). The threshold is the recovery race window
     (``stale but not yet recovered``).
     """
-    now = now or datetime.now(tz=UTC)
+    now = now or utcnow()
     threshold = timedelta(seconds=threshold_seconds)
     return [
         t
@@ -236,19 +227,14 @@ async def dead_lettered_tasks(
     """Read DLQ entries awaiting operator action
     (ADR-075 §2.4 row #10).
 
-    Composes the existing ``DeadLetterQueue.list_*`` API —
-    no new storage path. Accepts ``dlq=None`` (returns [])
-    so callers can conditionally wire the DLQ without
-    branching at every call site.
+    Composes the existing ``DeadLetterQueue.list_*`` API — no new
+    storage path. ``dlq=None`` returns ``[]``, so callers can wire
+    the DLQ conditionally without branching at every call site.
 
-    Storage failures surface as an empty list with a
-    ``structlog`` warning (the metric sink reports zero
-    DLQ entries, not a Redis hiccup; AGENTS.md §6: the
-    underlying facade now returns ``Result`` — this
-    observer stays best-effort at the metric-collection
-    layer because the operator-facing recovery loop in
-    :mod:`tool_call_ttl_sweeper` is the canonical surfacing
-    point).
+    A storage failure surfaces as an empty list plus a ``structlog``
+    warning: the metric sink reports zero DLQ entries rather than
+    a Redis hiccup. The operator-facing recovery loop in
+    :mod:`tool_call_ttl_sweeper` is the canonical surfacing point.
     """
     if dlq is None:
         return []
@@ -287,36 +273,32 @@ async def stuck_in_queue(
     threshold_seconds: float = 300.0,
     now: float | None = None,
 ) -> list[str]:
-    """Stream-keys whose queue length is non-zero AND no
-    XPENDING / active consumer ⇒ message stuck.
+    """Tool names whose queue holds messages that no worker is
+    processing.
 
-    ADR-075 §2.4 row #9. **Decomposes into two primitives** on
-    the storage Protocol:
+    ADR-075 §2.4 row #9. **Decomposes into two primitives** on the
+    storage Protocol:
 
     - ``stream_inspector.queue_length(stream_key)`` returns the
       number of entries ever written to the stream (Redis
       ``XLEN`` semantics).
-    - ``stream_inspector.pending_count(stream_key)`` returns
-      the count of un-acked entries currently held in the
-      tool consumer group's PEL (Redis ``XPENDING`` semantics,
-      single-probe).
+    - ``stream_inspector.pending_count(stream_key)`` returns the
+      count of un-acked entries currently held in the tool consumer
+      group's PEL (Redis ``XPENDING`` semantics, single-probe).
 
-    A high ``queue_length`` AND zero ``pending_count`` means
-    "messages queued but no worker is processing them" — the
-    stuck case. The query returns the tool names whose queue
-    matches that pattern.
+    A non-zero ``queue_length`` with a zero ``pending_count`` means
+    "messages queued but no worker is processing them" — the stuck
+    case.
 
     ``stream_inspector`` is the dispatcher's ``IncrementalWorldStore``
     (the facade over ``WorldCheckpointStorage``); the facade
-    forwards to the underlying storage so the query composes
-    cleanly with the same adapter the dispatch loop uses for
-    checkpoints.
+    forwards to the underlying storage, so the query composes with
+    the same adapter the dispatch loop uses for checkpoints.
     """
     if stream_inspector is None:
         return []
     out: list[str] = []
-    # Iterate the views to discover tools currently in
-    # flight; for each, check its stream.
+    # Discover the tools currently in flight from the views.
     inferred_tools: set[str] = set()
     for view in agents_to_views.values():
         reqs = view.components.get("tool_requests") if view.components else None
@@ -333,9 +315,9 @@ async def stuck_in_queue(
         pending = await stream_inspector.pending_count(stream_key)
         if pending > 0:
             continue
-        # We don't actually track "last consumption time" here
-        # without extra plumbing; the threshold controls false
-        # positives. A real implementation persists
+        # The last consumption time is not tracked here, so a
+        # long-queued message is reported as stuck regardless of
+        # the threshold. A full implementation persists
         # ``last_tick_at`` per agent and compares.
         out.append(tool_name)  # always include when queue non-empty
     return out

@@ -107,6 +107,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from kntgraph.core.clock import utcnow
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
@@ -172,9 +173,9 @@ class ToolCallTTLSweeperSystem:
     ) -> None:
         """
         ``now``: optional wall-clock injection. Defaults
-        to ``datetime.now(tz=timezone.utc)``. Tests
-        inject a fixed clock for deterministic
-        assertions.
+        to ``core.clock.utcnow()`` — the framework's single
+        wall-clock source (ADR-085 E). Tests inject a fixed
+        clock for deterministic assertions.
 
         ``error_message``: the ``data["error"]`` string
         for the emitted failed event. Defaults to
@@ -219,7 +220,7 @@ class ToolCallTTLSweeperSystem:
         only re-emits when the compensation chain stalls).
         """
         events: list[Event] = []
-        now = self._now or datetime.now(tz=UTC)
+        now = self._now or utcnow()
         # Accept either a ``World`` (production
         # path: the dispatcher passes the post-fold
         # World) or a ``Mapping[str, AgentView]`` (test
