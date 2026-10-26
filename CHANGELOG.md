@@ -15,6 +15,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The reaper no longer reclaims a tool that is still running
+  (ADR-085).** `XAUTOCLAIM`'s `min_idle_time` counts from the last
+  delivery, and a message being processed is in the PEL without an
+  `XACK` — so a tool slower than the global `reaper_idle_time` (300 s)
+  was reclaimed **while it still ran**, and the same request executed
+  twice, in parallel. Verified against a live Redis: `XAUTOCLAIM`
+  reclaimed a message whose tool had 10 s left to run.
+
+  - **The reclaim threshold is per message.** The request carries
+    its remaining TTL, so a slow tool is not reclaimed early.
+    `reaper_idle_time` is the fallback for a payload with no TTL.
+    `XAUTOCLAIM` takes one `min_idle_time` per batch, but the TTL
+    lives in the payload — which only returns *with* the claim. The
+    reaper therefore reads the PEL (`XPENDING`) for the idle time
+    and the stream (`XRANGE`) for the payload, then claims each
+    message individually. A batch claim would take ownership of
+    messages that are not ready to be reclaimed.
+
+  - **The tool owns its timeout.** `@tool_worker(timeout_seconds=)`
+    declares it, `WorkerManager.register()` publishes it, and the
+    router writes it into the request. The declaration lives with
+    the tool that has the latency, instead of being split between
+    the tool and the dispatcher's `ToolCallTTL.per_tool_ttls` —
+    where a divergence re-opened the duplicate execution.
+
+  - **A non-idempotent tool is never re-executed.** The reaper
+    resolves such a request with a failure instead; ADR-075 §3.5
+    promised this for the sweeper and the reaper never had it.
+
+  - **The TTL sweeper now takes its fallback from
+    `core.clock.utcnow()`** instead of calling `datetime.now()`
+    directly, so the framework has one wall-clock source.
+
+- **The TTL sweeper's failure event carries a stable identity
+  (ADR-087).** The emitted event's `data` carried `swept_at` — the
+  wall-clock time of *that* sweep — and the `event_id` is derived
+  from the `data`. Every tick therefore minted a **new** `event_id`
+  for the **same** expired request, and the EventLog — which dedupes
+  on `event_id` — could not collapse them. Measured in production:
+  three `tool.<name>.failed` events with the same
+  `request_event_id` and three different `event_id`s, repeated in
+  two agents.
+
+  The `event_id` is now derived from the request's **stable**
+  properties only; `swept_at` stays in the payload (it is useful
+  audit information) and is excluded from the identity. The
+  invariant is restored: one expired request produces exactly one
+  failure event, regardless of how many ticks observed it, how many
+  dispatcher processes ran, or how many times the process restarted.
+
+  The generalisable rule: **a derived identity must be a function
+  of the thing it identifies, not of the observation.**
+
+- **The tool-queue dedup no longer depends on a value the re-emit
+  changes (ADR-083, ADR-085 §1.5).** The queue-boundary dedup
+  (`ToolRouter(dedup=True)`) collapses a repeated `XADD` of the
+  same event. It cannot help a re-emitter whose `event_id` changes
+  — and the framework's own role systems were such a re-emitter:
+  they passed only `causation_id`, which is auto-referential (the
+  request overwrites `last_event_id`, so the next request's cause
+  is the previous request). The `idempotency_key` mode of
+  `generate_deterministic_event_id` — which excludes the
+  `causation_id` from the hash — was available and unconnected.
+
+  The ADR-083 premise is corrected: the replays in the backoffice
+  incident of 2026-10-14 carried the **same** `event_id` (the
+  re-emitter passed a stable `idempotency_key`), which is why the
+  dedup did resolve that backlog.
+
+### Added
+- **`@tool_worker(timeout_seconds=...)` and
+  `@tool_worker(idempotent=...)`.** `timeout_seconds` is the tool's
+  own latency budget: the declared value travels with the request,
+  so the reaper reclaims it on that threshold rather than the
+  global `reaper_idle_time`. `idempotent` declares whether
+  re-invoking the tool is safe; a non-idempotent tool is resolved
+  with a failure rather than re-run. Both are additive, with
+  defaults that preserve today's behaviour.
+
+- **`WorkerManager.published_timeouts()` and
+  `ToolRouter.publish_timeouts()`.** The wiring that carries a
+  tool's declared timeout to the queued request. Without it, a
+  declared `timeout_seconds` never reaches the payload and the
+  reaper keeps using the global fallback.
+
+### Documentation
+- **ADR-085** — the request-identity and reaper-deadline record
+  (retrofit for the three changes that shipped in `8d1fba2`).
+- **ADR-086** — the domain-declared retry contract (`try_again` /
+  `attempt`), formalising the `idempotency_key` + `attempt` shape a
+  vertical already uses.
+- **ADR-087** — the TTL sweeper's stable failure identity.
+
 ## [0.17.0] — 2026-10-24
 
 ### Changed
