@@ -68,6 +68,27 @@ def _tests_loc() -> int:
     return out
 
 
+def _render_release_badge(base: str) -> str:
+    """Render the README release badge for a version triple.
+
+    The badge follows the row's convention: the ``for-the-badge``
+    style, a logo, and a link to the release page. The link
+    target is the GitHub Release for that tag, so the badge
+    doubles as the "what is the current release" indicator.
+
+    The PyPI badge (a separate, adjacent badge) shows the
+    version published on PyPI; the two are **not**
+    interchangeable -- one tracks the git tag, the other the
+    index -- so they are rendered as distinct badges rather
+    than as a duplicated "version" badge.
+    """
+    return (
+        f"[![release](https://img.shields.io/badge/release-v{base}-blue"
+        f"?style=for-the-badge&logo=github&logoColor=white)]"
+        f"(https://github.com/kinetgraph/kntgraph/releases/tag/v{base})"
+    )
+
+
 def _version_badge(version: str | None = None) -> str:
     """Render the README version badge.
 
@@ -81,7 +102,7 @@ def _version_badge(version: str | None = None) -> str:
 
     The badge is a standard shields.io image with
     the format
-    ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``.
+    ``[![release](.../badge/release-vX.Y.Z-blue?style=for-the-badge&logo=github&logoColor=white)](.../releases/tag/vX.Y.Z)``.
 
     The version is the **base of the latest tag**
     (e.g. ``0.10.0``); the ``+g<sha>`` and ``.devN``
@@ -113,7 +134,7 @@ def _version_badge(version: str | None = None) -> str:
         from packaging.version import Version
 
         base = Version(version.lstrip("v")).base_version
-        return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
+        return _render_release_badge(base)
     try:
         # Prefer the clean tag -- "what is the
         # version this commit corresponds to".
@@ -136,7 +157,7 @@ def _version_badge(version: str | None = None) -> str:
             from packaging.version import Version
 
             base = Version(tag.lstrip("v")).base_version
-            return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
+            return _render_release_badge(base)
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
     # Fallback: parse ``__version__``.
@@ -150,7 +171,7 @@ def _version_badge(version: str | None = None) -> str:
     from packaging.version import Version
 
     base = Version(raw).base_version
-    return f"![Version](https://img.shields.io/badge/version-{base}-blue)"
+    return _render_release_badge(base)
 
 
 def _pytest_count() -> int:
