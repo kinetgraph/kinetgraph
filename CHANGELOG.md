@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-26
+
 ### Changed
 - **The reaper derives the tool's deadline instead of reading a
   published one (ADR-085 §3.2, issue #83).** A tool's latency
@@ -65,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no longer reaches the queue. The tool's declared budget is the
   authority; the reaper's global `reaper_idle_time` remains the
   fallback for a tool that declares none.
+
 
 ## [0.17.1] — 2026-10-26
 
