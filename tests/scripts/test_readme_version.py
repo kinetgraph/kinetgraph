@@ -10,7 +10,7 @@ derived from the git tag by ``setuptools_scm``). The
 test exercises the ``_version_badge()`` helper end
 to end: it imports ``kntgraph`` to get the version
 and asserts the rendered badge follows the
-``![Version](https://img.shields.io/badge/version-...)``
+``[![release](https://img.shields.io/badge/release-vX.Y.Z-blue?...)](...)``
 format.
 
 The test runs in any environment (CI, local
@@ -26,24 +26,34 @@ from scripts.readme_stats import _version_badge
 
 class TestVersionBadge:
     """The README version badge is a markdown image
-    whose alt text is ``Version`` and whose
-    ``badge/version-`` URL fragment matches
+    whose alt text is ``release`` and whose
+    ``badge/release-`` URL fragment matches
     ``kntgraph.__version__``.
     """
 
     def test_badge_format(self) -> None:
         """The badge follows the
-        ``![Version](https://img.shields.io/badge/version-X.Y.Z-blue)``
+        ``[![release](https://img.shields.io/badge/release-vX.Y.Z-blue?style=for-the-badge&logo=github&logoColor=white)](https://github.com/kinetgraph/kntgraph/releases/tag/vX.Y.Z)``
         format, with the version being the
         ``kntgraph.__version__`` (stripped of any
         local / dev suffix so the badge always
         shows a clean ``X.Y.Z``).
+
+        The badge is a **linked** image and carries the
+        row's ``for-the-badge`` style and a logo — the
+        same convention as every sibling badge in the
+        README's quality-gates block.
         """
         badge = _version_badge()
         # The badge starts with the standard
         # markdown image syntax.
-        assert badge.startswith("![")
-        assert "](https://img.shields.io/badge/version-" in badge
+        assert badge.startswith("[![")
+        assert "](https://img.shields.io/badge/release-v" in badge
+        # The style and the logo, matching the row.
+        assert "style=for-the-badge" in badge
+        assert "logo=github" in badge
+        # The link target is the release page.
+        assert "](https://github.com/kinetgraph/kntgraph/releases/tag/v" in badge
 
     def test_badge_contains_clean_version(self) -> None:
         """The badge carries the **base semver triple**
@@ -103,8 +113,87 @@ class TestVersionBadge:
         """
         badge = _version_badge("0.17.0")
 
-        assert "version-0.17.0-blue" in badge, (
+        assert "release-v0.17.0-blue" in badge, (
             f"the explicit version must win; got: {badge!r}"
         )
         # The ``v`` prefix is tolerated.
-        assert "version-0.17.0-blue" in _version_badge("v0.17.0")
+        assert "release-v0.17.0-blue" in _version_badge("v0.17.0")
+
+
+class TestBadgeSync:
+    """The badge updater must not leave the README with two
+    badges claiming to be "the version", and must keep the
+    PyPI badge in step with the release badge.
+
+    The defect these pin: the README carried a
+    ``![Version](.../badge/version-0.17.1-blue)`` badge
+    (no link, no style, no logo — unlike every sibling
+    badge) **and** a ``pypi-0.16.0`` badge that had been
+    hand-edited and never updated. Two badges, two
+    different versions, neither in the row's format.
+    """
+
+    def test_the_pypi_badge_follows_the_release_badge(self) -> None:
+        """A stale PyPI badge is refreshed to the same
+        version."""
+        from scripts.update_version_badge import _sync_pypi_badge
+
+        text = (
+            "[![pypi](https://img.shields.io/badge/pypi-0.16.0-blue"
+            "?style=for-the-badge&logo=pypi&logoColor=white)]"
+            "(https://pypi.org/project/kntgraph/)\n"
+        )
+        out = _sync_pypi_badge(text, "0.17.1")
+        assert "pypi-0.17.1-blue" in out
+        assert "pypi-0.16.0" not in out
+
+    def test_a_missing_pypi_badge_is_inserted_next_to_the_release(self) -> None:
+        """The two badges travel together: the PyPI badge
+        is inserted right after the release badge."""
+        from scripts.update_version_badge import _sync_pypi_badge
+
+        text = (
+            "[![release](https://img.shields.io/badge/release-v0.17.1-blue"
+            "?style=for-the-badge&logo=github&logoColor=white)]"
+            "(https://github.com/kinetgraph/kntgraph/releases/tag/v0.17.1)\n"
+        )
+        out = _sync_pypi_badge(text, "0.17.1")
+        assert "pypi-0.17.1-blue" in out
+        # Adjacent: the pypi badge is on the line right
+        # after the release badge.
+        lines = [line for line in out.splitlines() if "img.shields.io" in line]
+        assert len(lines) == 2
+        assert "release-v" in lines[0]
+        assert "pypi-" in lines[1]
+
+    def test_the_old_version_badge_is_migrated_not_duplicated(self) -> None:
+        """The pre-0.17.1 form (``![Version](.../badge/version-...)``,
+        no link wrapper) is **replaced** by the current
+        form — not left behind as a second badge."""
+        from scripts.update_version_badge import _VERSION_BADGE_RE
+
+        old = "![Version](https://img.shields.io/badge/version-0.16.0-blue)\n"
+        matches = _VERSION_BADGE_RE.findall(old)
+        assert matches, "the legacy badge form must still be recognised"
+
+    def test_the_sibling_badges_are_untouched(self) -> None:
+        """The updater must not rewrite the badges it does
+        not own (``pypi``, ``cc``, ``mi``, ``pyright``,
+        ``coverage``, ``tests``, ``security``, ``audit``)."""
+        from scripts.update_version_badge import _VERSION_BADGE_RE
+
+        siblings = [
+            "[![cc](https://img.shields.io/badge/CC-A%20%282.59%29-brightgreen"
+            "?style=for-the-badge&logo=radar&logoColor=white)]"
+            "(https://radon.readthedocs.io/)",
+            "[![pypi](https://img.shields.io/badge/pypi-0.17.1-blue"
+            "?style=for-the-badge&logo=pypi&logoColor=white)]"
+            "(https://pypi.org/project/kntgraph/)",
+            "[![pyright](https://img.shields.io/badge/pyright-0%20errors-brightgreen"
+            "?style=for-the-badge&logo=microsoft&logoColor=white)]"
+            "(https://microsoft.github.io/pyright/)",
+        ]
+        for line in siblings:
+            assert not _VERSION_BADGE_RE.findall(line), (
+                f"the updater must not match a sibling badge: {line!r}"
+            )
