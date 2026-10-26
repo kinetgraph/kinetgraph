@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] — 2026-10-26
+
 ### Fixed
 - **The reaper no longer reclaims a tool that is still running
   (ADR-085).** `XAUTOCLAIM`'s `min_idle_time` counts from the last
@@ -108,6 +110,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `attempt`), formalising the `idempotency_key` + `attempt` shape a
   vertical already uses.
 - **ADR-087** — the TTL sweeper's stable failure identity.
+
 
 ## [0.17.0] — 2026-10-24
 
