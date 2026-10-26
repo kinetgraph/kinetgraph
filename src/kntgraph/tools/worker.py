@@ -50,10 +50,9 @@ def tool_worker(
     re-executing it.
 
     ``timeout_seconds`` is the tool's own latency budget. ``None``
-    means "no opinion" — the framework applies its default. A
-    declared value travels with the request, so the reaper reclaims
-    the request on the tool's threshold rather than the global
-    ``reaper_idle_time``.
+    means "no opinion" — the reaper uses the global
+    ``reaper_idle_time``. A declared value is applied by the
+    reaper, so the request is reclaimed on the tool's threshold.
     """
 
     def decorator(cls: T) -> T:

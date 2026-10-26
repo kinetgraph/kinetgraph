@@ -261,18 +261,39 @@ reclaimed — the duplicate execution this ADR exists to prevent.
 Implemented by `tools/_ttl.py` (`read_ttl_remaining`) and
 `tools/_reaper.py` (`reclaim_threshold_ms`).
 
-### 3.2 The tool owns its timeout (shipped in `8d1fba2`)
+### 3.2 The tool owns its timeout (shipped in `8d1fba2`; reworked in the issue-83 change)
 
-`@tool_worker(timeout_seconds=...)` declares it, `WorkerManager.register()`
-publishes it (`tools/manager.py`, `_published_timeouts`), and the router
-writes it into the request (`tools/_ttl.py`, `payload_with_ttl`).
+`@tool_worker(timeout_seconds=...)` declares it and
+`WorkerManager.register()` records it (`tools/manager.py`,
+`_published_timeouts`). The reaper — which runs inside the manager,
+and therefore already holds the declaration — derives the deadline
+from it and the request's own timestamp:
 
-The TTL lives in the event's `data`, next to the tool's own
-parameters — the dispatcher's `ToolCallTTL` territory. A missing or
-unusable TTL returns `None`; the caller falls back to the global
-`reaper_idle_time`. The reader never invents a value and never
-raises: a reader that raises would take the reaper down; one that
-guesses would reclaim a message early.
+```
+requested_at + timeout − now
+```
+
+`requested_at` is the request event's `timestamp`, which travels in
+the queued payload (`tools/_ttl.py`, `read_requested_at`).
+
+**The deadline is derived, not published.** The first cut of this
+section had the router write a pre-computed `ttl_remaining` into the
+request's `data`, which required a publication step that nothing
+called — so the declared timeout was recorded and then silently
+ignored (issue #83). Deriving the deadline removes the missing link:
+there is nothing to publish, so there is no wiring to get wrong. It
+also removes two defects the pre-computed TTL had: the value went
+stale while the request waited in the queue, and it spread the
+decision about execution time into the router — the lower-level
+component that only writes a request to a queue.
+
+The same pattern the reaper already used for `idempotent`: a declared
+property read straight off the registered tool.
+
+A missing or unusable timestamp returns `None`; the caller falls
+back to the global `reaper_idle_time`. The reader never invents a
+value and never raises: a reader that raises would take the reaper
+down; one that guesses would reclaim a message early.
 
 ### 3.3 A non-idempotent tool is never re-executed (shipped in `8d1fba2`)
 
@@ -610,6 +631,14 @@ change. They can ship independently, in either order.
    `ReactiveDispatcher` wires the two when it owns both. Otherwise
    §3.2 is inert in practice, and the 300 s fallback silently
    reclaims tools that legitimately take longer. Reviewer decides.
+   **Resolved 2026-10-26:** the framework no longer publishes
+   anything, because nothing needs publishing (issue #83). The
+   reaper derives the deadline from the tool's declared timeout and
+   the request's own timestamp — the same pattern it already used
+   for `idempotent`. `ToolRouter.publish_timeouts()` and the
+   pre-computed `ttl_remaining` are gone; the router is blind to
+   execution time. §3.2 is no longer inert, and there is no wiring
+   for an operator to get wrong.
 5. **Content-hash dedup in the worker (§6, alternative A2).** The
    operator's proposal: the worker already holds the full request
    payload, so it could detect the duplicate **at consumption time**

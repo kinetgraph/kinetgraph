@@ -428,11 +428,11 @@ class WorkerManager:
     # skips messages that are already running. This prevents duplicate side
     # effects without coupling the reaper to a particular execution factory.
     #
-    # Timeouts are declared with the tool and published through this manager.
-    # The router consumes that publication to attach the deadline to each
-    # request, and the reaper reads the deadline back from the queued payload.
-    # Keeping the declaration at registration avoids two competing timeout
-    # sources for the same tool.
+    # Timeouts are declared with the tool and recorded here at registration.
+    # The reaper runs inside this manager, so it reads the declaration
+    # directly and derives each request's deadline from it. Keeping the
+    # declaration at registration avoids two competing timeout sources for
+    # the same tool.
     #
     # ACL policy is selected at registration as well. An explicit policy is
     # evaluated before dispatch, and an omitted policy remains distinguishable

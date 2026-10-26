@@ -428,7 +428,39 @@ async def safe_invoke(tool, **kwargs):
 
 ---
 
-## 8. Tool calls no grafo (FalkorDB)
+## 8. Timeout da tool (ADR-085 §3.2)
+
+Uma tool que demora mais que o `reaper_idle_time` global (300 s)
+é **reclaimada enquanto ainda roda** — a mesma requisição
+executa duas vezes, em paralelo. A tool declara o próprio
+orçamento de latência, e o reaper aplica:
+
+```python
+from kntgraph.tools import tool_worker
+
+
+@tool_worker(name="document_parser", timeout_seconds=900)
+class DocumentParser:
+    async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]:
+        ...
+```
+
+O reaper deriva o deadline do timestamp da requisição mais o
+timeout declarado:
+
+```
+requested_at + timeout − now
+```
+
+**Não há wiring.** A tool declara, o framework aplica. O
+`ToolRouter` não sabe nada sobre tempo de execução — ele escreve
+a requisição na fila e nada mais.
+
+Uma tool que não declara timeout usa o `reaper_idle_time` global.
+
+---
+
+## 9. Tool calls no grafo (FalkorDB)
 
 O `FalkorDBProjector` (veja [graphrag.md](./graphrag.md))
 indexa **toda chamada de tool** completada ou falhada:
@@ -463,7 +495,7 @@ ORDER BY fails DESC;
 
 ---
 
-## 9. Testes
+## 10. Testes
 
 ```bash
 uv run --package kntgraph pytest \
@@ -476,7 +508,7 @@ tools que falam HTTP, use `httpx.MockTransport` ou
 
 ---
 
-## 10. Veja também
+## 11. Veja também
 
 - [routing.md](./routing.md) — semantic routing (M1 intent + M2 args)
 - [security/authorization.md](./security/authorization.md) §0 —

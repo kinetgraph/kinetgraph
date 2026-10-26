@@ -3,20 +3,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Read the per-message TTL from a queued tool request (ADR-085).
+Read a tool request's age from the queued payload (ADR-085).
 
-The dispatcher injects ``ttl_remaining`` into the request's
-``data`` before routing it to the tool queue (ADR-085 A''). The
-reaper reads it back to decide **per message** when a pending
-message may be reclaimed: the message's own TTL, not the global
-``reaper_idle_time``.
+A tool's latency budget is a property of the **tool**: it is how
+long the tool may legitimately take. The ``WorkerManager`` knows
+the tools, so it holds that declaration, and the reaper — which
+runs inside the manager — applies it.
+
+The deadline is therefore **derived**, not published:
+
+    requested_at + timeout − now
+
+``requested_at`` is the request event's own ``timestamp``, which
+travels in the queued payload. Nothing has to be handed to
+anybody, so no wiring exists to get wrong and the router stays
+blind to execution time.
 
 ## The contract
 
 The reader receives the **stream entry's field map** — the shape
 ``XRANGE`` returns: ``{b"payload": <wire json>}``. The wire
 payload is the JSON form of a ``tool.<name>.requested`` event,
-whose ``data`` carries the TTL.
+whose ``timestamp`` is when the request was made.
 
 The reader is deliberately narrow. A reaper that guesses at
 payload shapes is a reaper that can mis-read a deadline, so the
@@ -25,17 +33,15 @@ shapes it accepts are enumerated and pinned by
 
 Three decisions the reader makes:
 
-1. **The TTL lives in the event's ``data``**, next to the tool's
-   own parameters — the dispatcher's ``ToolCallTTL`` territory.
-2. **A missing or unusable TTL returns ``None``.** The caller
-   falls back to the global ``reaper_idle_time``. The reader
-   never invents a value and never raises: a reader that
+1. **The request's age comes from the event's ``timestamp``**,
+   next to the tool's own parameters.
+2. **A missing or unusable timestamp returns ``None``.** The
+   caller falls back to the global ``reaper_idle_time``. The
+   reader never invents a value and never raises: a reader that
    raises would take the reaper down; one that guesses would
    reclaim a message early.
-3. **Zero and negative TTLs are preserved.** They mean "the
-   deadline has passed"; the caller clamps them to zero
-   (reclaimable immediately). Clamping here would erase the
-   distinction between "no TTL" and "expired TTL".
+3. **An expired deadline yields ``0``** — reclaimable
+   immediately.
 
 Why a separate module: the reading is a pure function over a
 wire payload — no Redis dependency, no ``self`` — so it is
@@ -45,21 +51,15 @@ complexity under the gate's ceiling.
 
 from __future__ import annotations
 
-import dataclasses
 import json
-from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from kntgraph.core.clock import utcnow
-from kntgraph.core.event import Event
-from kntgraph.core.world.components import ToolCallTTL
-
-# The key the dispatcher writes and the reaper reads.
-TTL_REMAINING_KEY = "ttl_remaining"
-
 # The key under which a stream entry carries the wire payload.
 _PAYLOAD_KEY = "payload"
+
+# The event field that records when the request was made.
+_TIMESTAMP_KEY = "timestamp"
 
 
 def _as_mapping(value: Any) -> dict[str, Any] | None:
@@ -72,25 +72,25 @@ def _as_mapping(value: Any) -> dict[str, Any] | None:
         return value
     if isinstance(value, bytes):
         try:
-            value = value.decode("utf-8")
+            text = value.decode("utf-8")
         except UnicodeDecodeError:
             return None
-    if isinstance(value, str):
-        try:
-            decoded = json.loads(value)
-        except (TypeError, ValueError):
-            return None
-        if isinstance(decoded, dict):
-            return decoded
-    return None
+    elif isinstance(value, str):
+        text = value
+    else:
+        return None
+    try:
+        decoded = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    return decoded if isinstance(decoded, dict) else None
 
 
-def _unwrap_data(payload: Any) -> dict[str, Any] | None:
-    """Return the request's ``data`` mapping, or ``None``.
+def _unwrap_event(payload: Any) -> dict[str, Any] | None:
+    """Return the request's event envelope, or ``None``.
 
-    Accepts the stream entry's field map (the wire payload
-    lives under ``payload``), the decoded event (the ``data``
-    lives under ``data``), or the ``data`` mapping itself.
+    Accepts the stream entry's field map (the wire payload lives
+    under ``payload``) or the decoded event envelope itself.
     """
     mapping = _as_mapping(payload)
     if mapping is None:
@@ -98,115 +98,39 @@ def _unwrap_data(payload: Any) -> dict[str, Any] | None:
     # A stream entry's field map.
     for key in (_PAYLOAD_KEY, _PAYLOAD_KEY.encode()):
         if key in mapping:
-            nested = _unwrap_data(mapping[key])
+            nested = _unwrap_event(mapping[key])
             if nested is not None:
                 return nested
-    # A decoded event envelope.
-    data = mapping.get("data")
-    if isinstance(data, dict):
-        return data
-    # The ``data`` mapping itself.
-    if TTL_REMAINING_KEY in mapping:
+    # A decoded event envelope carries ``timestamp``.
+    if _TIMESTAMP_KEY in mapping:
         return mapping
-    return mapping
+    return None
 
 
-def read_ttl_remaining(payload: Any) -> float | None:
-    """The message's remaining TTL in seconds, or ``None``.
+def read_requested_at(payload: Any) -> datetime | None:
+    """When the request was made, or ``None``.
 
-    ``None`` means "this payload carries no usable TTL" — the
-    caller falls back to the global ``reaper_idle_time``. A TTL
-    of ``0`` or a negative value means the deadline already
-    passed; the caller clamps it to zero (reclaimable
-    immediately).
+    The request event's own ``timestamp`` is the moment the
+    request was issued. It travels in the queued payload, so the
+    reaper can derive the deadline from it plus the tool's
+    declared timeout — no deadline has to be published to
+    anybody.
+
+    ``None`` means "this payload carries no usable timestamp" —
+    the caller falls back to the global ``reaper_idle_time``.
     """
-    data = _unwrap_data(payload)
-    if data is None:
+    envelope = _unwrap_event(payload)
+    if envelope is None:
         return None
-    raw = data.get(TTL_REMAINING_KEY)
-    if raw is None:
+    stamp = envelope.get(_TIMESTAMP_KEY)
+    if stamp is None:
         return None
     try:
-        return float(raw)
+        return datetime.fromisoformat(str(stamp))
     except (TypeError, ValueError):
         return None
 
 
-def remaining_ttl(
-    *,
-    tool_name: str,
-    requested_at: datetime,
-    published: Mapping[str, float],
-    default: float | None,
-) -> float | None:
-    """The remaining TTL for a request, in seconds.
-
-    The tool's **declared** timeout wins (``published``); the
-    dispatcher's ``default`` is the fallback for a tool that
-    declared no opinion. ``None`` (neither) means the request
-    carries no TTL and the reaper uses its global
-    ``reaper_idle_time``.
-
-    A request that has already waited longer than its budget
-    yields ``0.0`` — reclaimable immediately.
-    """
-    total = published.get(tool_name)
-    if total is None:
-        if default is None:
-            return None
-        total = default
-    elapsed = (utcnow() - requested_at).total_seconds()
-    return max(0.0, total - elapsed)
-
-
-def with_ttl_remaining(event: Event, ttl_seconds: float) -> str:
-    """The request's wire payload, carrying ``ttl_remaining``.
-
-    The TTL lands in the event's ``data``, next to the tool's
-    parameters; the worker reads it back with
-    :func:`read_ttl_remaining`.
-    """
-    enriched = dict(event.data)
-    enriched[TTL_REMAINING_KEY] = ttl_seconds
-    return dataclasses.replace(event, data=enriched).to_json()
-
-
-def payload_with_ttl(
-    *,
-    event: Event,
-    tool_name: str,
-    tool_ttls: ToolCallTTL | None,
-    published: Mapping[str, float],
-) -> str:
-    """The request's wire payload, carrying its remaining TTL.
-
-    The remaining TTL travels with the request so the reaper
-    reclaims each message on its own threshold. Without it the
-    global ``reaper_idle_time`` reclaims a slow tool while it
-    still runs.
-
-    The tool's **declared** timeout wins (``published``);
-    ``tool_ttls`` is the fallback for a tool that declared no
-    opinion. When neither applies the request carries no TTL:
-    the payload is the event's own JSON, byte-for-byte, and the
-    reaper falls back to its global default.
-    """
-    default = None if tool_ttls is None else tool_ttls.ttl_for(tool_name)
-    ttl_seconds = remaining_ttl(
-        tool_name=tool_name,
-        requested_at=event.timestamp,
-        published=published,
-        default=default,
-    )
-    if ttl_seconds is None:
-        return event.to_json()
-    return with_ttl_remaining(event, ttl_seconds)
-
-
 __all__ = [
-    "TTL_REMAINING_KEY",
-    "payload_with_ttl",
-    "read_ttl_remaining",
-    "remaining_ttl",
-    "with_ttl_remaining",
+    "read_requested_at",
 ]

@@ -15,6 +15,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The reaper derives the tool's deadline instead of reading a
+  published one (ADR-085 §3.2, issue #83).** A tool's latency
+  budget belongs to the tool, and the `WorkerManager` is the
+  component that knows the tools. The reaper — which runs inside
+  the manager — therefore derives the deadline directly:
+
+  ```
+  requested_at + timeout − now
+  ```
+
+  `requested_at` is the request event's own `timestamp`, which
+  travels in the queued payload. This is the same pattern the
+  reaper already used for `idempotent`: a declared property read
+  straight off the registered tool.
+
+  **Why.** The previous design had the router write a
+  pre-computed `ttl_remaining` into the request, and the two
+  halves were never joined — no production code called
+  `ToolRouter.publish_timeouts()`, so a declared `timeout_seconds`
+  was recorded and then **silently ignored**. Every operator had to
+  write their own wiring helper, and a tool slower than the global
+  `reaper_idle_time` (300 s) was reclaimed **while it still ran** —
+  the same request executing twice, in parallel. That is the exact
+  failure ADR-085 exists to prevent.
+
+  Deriving the deadline removes the missing link: there is nothing
+  to publish, so there is no wiring to get wrong. It also removes
+  two defects the pre-computed TTL had — the value went stale while
+  the request waited in the queue, and it spread the decision about
+  execution time into the router, the lower-level component that
+  only writes a request to a queue.
+
+  ```python
+  @tool_worker(name="document_parser", timeout_seconds=900)
+  class DocumentParser:
+      async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]:
+          ...
+  ```
+
+  The tool declares its budget; the framework applies it. No wiring.
+
+### Removed
+- **`ToolRouter.publish_timeouts()`** — the router is blind to
+  execution time. It writes the request to the queue and nothing
+  else. Use the tool's own `timeout_seconds` declaration.
+- **`ToolRouter(tool_ttls=...)`** — the dispatcher's per-tool TTL
+  no longer reaches the queue. The tool's declared budget is the
+  authority; the reaper's global `reaper_idle_time` remains the
+  fallback for a tool that declares none.
+
 ## [0.17.1] — 2026-10-26
 
 ### Fixed
@@ -98,10 +149,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults that preserve today's behaviour.
 
 - **`WorkerManager.published_timeouts()` and
-  `ToolRouter.publish_timeouts()`.** The wiring that carries a
-  tool's declared timeout to the queued request. Without it, a
-  declared `timeout_seconds` never reaches the payload and the
-  reaper keeps using the global fallback.
+  `WorkerManager.published_timeout_for()`.** The tool's declared
+  timeout, held by the manager that registered the tool. The reaper
+  reads it to decide when a pending request may be reclaimed.
+
+  `ToolRouter.publish_timeouts()` was the first cut of this wiring
+  and is gone — see the issue-83 change below.
 
 ### Documentation
 - **ADR-085** — the request-identity and reaper-deadline record
