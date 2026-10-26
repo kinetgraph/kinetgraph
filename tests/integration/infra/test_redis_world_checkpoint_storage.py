@@ -130,12 +130,21 @@ class TestRedisWorldCheckpointStorageQueueInspection:
         The dispatcher treats ``0`` as "no stuck this tick" and
         reruns the query next tick — a Redis hiccup never
         escalates into a recovery loop.
+
+        The injected failure is a **transport** error
+        (``redis.exceptions.ConnectionError``), which is the class
+        the adapter's translation table catches (ADR-077 §2.3:
+        the catch list is exhaustive of the transport failure
+        modes). A ``RuntimeError`` would be a programming error
+        and is deliberately *not* caught — swallowing it would
+        hide a bug behind a "0 means nothing stuck" reading.
         """
+        import redis.asyncio as aioredis
 
         # Inject a fake client whose ``xinfo_stream`` raises.
         class _BrokenClient:
             async def xinfo_stream(self, key):  # pragma: no cover
-                raise RuntimeError("redis down")
+                raise aioredis.ConnectionError("redis down")
 
         storage = RedisWorldCheckpointStorage(
             client=_BrokenClient()  # type: ignore[arg-type]
@@ -146,11 +155,16 @@ class TestRedisWorldCheckpointStorageQueueInspection:
     async def test_pending_count_does_not_raise_on_redis_error(
         self, clean_redis
     ) -> None:
-        """Storage returns 0 on backend failure (fail-soft)."""
+        """Storage returns 0 on backend failure (fail-soft).
+
+        See the sibling test: the injected failure is a transport
+        error, the class the translation table catches.
+        """
+        import redis.asyncio as aioredis
 
         class _BrokenClient:
             async def xpending_range(self, **kwargs):  # pragma: no cover
-                raise RuntimeError("redis down")
+                raise aioredis.ConnectionError("redis down")
 
         storage = RedisWorldCheckpointStorage(
             client=_BrokenClient()  # type: ignore[arg-type]

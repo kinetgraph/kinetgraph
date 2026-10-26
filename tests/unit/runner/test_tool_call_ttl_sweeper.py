@@ -162,6 +162,111 @@ class TestSweeperDedup:
         assert evs2[0].data["request_event_id"] == str(request.event_id)
 
 
+class TestSweeperEventIdentity:
+    """The sweeper's failure event must carry a **stable**
+    ``event_id`` across ticks (ADR-087).
+
+    The sweeper's in-memory ``_emitted_failures`` set is a
+    per-process optimisation. The **real** guarantee that one
+    expired request produces one failure event is the EventLog's
+    ``event_id`` dedup — and that guarantee only holds if the
+    ``event_id`` is a function of the request, not of the tick.
+
+    The defect this pins: the emitted event's ``data`` carried
+    ``swept_at`` (the wall-clock time of the sweep). The
+    ``event_id`` is derived from the ``data``, so each tick
+    produced a **different** ``event_id`` for the **same**
+    expired request — and the EventLog, which dedupes on
+    ``event_id``, could not collapse them.
+
+    Measured in production on 2026-10-25: three
+    ``tool.backend_event_publisher.failed`` events with the
+    same ``request_event_id``, the same ``expired_at``, and
+    three different ``event_id``s — repeated in two agents.
+    """
+
+    def test_event_id_is_stable_across_ticks(self) -> None:
+        """Two sweeper instances (the process-restart case)
+        emit the SAME ``event_id`` for the same expired
+        request."""
+        request = _request_event(tool_name="stuck", ts=_ts(0))
+        world = _world_with_request(request, ttl_seconds=300.0)
+
+        # First instance, at T+600.
+        s1 = ToolCallTTLSweeperSystem(now=_ts(600))
+        events1 = s1(world)
+        assert len(events1) == 1
+
+        # Second instance (a fresh process), at T+700 — a
+        # different wall clock, a different ``swept_at``.
+        s2 = ToolCallTTLSweeperSystem(now=_ts(700))
+        events2 = s2(world)
+        assert len(events2) == 1
+
+        # The identities must match, so the EventLog's dedup
+        # collapses them into one.
+        assert events1[0].event_id == events2[0].event_id
+
+    def test_event_id_is_stable_within_one_instance(self) -> None:
+        """The clock moving forward does not change the
+        ``event_id`` the sweeper would emit."""
+        request = _request_event(tool_name="stuck", ts=_ts(0))
+        world = _world_with_request(request, ttl_seconds=300.0)
+
+        first = ToolCallTTLSweeperSystem(now=_ts(600))(world)
+        second = ToolCallTTLSweeperSystem(now=_ts(900))(world)
+
+        assert len(first) == 1
+        assert len(second) == 1
+        assert first[0].event_id == second[0].event_id
+
+    def test_swept_at_still_reports_the_sweep_time(self) -> None:
+        """The fix must NOT drop ``swept_at`` from the
+        payload.
+
+        ``swept_at`` is useful audit information ("when did the
+        sweeper notice this?"). The fix moves it out of the
+        identity hash, not out of the event.
+        """
+        request = _request_event(tool_name="stuck", ts=_ts(0))
+        world = _world_with_request(request, ttl_seconds=300.0)
+
+        events = ToolCallTTLSweeperSystem(now=_ts(600))(world)
+        assert len(events) == 1
+        assert events[0].data["swept_at"] == _ts(600).isoformat()
+
+    def test_distinct_requests_get_distinct_event_ids(self) -> None:
+        """The stability must not collapse two different
+        requests into one identity."""
+        req_a = _request_event(tool_name="alpha", ts=_ts(0))
+        req_b = _request_event(tool_name="beta", ts=_ts(0))
+        world_a = _world_with_request(req_a, ttl_seconds=300.0)
+        world_b = _world_with_request(req_b, ttl_seconds=300.0)
+
+        ev_a = ToolCallTTLSweeperSystem(now=_ts(600))(world_a)
+        ev_b = ToolCallTTLSweeperSystem(now=_ts(600))(world_b)
+
+        assert len(ev_a) == 1
+        assert len(ev_b) == 1
+        assert ev_a[0].event_id != ev_b[0].event_id
+
+    def test_same_request_in_two_agents_shares_the_identity(self) -> None:
+        """The identity is a function of the request, not of
+        the agent's current sweep.
+
+        Two agents can carry the same request id only when the
+        request was routed to both; the identity then matches,
+        which is correct — it is the same request.
+        """
+        request = _request_event(tool_name="stuck", ts=_ts(0))
+        world = _world_with_request(request, ttl_seconds=300.0)
+
+        first = ToolCallTTLSweeperSystem(now=_ts(600))(world)
+        second = ToolCallTTLSweeperSystem(now=_ts(600))(world)
+
+        assert first[0].event_id == second[0].event_id
+
+
 class TestSweeperMultiAgent:
     def test_sweeper_handles_multiple_agents(self) -> None:
         """The sweeper walks every agent in the World

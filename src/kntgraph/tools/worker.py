@@ -21,28 +21,39 @@ def tool_worker(
     *,
     name: str,
     description: str = "",
-    # ``max_concurrency`` é a concorrência de execução por tool no
-    # ``ProcessPoolExecutor``. Cada worker do pool é um processo
-    # separado que importa o módulo do tool e carrega dependências
-    # pesadas (torch, docling, GLiNER, etc.) na primeira invocação.
-    #
-    # O default anterior (10) permitia que até 10 workers carregassem
-    # o mesmo modelo em paralelo, estourando o cgroup em ambiente de
-    # memória limitada (post-mortem 2026-10-07, OOM 137 no backoffice
-    # com cgroup de 4 GB). Para escalar horizontalmente, a solução
-    # correta é subir ``desired_count`` do ECS, não o pool local.
-    # Tools específicas que precisarem de mais (e.g. CPU-bound puro
-    # sem dependência ML) podem sobrescrever explicitamente.
+    # ``max_concurrency`` is the per-tool execution concurrency.
+    # Each pool worker is a separate process that loads the
+    # tool's heavy dependencies (torch, docling, GLiNER) on first
+    # use. A default of 10 let ten workers load the same model in
+    # parallel and exceed the cgroup (post-mortem 2026-10-07, OOM
+    # 137 on the backoffice's 4 GB cgroup). Scale horizontally
+    # through the ECS ``desired_count`` instead of the local pool.
     max_concurrency: int = 1,
     retries: int = 3,
+    idempotent: bool = True,
+    timeout_seconds: float | None = None,
 ) -> Callable[[T], T]:
     """
-    Decorator to mark a class as a Tool Worker (ADR-036).
+    Marks a class as a Tool Worker (ADR-036).
 
-    Validates that the class has an `invoke` method taking `idempotency_key`,
-    and automatically extracts the JSON schema from the method's signature
-    using Pydantic. Injects `name`, `description`, and `input_schema` so
-    the class satisfies the `Describable` protocol.
+    The class must expose an ``invoke`` method that accepts
+    ``idempotency_key``. The decorator extracts the JSON schema of
+    that method with Pydantic and injects ``name``, ``description``
+    and ``input_schema``, so the class satisfies the ``Describable``
+    protocol.
+
+    ``idempotent`` declares whether re-invoking the tool is safe.
+    ``True`` lets the framework re-run it during recovery; ``False``
+    marks a tool with side effects that must happen once (a PIX, a
+    bank transfer, a file mutation outside a transaction). The reaper
+    resolves a non-idempotent request with a failure instead of
+    re-executing it.
+
+    ``timeout_seconds`` is the tool's own latency budget. ``None``
+    means "no opinion" — the framework applies its default. A
+    declared value travels with the request, so the reaper reclaims
+    the request on the tool's threshold rather than the global
+    ``reaper_idle_time``.
     """
 
     def decorator(cls: T) -> T:
@@ -68,14 +79,9 @@ def tool_worker(
                 "must be passable as keyword."
             )
 
-        # Build dynamic Pydantic model to extract schema
-        # Skip 'self' and 'idempotency_key'. ``model_fields``
-        # is typed as ``dict[str, Any]`` because Pydantic's
-        # ``create_model`` accepts a heterogeneous mix of
-        # ``(type, FieldInfo)`` and ``(type, default)`` tuples
-        # plus its own ``__config__``/``__base__``/etc.
-        # kwargs; the strict signature does not narrow that
-        # union, hence ``Any``.
+        # ``model_fields`` holds ``(type, FieldInfo)`` and
+        # ``(type, default)`` tuples mixed with Pydantic's own
+        # kwargs; the strict signature does not narrow that union.
         model_fields: dict[str, Any] = {}
         for param_name, param in sig.parameters.items():
             if param_name in ("self", "idempotency_key"):
@@ -84,15 +90,10 @@ def tool_worker(
             param_type: Any = (
                 Any if param.annotation is inspect.Parameter.empty else param.annotation
             )
-            # Resolve forward references (Python 3.12+ stores
-            # annotations as strings when ``from __future__
-            # import annotations`` is in effect; Pydantic
-            # cannot resolve ``Any`` from the local string
-            # namespace). We use the global namespace of
-            # the module the class lives in (classes do
-            # not have a ``__globals__`` attribute) so
-            # ``Any`` (and other typing primitives imported
-            # in the user module) resolve correctly.
+            # ``from __future__ import annotations`` stores the
+            # annotation as a string, which Pydantic cannot resolve
+            # on its own. The namespace of the class's own module
+            # supplies the typing primitives it refers to.
             if isinstance(param_type, str):
                 try:
                     import importlib as _importlib
@@ -112,31 +113,33 @@ def tool_worker(
                 ):
                     param_type = Any
 
-            if param.default is inspect.Parameter.empty:
-                # Required parameter
-                model_fields[param_name] = (param_type, ...)
-            else:
-                # Optional parameter
-                model_fields[param_name] = (param_type, param.default)
+            # A parameter without a default is required; the
+            # sentinel ``...`` marks it as such in the model.
+            model_fields[param_name] = (
+                param_type,
+                ... if param.default is inspect.Parameter.empty else param.default,
+            )
 
-        # Create a dynamic Pydantic model
         InputModel = create_model(
             f"{cls.__name__}Input", __module__=cls.__module__, **model_fields
         )
-
-        # Get JSON schema
         schema = InputModel.model_json_schema()
-
-        # Clean up some Pydantic artifacts to make it a pure JSON schema
+        # The title repeats the model name, which the caller
+        # already knows; a pure JSON schema carries no title.
         if "title" in schema:
             del schema["title"]
 
-        # Inject metadata into the class
         cls.name = name
         cls.description = description
         cls.input_schema = schema
         cls.__tool_worker_max_concurrency__ = max_concurrency
         cls.__tool_worker_retries__ = retries
+        # ADR-085 B': the reaper holds the tool **class** while the
+        # ``Tool`` Protocol's ``idempotent`` flag is an instance
+        # attribute. The decorator bridges the two.
+        cls.__tool_worker_idempotent__ = idempotent
+        # ADR-085: the tool's own latency budget.
+        cls.__tool_worker_timeout_seconds__ = timeout_seconds
 
         return cls
 

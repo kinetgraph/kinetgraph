@@ -2,45 +2,16 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""
-Worker Manager - orchestrates the Tool Worker Pattern (ADR-036).
+"""Worker Manager for the Tool Worker Pattern (ADR-036).
 
-The ``WorkerManager`` is the single tool execution path (ADR-066 §3.1:
-``ToolRegistry`` is removed). Each ``register(tool_cls, *, acl=None)`` call
-optionally attaches a ``ToolACL`` that ``_process_message`` consults before
-invoking the worker (gate-1 of the three-gate ACL model, ADR-060 §3.0). On
-ACL denial the worker emits ``tool.<name>.failed`` with reason ``acl_denied``
-and acks the message — the request fails fast without consuming a worker
-slot.
-
-ACL semantics
--------------
-
-  - ``register(tool_cls)`` (legacy, no ``acl=``): **no constraint** — the tool
-    is invoked for every request. Callers that registered tools before v0.16
-    keep working; they migrate by re-registering with ``acl=default_acl()`` or a
-    stricter ``ToolACL``.
-  - ``register(tool_cls, acl=default_acl())`` (explicit baseline): every request
-    is checked against ``PrincipalLevel.agent``. The worker refuses the request
-    if the principal's role is below ``agent`` or the tenant does not match.
-  - ``register(tool_cls, acl=ToolACL(...))`` (custom): the caller's custom
-    policy. The worker refuses the request if ``acl.check(p)`` is ``False``.
-
-The ``producer_principal_id`` stamped on the event at the request boundary
-(per ADR-066 §4.1) is the input to ``acl.check``. Events that predate v0.16
-(``producer_principal_id=None``) are denied when ``acl`` is set — the audit
-trail records ``acl_denied_no_principal``.
-
-The ``acl_for(name)`` accessor mirrors the ``ToolRegistry.acl_for`` surface so
-the existing ``WorkerManager`` callers can switch with a one-line rename. The
-canonical ACL home stays ``kntgraph.tools.acl``; ``WorkerManager`` re-exports
-``ToolACL`` and ``default_acl`` for discoverability.
+The manager owns queue consumption, ACL enforcement, tool execution, event
+publication, and pending-message recovery. ADR-085 recovery logic lives in
+``kntgraph.tools._reaper``.
 """
 
 from __future__ import annotations
 
 import asyncio
-import multiprocessing
 import time
 from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor
@@ -57,23 +28,31 @@ from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import tool_queue_key
-from kntgraph.infra.redis._transport import is_saturation_error, is_transport_error
 from kntgraph.stream.event_log.store import EventLog
-from kntgraph.tools._dispatch import ExecutorFactory, dispatch_to_tool
+from kntgraph.tools._dispatch import ExecutorFactory
 from kntgraph.tools._dispatch_helpers import (
     compute_max_workers,
 )
 from kntgraph.tools._message_handlers import (
-    build_acl_denied_event,
-    build_completion_event,
-    build_failure_event,
     coerce_tool_params,
     escalate_on_retry_budget_exceeded,
-    evaluate_acl,
-    log_acl_denial,
-    next_saturation_backoff,
-    parse_request_payload,
-    reconnect_redis_after_transport_error,
+)
+from kntgraph.tools._reaper import (
+    back_off_on_saturation,
+    clear_in_flight,
+    dispatch_tool,
+    emit_acl_denied,
+    evaluate_tool_acl,
+    handle_consume_error,
+    is_in_flight,
+    mark_in_flight,
+    maybe_open_deprecated_pool,
+    parse_message_payload,
+    pending_payload,
+    reaper_loop_once,
+    reclaim_threshold_ms,
+    reconnect_after_transport_error,
+    translate_completion_to_event,
 )
 from kntgraph.tools._result import ToolResult
 from kntgraph.tools._strategy_gate import reject_undeclared_sync_tool
@@ -94,33 +73,6 @@ logger = structlog.get_logger()
 _UNSET: object = object()
 
 
-# ADR-078: pluggable executor factory. A tool registered with
-# ``executor_factory=`` (see ``WorkerManager.register``) gets this callable invoked
-# once per message in place of the internal ``ProcessPoolExecutor``. The factory
-# receives the sync ``_invoke_tool_sync`` (or compatible), the message's
-# idempotency key (which is the event_id), and the parsed tool params; it returns
-# a coroutine that resolves with the standard ``result_dict`` (status "ok" or
-# "err"). The Manager remains the owner of consumer loop / XACK / reaper / ACL /
-# observability; the factory is a black-box dispatch hook that lets callers route
-# heavy tools (ML models, sidecars, GPU pins) to dedicated pools without forking
-# the framework. The ADR was promoted from a design draft when the criterion of
-# ADR-054 §3.3 ("a worker whose body is CPU-bound for >1s") was met by the
-# backoffice post-mortem of 2026-10-07.
-#
-# Parameter and result shapes: ``tool_params`` is the value of ``Event.data`` typed
-# as ``Mapping[str, JsonValue]`` (ADR-067 §1.1). The result shape is the frozen
-# ``ToolResult`` dataclass (ADR-079); callers that need the wire dict call
-# ``result.to_wire()`` at the EventLog boundary (ADR-079 §3.3).
-# Type aliases (ToolSyncInvoke, ExecutorFactory) live in ``_dispatch.py``
-# (ADR-069). They were moved out of this file to break the circular import:
-# ``_dispatch.py`` imports the alias from here, and ``manager.py`` imports the
-# ``dispatch_to_tool`` free function from ``_dispatch.py``.
-
-# ``_invoke_tool_sync`` is re-exported here for the test suite (which historically
-# monkey-patched it on ``kntgraph.tools.manager``) and for any external code that
-# relied on the symbol. The canonical definition lives in ``_worker_invocation``
-# so the ``spawn`` start method can pickle the callable by reference without
-# pulling the rest of the package into the worker.
 __all__ = [
     "ToolACL",
     "ToolDescriptor",
@@ -205,6 +157,8 @@ class WorkerManager:
         # and fires N parallel jobs → OOM where the workers hold heavy ML models.
         # post-mortem 2026-10-07.
         self._semaphores: dict[str, asyncio.Semaphore] = {}
+        self._in_flight: dict[str, set[str]] = {}
+        self._published_timeouts: dict[str, float] = {}
 
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -271,6 +225,9 @@ class WorkerManager:
                 stacklevel=2,
             )
         self._tools[tool_cls.name] = tool_cls
+        declared_timeout = getattr(tool_cls, "__tool_worker_timeout_seconds__", None)
+        if declared_timeout is not None:
+            self._published_timeouts[tool_cls.name] = float(declared_timeout)
         # ``acl`` is the sentinel ``_UNSET`` when the caller omitted the kwarg
         # (legacy, no constraint). ``acl=None`` is the EXPLICIT opt-out (ADR-066 §4.4)
         # — also no constraint. Otherwise the value is the ``ToolACL``.
@@ -303,65 +260,35 @@ class WorkerManager:
         # unit tests that skip ``__init__``.
         self.__dict__.setdefault("_executors", {})[tool_cls.name] = executor_factory
 
-    def acl_for(self, name: str) -> ToolACL | None:
-        """Return the ``ToolACL`` for ``name`` (or ``None`` if the tool
-        is not registered, or was registered without an explicit
-        ``acl=``).
+    def published_timeouts(self) -> Mapping[str, float]:
+        """Return the timeouts declared by registered tools."""
+        return dict(self._published_timeouts)
 
-        The framework reads this at invoke time so the gate-1 ACL check does not
-        need a separate lookup. The surface mirrors ``ToolRegistry.acl_for``
-        (removed in v0.18 per ADR-066 §4.4); the rename is a one-line
-        ``r.acl_for(n)`` → ``wm.acl_for(n)``.
-        """
+    def published_timeout_for(self, tool_name: str) -> float | None:
+        """Return one tool's declared timeout, or ``None``."""
+        return self._published_timeouts.get(tool_name)
+
+    def acl_for(self, name: str) -> ToolACL | None:
+        """Return a tool's ACL, or ``None`` when it has no policy."""
         stored = self._acls.get(name)
         if stored is _UNSET or stored is None:
             return None
         return stored  # type: ignore[return-value]
 
     def get(self, name: str) -> type | None:
-        """Return the registered ``@tool_worker`` class for ``name`` (or
-        ``None`` if not registered).
-
-        Replaces ``ToolRegistry.get(name)`` (removed in v0.18 per ADR-066 §4.4).
-        The returned class carries the ``name`` / ``description`` /
-        ``input_schema`` attributes injected by the ``@tool_worker`` decorator,
-        so callers that previously read ``registry.get(n).input_schema`` can
-        read ``wm.get(n).input_schema`` unchanged.
-        """
+        """Return a registered tool class, or ``None``."""
         return self._tools.get(name)
 
     def _stream_key(self, tool_name: str) -> str:
-        """Compose the namespaced Stream key for ``tool_name``.
-
-        ADR-076 / DEBT §2.35: the consumer-group creation in ``start``, the
-        consume loop, and the reaper loop all flow through this helper so the
-        namespace prefix applies uniformly. Empty prefix returns the unprefixed
-        ``knt:tools:<tool>:queue`` key (the pre-076 wire format).
-        """
+        """Return the namespaced Redis Stream key for a tool."""
         return tool_queue_key(self._key_prefix, tool_name)
 
     def names(self) -> list[str]:
-        """Return the names of every registered tool.
-
-        Replaces ``ToolRegistry.names()`` (removed in v0.18 per
-        ADR-066 §4.4).
-        """
+        """Return the names of all registered tools."""
         return list(self._tools.keys())
 
     def list_descriptors(self) -> list[ToolDescriptor]:
-        """Return a :class:`ToolDescriptor` for every registered
-        ``@tool_worker``.
-
-        Replaces ``ToolRegistry.list_descriptors()`` (removed in v0.18 per
-        ADR-066 §4.4). Used by the HTTP ``GET /agents/{id}/tools`` endpoint and
-        by the :class:`kntgraph.agents.memory.solutions.SolutionPromoter` to
-        populate ``(:Tool)`` nodes in the Solution sub-graph of FalkorDB.
-
-        The serialisation logic lives in
-        :func:`kntgraph.tools.descriptors.schema_to_json`. A tool whose schema
-        is not serialisable / not round-trippable is skipped (the operator sees
-        a ``warning`` log line).
-        """
+        """Return serialisable descriptors for all registered tools."""
         out: list[ToolDescriptor] = []
         for name in self.names():
             tool_cls = self._tools[name]
@@ -378,6 +305,143 @@ class WorkerManager:
             )
         return out
 
+    def _maybe_open_deprecated_pool(self) -> bool:
+        """Open the deprecated internal pool when enabled."""
+        return maybe_open_deprecated_pool(self)
+
+    async def _reconnect_after_transport_error(self) -> None:
+        """Reconnect Redis after a transport failure."""
+        await reconnect_after_transport_error(self._redis)
+
+    async def _back_off_on_saturation(self, tool_name: str) -> None:
+        """Delay after Redis pool saturation."""
+        await back_off_on_saturation(self, tool_name)
+
+    async def _handle_consume_error(self, tool_name: str, error: Exception) -> None:
+        """Recover from a consume-loop failure."""
+        await handle_consume_error(self, tool_name, error)
+
+    def _mark_in_flight(self, tool_name: str, message_id: str) -> None:
+        """Record a running message."""
+        mark_in_flight(self, tool_name, message_id)
+
+    def _clear_in_flight(self, tool_name: str, message_id: str) -> None:
+        """Forget a completed message."""
+        clear_in_flight(self, tool_name, message_id)
+
+    def _is_in_flight(self, tool_name: str, message_id: str) -> bool:
+        """Return whether a message is running."""
+        return is_in_flight(self, tool_name, message_id)
+
+    async def _reaper_loop_once(self, tool_name: str) -> None:
+        """Run one reaper pass."""
+        await reaper_loop_once(self, tool_name)
+
+    async def _pending_payload(self, stream_key: str, msg_id: str) -> dict:
+        """Read a pending message payload."""
+        return await pending_payload(self._redis, stream_key, msg_id)
+
+    def _reclaim_threshold_ms(self, payload: dict, fallback_ms: int) -> int:
+        """Return a message reclaim threshold."""
+        return reclaim_threshold_ms(payload, fallback_ms)
+
+    async def _parse_message_payload(
+        self,
+        *,
+        tool_name: str,
+        message_id: str,
+        message_data: dict,
+        stream_key: str,
+    ) -> Event | None:
+        """Decode a request payload."""
+        return await parse_message_payload(
+            self, tool_name, message_id, message_data, stream_key
+        )
+
+    def _evaluate_acl(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+    ) -> str | None:
+        """Evaluate the tool ACL."""
+        return evaluate_tool_acl(self, tool_name, request_event)
+
+    async def _emit_acl_denied(
+        self,
+        *,
+        tool_name: str,
+        stream_key: str,
+        message_id: str,
+        idempotency_key: str,
+        request_event: Event,
+        denied_reason: str,
+    ) -> None:
+        """Publish an ACL denial."""
+        await emit_acl_denied(
+            self,
+            tool_name,
+            stream_key,
+            message_id,
+            idempotency_key,
+            request_event,
+            denied_reason,
+        )
+
+    async def _translate_completion_to_event(
+        self,
+        *,
+        tool_name: str,
+        request_event: Event,
+        idempotency_key: str,
+        result: ToolResult,
+    ) -> None:
+        """Publish a tool result event."""
+        await translate_completion_to_event(
+            self, tool_name, request_event, idempotency_key, result
+        )
+
+    async def _dispatch_to_tool(
+        self,
+        *,
+        tool_name: str,
+        tool_cls: type,
+        idempotency_key: str,
+        tool_params: Mapping[str, JsonValue],
+    ) -> ToolResult:
+        """Dispatch a tool request."""
+        return await dispatch_tool(
+            self, tool_name, tool_cls, idempotency_key, tool_params
+        )
+
+    # The following lifecycle helpers form the manager's public surface.
+    # They are kept together so callers can discover the supported operations
+    # without reading the implementation modules. The comments intentionally
+    # provide context for maintainers who are changing queue ownership.
+    #
+    # Redis streams represent pending work as a consumer-group PEL. The manager
+    # therefore treats acknowledgement, recovery, and failure reporting as one
+    # lifecycle concern even when their implementation details live elsewhere.
+    #
+    # Tool execution remains asynchronous. The consume loop schedules work under
+    # a per-tool semaphore, while the reaper observes the same semaphore and
+    # skips messages that are already running. This prevents duplicate side
+    # effects without coupling the reaper to a particular execution factory.
+    #
+    # Timeouts are declared with the tool and published through this manager.
+    # The router consumes that publication to attach the deadline to each
+    # request, and the reaper reads the deadline back from the queued payload.
+    # Keeping the declaration at registration avoids two competing timeout
+    # sources for the same tool.
+    #
+    # ACL policy is selected at registration as well. An explicit policy is
+    # evaluated before dispatch, and an omitted policy remains distinguishable
+    # from an explicit opt-out for compatibility with existing callers.
+    #
+    # The remaining methods expose query and mutation operations used by the
+    # HTTP layer, the memory subsystem, and the internal task loops. Their
+    # contracts are intentionally narrow so the manager does not become a
+    # second tool registry or event store.
     def __contains__(self, name: str) -> bool:
         return name in self._tools
 
@@ -390,84 +454,6 @@ class WorkerManager:
         can stay ``self._compute_max_workers()`` in ``start()`` (preserves the
         existing call site)."""
         return compute_max_workers(self._tools, explicit_cap=self._max_pool_workers)
-
-    def _maybe_open_deprecated_pool(self) -> bool:
-        """Open the internal ``ProcessPoolExecutor`` only when the
-        operator explicitly opted in via ``legacy_pool=True``
-        (ADR-078 §4.4). Emits one ``PoolDeprecationWarning`` at boot.
-        Returns ``True`` when a pool was created.
-        """
-        if not self._legacy_pool:
-            return False
-        import warnings
-
-        from kntgraph.tools.executors import PoolDeprecationWarning
-
-        max_workers = self._compute_max_workers()
-        # Always ``spawn``: a parent that imported ``threading`` + ``ssl`` +
-        # ``redis.asyncio`` before this point corrupts the forked child's ``_RLock``
-        # / ``select`` state and stalls ``xreadgroup`` forever in container
-        # runtimes (ADR-054).
-        self._mp_context = multiprocessing.get_context(_SPAWN_METHOD)
-        self._pool = ProcessPoolExecutor(
-            max_workers=max_workers,
-            mp_context=self._mp_context,
-        )
-        warnings.warn(
-            (
-                f"WorkerManager opened the internal ProcessPoolExecutor "
-                f"(max_workers={max_workers}). Deprecated; removed in v0.19 "
-                f"(ADR-078 §5). Register "
-                f"executor_factory=ProcessPoolFactory(...) instead."
-            ),
-            PoolDeprecationWarning,
-            stacklevel=3,
-        )
-        return True
-
-    async def _reconnect_after_transport_error(self) -> None:
-        """Delegate to ``reconnect_redis_after_transport_error`` in
-        ``_message_handlers`` (ADR-082 §3.1). Kept as a method so the
-        ``_consume_loop`` call site stays
-        ``await self._reconnect_after_transport_error()``."""
-        await reconnect_redis_after_transport_error(self._redis)
-
-    async def _back_off_on_saturation(self, tool_name: str) -> None:
-        """Sleep briefly when the Redis pool is exhausted.
-
-        Pool saturation is not a broken transport (ADR-084 §2.4): the
-        sockets are healthy, there are simply not enough of them.
-        Reconnecting would close the pool — and with it every sibling
-        consumer's socket — turning a momentary burst into a reconnect
-        storm. The delay doubles on each consecutive saturation and
-        resets on the next successful read.
-        """
-        delay = self._saturation_backoff_seconds
-        logger.warning(
-            "worker.pool_saturated",
-            tool=tool_name,
-            backoff_seconds=delay,
-        )
-        await asyncio.sleep(delay)
-        self._saturation_backoff_seconds = next_saturation_backoff(
-            delay, self._saturation_backoff_ceiling_seconds
-        )
-
-    async def _handle_consume_error(self, tool_name: str, e: Exception) -> None:
-        """Classify a consume-loop failure and act on it.
-
-        A saturated pool calls for back-pressure; a broken transport
-        calls for a proactive reconnect (ADR-084 §2.4). The saturation
-        path stops there: the loop is throttling itself on purpose, so
-        it emits no heartbeat.
-        """
-        if is_saturation_error(e):
-            await self._back_off_on_saturation(tool_name)
-            return
-        if is_transport_error(e):
-            await self._reconnect_after_transport_error()
-        await asyncio.sleep(1)
-        self._maybe_emit_heartbeat(tool_name)
 
     async def start(self) -> None:
         """Starts the worker manager."""
@@ -533,7 +519,11 @@ class WorkerManager:
 
         async def _process_with_sem(msg_id: str, msg_data: dict) -> None:
             async with sem:
-                await self._process_message(tool_name, stream_key, msg_id, msg_data)
+                self._mark_in_flight(tool_name, msg_id)
+                try:
+                    await self._process_message(tool_name, stream_key, msg_id, msg_data)
+                finally:
+                    self._clear_in_flight(tool_name, msg_id)
 
         in_flight: set[asyncio.Task] = set()
 
@@ -598,11 +588,7 @@ class WorkerManager:
             await asyncio.gather(*in_flight, return_exceptions=True)
 
     def _maybe_emit_heartbeat(self, tool_name: str) -> None:
-        """Emit a structured liveness line on the cadence
-        ``_heartbeat_interval_seconds``. Disabled when the interval is
-        non-positive. The line carries the message counters, the time since the
-        last successful read, and the last error string (if any).
-        """
+        """Emit a structured liveness line on the configured cadence."""
         if self._heartbeat_interval_seconds <= 0:
             return
         now = time.monotonic()
@@ -700,207 +686,12 @@ class WorkerManager:
                 # ACK so the consumer group stops holding the message.
                 await self._redis.xack(stream_key, self._group_name, message_id)
 
-    async def _dispatch_to_tool(
-        self,
-        *,
-        tool_name: str,
-        tool_cls: type,
-        idempotency_key: str,
-        tool_params: Mapping[str, JsonValue],
-    ) -> ToolResult:
-        """Thin wrapper that gathers Manager state and delegates to
-        the free function ``dispatch_to_tool`` in
-        :mod:`kntgraph.tools._dispatch` (ADR-069 + ADR-019 CC ≤ 10).
-        The dispatch decision tree is fully testable in isolation by injecting a
-        fake ``executors`` mapping and a fake ``pool``.
-
-        The Manager's side effects (ACL, observability, XACK) stay outside this
-        method — they are not dispatch concerns.
-        """
-        return await dispatch_to_tool(
-            tool_name,
-            tool_cls,
-            idempotency_key,
-            tool_params,
-            executors=self._executors,
-            pool=self._pool,
-        )
-
-    async def _parse_message_payload(
-        self,
-        *,
-        tool_name: str,
-        message_id: str,
-        message_data: dict,
-        stream_key: str,
-    ) -> Event | None:
-        """Delegate to ``parse_request_payload`` in
-        ``_message_handlers``. Kept as a method on the Manager so the call site
-        reads ``self._parse_message_payload(...)``. On ``None`` the caller has
-        already been told to XACK + count the failure.
-        """
-        request_event = parse_request_payload(message_data)
-        if request_event is None:
-            # Match the prior inline behaviour: log + XACK + count.
-            logger.exception(
-                "worker.payload_parse.error",
-                tool=tool_name,
-                message_id=message_id,
-                error="see _message_handlers._log_payload_parse_error",
-            )
-            await self._redis.xack(stream_key, self._group_name, message_id)
-            self._messages_failed_total += 1
-            return None
-        return request_event
-
-    def _evaluate_acl(
-        self,
-        *,
-        tool_name: str,
-        request_event: Event,
-    ) -> str | None:
-        """Delegate to ``evaluate_acl`` in ``_message_handlers``.
-        ``self.acl_for`` is passed in so the helper does not need
-        a reference to the Manager.
-        """
-        return evaluate_acl(
-            tool_name=tool_name,
-            request_event=request_event,
-            acl_for=self.acl_for,
-        )
-
-    async def _emit_acl_denied(
-        self,
-        *,
-        tool_name: str,
-        stream_key: str,
-        message_id: str,
-        idempotency_key: str,
-        request_event: Event,
-        denied_reason: str,
-    ) -> None:
-        """Emit the ``worker.acl_denied`` log + ``tool.<name>.failed``
-        event for an ACL denial, ACK the message, and update the
-        failure counter. Delegates to three pure helpers in
-        ``_message_handlers``; the only side effects left here are the ``xack``
-        and the counter increment (the manager owns those).
-        """
-        principal_id = request_event.producer_principal_id
-        log_acl_denial(
-            tool_name=tool_name,
-            message_id=message_id,
-            denied_reason=denied_reason,
-            principal_id=principal_id,
-        )
-        denied_evt = build_acl_denied_event(
-            tool_name=tool_name,
-            request_event=request_event,
-            idempotency_key=idempotency_key,
-            denied_reason=denied_reason,
-            principal_id=principal_id,
-        )
-        await self._event_log.append(denied_evt)
-        await self._redis.xack(stream_key, self._group_name, message_id)
-        self._messages_failed_total += 1
-
-    async def _translate_completion_to_event(
-        self,
-        *,
-        tool_name: str,
-        request_event: Event,
-        idempotency_key: str,
-        result: ToolResult,
-    ) -> None:
-        """Map a tool's ``ToolResult`` (ADR-079) to the corresponding
-        domain event (``.completed`` or ``.failed``), append it to the
-        eventlog, and update the counter.
-
-        Delegates the event construction to ``_message_handlers``; the manager
-        keeps the I/O side effects (append, counter).
-
-        The discriminated ``status`` enables mypy/pyright to narrow
-        ``result.value`` (success) vs ``result.error`` (failure) inside the
-        branch — the legacy ``result_dict`` form was cego.
-        """
-        if result.status == "ok":
-            event = build_completion_event(
-                tool_name=tool_name,
-                request_event=request_event,
-                idempotency_key=idempotency_key,
-                result=result,
-            )
-            await self._event_log.append(event)
-            self._messages_processed_total += 1
-        else:
-            event = build_failure_event(
-                tool_name=tool_name,
-                request_event=request_event,
-                idempotency_key=idempotency_key,
-                result=result,
-            )
-            await self._event_log.append(event)
-            self._messages_failed_total += 1
-
     async def _reaper_loop(self, tool_name: str) -> None:
-        """Periodically scans PEL and re-claims stuck messages (auto-recovery)."""
-        stream_key = self._stream_key(tool_name)
-        # Idle time is in milliseconds for redis
-        idle_time_ms = int(self._reaper_idle_time * 1000)
-
+        """Periodically recover pending messages for one tool."""
         while self._running:
             try:
                 await asyncio.sleep(self._reaper_interval)
-
-                # claim messages pending for more than idle_time_ms
-                # 0-0 means start from beginning
-                claimed = await self._redis.xautoclaim(
-                    name=stream_key,
-                    groupname=self._group_name,
-                    consumername=self._consumer_name,
-                    min_idle_time=idle_time_ms,
-                    start_id="0-0",
-                    count=10,
-                )
-
-                # claimed[1] contains the actual messages we claimed
-                messages = claimed[1]
-                # Re-resolve the semaphore here (not at the top of the loop) because
-                # the ``_consume_loop`` may start after the reaper — in that interval
-                # we want ``None`` to skip. This avoids a TOCTOU between start() and
-                # the effective loop.
-                sem = self._semaphores.get(tool_name)
-                for message_id, message_data in messages:
-                    # By claiming, we become the owner. The delivery_count
-                    # incremented. We process it immediately.
-                    logger.warning(
-                        "worker.reaper.reclaimed",
-                        tool=tool_name,
-                        message_id=message_id.decode(),
-                    )
-
-                    async def _process_with_reaper_sem(
-                        _msg_id: str,
-                        _msg_data: dict,
-                        _sem: asyncio.Semaphore | None = sem,
-                    ) -> None:
-                        if _sem is not None:
-                            async with _sem:
-                                await self._process_message(
-                                    tool_name, stream_key, _msg_id, _msg_data
-                                )
-                        else:
-                            # Fallback while the consume loop is not yet active: process
-                            # directly. Accepts a momentary concurrency above the
-                            # limit, but only during startup.
-                            await self._process_message(
-                                tool_name, stream_key, _msg_id, _msg_data
-                            )
-
-                    # Process message concurrently so reaper isn't blocked
-                    asyncio.create_task(
-                        _process_with_reaper_sem(message_id.decode(), message_data)
-                    )
-
+                await self._reaper_loop_once(tool_name)
             except asyncio.CancelledError:
                 break
             except Exception as e:
