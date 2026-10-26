@@ -20,12 +20,17 @@ The dedup index lives in its own Redis namespace
 (``knt:tools:<name>:idem:<id>``), separate from the EventLog
 dedup (``knt:eventids:<id>``), so a shared Redis does not let
 a tool-queue entry collide with an EventLog entry.
+
+The router knows nothing about execution time. A tool's
+latency budget belongs to the tool, and the ``WorkerManager`` —
+which knows the tools — applies it when the reaper decides
+whether a pending request may be reclaimed (ADR-085 §3.2).
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -35,7 +40,6 @@ from redis import exceptions as redis_exceptions
 
 from kntgraph.core.event import Event
 from kntgraph.core.tool_event import ToolEventKind, parse_tool_event
-from kntgraph.core.world.components import ToolCallTTL
 from kntgraph.infra.redis._prefix import validate_prefix
 from kntgraph.infra.redis._tools import (
     DEDUP_TTL_SECONDS_DEFAULT,
@@ -43,7 +47,6 @@ from kntgraph.infra.redis._tools import (
     tool_queue_key,
 )
 from kntgraph.tools._router_dedup import route_with_dedup
-from kntgraph.tools._ttl import payload_with_ttl
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +65,6 @@ class ToolRouter:
     at the ``XADD`` boundary: a request whose ``event_id`` was
     already routed is skipped. ``dedup_ttl_seconds`` bounds the
     index size (default 1 h).
-
-    ``tool_ttls`` is the dispatcher's per-tool TTL, the
-    fallback for a tool that declares no timeout of its own.
-    ``publish_timeouts()`` adopts the timeouts the registered
-    tools declared, and those win.
     """
 
     def __init__(
@@ -76,7 +74,6 @@ class ToolRouter:
         key_prefix: str = "",
         dedup: bool = False,
         dedup_ttl_seconds: int = DEDUP_TTL_SECONDS_DEFAULT,
-        tool_ttls: ToolCallTTL | None = None,
     ):
         # Validated once here; ``_stream_key`` does not re-check.
         validate_prefix(key_prefix)
@@ -86,12 +83,6 @@ class ToolRouter:
         # deployment that never opted in.
         self._dedup = dedup
         self._dedup_ttl_seconds = dedup_ttl_seconds
-        # The dispatcher's per-tool TTL, the fallback for a tool
-        # that declares none. ``None`` leaves the TTL unset.
-        self._tool_ttls = tool_ttls
-        # The timeouts the registered tools declared. They win
-        # over ``_tool_ttls``.
-        self._published_timeouts: dict[str, float] = {}
 
     def _stream_key(self, tool_name: str) -> str:
         """The namespaced queue key for ``tool_name``."""
@@ -147,21 +138,6 @@ class ToolRouter:
             return parsed.tool_name
         return None
 
-    def publish_timeouts(self, timeouts: Mapping[str, float]) -> None:
-        """Adopt the timeouts the registered tools declared.
-
-        The operator calls this with
-        ``worker_manager.published_timeouts()`` after registering
-        the tools. Each request then carries its own TTL, so the
-        reaper reclaims it on that threshold instead of the
-        global ``reaper_idle_time``.
-
-        A declared timeout wins over ``tool_ttls``: the tool
-        knows its own latency budget, and one declaration is
-        the point.
-        """
-        self._published_timeouts.update(timeouts)
-
     async def route_batch(self, events: Iterable[Event]) -> None:
         """Routes the batch's ``tool.*.requested`` events to
         the tool queues.
@@ -179,14 +155,7 @@ class ToolRouter:
 
             if tool_name:
                 stream_key = self._stream_key(tool_name)
-                payload_dict = {
-                    "payload": payload_with_ttl(
-                        event=event,
-                        tool_name=tool_name,
-                        tool_ttls=self._tool_ttls,
-                        published=self._published_timeouts,
-                    )
-                }
+                payload_dict = {"payload": event.to_json()}
                 try:
                     if self._dedup:
                         handled = await self._route_one_with_dedup(

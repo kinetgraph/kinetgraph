@@ -42,9 +42,14 @@ from kntgraph.tools.manager import WorkerManager
 from kntgraph.tools.worker import tool_worker
 
 
-@tool_worker(name="idem", max_concurrency=1, retries=3)
+@tool_worker(name="idem", max_concurrency=1, retries=3, timeout_seconds=900)
 class _IdempotentTool:
-    """A tool whose side effects are safe to retry."""
+    """A tool whose side effects are safe to retry.
+
+    It declares a 900 s budget — longer than the global
+    ``reaper_idle_time`` — so the reaper must use the tool's own
+    threshold.
+    """
 
     async def invoke(self, *, idempotency_key: str) -> dict:
         return {}
@@ -112,15 +117,19 @@ class TestToolWorkerIdempotentFlag:
 class TestReaperIdleThreshold:
     pytestmark = pytest.mark.asyncio
 
-    """The reaper must use the message's own TTL when it has
-    one, and fall back to ``reaper_idle_time`` when it does
-    not.
+    """The reaper must use the **tool's** declared timeout when
+    the tool declares one, and fall back to ``reaper_idle_time``
+    when it does not.
+
+    The deadline is derived from the request's own timestamp and
+    the tool's declaration — the reaper runs inside the manager
+    that registered the tool, so it already holds both.
     """
 
     async def test_uses_global_fallback_without_ttl(
         self, redis_mock, event_log_mock
     ) -> None:
-        """A message with no ``ttl_remaining`` uses the global
+        """A tool that declares no timeout uses the global
         ``reaper_idle_time`` — the pre-ADR-085 behaviour."""
         manager = _make_manager(redis_mock, event_log_mock, reaper_idle_time=300.0)
         _prime_pending(redis_mock, "1-0", idle_ms=400_000, payload={})
@@ -129,38 +138,40 @@ class TestReaperIdleThreshold:
 
         assert redis_mock.xautoclaim.await_args.kwargs["min_idle_time"] == 300_000
 
-    async def test_uses_message_ttl_when_present(
+    async def test_uses_the_tool_declared_timeout(
         self, redis_mock, event_log_mock
     ) -> None:
-        """A message carrying ``ttl_remaining`` is reclaimed on
-        ITS OWN threshold, not the global one.
+        """The tool says 900 s; the global says 300 s.
 
-        The message says 900 s; the global says 300 s. The
-        message has been idle for 1000 s — past its own
+        The message has been idle for 1000 s — past its own
         threshold — so it is reclaimable, and the threshold used
-        is the message's 900 s.
+        is the tool's 900 s.
         """
         manager = _make_manager(redis_mock, event_log_mock, reaper_idle_time=300.0)
         _prime_pending(
             redis_mock,
             "1-0",
             idle_ms=1_000_000,
-            payload=_payload_with_ttl(ttl_remaining=900),
+            payload=_payload(age_seconds=0.0),
         )
 
         await manager._reaper_loop_once("idem")  # type: ignore[attr-defined]
 
-        assert redis_mock.xautoclaim.await_args.kwargs["min_idle_time"] == 900_000
+        threshold = redis_mock.xautoclaim.await_args.kwargs["min_idle_time"]
+        assert 899_000 < threshold <= 900_000
 
-    async def test_expired_ttl_clamps_to_zero(self, redis_mock, event_log_mock) -> None:
-        """A TTL that already elapsed must not produce a negative
-        threshold — the message is reclaimable immediately."""
+    async def test_expired_deadline_clamps_to_zero(
+        self, redis_mock, event_log_mock
+    ) -> None:
+        """A request that already blew the tool's budget must not
+        produce a negative threshold — it is reclaimable
+        immediately."""
         manager = _make_manager(redis_mock, event_log_mock, reaper_idle_time=300.0)
         _prime_pending(
             redis_mock,
             "1-0",
             idle_ms=1_000,
-            payload=_payload_with_ttl(ttl_remaining=-5),
+            payload=_payload(age_seconds=1000.0),
         )
 
         await manager._reaper_loop_once("idem")  # type: ignore[attr-defined]
@@ -170,10 +181,10 @@ class TestReaperIdleThreshold:
     async def test_message_below_its_threshold_is_not_claimed(
         self, redis_mock, event_log_mock
     ) -> None:
-        """A message whose idle time is below its own TTL is
+        """A message whose idle time is below the tool's timeout is
         left alone — this is the slow-tool case.
 
-        The global ``reaper_idle_time`` is 300 s but the message
+        The global ``reaper_idle_time`` is 300 s but the tool
         says 900 s: after 400 s of idleness the message is NOT
         ready, because the tool may still be running.
         """
@@ -182,7 +193,7 @@ class TestReaperIdleThreshold:
             redis_mock,
             "1-0",
             idle_ms=400_000,
-            payload=_payload_with_ttl(ttl_remaining=900),
+            payload=_payload(age_seconds=400.0),
         )
 
         await manager._reaper_loop_once("idem")  # type: ignore[attr-defined]
@@ -205,7 +216,7 @@ class TestReaperSkipsNonIdempotent:
             redis_mock,
             "1-0",
             idle_ms=1_000_000,
-            payload=_payload_with_ttl(ttl_remaining=900),
+            payload=_payload(age_seconds=0.0),
         )
 
         dispatched = []
@@ -237,7 +248,7 @@ class TestReaperSkipsNonIdempotent:
             redis_mock,
             "1-0",
             idle_ms=1_000_000,
-            payload=_payload_with_ttl(ttl_remaining=900),
+            payload=_payload(age_seconds=0.0),
         )
 
         await manager._reaper_loop_once("non_idem")  # type: ignore[attr-defined]
@@ -262,7 +273,7 @@ class TestReaperSkipsInFlight:
             redis_mock,
             "1-0",
             idle_ms=1_000_000,
-            payload=_payload_with_ttl(ttl_remaining=900),
+            payload=_payload(age_seconds=0.0),
         )
 
         # The consume loop is executing this message right now.
@@ -286,17 +297,25 @@ class TestReaperSkipsInFlight:
         )
 
 
-def _payload_with_ttl(*, ttl_remaining: float) -> bytes:
-    """A ``tool.<name>.requested`` payload carrying the
-    dispatcher's ``ttl_remaining``."""
+def _payload(*, age_seconds: float = 0.0) -> bytes:
+    """A ``tool.<name>.requested`` payload aged by
+    ``age_seconds``.
+
+    The age is carried by the event's own timestamp — the reaper
+    derives the deadline from it.
+    """
+    from datetime import UTC, datetime, timedelta
+
     from kntgraph.core.event import CorrelationContext, Event
 
+    now = datetime.now(tz=UTC) - timedelta(seconds=age_seconds)
     event = Event.create(
         event_type="tool.idem.requested",
         agent_id="agent-1",
         event_class="domain",
-        data={"tool": "idem", "params": {}, "ttl_remaining": ttl_remaining},
+        data={"tool": "idem", "params": {}},
         correlation=CorrelationContext.new(),
+        timestamp=now,
     )
     return event.to_json().encode()
 

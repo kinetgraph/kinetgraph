@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from kntgraph.core._typing import JsonValue
+from kntgraph.core.clock import utcnow
 from kntgraph.core.event import Event
 from kntgraph.infra.redis._client import RedisLike
 from kntgraph.infra.redis._transport import is_saturation_error, is_transport_error
@@ -250,14 +251,37 @@ async def pending_payload(redis: RedisLike, stream_key: str, msg_id: str) -> dic
     return dict(rows[0][1])
 
 
-def reclaim_threshold_ms(payload: Mapping[str, object], fallback_ms: int) -> int:
-    """Return the reclaim threshold for one message in milliseconds."""
-    from kntgraph.tools._ttl import read_ttl_remaining
+def reclaim_threshold_ms(
+    payload: Mapping[str, object],
+    fallback_ms: int,
+    *,
+    timeout_seconds: float | None = None,
+) -> int:
+    """Return the reclaim threshold for one message in milliseconds.
 
-    ttl_seconds = read_ttl_remaining(payload)
-    if ttl_seconds is None:
+    The threshold is the time the message may still wait. It is
+    derived from the **tool's** declared timeout and the
+    request's own timestamp:
+
+        requested_at + timeout − now
+
+    ``timeout_seconds`` is the tool's declaration — ``None`` when
+    the tool declared none, or when the payload carries no usable
+    timestamp. Either way the caller falls back to the global
+    ``reaper_idle_time``.
+
+    An expired deadline yields ``0`` — reclaimable immediately.
+    """
+    from kntgraph.tools._ttl import read_requested_at
+
+    if timeout_seconds is None:
         return fallback_ms
-    return max(0, int(ttl_seconds * 1000))
+    requested_at = read_requested_at(payload)
+    if requested_at is None:
+        return fallback_ms
+    elapsed = (utcnow() - requested_at).total_seconds()
+    remaining = timeout_seconds - elapsed
+    return max(0, int(remaining * 1000))
 
 
 async def emit_non_idempotent_failure(
@@ -327,11 +351,20 @@ async def reaper_loop_once(manager: WorkerManager, tool_name: str) -> None:
         return
 
     semaphore = manager._semaphores.get(tool_name)
+    # The tool's own latency budget (ADR-085 §3.2). The manager
+    # holds it because it registered the tool; the reaper runs
+    # inside the manager. Nothing has to be published for the
+    # deadline to be known.
+    timeout_seconds = manager.published_timeout_for(tool_name)
     for entry in pending:
         message_id = _decode_message_id(entry["message_id"])
         idle_ms = int(entry.get("time_since_delivered") or 0)
         payload = await pending_payload(manager._redis, stream_key, message_id)
-        threshold_ms = reclaim_threshold_ms(payload, fallback_idle_ms)
+        threshold_ms = reclaim_threshold_ms(
+            payload,
+            fallback_idle_ms,
+            timeout_seconds=timeout_seconds,
+        )
         if idle_ms < threshold_ms:
             continue
         if is_in_flight(manager, tool_name, message_id):
