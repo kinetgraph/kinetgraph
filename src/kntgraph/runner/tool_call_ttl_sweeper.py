@@ -104,11 +104,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import structlog
 
 from kntgraph.core.clock import utcnow
 from kntgraph.core.event import CorrelationContext, Event
+from kntgraph.core.event.id_helpers import generate_deterministic_event_id
 from kntgraph.core.world import World
 from kntgraph.core.world.components import ToolCallRequest
 from kntgraph.core.world.view import AgentView
@@ -116,6 +118,8 @@ from kntgraph.core.world.view import AgentView
 logger = structlog.get_logger()
 
 if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
+
     from ._dlq_protocol import DLQAdapter as DeadLetterQueue
 
 
@@ -126,6 +130,12 @@ if TYPE_CHECKING:
 # worker-reported failures (the latter use the
 # worker's own error string).
 _TTL_EXPIRED_ERROR = "ttl_expired"
+
+# The payload key holding the wall-clock time of the sweep.
+# It is **excluded from the event's identity** (ADR-087): the
+# id must be a function of the request, not of the
+# observation, so the EventLog can collapse the duplicates.
+_SWEPT_AT_KEY = "swept_at"
 
 
 class ToolCallTTLSweeperSystem:
@@ -410,9 +420,25 @@ class ToolCallTTLSweeperSystem:
         **not** emitted here (the bare form does not
         carry a tool name; the sweeper does not
         know what tool the request was for).
-        """
-        from uuid import UUID
 
+        **Stable identity (ADR-087).** The ``event_id``
+        is derived explicitly from the request's
+        **stable** payload — every field except
+        ``swept_at``. ``swept_at`` is the wall-clock
+        time of *this* sweep, so it changes on every
+        tick; leaving it in the derived identity made
+        every tick mint a new ``event_id`` for the
+        same expired request, and the EventLog — which
+        dedupes on ``event_id`` — could not collapse
+        them. Measured in production: three
+        ``tool.<name>.failed`` events with the same
+        ``request_event_id`` and three different
+        ``event_id``s.
+
+        ``swept_at`` is still carried in the event's
+        ``data`` (it is useful audit information); it is
+        only excluded from the identity.
+        """
         tool_name = request.tool_name or "unknown"
         event_type = f"tool.{tool_name}.failed"
         correlation = CorrelationContext.new(correlation_id=request.correlation_id)
@@ -420,20 +446,56 @@ class ToolCallTTLSweeperSystem:
         # ``if req.expires_at is None: continue`` before reaching
         # this method. The assert makes the narrowing explicit for pyright.
         assert request.expires_at is not None
+        data: dict[str, JsonValue] = {
+            "error": self._error_message,
+            "request_event_id": request.request_event_id,
+            "tool_name": tool_name,
+            "expired_at": request.expires_at.isoformat(),
+            _SWEPT_AT_KEY: now.isoformat(),
+        }
         return Event.create(
+            event_id=_stable_failure_event_id(
+                agent_id=agent_id,
+                event_type=event_type,
+                request=request,
+                data=data,
+            ),
             event_type=event_type,
             agent_id=agent_id,
             event_class="domain",
-            data={
-                "error": self._error_message,
-                "request_event_id": request.request_event_id,
-                "tool_name": tool_name,
-                "expired_at": request.expires_at.isoformat(),
-                "swept_at": now.isoformat(),
-            },
+            data=data,
             correlation=correlation,
             causation_id=UUID(request.request_event_id),
         )
+
+
+def _stable_failure_event_id(
+    *,
+    agent_id: str,
+    event_type: str,
+    request: ToolCallRequest,
+    data: Mapping[str, JsonValue],
+) -> UUID:
+    """Derive the failure event's id from the request's
+    **stable** properties (ADR-087).
+
+    ``data`` carries ``swept_at`` — the wall-clock time of
+    *this* sweep — which changes on every tick. Excluding it
+    from the identity is what lets the EventLog collapse the
+    duplicates: the id becomes a function of the request, not
+    of the observation.
+
+    The excluded key is named explicitly rather than derived
+    from a rule ("anything that looks like a timestamp"), so a
+    future field cannot silently destabilise the identity.
+    """
+    identity_data = {key: value for key, value in data.items() if key != _SWEPT_AT_KEY}
+    return generate_deterministic_event_id(
+        causation_id=request.request_event_id,
+        agent_id=agent_id,
+        event_type=event_type,
+        data=identity_data,
+    )
 
 
 __all__ = ["ToolCallTTLSweeperSystem"]
