@@ -1,6 +1,6 @@
 ---
 name: kntgraph-ci-gate
-description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 12-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Also use when deciding whether to run the gate at all (markdown-only edits do not need it). Covers py_compile, ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression, when not to run, markdown, ADR.
+description: Use when running or debugging the kntgraph CI gate (scripts/ci.py) — running the full 13-step gate, iterating on a single step with --only, understanding which tool each step uses, and reading what counts as a pass/fail. Also use when deciding whether to run the gate at all (markdown-only edits do not need it). Covers py_compile, design_gate.py (ADR-089), ruff check, ruff format --check, radon cc/mi, REUSE 3.3, pyright, pytest (unit + integration), branch coverage on framework and verticals, bandit, and pip-audit. Trigger keywords: ci.py, scripts/ci.py, --only, syntax, design, design_gate.py, ADR-089, lint, format, complexity, radon, REUSE, pyright, tests, integration, reliability, verticals, coverage, branch coverage, bandit, pip-audit, KNT_REDIS_FAKE, ci gate, gate, baseline, regression, when not to run, markdown, ADR.
 ---
 
 <!--
@@ -18,11 +18,12 @@ The mandatory gate is one command:
 uv run scripts/ci.py
 ```
 
-It runs **12 steps in order**. All 12 must pass. There is no best-effort mode; the only way to skip a step is `uv run scripts/ci.py --only <step>` (e.g. `--only lint`), which selects that step to the exclusion of the others (for local iteration). The pre-commit hook runs the full set without flags.
+It runs **13 steps in order**. All 13 must pass. There is no best-effort mode; the only way to skip a step is `uv run scripts/ci.py --only <step>` (e.g. `--only lint`), which selects that step to the exclusion of the others (for local iteration). The pre-commit hook runs the full set without flags.
 
 | Step          | Tool                  | Description                                       |
 | ------------- | --------------------- | ------------------------------------------------- |
 | `syntax`      | `py_compile`          | Compiles every `.py` in `src/` and `tests/`       |
+| `design`      | `design_gate.py`      | Architectural fitness gate & boundary enforcement (ADR-089) |
 | `lint`        | `ruff check`          | Lints `src/` and `tests/` with the rules `E, F, W, I, UP, B, A, C4, SIM` (declared in `pyproject.toml` → `[tool.ruff.lint] select`) |
 | `format`      | `ruff format --check` | Verifies the canonical format (zero diffs)        |
 | `complexity`  | `radon cc/mi`         | CC ≤ 10 per block, MI ≥ 20 per file, no regression vs `.radon-baseline.json` |
@@ -102,6 +103,8 @@ is the canonical pre-merge gate.
 
 ```bash
 # Quick local check (no integration, no bandit, no audit)
+python scripts/design_gate.py
+KNT_REDIS_FAKE=1 uv run scripts/ci.py --only design
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only lint
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only format
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only tests

@@ -525,12 +525,21 @@ record**. When in doubt, read the ADR.
 
 ---
 
-## 7. Greppable rules (for review and CI)
+## 7. Automated architectural fitness rules (scripts/design_gate.py)
 
-These greps surface violations. They are **not** in
-`scripts/ci.py` today — the gate is review-driven.
-Adding them to a future CI gate is the natural
-follow-up; the allowlist is in DEBT §2.40.
+These rules are **enforced automatically in CI** via
+`scripts/design_gate.py` (ADR-089), which runs as the
+`design` step in `scripts/ci.py`. Pre-commit and CI will
+reject violations immediately. Run locally with:
+
+```bash
+python scripts/design_gate.py
+# or
+uv run scripts/ci.py --only design
+```
+
+The allowlist for remaining legacy technical debt lives in
+`DEBT.md` §2.40.
 
 ```bash
 # 5.1 — `dict[str, Any]` for a wire payload
