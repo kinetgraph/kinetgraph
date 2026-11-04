@@ -19,7 +19,7 @@ import pytest
 from result import Err, Ok
 
 from kntgraph.concordos.base import Specification, StepContext
-from kntgraph.concordos.fsm import FSMConfig, FSMTransition
+from kntgraph.concordos.fsm import FSMConfig, FSMSystem, FSMTransition
 from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 from kntgraph.core.world import DomainComponent
 from kntgraph.testing.concordo_harness import (
@@ -30,6 +30,7 @@ from kntgraph.testing.concordo_harness import (
     SagaContractVerifier,
     SagaContractViolation,
 )
+from kntgraph.testing.world_builder import AgentViewBuilder, WorldBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +39,7 @@ class OrderStateComponent(DomainComponent):
 
 
 class AlwaysTrueSpec(Specification):
-    def is_satisfied_by(self, context: StepContext) -> bool:
+    def is_satisfied_by(self, ctx: StepContext) -> bool:
         return True
 
 
@@ -132,12 +133,30 @@ def test_fsm_invalid_guard_type_detected() -> None:
 
 
 def test_fsm_purity_passes() -> None:
-    class PureSystem:
-        def __call__(self, world: Any) -> list[Any]:
-            return []
+    config = FSMConfig(
+        component_type=OrderStateComponent,
+        state_field="status",
+        transitions={
+            "created": {
+                "order.pay": FSMTransition(to="paid"),
+            },
+            "paid": {},
+        },
+        terminal=frozenset({"paid"}),
+    )
+    sut_system = FSMSystem(config)
+    view = (
+        AgentViewBuilder("order-123")
+        .with_component(OrderStateComponent(status="created"))
+        .with_trigger("order.pay")
+        .build()
+    )
+    world = WorldBuilder().with_agent(view).build()
 
-    res = FSMContractVerifier.verify_purity(PureSystem(), world=None)  # type: ignore[arg-type]
-    assert res == []
+    events = FSMContractVerifier.verify_purity(sut_system, world)
+    assert len(events) == 1
+    assert events[0].event_type == "fsm.transitioned"
+    assert events[0].data["to"] == "paid"
 
 
 def test_fsm_purity_divergence_detected() -> None:
