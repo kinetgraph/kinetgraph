@@ -97,7 +97,7 @@ But the emitted request is a **domain** event, so folding it
 (`core/world/projection.py`, `_apply_event`):
 
 ```python
-last_event_id=str(event.event_id),
+last_event_id = (str(event.event_id),)
 ```
 
 The loop is therefore self-sustaining:

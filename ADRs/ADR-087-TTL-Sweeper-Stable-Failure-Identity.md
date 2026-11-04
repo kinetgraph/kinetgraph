@@ -37,12 +37,12 @@ The emitted event's `data` carried `swept_at` — the wall-clock time
 of *that* sweep:
 
 ```python
-data={
+data = {
     "error": self._error_message,
     "request_event_id": request.request_event_id,
     "tool_name": tool_name,
     "expired_at": request.expires_at.isoformat(),
-    "swept_at": now.isoformat(),          # <-- wall clock, changes every tick
+    "swept_at": now.isoformat(),  # <-- wall clock, changes every tick
 }
 ```
 

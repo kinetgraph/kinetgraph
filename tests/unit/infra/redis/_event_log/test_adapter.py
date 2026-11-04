@@ -41,7 +41,7 @@ and the three error paths:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -325,3 +325,120 @@ class TestDelete:
         client.delete.assert_awaited_once_with(
             stream_key_for_agent(adapter.key_prefix, "agent-1")
         )
+
+
+# ---------------------------------------------------------------------------
+# subscribe
+# ---------------------------------------------------------------------------
+
+
+class TestSubscribe:
+    async def test_standalone_client_reads_every_stream_in_one_call(
+        self, adapter: RedisEventLogAdapter, client: MagicMock
+    ) -> None:
+        client.xread = AsyncMock(return_value=[])
+        await adapter.subscribe(["agent-1", "agent-2"], block_ms=1000)
+        client.xread.assert_awaited_once()
+        streams = client.xread.call_args.kwargs["streams"]
+        assert set(streams) == {
+            "knt:agents:agent-1:events",
+            "knt:agents:agent-2:events",
+        }
+        assert client.xread.call_args.kwargs["block"] == 1000
+
+
+class TestSubscribeInClusterMode:
+    """A cluster server accepts one ``XREAD`` only over streams
+    that share a hash slot, and the per-agent streams do not
+    share one. The read is split per slot."""
+
+    async def test_read_is_split_per_slot(self, wire_entry) -> None:
+        import redis.asyncio as redis_async
+
+        client = redis_async.RedisCluster(host="localhost", port=6379)
+        adapter = RedisEventLogAdapter(client=client)
+
+        with patch.object(
+            redis_async.RedisCluster,
+            "xread",
+            new=AsyncMock(return_value=[]),
+        ) as xread:
+            await adapter.subscribe(["agent-1", "agent-2"], block_ms=1000)
+
+        assert xread.await_count == 2
+        # The block budget is divided between the groups, so a
+        # whole cycle still waits at most ``block_ms``.
+        assert xread.call_args_list[0].kwargs["block"] == 500
+        assert xread.call_args_list[1].kwargs["block"] == 500
+
+    async def test_each_read_covers_one_stream(self) -> None:
+        import redis.asyncio as redis_async
+
+        client = redis_async.RedisCluster(host="localhost", port=6379)
+        adapter = RedisEventLogAdapter(client=client)
+
+        with patch.object(
+            redis_async.RedisCluster,
+            "xread",
+            new=AsyncMock(return_value=[]),
+        ) as xread:
+            await adapter.subscribe(["agent-1", "agent-2"], block_ms=1000)
+
+        read_streams = [set(call.kwargs["streams"]) for call in xread.call_args_list]
+        assert read_streams == [
+            {"knt:agents:agent-1:events"},
+            {"knt:agents:agent-2:events"},
+        ]
+
+    async def test_cycle_ends_at_the_first_arrival(self, wire_entry) -> None:
+        import redis.asyncio as redis_async
+
+        client = redis_async.RedisCluster(host="localhost", port=6379)
+        adapter = RedisEventLogAdapter(client=client)
+        stream_id, fields = wire_entry(b"7-0")
+        responses = [
+            [],
+            [[b"knt:agents:agent-2:events", [(stream_id, fields)]]],
+        ]
+
+        with patch.object(
+            redis_async.RedisCluster,
+            "xread",
+            new=AsyncMock(side_effect=responses),
+        ) as xread:
+            cursors, events = await adapter.subscribe(
+                ["agent-1", "agent-2"], block_ms=1000
+            )
+
+        assert xread.await_count == 2
+        assert cursors == {"agent-2": "7-0"}
+        assert len(events) == 1
+
+    async def test_cursors_of_the_groups_left_for_the_next_cycle_are_untouched(
+        self, wire_entry
+    ) -> None:
+        """A group that was not read keeps its cursor, so the
+        next cycle resumes where it stopped -- no event is
+        skipped."""
+        import redis.asyncio as redis_async
+
+        client = redis_async.RedisCluster(host="localhost", port=6379)
+        adapter = RedisEventLogAdapter(client=client)
+        stream_id, fields = wire_entry(b"7-0")
+        responses = [
+            [[b"knt:agents:agent-1:events", [(stream_id, fields)]]],
+            [],
+        ]
+
+        with patch.object(
+            redis_async.RedisCluster,
+            "xread",
+            new=AsyncMock(side_effect=responses),
+        ):
+            cursors, _events = await adapter.subscribe(
+                ["agent-1", "agent-2"],
+                cursors={"agent-1": "1-0", "agent-2": "2-0"},
+                block_ms=1000,
+            )
+
+        assert cursors == {"agent-1": "7-0"}

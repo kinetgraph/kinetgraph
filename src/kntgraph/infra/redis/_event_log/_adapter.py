@@ -34,6 +34,7 @@ from kntgraph.core.event import Event
 from kntgraph.core.result import Err, Ok, PersistenceError, Result
 
 from .._client import RedisLike, safe_xrange, safe_xrevrange
+from .._cluster import disconnect_transport
 from .._errors import IdempotencyConflict
 from . import _idempotency
 from ._keys import (
@@ -44,6 +45,7 @@ from ._keys import (
     scan_pattern,
     stream_key_for_agent,
 )
+from ._subscribe import read_streams_by_slot
 
 
 def _event_to_redis(event: Event) -> dict[str, JsonValue]:
@@ -338,6 +340,10 @@ class RedisEventLogAdapter:
         arrivals) yields ``({}, [])`` — the caller falls
         back to its periodic poll, keeping the
         notification-is-a-hint invariant of ADR-068 §3.1.
+
+        In cluster mode the read is split per hash slot, so
+        the subscriber holds one connection per read instead
+        of one for the whole wait (DEBT §2.41).
         """
         # Per-stream start id: the exclusive form of the
         # caller's cursor, or the full-history sentinel when
@@ -352,8 +358,13 @@ class RedisEventLogAdapter:
             else:
                 streams[stream_key_for_agent(self.key_prefix, agent_id)] = cursor
 
-        response = await self.client.xread(streams=streams, count=count, block=block_ms)
-        return _flatten_xread_response(response, self.key_prefix)
+        return await read_streams_by_slot(
+            self.client,
+            streams,
+            block_ms=block_ms,
+            count=count,
+            prefix=self.key_prefix,
+        )
 
     async def close_transport(self) -> None:
         """Close the sockets so the next command reconnects
@@ -370,11 +381,17 @@ class RedisEventLogAdapter:
         promise is not kept. ``pool.disconnect()`` closes the
         socket while leaving the pool usable (ADR-084 §3.3).
 
+        The pool layout differs between the two drivers: a
+        standalone client keeps its sockets in one pool, a
+        cluster client in one pool per node. The seam in
+        :mod:`kntgraph.infra.redis._cluster` owns that
+        difference.
+
         Swallows transport exceptions on the close path
         (mirrors ``RedisPool.aclose``).
         """
         try:
-            await self.client.connection_pool.disconnect(inuse_connections=True)
+            await disconnect_transport(self.client)
         except (
             redis_exceptions.RedisError,
             ConnectionError,

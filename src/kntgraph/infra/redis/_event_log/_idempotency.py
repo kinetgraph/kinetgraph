@@ -82,19 +82,13 @@ async def _claim_phase(
     is written under ``idem_key`` with ``nx=True`` so a
     concurrent claim does not overwrite an existing entry.
 
-    The pipeline is **not transactional** (``transaction=False``):
-    in Redis Cluster (MemoryDB/Valkey) a ``MULTI/EXEC`` spanning
-    keys from different hash slots fails with ``CROSSSLOT``. The
-    EventLog keys do not share a slot — the stream is tagged by
-    agent (``knt:agents:{agent_id}:events``) and the idempotency
-    index by event id (``knt:eventids:{event_id}``) — so the
-    transactional form is rejected by the server on every append.
-
-    Mutual exclusion does not rely on ``MULTI``: it comes from the
-    three-phase protocol itself (``SET ... NX`` elects a single
-    writer, the ``PLACEHOLDER`` marks the write in flight and a
-    concurrent claim raises :class:`IdempotencyConflict``). The
-    commands still travel in a single round-trip.
+    The pipeline is **not transactional**
+    (``transaction=False``): a ``MULTI/EXEC`` whose keys land
+    in different hash slots is rejected with ``CROSSSLOT`` by
+    a cluster server, and the EventLog keys do not share a
+    slot (see :mod:`kntgraph.infra.redis._cluster`). Mutual
+    exclusion comes from the three-phase protocol (``SET ...
+    NX`` elects one writer), not from the transaction.
     """
     pipe = redis.pipeline(transaction=False)
     pipe.xadd(stream_key, payload, maxlen=maxlen)

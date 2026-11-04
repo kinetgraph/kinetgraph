@@ -7,8 +7,9 @@ RedisLike — framework-level Protocol for the Redis client.
 
 Per AGENTS.md §1, the framework never imports third-party
 libraries at the boundary. Every Redis call site accepts a
-``RedisLike`` Protocol; the concrete implementation
-(``redis.asyncio.Redis``) is hidden behind the adapter.
+``RedisLike`` Protocol; the concrete implementations
+(``redis.asyncio.Redis`` and ``redis.asyncio.RedisCluster``)
+are hidden behind the adapter.
 
 Method coverage was audited against all modules that today
 import ``redis.asyncio`` directly. Only methods the
@@ -16,10 +17,13 @@ framework actually uses appear here. Adding a new method
 to the call sites must be followed by declaring it in this
 Protocol.
 
-The pool behind the client is declared separately, as
-``ConnectionPoolLike`` (see :mod:`._connection_pool`): the
-client's surface is driven by the framework's Redis commands,
-the pool's by the connection-lifecycle policy (ADR-084).
+The connection pool is deliberately **not** part of this
+Protocol. A standalone client owns one pool; a cluster client
+(``redis.asyncio.RedisCluster``) owns one pool per node and
+exposes no ``connection_pool`` attribute at all. The
+reconnect path that needs the sockets lives in
+:mod:`kntgraph.infra.redis._cluster`, which knows both
+layouts (ADR-082 §3.2, ADR-084 §3.3).
 
 Why ``@runtime_checkable``
 --------------------------
@@ -35,7 +39,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
-from ._connection_pool import ConnectionPoolLike
 from ._pipeline import PipelineLike
 
 
@@ -55,9 +58,9 @@ class RedisLike(Protocol):
       - **Streams** — the EventLog (one stream per agent) and the
         tool queues (one stream per tool), trimmed with ``maxlen``.
       - **Scan** — key enumeration for the DLQ and the sweeper.
-      - **Pipelines** — the transactional path used by the
-        EventLog idempotency claim.
-      - **Lifecycle** — ``aclose()`` plus ``connection_pool``.
+      - **Pipelines** — the write paths that touch more than
+        one key.
+      - **Lifecycle** — ``aclose()``.
     """
 
     # String / key-value. The short-memory tier (session, profile,
@@ -195,9 +198,6 @@ class RedisLike(Protocol):
 
     # Lifecycle
     async def aclose(self) -> None: ...
-
-    @property
-    def connection_pool(self) -> ConnectionPoolLike: ...
 
 
 async def safe_xrange(

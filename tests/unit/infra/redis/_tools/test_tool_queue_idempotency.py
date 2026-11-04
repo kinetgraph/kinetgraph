@@ -89,6 +89,12 @@ class TestClaimPhase:
             redis, STREAM_KEY, {"k": "v"}, maxlen=None, idem_key=IDEM_KEY
         )
 
+        # Not transactional: a MULTI/EXEC whose keys land in
+        # different hash slots is rejected with CROSSSLOT by a
+        # cluster server, and the tool-queue stream and the
+        # dedup index do not share a slot. The mutual exclusion
+        # comes from the SET NX claim, not from the transaction.
+        redis.pipeline.assert_called_once_with(transaction=False)
         pipe.xadd.assert_called_once_with(STREAM_KEY, {"k": "v"}, maxlen=None)
         pipe.set.assert_called_once()
         set_kwargs = pipe.set.call_args.kwargs

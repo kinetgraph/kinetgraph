@@ -26,6 +26,7 @@ def _fake_redis() -> MagicMock:
 
     pipe = MagicMock()
     pipe.set = MagicMock(return_value=pipe)
+    pipe.unlink = MagicMock(return_value=pipe)
     pipe.execute = AsyncMock(return_value=[True, True])
     redis.pipeline = MagicMock(return_value=pipe)
     return redis
@@ -75,6 +76,10 @@ class TestRedisWorldCheckpointStoragePrefix:
         storage = RedisWorldCheckpointStorage(client=redis, key_prefix="acme:")
         await storage.save("agent-1", b"payload", cursor="10-0")
 
+        # Not transactional: the payload and the cursor live in
+        # different hash slots, and a cluster server rejects a
+        # MULTI/EXEC that spans slots with CROSSSLOT.
+        redis.pipeline.assert_called_once_with(transaction=False)
         pipe = redis.pipeline.return_value
         pipe.set.assert_any_call("acme:knt:world:agent-1", b"payload", ex=None)
         pipe.set.assert_any_call("acme:knt:world-cursor:agent-1", b"10-0", ex=None)
@@ -83,9 +88,17 @@ class TestRedisWorldCheckpointStoragePrefix:
         redis = _fake_redis()
         storage = RedisWorldCheckpointStorage(client=redis, key_prefix="acme:")
         await storage.discard("agent-1")
-        redis.unlink.assert_awaited_once_with(
-            "acme:knt:world:agent-1", "acme:knt:world-cursor:agent-1"
-        )
+        # One UNLINK per key: the two keys live in different hash
+        # slots and a cluster server rejects a multi-key UNLINK
+        # with CROSSSLOT.
+        redis.pipeline.assert_called_once_with(transaction=False)
+        pipe = redis.pipeline.return_value
+        unlinked = [call.args[0] for call in pipe.unlink.call_args_list]
+        assert unlinked == [
+            "acme:knt:world:agent-1",
+            "acme:knt:world-cursor:agent-1",
+        ]
+        pipe.execute.assert_awaited_once()
 
 
 @pytest.mark.asyncio

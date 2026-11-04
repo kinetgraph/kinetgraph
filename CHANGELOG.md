@@ -15,6 +15,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Redis Cluster / Valkey cluster mode (`KNT_REDIS_CLUSTER=true`).**
+  A cluster server rejects a command that touches keys from
+  different hash slots (`CROSSSLOT`), and the framework's keys
+  carry no hash tag. Four write paths assumed they could:
+
+  - the EventLog idempotency claim (the patch that started this
+    work — the stream is tagged by agent, the dedup index by
+    event id);
+  - the tool-queue dedup claim (stream tagged by tool, dedup
+    index by event id);
+  - the World checkpoint pair (payload + cursor) and its
+    `discard`;
+  - the DLQ `purge` (four keys in one `DEL`).
+
+  Each now issues one command per key through a non-transactional
+  pipeline. The mutual exclusion the claims depend on comes from
+  their own protocol (a `SET ... NX` claim), not from `MULTI/EXEC`,
+  so the claims keep their semantics. The checkpoint pair is
+  ordered payload-first, so a crash between the two writes costs
+  duplicated work, never a lost event.
+
+  The pool builds `redis.asyncio.RedisCluster` when the setting is
+  on: it follows the topology (it resolves the `MOVED` redirects a
+  standalone client cannot) and walks every node on `SCAN`. The
+  URL must not select a database — Redis Cluster has none.
+
+  The EventLog fan-in is split per slot: a cluster server accepts
+  one `XREAD` only over streams that share a slot, so the
+  subscriber reads one group at a time with the block budget
+  divided between the groups. One connection is held at a time;
+  the cost is N round-trips per cycle instead of 1, which is the
+  degradation DEBT §2.41 tracks with the architectural follow-up
+  (a shared wake-up stream).
+
+  New seam: `infra/redis/_cluster.py` owns the difference between
+  the two drivers (detection, slot grouping, socket handling).
+
+- **The retry backoff uses the non-deprecated `tenacity` API.**
+  `wait_exponential_jitter(initial=...)` is deprecated in favour of
+  `multiplier=...`; the two are equivalent (`initial=X` sets
+  `multiplier=X`), so the backoff schedule is unchanged. The
+  deprecation warning was failing the suite, which turns warnings
+  into errors.
+
 ## [0.18.0] — 2026-10-26
 
 ### Changed
@@ -53,8 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ```python
   @tool_worker(name="document_parser", timeout_seconds=900)
   class DocumentParser:
-      async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]:
-          ...
+      async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]: ...
   ```
 
   The tool declares its budget; the framework applies it. No wiring.

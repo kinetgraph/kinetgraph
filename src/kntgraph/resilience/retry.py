@@ -169,7 +169,7 @@ def retry_with_backoff(
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_attempts),
-                wait=wait_exponential_jitter(initial=base_delay, max=max_delay),
+                wait=wait_exponential_jitter(multiplier=base_delay, max=max_delay),
                 retry=retry_if_exception_type(safe_retry_on),
                 reraise=reraise,
             ):
@@ -234,7 +234,7 @@ async def retry_async[**P, T](
 
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential_jitter(initial=base_delay, max=max_delay),
+        wait=wait_exponential_jitter(multiplier=base_delay, max=max_delay),
         retry=retry_if_exception_type(safe_retry_on),
         reraise=True,
     ):

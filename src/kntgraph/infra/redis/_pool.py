@@ -4,11 +4,12 @@
 """
 RedisPool — connection pool + factory.
 
-This module is the only place in the framework that imports
-``redis.asyncio`` directly (besides ``_client.py``'s
-``TYPE_CHECKING`` block). Construction is the single point
-that touches ``from_url`` / ``ConnectionPool``; consumers
-receive a ``RedisLike``-typed view, not the concrete class.
+This module and :mod:`kntgraph.infra.redis._cluster` are the
+only places in the framework that import ``redis.asyncio``
+directly (besides ``_client.py``'s ``TYPE_CHECKING`` block).
+Construction is the single point that touches ``from_url`` /
+``ConnectionPool``; consumers receive a ``RedisLike``-typed
+view, not the concrete class.
 
 Two entry points:
 
@@ -16,6 +17,11 @@ Two entry points:
     ``Settings`` instance.
   - ``create_redis_pool(settings=None)`` — convenience
     factory used by ``scripts/ci.py`` and tests.
+
+``Settings.redis_cluster`` (env: ``KNT_REDIS_CLUSTER``)
+switches the driver to the cluster client. The seam that owns
+the difference between the two drivers lives in
+:mod:`kntgraph.infra.redis._cluster`.
 
 Namespace prefix (ADR-076)
 --------------------------
@@ -38,7 +44,6 @@ introduce a malformed prefix.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import structlog
 from redis import exceptions as redis_exceptions
@@ -46,10 +51,7 @@ from redis import exceptions as redis_exceptions
 from kntgraph.infra.config import Settings, fresh_settings
 
 from ._client import RedisLike
-
-if TYPE_CHECKING:
-    import redis.asyncio as redis_async
-
+from ._cluster import RedisDriver, build_client, close_client
 
 logger = structlog.get_logger()
 
@@ -60,30 +62,18 @@ class RedisPool:
     and the namespace prefix (ADR-076).
     """
 
-    _client: redis_async.Redis
+    _client: RedisDriver
     _key_prefix: str = ""
 
     @classmethod
     def from_settings(cls, settings: Settings | None = None) -> RedisPool:
         """Build a pool from ``Settings`` (or ``fresh_settings()`` if None)."""
         settings = settings or fresh_settings()
-        import redis.asyncio as redis_async
-        from redis.asyncio.connection import ConnectionPool
-
-        pool = ConnectionPool.from_url(
-            settings.redis_url,
-            max_connections=settings.redis_max_connections,
-            decode_responses=False,
-            socket_connect_timeout=5,
-            socket_timeout=settings.redis_socket_timeout,
-            socket_keepalive=True,
-            retry_on_timeout=True,
-            health_check_interval=settings.redis_health_check_interval,
-        )
-        client = redis_async.Redis(connection_pool=pool)
+        client = build_client(settings)
         logger.info(
             "redis_pool.created",
             url=settings.redis_url,
+            cluster=settings.redis_cluster,
             max_connections=settings.redis_max_connections,
             key_prefix=settings.redis_key_prefix,
         )
@@ -119,8 +109,7 @@ class RedisPool:
         The close is best-effort: a transport error is logged, not raised.
         """
         try:
-            await self._client.aclose()
-            await self._client.connection_pool.aclose()
+            await close_client(self._client)
         except (
             redis_exceptions.RedisError,
             ConnectionError,

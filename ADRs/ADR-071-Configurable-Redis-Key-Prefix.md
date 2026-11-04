@@ -99,6 +99,7 @@ Quando o valor for `""`, o `PrefixedRedisClient` opera como um *pass-through* se
 from typing import Any, AsyncIterator
 from kntgraph.infra.redis._client import RedisLike
 
+
 class PrefixedRedisClient:
     """Wrapper proxy sobre RedisLike para prefixagem transparente de chaves."""
 
@@ -113,7 +114,7 @@ class PrefixedRedisClient:
 
     def _unprefix_key(self, key: str) -> str:
         if self._prefix and key.startswith(self._prefix):
-            return key[len(self._prefix):]
+            return key[len(self._prefix) :]
         return key
 
     async def get(self, name: str) -> Any:
@@ -125,7 +126,9 @@ class PrefixedRedisClient:
     async def xadd(self, name: str, fields: dict[str, Any], **kwargs: Any) -> Any:
         return await self._inner.xadd(self._prefix_key(name), fields, **kwargs)
 
-    async def scan_iter(self, match: str | None = None, **kwargs: Any) -> AsyncIterator[str]:
+    async def scan_iter(
+        self, match: str | None = None, **kwargs: Any
+    ) -> AsyncIterator[str]:
         pattern = self._prefix_key(match) if match else None
         async for key in self._inner.scan_iter(match=pattern, **kwargs):
             yield self._unprefix_key(key)
@@ -144,7 +147,7 @@ redis_pool = create_redis_pool(settings.REDIS_URL)
 # 2. Encapsulamento com o Proxy PrefixedRedisClient
 prefixed_client = PrefixedRedisClient(
     inner=redis_pool.client,
-    prefix=settings.BO_REDIS_KEY_PREFIX, # ex: "soldi:backoffice:"
+    prefix=settings.BO_REDIS_KEY_PREFIX,  # ex: "soldi:backoffice:"
 )
 
 # 3. Injeção transparente nos adaptadores do Kinetgraph

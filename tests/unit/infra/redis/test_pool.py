@@ -62,33 +62,38 @@ class TestRedisPool:
         the client owns it, and ``from_settings`` builds the pool
         explicitly — so the framework, which created it, must close
         it.
+
+        The client is a real ``redis.asyncio.Redis`` over a real
+        pool: the close path branches on the concrete driver (a
+        cluster client owns one pool per node instead), so a fake
+        would not exercise the branch that runs in production.
         """
+        import redis.asyncio as redis_async
+
         from kntgraph.infra.redis import RedisPool
 
+        class _StubWriter:
+            def close(self) -> None:
+                pass
+
+            async def wait_closed(self) -> None:
+                return None
+
+        conn_pool = redis_async.ConnectionPool.from_url(
+            "redis://localhost:6379", max_connections=50
+        )
+        client = redis_async.Redis(connection_pool=conn_pool)
+        conn = redis_async.Connection()
+        conn._reader = object()  # type: ignore[assignment]
+        conn._writer = _StubWriter()  # type: ignore[assignment]
+        conn_pool._available_connections.append(conn)
+
         pool = RedisPool.__new__(RedisPool)
-
-        # Inject a fake client to verify aclose is awaited.
         # RedisPool is frozen, so use object.__setattr__ to bypass.
-        class FakePool:
-            def __init__(self):
-                self.closed = False
-
-            async def aclose(self):
-                self.closed = True
-
-        class FakeClient:
-            def __init__(self):
-                self.closed = False
-                self.connection_pool = FakePool()
-
-            async def aclose(self):
-                self.closed = True
-
-        fake = FakeClient()
-        object.__setattr__(pool, "_client", fake)
+        object.__setattr__(pool, "_client", client)
         await pool.aclose()
-        assert fake.closed
-        assert fake.connection_pool.closed, (
+
+        assert conn._reader is None and conn._writer is None, (
             "the connection pool was not closed — its sockets leak (ADR-084 §1.2)"
         )
 
@@ -136,3 +141,44 @@ class TestRedisPool:
             RedisPool.from_settings(settings)
             kwargs = mock_from_url.call_args.kwargs
             assert kwargs["health_check_interval"] == 0
+
+
+class TestRedisPoolClusterMode:
+    """``KNT_REDIS_CLUSTER`` switches the driver.
+
+    The cluster driver follows the topology (it resolves the
+    ``MOVED`` redirects a standalone client cannot), walks every
+    node on ``SCAN``, and splits a non-transactional pipeline per
+    node. The standalone driver does none of that.
+    """
+
+    async def test_cluster_mode_is_off_by_default(self):
+        from kntgraph.infra.config import fresh_settings
+
+        assert fresh_settings().redis_cluster is False
+
+    async def test_cluster_mode_builds_the_cluster_driver(self):
+        from kntgraph.infra.config import Settings
+        from kntgraph.infra.redis import RedisPool
+
+        settings = Settings(redis_url="redis://test-host:6379", redis_cluster=True)
+        with patch("redis.asyncio.RedisCluster.from_url") as mock_from_url:
+            RedisPool.from_settings(settings)
+            mock_from_url.assert_called_once()
+            args, kwargs = mock_from_url.call_args
+            assert "redis://test-host:6379" in (args or ())
+            assert kwargs.get("max_connections") == settings.redis_max_connections
+            assert kwargs.get("decode_responses") is False
+
+    async def test_standalone_mode_is_the_default(self):
+        from kntgraph.infra.config import Settings
+        from kntgraph.infra.redis import RedisPool
+
+        settings = Settings(redis_url="redis://test-host:6379")
+        with (
+            patch("redis.asyncio.RedisCluster.from_url") as mock_cluster,
+            patch("redis.asyncio.connection.ConnectionPool.from_url") as mock_pool,
+        ):
+            RedisPool.from_settings(settings)
+            mock_cluster.assert_not_called()
+            mock_pool.assert_called_once()

@@ -10,6 +10,7 @@ Sub-modules
 
 - :mod:`._client`        — ``RedisLike`` Protocol (typed boundary)
 - :mod:`._pool`          — ``RedisPool`` connection pool + factory
+- :mod:`._cluster`       — cluster-mode seam (slot grouping, driver)
 - :mod:`._codec`         — bytes↔str helpers
 - :mod:`._errors`        — typed errors
 - :mod:`._factory`       — high-level factories (settings-driven)

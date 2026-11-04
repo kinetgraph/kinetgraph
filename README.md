@@ -232,6 +232,7 @@ Pydantic v2 `BaseSettings`. The canonical schema is `Settings` in
 | Env var | Default |
 | --- | --- |
 | `KNT_REDIS_URL` | `redis://localhost:6379` |
+| `KNT_REDIS_CLUSTER` | `false` (set to `true` for Redis Cluster / Valkey cluster mode; the URL must not select a database) |
 | `KNT_FALKORDB_HOST` | `localhost` |
 | `KNT_FALKORDB_PORT` | `16379` |
 | `KNT_STREAM_MAXLEN` | `100_000` |
