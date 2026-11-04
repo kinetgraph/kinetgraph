@@ -60,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deprecation warning was failing the suite, which turns warnings
   into errors.
 
+- **`filelock` is pinned to 4.2.9 (security).** filelock 3.x carries
+  13 known CVEs (CVE-2026-112907..CVE-2026-112940, fixed in 4.2.1);
+  they hit the soft and read-write lock classes, which the framework
+  does not use. `litellm` still caps `filelock<4.0`, so the lock
+  resolves it through a `uv` override — the OS-level `FileLock` that
+  `litellm`, `huggingface-hub` and `cachecontrol` use keeps its API in
+  4.x. Drop the override when `litellm` lifts its own cap.
+
 ## [0.18.0] — 2026-10-26
 
 ### Changed
