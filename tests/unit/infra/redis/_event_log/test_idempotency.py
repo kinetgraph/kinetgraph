@@ -97,7 +97,13 @@ class TestClaimPhase:
             maxlen=1000,
             idem_key=IDEM_KEY,
         )
-        redis.pipeline.assert_called_once_with(transaction=True)
+        # Nao transacional: em Redis Cluster (MemoryDB/Valkey) um
+        # MULTI/EXEC com chaves de slots diferentes falha com
+        # CROSSSLOT — e as chaves do EventLog (stream tagueada por
+        # agent, indice tagueado por event id) nao compartilham slot.
+        # A exclusao mutua vem do protocolo de tres fases (SET NX +
+        # PLACEHOLDER), nao do MULTI.
+        redis.pipeline.assert_called_once_with(transaction=False)
         pipe.xadd.assert_called_once()
         pipe.set.assert_called_once_with(IDEM_KEY, PLACEHOLDER, nx=True, ex=60)
         pipe.execute.assert_awaited_once()

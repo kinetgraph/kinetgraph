@@ -399,6 +399,12 @@ class RedisDLQStorage:
         (XINFO raises on a missing stream — treat as 0).
         The outer wrap is
         :func:`translate_redis_call` per ADR-077.
+
+        The 4 keys are deleted through a non-transactional
+        pipeline, one key per command: they live in different
+        hash slots, and a cluster server rejects a multi-key
+        ``DEL`` with ``CROSSSLOT`` (see
+        :mod:`kntgraph.infra.redis._cluster`).
         """
         from .._translation import translate_redis_call_fall_back
 
@@ -417,8 +423,15 @@ class RedisDLQStorage:
             fallback=0,
             key=self._k(DLQ_STREAM_KEY),
         )
+
+        async def _purge_keys() -> None:
+            pipe = self.client.pipeline(transaction=False)
+            for key in self._all_keys():
+                pipe.delete(key)
+            await pipe.execute()
+
         result = await translate_redis_call(
-            self.client.delete(*self._all_keys()),
+            _purge_keys(),
             op_name="dlq_storage.purge",
             error_cls=MemoryError,
             key="<dlq-all-keys>",

@@ -17,7 +17,7 @@ and keeps the dependency direction one-way
 
 from __future__ import annotations
 
-import asyncio
+import contextlib
 import json
 import warnings
 from collections.abc import Mapping
@@ -29,6 +29,7 @@ from redis import exceptions as redis_exceptions
 from kntgraph.core._typing import JsonValue
 from kntgraph.core.event import Event
 from kntgraph.infra.redis._client import RedisLike
+from kntgraph.infra.redis._cluster import disconnect_transport
 
 from ._result import ToolResult
 
@@ -390,21 +391,18 @@ async def reconnect_redis_after_transport_error(redis: RedisLike) -> None:
     releases the connection object back to the pool WITHOUT
     closing the socket, so the next command would reuse the same
     (possibly half-open) TCP. ``pool.disconnect()`` closes the
-    socket and leaves the pool usable.
+    socket and leaves the pool usable. The seam in
+    :mod:`kntgraph.infra.redis._cluster` owns the difference
+    between the standalone pool and the per-node pools of a
+    cluster client.
 
     Best-effort: swallows transport exceptions on the close
     path.
     """
-    pool = getattr(redis, "connection_pool", None)
-    if pool and hasattr(pool, "disconnect"):
-        try:
-            dis_res = pool.disconnect(inuse_connections=True)
-            if asyncio.iscoroutine(dis_res):
-                await dis_res
-        except (
-            redis_exceptions.RedisError,
-            AttributeError,
-            OSError,
-            TimeoutError,
-        ):
-            pass
+    with contextlib.suppress(
+        redis_exceptions.RedisError,
+        AttributeError,
+        OSError,
+        TimeoutError,
+    ):
+        await disconnect_transport(redis)

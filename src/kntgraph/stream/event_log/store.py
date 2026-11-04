@@ -436,6 +436,11 @@ class EventLog:
           - ``events`` are the parsed events in arrival
             order (interleaved across agents).
 
+        In cluster mode the storage splits the read per hash
+        slot (a cluster server accepts one ``XREAD`` only over
+        streams that share a slot), so the subscriber reads one
+        group at a time; see DEBT §2.41.
+
         Cursor semantics mirror ``read_after_cursor``:
 
           - agent present in ``cursors`` → strictly after

@@ -53,7 +53,7 @@ exactly that method and treats the result as a full close:
 async def aclose(self) -> None:
     try:
         await self._client.aclose()
-    except (...):
+    except ...:
         logger.warning("redis_pool.aclose.failed", error=str(exc))
 ```
 
@@ -79,7 +79,7 @@ their client through `_resolve_client`:
 def _resolve_client(settings, client):
     if client is None:
         pool = RedisPool.from_settings(settings)
-        return pool.client        # <-- the pool is dropped on the floor
+        return pool.client  # <-- the pool is dropped on the floor
     return client
 ```
 
@@ -254,6 +254,7 @@ def fresh_settings() -> Settings:
     env vars; tests that need to see ``monkeypatch.setenv(...)`` changes can
     call ``fresh_settings.cache_clear()`` ..."""
 
+
 settings = fresh_settings()
 ```
 
@@ -378,7 +379,7 @@ async def close_transport(self) -> None:
     """
     try:
         await self.client.connection_pool.disconnect(inuse_connections=True)
-    except (...):
+    except ...:
         logger.warning("event_log.close_transport.failed", error=str(exc))
 ```
 

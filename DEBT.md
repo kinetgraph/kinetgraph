@@ -3722,3 +3722,58 @@ entry so the next refactor pass (when `reactive.py` /
   `_message_handlers.py` (one ratchet step).
 - Pyright clean on the three files; radon CC ≤ 10 in
   the touched blocks.
+
+## 2.41 Redis Cluster mode — the EventLog fan-in loses the single-connection guarantee
+
+**Status:** OPEN (cluster mode ships; the architectural follow-up does not)
+**Owner:** knetgraph architecture team
+
+The cluster-mode patch (`KNT_REDIS_CLUSTER=true`) makes every
+Redis write path legal on a cluster server: the EventLog claim,
+the tool-queue claim, the World checkpoint pair and the DLQ purge
+issue one command per key instead of one multi-key command, and
+the pool builds the cluster driver, which follows the topology and
+walks every node on `SCAN`.
+
+**Open item — the fan-in degrades.** ADR-068 §3.2 made
+`subscribe_many` a hard requirement, not an optimisation: a fleet
+of 100 agents behind a 30-connection pool is a day-one outage if
+every agent holds its own connection (§6 of the same ADR). In
+cluster mode the fan-in cannot hold: `XREAD` over several streams
+requires one hash slot, and the framework's per-agent streams
+carry no hash tag, so each stream is its own slot.
+
+The shipped behaviour (`infra/redis/_event_log/_subscribe.py`)
+splits the read per slot, divides the block budget between the
+groups and reads the groups one at a time. One connection is held
+at a time, so the pool does not run dry; the cost is that a cycle
+costs N round-trips instead of 1, and the wake-up latency of the
+last agent in the rotation approaches the whole block budget.
+Correctness is unaffected (each group is read from the caller's
+durable cursor, and the groups left for the next cycle keep their
+cursor).
+
+**The architectural follow-up** is a shared wake-up signal: one
+stream key (one slot) that every append writes to, and that the
+subscriber blocks on. The subscriber then reads only the agent
+that woke. It restores the single-connection fan-in on a cluster
+server and keeps the Streams wire format (no Pub/Sub channel, no
+keyspace notifications). It costs one extra `XADD` per event and
+a second cursor to persist — the cursor may live in memory,
+because the per-agent durable cursor is what closes the gap when
+a hint is missed.
+
+The alternative considered and rejected for now: a hash tag on
+the agent streams (`knt:agents:{events}:<agent_id>:events`) keeps
+the current `XREAD` shape but concentrates every event of every
+agent on one shard and changes the wire format (a migration).
+
+**Acceptance for closing the open item:**
+- The shared wake-up stream lands (ADR + key convention + the
+  append path + the subscriber), and the slot-grouped read is
+  removed.
+- The subscriber holds one connection for a fleet of 100 agents in
+  cluster mode, asserted by a test against a cluster (or a
+  fakeredis stand-in that counts the held connections).
+- `docs/adr-068-operational.md` stops describing the fan-in
+  degradation.

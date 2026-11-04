@@ -241,6 +241,24 @@ dev = [
 ]
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# uv overrides
+#
+# ``litellm`` (the ``llm`` extra) pins ``filelock<4.0``, but filelock
+# 3.x carries 13 known CVEs (CVE-2026-112907..CVE-2026-112940) and the
+# fix requires 4.2.1. The affected classes are the soft and read-write
+# locks (``SoftFileLock``, ``StrictSoftFileLock``, ``ReadWriteLock``);
+# the OS-level ``FileLock`` that litellm, huggingface-hub and
+# cachecontrol use keeps its API in 4.x (``lock_file``, ``timeout``,
+# ``mode``).
+#
+# The override replaces the cap so the lock resolves filelock 4.2.9.
+# Drop it when litellm lifts its own cap.
+# ---------------------------------------------------------------------------
+[tool.uv]
+override-dependencies = ["filelock>=4.2.1"]
+
+# ---------------------------------------------------------------------------
 # mutmut 3.x configuration (mutation testing)
 #
 # Usage:

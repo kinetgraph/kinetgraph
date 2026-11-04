@@ -81,8 +81,16 @@ async def _claim_phase(
     Returns the stream_id returned by XADD. The placeholder
     is written under ``idem_key`` with ``nx=True`` so a
     concurrent claim does not overwrite an existing entry.
+
+    The pipeline is **not transactional**
+    (``transaction=False``): a ``MULTI/EXEC`` whose keys land
+    in different hash slots is rejected with ``CROSSSLOT`` by
+    a cluster server, and the EventLog keys do not share a
+    slot (see :mod:`kntgraph.infra.redis._cluster`). Mutual
+    exclusion comes from the three-phase protocol (``SET ...
+    NX`` elects one writer), not from the transaction.
     """
-    pipe = redis.pipeline(transaction=True)
+    pipe = redis.pipeline(transaction=False)
     pipe.xadd(stream_key, payload, maxlen=maxlen)
     pipe.set(idem_key, PLACEHOLDER, nx=True, ex=60)
     results = await pipe.execute()

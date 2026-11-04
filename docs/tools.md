@@ -441,6 +441,7 @@ from kntgraph.tools import tool_worker
 
 @tool_worker(name="document_parser", timeout_seconds=900)
 class DocumentParser:
+    async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]: ...
     async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]:
         ...
 ```

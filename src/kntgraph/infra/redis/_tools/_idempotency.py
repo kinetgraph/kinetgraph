@@ -119,8 +119,15 @@ async def _claim_phase(
     because the placeholder is just an in-flight marker --
     the operator-tunable TTL applies to the final
     ``stream_id`` value stored in phase 3.
+
+    The pipeline is **not transactional**
+    (``transaction=False``): a cluster server rejects a
+    ``MULTI/EXEC`` whose keys land in different hash slots
+    with ``CROSSSLOT``, and the tool-queue keys do not share
+    a slot (see :mod:`kntgraph.infra.redis._cluster`). The
+    mutual exclusion comes from the ``SET ... NX`` claim.
     """
-    pipe = redis.pipeline(transaction=True)
+    pipe = redis.pipeline(transaction=False)
     pipe.xadd(stream_key, payload, maxlen=maxlen)
     pipe.set(idem_key, PLACEHOLDER, nx=True, ex=PLACEHOLDER_TTL_SECONDS)
     results = await pipe.execute()

@@ -70,7 +70,7 @@ ToolErrorClass = Literal["transient", "permanent", "unknown"]
 The `.failed` event carries it (`tools/_message_handlers.py:288-298`):
 
 ```python
-data={
+data = {
     "error": result.error,
     "error_class": result.error_class,
 }
@@ -162,7 +162,7 @@ if computed_event_id is None and idempotency_key is not None:
         agent_id=agent_id,
         event_type=REQUESTED_EVENT_TYPE,
         data=data,
-        idempotency_key=idempotency_key,     # <- excludes causation_id
+        idempotency_key=idempotency_key,  # <- excludes causation_id
     )
 ```
 
@@ -271,8 +271,8 @@ e = self.request_tool(
     params={...},
     causation_id=str(last_eid),
     correlation=correlation,
-    try_again=True,     # this is a retry
-    attempt=2,          # of what the domain already tried
+    try_again=True,  # this is a retry
+    attempt=2,  # of what the domain already tried
 )
 ```
 

@@ -39,6 +39,10 @@ def _fake_redis():
     redis.hscan_iter = MagicMock(return_value=_aiter([]))
     redis.xinfo_stream = AsyncMock(return_value={"length": 0})
     redis.delete = AsyncMock(return_value=1)
+    pipe = MagicMock()
+    pipe.delete = MagicMock(return_value=pipe)
+    pipe.execute = AsyncMock(return_value=[1, 1, 1, 1])
+    redis.pipeline = MagicMock(return_value=pipe)
     return redis
 
 
@@ -172,7 +176,9 @@ class TestRedisDLQStorage:
         from kntgraph.infra.redis._errors import MemoryError  # noqa: A004
 
         redis = _fake_redis()
-        redis.delete = AsyncMock(side_effect=redis_exceptions.RedisError("redis down"))
+        redis.pipeline.return_value.execute = AsyncMock(
+            side_effect=redis_exceptions.RedisError("redis down")
+        )
         storage = RedisDLQStorage(client=redis)
         result = await storage.purge()
         assert result.is_err()
@@ -257,12 +263,20 @@ class TestRedisDLQStorage:
         result = await storage.purge()
         assert result.is_ok()
         assert result.ok_value() == 5
-        redis.delete.assert_awaited_once_with(
+        # One DEL per key: the 4 keys live in different hash
+        # slots and a cluster server rejects a multi-key DEL
+        # with CROSSSLOT. The pipeline keeps the cost at one
+        # round-trip on a standalone server.
+        redis.pipeline.assert_called_once_with(transaction=False)
+        pipe = redis.pipeline.return_value
+        deleted = [call.args[0] for call in pipe.delete.call_args_list]
+        assert deleted == [
             DLQ_STREAM_KEY,
             DLQ_AGENT_INDEX,
             DLQ_EVENT_INDEX,
             DLQ_REASON_INDEX,
-        )
+        ]
+        pipe.execute.assert_awaited_once()
 
     async def test_drop_entry_xdel_and_hdel(self):
         from kntgraph.infra.redis._dlq import (
@@ -528,7 +542,7 @@ class TestPurgeMissingStream:
         result = await storage.purge()
         assert result.is_ok()
         assert result.ok_value() == 0
-        redis.delete.assert_awaited_once()
+        redis.pipeline.return_value.execute.assert_awaited_once()
 
 
 class TestDropEntryError:

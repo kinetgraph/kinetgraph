@@ -9328,6 +9328,10 @@
       "mi": 73.29103977680703,
       "rank": "A"
     },
+    "src/kntgraph/infra/redis/_cluster.py": {
+      "mi": 69.08657636134531,
+      "rank": "A"
+    },
     "src/kntgraph/infra/redis/_codec.py": {
       "mi": 79.41594043101881,
       "rank": "A"
@@ -9341,7 +9345,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_dlq/_redis.py": {
-      "mi": 55.02499022373788,
+      "mi": 54.887746219883255,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_errors.py": {
@@ -9357,11 +9361,15 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_idempotency.py": {
-      "mi": 77.79522117036727,
+      "mi": 77.73320894132489,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_event_log/_keys.py": {
       "mi": 70.64407721066591,
+      "rank": "A"
+    },
+    "src/kntgraph/infra/redis/_event_log/_subscribe.py": {
+      "mi": 84.1173328380197,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_factory.py": {
@@ -9393,7 +9401,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_pool.py": {
-      "mi": 85.50918183660725,
+      "mi": 82.35364620315133,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_prefix.py": {
@@ -9405,7 +9413,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_tools/_idempotency.py": {
-      "mi": 69.94673443193359,
+      "mi": 69.08854628619017,
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_tools/_keys.py": {
@@ -9429,7 +9437,7 @@
       "rank": "A"
     },
     "src/kntgraph/infra/redis/_world_checkpoint/_redis.py": {
-      "mi": 69.18088371660617,
+      "mi": 68.20511183169823,
       "rank": "A"
     },
     "src/kntgraph/infra/world_checkpoint.py": {

@@ -18,9 +18,9 @@ Namespace prefix
 
 ``redis_key_prefix`` (env: ``KNT_REDIS_KEY_PREFIX``)
 defaults to ``""`` -- the pre-ADR-076 wire format,
-byte-for-byte. Operators that host two services on
-the same Redis set it to e.g. ``acme-billing:`` and
-the framework prepends it to every key it writes or
+byte-for-byte. Operators that host two services on the
+same Redis set it to e.g. ``acme-billing:`` and the
+framework prepends it to every key it writes or
 reads (``knt:agents:<id>:events`` becomes
 ``acme-billing:knt:agents:<id>:events``).
 
@@ -31,6 +31,14 @@ services do not cross-talk. See ADR-076 §1.4 / §3.2.
 Validation is enforced once at construction by
 :func:`field_validator` so a typo fails fast at boot,
 not silently on the first write.
+
+Cluster mode
+------------
+
+``redis_cluster`` (env: ``KNT_REDIS_CLUSTER``) selects the
+cluster driver. See
+:mod:`kntgraph.infra.redis._pool` for the constraints it
+brings (database 0, one hash slot per multi-key command).
 """
 
 from __future__ import annotations
@@ -57,6 +65,17 @@ class RedisSettingsMixin(BaseSettings):
     # health check (redis-py default; not recommended for
     # remote Redis with NAT / firewall idle reapers).
     redis_health_check_interval: float = Field(default=15.0)
+    # Cluster mode (env: ``KNT_REDIS_CLUSTER``). When true the
+    # pool builds ``redis.asyncio.RedisCluster`` instead of the
+    # standalone client: the cluster driver follows the
+    # topology (it resolves the ``MOVED`` redirects), walks
+    # every node on ``SCAN``, and splits a non-transactional
+    # pipeline per node.
+    #
+    # The URL points at one node; the driver discovers the
+    # others. Redis Cluster has no numbered databases, so the
+    # URL must not select one (``redis://host:6379``).
+    redis_cluster: bool = Field(default=False)
     # In-process fakeredis toggle for benchmarks / CI smoke
     # tests; never set in production.
     redis_fake: bool = Field(default=False)

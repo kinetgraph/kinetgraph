@@ -50,21 +50,34 @@ class FakeRedisClient:
 
 
 class _FakePipeline:
-    """Collects SET ops and applies them atomically on
-    ``execute`` — the behaviour the cursor-key transaction
-    depends on."""
+    """Collects SET/UNLINK ops and applies them on ``execute``.
+
+    The pipeline is not transactional: the framework builds it
+    with ``transaction=False`` because the two checkpoint keys
+    live in different hash slots and a cluster server rejects a
+    ``MULTI/EXEC`` that spans slots. The fake applies the
+    queued ops in order, which is what the ordered write of
+    payload-then-cursor depends on."""
 
     def __init__(self, client: FakeRedisClient) -> None:
         self._client = client
-        self._queued: list[tuple[str, bytes, int | None]] = []
+        self._queued: list[tuple[str, str, bytes | None, int | None]] = []
 
     def set(self, key: str, value: bytes, *, ex: int | None = None) -> _FakePipeline:
-        self._queued.append((key, value, ex))
+        self._queued.append(("set", key, value, ex))
+        return self
+
+    def unlink(self, *keys: str) -> _FakePipeline:
+        for key in keys:
+            self._queued.append(("unlink", key, None, None))
         return self
 
     async def execute(self) -> list:
-        for key, value, _ex in self._queued:
-            self._client.data[key] = value
+        for op, key, value, _ex in self._queued:
+            if op == "set":
+                self._client.data[key] = value
+            else:
+                self._client.data[key] = None
         return [True] * len(self._queued)
 
 

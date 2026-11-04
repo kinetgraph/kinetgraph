@@ -84,10 +84,30 @@ the cutover.
 
 ### Redis Cluster Considerations
 
-The current implementation uses a **single Redis instance** (standalone mode). 
-Cluster mode (Redis Cluster) is **not supported** for the EventLog 
-subscription feature (P1/P2) due to the difficulty of guaranteeing 
-stream ownership across shards.
+Set `KNT_REDIS_CLUSTER=true` to run against a Redis Cluster (or a
+Valkey cluster). The pool then builds the cluster driver: it
+follows the topology (it resolves the `MOVED` redirects a
+standalone client cannot) and walks every node on `SCAN`.
+
+Two rules of a cluster server shape the framework:
+
+- **One hash slot per multi-key command.** A command that touches
+  several keys is rejected with `CROSSSLOT` unless every key lands
+  in the same slot. The framework's keys carry no hash tag, so
+  every multi-key write path issues one command per key: the
+  EventLog claim, the tool-queue claim, the World checkpoint pair,
+  the DLQ purge.
+- **One slot per blocking read.** `XREAD` over several streams
+  needs one slot too. The EventLog fan-in is therefore split per
+  slot: the subscriber reads one group at a time and the block
+  budget is divided between the groups.
+
+The second rule costs the single-connection fan-in that ADR-068
+§3.2 made a hard requirement: in cluster mode a fleet of N agents
+costs N reads per cycle instead of one. The subscriber still holds
+one connection at a time, so the pool does not run dry. DEBT §2.41
+carries the architectural follow-up (a shared wake-up stream) and
+the operator guidance.
 
 ## KNT_* Environment Variables (ADR-068 §3.8)
 
@@ -101,6 +121,7 @@ behavior and can be tuned without code redeployment:
 | `KNT_WARMER_PUMP_INTERVAL` | `0.25` | How often the cache warmer runs its pump (seconds) | `export KNT_WARMER_PUMP_INTERVAL=2.0` |
 | `KNT_FALLBACK_POLL_INTERVAL` | `5` | Fallback poll interval when no events are received (seconds) | `export KNT_FALLBACK_POLL_INTERVAL=10` |
 | `KNT_REDIS_KEY_PREFIX` | `""` (empty) | Namespace prefix for every Redis key (ADR-076). Empty = pre-076 wire format. Set when two services share one Redis. | `export KNT_REDIS_KEY_PREFIX=acme-billing:knt:` |
+| `KNT_REDIS_CLUSTER` | `false` | Cluster mode: the pool builds the cluster driver (Redis Cluster / Valkey cluster). The URL must not select a database — Redis Cluster has none. | `export KNT_REDIS_CLUSTER=true` |
 
 ### Verifying at Runtime
 

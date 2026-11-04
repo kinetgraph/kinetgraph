@@ -140,9 +140,19 @@ class RedisWorldCheckpointStorage:
         """Persist the checkpoint with sliding TTL.
 
         When ``cursor`` is given, the companion cursor key is
-        written in the same call so the two never disagree
-        (the cursor is derived from the payload's
-        ``last_stream_id`` at the facade level).
+        written in the same pipeline, so the pair costs one
+        round-trip.
+
+        The pipeline is **not transactional**
+        (``transaction=False``): the two keys live in different
+        hash slots, and a cluster server rejects a
+        ``MULTI/EXEC`` that spans slots with ``CROSSSLOT`` (see
+        :mod:`kntgraph.infra.redis._cluster`). The pair is
+        ordered so a crash between the two writes costs
+        duplicated work, never a lost event: the payload lands
+        first, so the cursor can only lag behind it, and a
+        lagging cursor makes the dispatcher re-read events it
+        already folded.
 
         Per ADR-077: the catch is centralised in
         :func:`kntgraph.infra.redis._translation.translate_redis_call`.
@@ -151,7 +161,7 @@ class RedisWorldCheckpointStorage:
             cursor_payload: bytes = cursor.encode("utf-8")
 
             async def _run_pipeline() -> None:
-                pipe = self.client.pipeline(transaction=True)
+                pipe = self.client.pipeline(transaction=False)
                 pipe.set(self.storage_key(agent_id), payload, ex=ttl_seconds)
                 pipe.set(self.cursor_key(agent_id), cursor_payload, ex=ttl_seconds)
                 await pipe.execute()
@@ -180,11 +190,26 @@ class RedisWorldCheckpointStorage:
         cursor key goes with it (UNLINK is a no-op for a
         missing key).
 
+        The two keys are unlinked through a non-transactional
+        pipeline instead of a single ``UNLINK`` with two
+        arguments: they live in different hash slots and a
+        cluster server rejects a multi-key ``UNLINK`` with
+        ``CROSSSLOT``. The pipeline keeps the cost at one
+        round-trip on a standalone server and one per node on a
+        cluster server.
+
         Per ADR-077: the catch is centralised in
         :func:`kntgraph.infra.redis._translation.translate_redis_call`.
         """
+
+        async def _run_pipeline() -> None:
+            pipe = self.client.pipeline(transaction=False)
+            pipe.unlink(self.storage_key(agent_id))
+            pipe.unlink(self.cursor_key(agent_id))
+            await pipe.execute()
+
         result = await translate_redis_call(
-            self.client.unlink(self.storage_key(agent_id), self.cursor_key(agent_id)),
+            _run_pipeline(),
             op_name="world_checkpoint_storage.discard",
             error_cls=MemoryError,
             key=self.storage_key(agent_id),
