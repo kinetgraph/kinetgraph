@@ -131,6 +131,28 @@ def test_fsm_invalid_guard_type_detected() -> None:
         FSMContractVerifier.verify_graph(config, initial_state="created")
 
 
+def test_fsm_purity_passes() -> None:
+    class PureSystem:
+        def __call__(self, world: Any) -> list[Any]:
+            return []
+
+    res = FSMContractVerifier.verify_purity(PureSystem(), world=None)  # type: ignore[arg-type]
+    assert res == []
+
+
+def test_fsm_purity_divergence_detected() -> None:
+    counter = 0
+
+    class ImpureSystem:
+        def __call__(self, world: Any) -> list[Any]:
+            nonlocal counter
+            counter += 1
+            return [counter] if counter == 1 else []
+
+    with pytest.raises(FSMContractViolation, match="not deterministic"):
+        FSMContractVerifier.verify_purity(ImpureSystem(), world=None)  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # SagaContractVerifier Tests
 # ---------------------------------------------------------------------------

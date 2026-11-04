@@ -20,18 +20,18 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar
 
 from kntgraph.concordos.base import Specification
 
 if TYPE_CHECKING:
-    from kntgraph.concordos.fsm import FSMConfig
+    from kntgraph.concordos.fsm import FSMConfig, FSMTransition
     from kntgraph.concordos.saga import SagaConfig
     from kntgraph.core.event.event import Event
+    from kntgraph.core.system import WorldSystem
     from kntgraph.core.world.world import World
-    from kntgraph.core.world.world_system import WorldSystem
 
 T = TypeVar("T")
 E = TypeVar("E", bound=Exception)
@@ -63,6 +63,84 @@ class AdapterContractViolation(ContractViolation):
     """Raised when an Adapter violates ADR-047 or ADR-077 invariants."""
 
 
+def _validate_fsm_transition(
+    curr: str,
+    event_type: str,
+    tr: FSMTransition,
+    transitions: Mapping[str, Mapping[str, FSMTransition]],
+    terminal: set[str],
+) -> str:
+    """Validate a single transition destination and guard contract."""
+    dest = tr.to
+    if dest not in transitions and dest not in terminal:
+        raise FSMContractViolation(
+            f"Transition from '{curr}' on event '{event_type}' "
+            f"leads to unknown destination state '{dest}'."
+        )
+    if tr.guard is not None and not isinstance(tr.guard, Specification):
+        raise FSMContractViolation(
+            f"Transition guard for '{curr}' -> '{dest}' must implement "
+            f"Specification protocol (ADR-069 §2)."
+        )
+    return dest
+
+
+def _traverse_fsm_reachability(
+    transitions: Mapping[str, Mapping[str, FSMTransition]],
+    terminal: set[str],
+    initial_state: str,
+) -> set[str]:
+    """Perform BFS reachability traversal and validate all encountered transitions."""
+    visited: set[str] = set()
+    queue: deque[str] = deque([initial_state])
+
+    while queue:
+        curr = queue.popleft()
+        if curr in visited:
+            continue
+        visited.add(curr)
+
+        if curr not in transitions:
+            continue
+
+        for event_type, tr in transitions[curr].items():
+            dest = _validate_fsm_transition(curr, event_type, tr, transitions, terminal)
+            if dest not in visited:
+                queue.append(dest)
+
+    return visited
+
+
+def _assert_no_unreachable_states(
+    transitions: Mapping[str, Mapping[str, FSMTransition]],
+    visited: set[str],
+    initial_state: str,
+) -> None:
+    """Ensure all declared states in transitions are reachable from initial_state."""
+    declared_states = set(transitions.keys())
+    unreachable = declared_states - visited
+    if unreachable:
+        sorted_unreachable = sorted(unreachable)
+        raise FSMContractViolation(
+            f"Unreachable state(s) detected in FSM: {sorted_unreachable}. "
+            f"All non-terminal states must be reachable from initial state "
+            f"'{initial_state}' (ADR-071)."
+        )
+
+
+def _assert_no_dead_end_states(
+    transitions: Mapping[str, Mapping[str, FSMTransition]],
+    terminal: set[str],
+) -> None:
+    """Ensure no state has empty transitions unless explicitly marked terminal."""
+    for state, state_transitions in transitions.items():
+        if not state_transitions and state not in terminal:
+            raise FSMContractViolation(
+                f"Dead-end state '{state}' has no outgoing transitions but is not "
+                f"declared in terminal states {sorted(terminal)} (ADR-071 §3.1)."
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class FSMContractVerifier:
     """Verifies architectural and graph invariants for BusinessFSM (ADR-071)."""
@@ -88,70 +166,33 @@ class FSMContractVerifier:
                 f"(ADR-071 §3.1)."
             )
 
-        # 1. Reachability traversal (BFS)
-        visited: set[str] = set()
-        queue: deque[str] = deque([initial_state])
-
-        while queue:
-            curr = queue.popleft()
-            if curr in visited:
-                continue
-            visited.add(curr)
-
-            if curr in transitions:
-                for event_type, tr in transitions[curr].items():
-                    # Validate destination state
-                    dest = tr.to
-                    if dest not in transitions and dest not in terminal:
-                        raise FSMContractViolation(
-                            f"Transition from '{curr}' on event '{event_type}' "
-                            f"leads to unknown destination state '{dest}'."
-                        )
-                    # Validate guard contract
-                    if tr.guard is not None and not isinstance(tr.guard, Specification):
-                        raise FSMContractViolation(
-                            f"Transition guard for '{curr}' -> '{dest}' must implement "
-                            f"Specification protocol (ADR-069 §2)."
-                        )
-                    if dest not in visited:
-                        queue.append(dest)
-
-        # 2. Check for unreachable states
-        declared_states = set(transitions.keys())
-        unreachable = declared_states - visited
-        if unreachable:
-            sorted_unreachable = sorted(unreachable)
-            raise FSMContractViolation(
-                f"Unreachable state(s) detected in FSM: {sorted_unreachable}. "
-                f"All non-terminal states must be reachable from initial state "
-                f"'{initial_state}' (ADR-071)."
-            )
-
-        # 3. Check for dead-end states
-        for state in declared_states:
-            if not transitions[state] and state not in terminal:
-                raise FSMContractViolation(
-                    f"Dead-end state '{state}' has no outgoing transitions but is not "
-                    f"declared in terminal states {sorted(terminal)} (ADR-071 §3.1)."
-                )
+        visited = _traverse_fsm_reachability(transitions, terminal, initial_state)
+        _assert_no_unreachable_states(transitions, visited, initial_state)
+        _assert_no_dead_end_states(transitions, terminal)
 
     @staticmethod
     def verify_purity(
         system: WorldSystem,
         world: World,
-        events: Sequence[Event],
+        events: Sequence[Event] | None = None,
     ) -> list[Event]:
         """
-        Verify that evaluating FSMSystem.process_events is strictly pure.
+        Verify that evaluating WorldSystem is strictly pure.
 
-        Asserts that re-evaluating with identical (World, Events) produces
+        Asserts that re-evaluating with identical World produces
         bit-for-bit identical emitted events without side effects.
         """
-        events_copy_1 = list(events)
-        events_copy_2 = list(events)
+        if hasattr(system, "process_events") and events is not None:
+            run_1 = system.process_events(world, list(events))  # type: ignore[attr-defined]
+            run_2 = system.process_events(world, list(events))  # type: ignore[attr-defined]
+        else:
+            run_1 = system(world)
+            run_2 = system(world)
 
-        run_1 = system.process_events(world, events_copy_1)
-        run_2 = system.process_events(world, events_copy_2)
+        if not isinstance(run_1, list) or not isinstance(run_2, list):
+            raise FSMContractViolation(
+                f"WorldSystem must return list[Event], got {type(run_1).__name__}"
+            )
 
         if len(run_1) != len(run_2):
             raise FSMContractViolation(
@@ -268,14 +309,15 @@ class AdapterContractVerifier:
             ) from exc
 
         # Check if result is a Result object
-        if hasattr(result, "is_err") and hasattr(result, "err_value"):
-            if not result.is_err():
+        is_err_fn = getattr(result, "is_err", None)
+        err_val_attr = getattr(result, "err_value", None)
+        if callable(is_err_fn) and err_val_attr is not None:
+            if not is_err_fn():
                 raise AdapterContractViolation(
                     f"Expected adapter to return Err({expected_error_type.__name__}), "
                     f"but it returned Ok."
                 )
-            raw_err = result.err_value
-            err = raw_err() if callable(raw_err) else raw_err
+            err = err_val_attr() if callable(err_val_attr) else err_val_attr
             if not isinstance(err, expected_error_type):
                 raise AdapterContractViolation(
                     f"Adapter returned Err({type(err).__name__}), expected "
