@@ -58,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `multiplier=...`; the two are equivalent (`initial=X` sets
   `multiplier=X`), so the backoff schedule is unchanged. The
   deprecation warning was failing the suite, which turns warnings
-  into errors.
+  into errors. The `tenacity` floor moves to `>=9.2.1`, the first
+  release on PyPI that accepts `multiplier=...`.
 
 - **`filelock` is pinned to 4.2.9 (security).** filelock 3.x carries
   13 known CVEs (CVE-2026-112907..CVE-2026-112940, fixed in 4.2.1);

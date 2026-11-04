@@ -1677,7 +1677,7 @@ requires-dist = [
     { name = "result", specifier = ">=0.17" },
     { name = "rich", marker = "extra == 'cli'", specifier = ">=15.0.0" },
     { name = "structlog", specifier = ">=26.1.0" },
-    { name = "tenacity", specifier = ">=9.1.4" },
+    { name = "tenacity", specifier = ">=9.2.1" },
     { name = "typer", marker = "extra == 'cli'", specifier = ">=0.26.8" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'api'", specifier = ">=0.51.0" },
 ]
