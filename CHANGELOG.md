@@ -99,6 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   @tool_worker(name="document_parser", timeout_seconds=900)
   class DocumentParser:
       async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]: ...
+      async def invoke(self, *, idempotency_key: str) -> Result[dict, ToolError]:
+          ...
   ```
 
   The tool declares its budget; the framework applies it. No wiring.
