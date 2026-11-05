@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.18.2] — 2026-11-05
 
+### Notes
+- **Same code as `0.18.1`; the notes live there.** This tag was
+  cut by the release workflow after the `v0.18.1` tag had already
+  been published to PyPI. The two differ only in `CHANGELOG.md` and
+  `README.md`.
+
+## [0.18.1] — 2026-11-05
+
 ### Added
 - **The architecture fitness harness (ADR-089).** The project
   documents its architectural standards as *skills* — prose
@@ -74,43 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   separates the reactive cycle from the deliberative one.
 
 ### Fixed
-- **Redis Cluster / Valkey cluster mode (`KNT_REDIS_CLUSTER=true`).**
-  A cluster server rejects a command that touches keys from
-  different hash slots (`CROSSSLOT`), and the framework's keys
-  carry no hash tag. Four write paths assumed they could:
-
-  - the EventLog idempotency claim (the patch that started this
-    work — the stream is tagged by agent, the dedup index by
-    event id);
-  - the tool-queue dedup claim (stream tagged by tool, dedup
-    index by event id);
-  - the World checkpoint pair (payload + cursor) and its
-    `discard`;
-  - the DLQ `purge` (four keys in one `DEL`).
-
-  Each now issues one command per key through a non-transactional
-  pipeline. The mutual exclusion the claims depend on comes from
-  their own protocol (a `SET ... NX` claim), not from `MULTI/EXEC`,
-  so the claims keep their semantics. The checkpoint pair is
-  ordered payload-first, so a crash between the two writes costs
-  duplicated work, never a lost event.
-
-  The pool builds `redis.asyncio.RedisCluster` when the setting is
-  on: it follows the topology (it resolves the `MOVED` redirects a
-  standalone client cannot) and walks every node on `SCAN`. The
-  URL must not select a database — Redis Cluster has none.
-
-  The EventLog fan-in is split per slot: a cluster server accepts
-  one `XREAD` only over streams that share a slot, so the
-  subscriber reads one group at a time with the block budget
-  divided between the groups. One connection is held at a time;
-  the cost is N round-trips per cycle instead of 1, which is the
-  degradation DEBT §2.41 tracks with the architectural follow-up
-  (a shared wake-up stream).
-
-  New seam: `infra/redis/_cluster.py` owns the difference between
-  the two drivers (detection, slot grouping, socket handling).
-
 - **The retry backoff uses the non-deprecated `tenacity` API.**
   `wait_exponential_jitter(initial=...)` is deprecated in favour of
   `multiplier=...`; the two are equivalent (`initial=X` sets
@@ -119,13 +90,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into errors. The `tenacity` floor moves to `>=9.2.1`, the first
   release on PyPI that accepts `multiplier=...`.
 
-- **`filelock` is pinned to 4.2.9 (security).** filelock 3.x carries
-  13 known CVEs (CVE-2026-112907..CVE-2026-112940, fixed in 4.2.1);
-  they hit the soft and read-write lock classes, which the framework
-  does not use. `litellm` still caps `filelock<4.0`, so the lock
-  resolves it through a `uv` override — the OS-level `FileLock` that
-  `litellm`, `huggingface-hub` and `cachecontrol` use keeps its API in
-  4.x. Drop the override when `litellm` lifts its own cap.
+  The retry docstrings now state the schedule correctly: the delay
+  before attempt *n* is `base_delay * 2**(n-1)` **plus** a random
+  number in [0, 1] second, capped at `max_delay`. The jitter is
+  added to the computed delay, not a fraction of it.
+
+### Notes
+- **This section documents `0.18.1` and `0.18.2`, which ship the
+  same code.** The release workflow cut the `v0.18.1` tag and the
+  publish workflow uploaded that tag to PyPI, but the GitHub
+  Release was never opened for it: the workflow's push of the
+  release commit to `main` was rejected by branch protection, and
+  the run aborted before the release step. A later run then bumped
+  the version to `0.18.2` and cut that tag. The two tags differ
+  only in `CHANGELOG.md` and `README.md`; `git diff v0.18.1 v0.18.2
+  -- src/ tests/ scripts/` is empty.
+
+  Both versions are therefore the same release. The notes live
+  here, under the earlier number, because that is the version
+  published on PyPI.
 
 
 ## [0.18.0] — 2026-10-26
