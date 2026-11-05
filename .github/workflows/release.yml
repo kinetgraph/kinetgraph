@@ -260,8 +260,76 @@ jobs:
         # tag — already pushed — stands on its own. The tag is
         # the artefact that matters; the ``main`` commit is the
         # branch's bookkeeping.
+        #
+        # **Branch protection.** ``main`` in this repository
+        # requires changes to land through a pull request
+        # ("Changes must be made through a pull request"), so
+        # this push is rejected with GH006. The ``GITHUB_TOKEN``
+        # does not bypass the protection — only an app with an
+        # explicit bypass grant does, and the project has none.
+        #
+        # So the release commit reaches ``main`` through a PR
+        # instead. The release commit is a single commit that
+        # only touches CHANGELOG.md and README.md, and it is
+        # already validated by the CI gate on the branch (the
+        # workflow only runs when ``main`` is green). The PR is
+        # opened with the release commit as its single change,
+        # so merging it reproduces exactly the commit the tag
+        # points at — which is what ``git describe`` needs to
+        # resolve the tag on ``main``.
+        #
+        # If the direct push *does* succeed (branch protection
+        # relaxed), the PR step is skipped and nothing is
+        # duplicated.
+        id: push_main
+        continue-on-error: true
         run: |
           git push origin HEAD:main
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open a PR for the release commit
+        # Runs only when the direct push above was rejected by
+        # the branch protection. The PR carries the release
+        # commit; merging it lands the commit on ``main`` so
+        # the CHANGELOG section and the badge are not lost.
+        #
+        # The PR body states what it is, and the ``chore(release)``
+        # title keeps it out of the review queue's way — the
+        # content was already gated by CI before the tag was cut.
+        if: steps.push_main.outputs.pushed != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          branch="chore/release-${NEW_VERSION}"
+          git push origin "HEAD:refs/heads/${branch}"
+          gh pr create \
+              --base main \
+              --head "${branch}" \
+              --title "chore(release): v${NEW_VERSION}" \
+              --body "$(cat <<EOF
+          ADR-051 release automation.
+
+          Tag: ${NEW_TAG}
+
+          This PR carries the release commit for \`v${NEW_VERSION}\`: the
+          dated \`CHANGELOG.md\` section and the README version badge.
+          It was cut by the \`release\` workflow, which could not push
+          directly to \`main\` (branch protection requires a pull
+          request).
+
+          The content was already validated by the CI gate before the
+          tag was cut, and the commit is the same object the tag
+          points at — merging it is what lets \`git describe\` resolve
+          \`${NEW_TAG}\` on \`main\`.
+          EOF
+          )" || {
+            echo "::warning::could not open the release PR for ${NEW_TAG};"
+            echo "::warning::the tag stands, but the CHANGELOG section"
+            echo "::warning::must land on main by hand."
+            exit 0
+          }
 
       - name: Open the GitHub Release
         env:
