@@ -18,10 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.18.2] — 2026-11-05
 
 ### Notes
-- **Same code as `0.18.1`; the notes live there.** This tag was
-  cut by the release workflow after the `v0.18.1` tag had already
-  been published to PyPI. The two differ only in `CHANGELOG.md` and
-  `README.md`.
+- **Same code as `0.18.1`; the release notes live there.** The two
+  versions were cut from the same commit and differ only in
+  `CHANGELOG.md` and `README.md`. `0.18.1` reached PyPI first; this
+  version is the one the README badge points at.
 
 ## [0.18.1] — 2026-11-05
 
@@ -107,8 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   -- src/ tests/ scripts/` is empty.
 
   Both versions are therefore the same release. The notes live
-  here, under the earlier number, because that is the version
-  published on PyPI.
+  here, under the earlier number, because that is where the
+  release's content was recorded; `0.18.2` is the version the
+  README badge points at.
 
 
 ## [0.18.0] — 2026-10-26
