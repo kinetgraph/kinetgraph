@@ -1,6 +1,6 @@
 ---
 name: kntgraph-testing
-description: Use when writing or reviewing tests in the kntgraph codebase — choosing between behaviour tests and mock-heavy unit tests, marking async def tests, using KNT_REDIS_FAKE for fakeredis, and meeting the happy-path-plus-one-failure-mode bar for every public function. Covers the real-EventLog / real-World / real-WorkerManager rule, the fakeredis env var, the pytest.mark.asyncio strict-mode requirement, and the per-public-function coverage gate. Trigger keywords: pytest, unit test, integration test, fakeredis, KNT_REDIS_FAKE, asyncio_mode, mock, behaviour test, happy path, failure mode.
+description: Use when writing or reviewing tests in the kntgraph codebase — choosing between behaviour tests and mock-heavy unit tests, using WorldBuilder and AgentViewBuilder as canonical SUT builders, marking async def tests, using KNT_REDIS_FAKE for fakeredis, verifying Concordos and Adapters with contract verifiers (ADR-089), and meeting the happy-path-plus-one-failure-mode bar for every public function. Covers the real-EventLog / real-World / real-WorkerManager rule, WorldBuilder / AgentViewBuilder, the fakeredis env var, the pytest.mark.asyncio strict-mode requirement, the per-public-function coverage gate, and the FSM/Saga/Adapter contract test harness. Trigger keywords: pytest, unit test, integration test, fakeredis, KNT_REDIS_FAKE, asyncio_mode, mock, behaviour test, happy path, failure mode, world_builder, WorldBuilder, AgentViewBuilder, SUT, concordo_harness, FSMContractVerifier, SagaContractVerifier, AdapterContractVerifier, ADR-089.
 ---
 
 <!--
@@ -17,6 +17,15 @@ SPDX-License-Identifier: Apache-2.0
 Use the real `EventLog`, the real `World`, the real `WorkerManager`. Mock **only** when the external system is unavailable in CI (e.g. GLiNER2 with a GPU, real Ollama with a local LLM, real FalkorDB with a graph).
 
 The `KNT_REDIS_FAKE=1` env var switches the `EventLog` to an in-process `fakeredis` client so unit tests do not need a Redis container.
+
+### 7.1.1 Fluent SUT builders (`WorldBuilder` and `AgentViewBuilder`)
+
+To test `WorldSystem` instances (pure functions `(World) -> list[Event]`), do **not** construct mock worlds or fake dispatchers. Use the canonical SUT builders in `kntgraph.testing.world_builder`:
+
+- **`AgentViewBuilder(agent_id)`**: Assembles an `AgentView` with components, domain state, and trigger surface (`with_trigger("<event_type>")` sets `domain_phase` and `last_event_id` in sync).
+- **`WorldBuilder()`**: Assembles a `World` with one or more agents while keeping internal `ArchetypeStorage` in sync with the views.
+
+Systems run against the real `World` without shims or monkey-patches, honoring §7.4.
 
 ## 7.2 Cover the happy path + at least one failure mode per public function
 
@@ -121,3 +130,17 @@ Do not rely on `autouse=True` to make a patch visible
 across files. Pytest does not guarantee the order of
 fixture setup across files, and the patch is hiding
 the very behaviour the test should be exercising.
+
+## 7.5 High-level Concordo and Adapter contract test harness (ADR-089)
+
+When writing or testing FSMs, WorkflowSagas, or Adapters, do **not** invent ad-hoc mocks or handwritten state simulators. Use the contract verifiers provided in `kntgraph.testing`:
+
+- **`FSMContractVerifier` (ADR-071):**
+  - `verify_graph(config, initial_state)`: Asserts reachability of all declared states via BFS, detects unhandled dead-ends outside `terminal`, and validates that all guards implement the `Specification` protocol (ADR-069).
+  - `verify_purity(system, world)`: Proves deterministic, side-effect-free execution of the real `WorldSystem` SUT against a `World` assembled with `WorldBuilder`.
+- **`SagaContractVerifier` (ADR-072):**
+  - `verify_step_configs(config)`: Asserts step name uniqueness and validates that `enrich_from` dependencies only reference prior steps or triggers.
+  - `simulate_lifo_compensation(config, failed_step_name)`: Proves that for any failing step, rollback compensation runs in exact reverse (LIFO) order.
+- **`AdapterContractVerifier` (ADR-047, ADR-077):**
+  - `assert_exception_contained(coro_factory, expected_error_type)`: Injects socket/transport failures and verifies that the adapter intercepts all third-party exceptions and returns `Err(LayerError)` (zero raw exceptions leaking).
+  - `assert_cancellation_propagates(coro_factory)`: Injects `asyncio.CancelledError` and verifies that runtime control signals are not swallowed.

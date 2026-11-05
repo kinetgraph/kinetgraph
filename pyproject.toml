@@ -36,7 +36,7 @@ dependencies = [
     "redis>=5.0",
     "result>=0.17",
     "structlog>=26.1.0",
-    "tenacity>=9.1.4",
+    "tenacity>=9.2.1",
 ]
 
 [project.scripts]

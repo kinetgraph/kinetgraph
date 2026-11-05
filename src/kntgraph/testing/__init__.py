@@ -22,6 +22,15 @@ Public surface:
 """
 
 from .clock import fixed_now
+from .concordo_harness import (
+    AdapterContractVerifier,
+    AdapterContractViolation,
+    ContractViolation,
+    FSMContractVerifier,
+    FSMContractViolation,
+    SagaContractVerifier,
+    SagaContractViolation,
+)
 from .embedding import FakeEmbeddingProvider
 from .world_builder import (
     AgentViewBuilder,
@@ -32,8 +41,15 @@ from .world_builder import (
 )
 
 __all__ = [
+    "AdapterContractVerifier",
+    "AdapterContractViolation",
     "AgentViewBuilder",
+    "ContractViolation",
+    "FSMContractVerifier",
+    "FSMContractViolation",
     "FakeEmbeddingProvider",
+    "SagaContractVerifier",
+    "SagaContractViolation",
     "WorldBuilder",
     "assert_all_correlation_ids",
     "assert_correlation_id",

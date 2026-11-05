@@ -167,6 +167,7 @@ def retry_with_backoff(
             )
 
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            # ``multiplier`` replaced the deprecated ``initial`` in 9.2.1.
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_attempts),
                 wait=wait_exponential_jitter(multiplier=base_delay, max=max_delay),

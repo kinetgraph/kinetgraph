@@ -40,6 +40,7 @@ in either set.
 
 Steps (default order — ``DEFAULT_STEPS``):
     syntax       py_compile on src/**/*.py + tests/**/*.py
+    design       architectural fitness gate (ADR-089)
     lint         ruff check on src/
     format       ruff format --check (zero diffs required)
     complexity   radon cc/mi hard gates + regression vs .radon-baseline.json
@@ -120,6 +121,19 @@ def step_syntax() -> Step:
             "-m",
             "py_compile",
             *files,
+        ),
+    )
+
+
+def step_design() -> Step:
+    """ADR-089: Architectural fitness functions and boundary enforcement."""
+    return Step(
+        "design (ADR-089)",
+        (
+            "uv",
+            "run",
+            "python",
+            "scripts/design_gate.py",
         ),
     )
 
@@ -659,6 +673,7 @@ def gate_complexity(verbose: bool = False) -> bool:
 
 ALL_STEPS: dict[str, Step] = {
     "syntax": step_syntax(),
+    "design": step_design(),
     "lint": step_lint(),
     "format": step_format(),
     "complexity": Step(
