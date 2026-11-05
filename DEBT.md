@@ -3777,3 +3777,127 @@ agent on one shard and changes the wire format (a migration).
   fakeredis stand-in that counts the held connections).
 - `docs/adr-068-operational.md` stops describing the fan-in
   degradation.
+
+## 2.42 `StepContext` construction is inconsistent across the FSM and Saga paths
+
+**Status:** OPEN (extracted from the ADR-088 draft on 2026-11-04)
+**Owner:** kinetgraph architecture team
+
+`StepContext` (`src/kntgraph/concordos/base.py`) is the carrier
+every `Specification` evaluates against: FSM transition guards,
+Saga `skip_when`, Saga `proceed_when`, and Saga `compensate_when`
+all receive one. The framework builds it in five places, and the
+resulting contexts differ.
+
+The FSM path (`concordos/fsm/_system.py:249`) populates
+`domain`, `continuity` and `profile` from the view. The Saga
+completion path (`concordos/saga/_system.py:359`) does the same.
+But two Saga paths pass `domain=None`, `continuity=None` and
+`profile=None` explicitly:
+
+- `concordos/saga/_records.py:239` — the skip-predicate context
+  used by `first_non_skipped_step`.
+- `concordos/saga/_compensation.py:100` — the context used to
+  decide whether a failed step is compensable.
+
+The consequences are concrete:
+
+1. **Specifications are not portable between the two execution
+   cycles.** A Specification written against a domain component or
+   a profile tier evaluates differently as an FSM guard than as a
+   Saga skip condition, because the Saga path cannot see those
+   tiers. ADR-088 §1.2 relies on the opposite property.
+2. **The carrier's contract is not written down.** The class
+   docstring says every component field is optional because not
+   every agent has every component populated, but it does not say
+   which fields each construction path populates. The five call
+   sites are the de-facto specification, and they disagree.
+3. **`SessionComponent` is missing entirely.** The memory model
+   (ADR-042) has three transient tiers, but the carrier exposes
+   only `continuity` and `profile`. A Specification cannot read the
+   active dialogue.
+4. **`domain` is ambiguous.** `DomainComponent` is the superclass
+   of every domain component, including `RoleComponent`
+   (`src/kntgraph/core/components/role.py:69`). The Saga path
+   resolves it with `view.get_component(DomainComponent)`, which
+   matches by `isinstance` and therefore returns an arbitrary
+   domain component when the agent carries several. The FSM path
+   does not have this problem: `FSMConfig.component_type` names the
+   concrete class and `FSMSystem` reads it with
+   `view.get_component(self.config.component_type)`.
+
+**Open items:**
+
+1. **Type-indexed domain access.** Replace the single
+   `domain: DomainComponent | None` field with access by concrete
+   class, mirroring `AgentView.get_component`
+   (`src/kntgraph/core/world/view.py:155`):
+
+   ```python
+   def get_component[T: DomainComponent](self, component_type: type[T]) -> T | None:
+       """Read a domain component by its concrete type."""
+   ```
+
+   The FSM path keeps its behaviour — it already reads its
+   configured `component_type`. The Saga path gains the ability to
+   read a named component instead of an arbitrary one.
+   `ADR-088 §3.3` records the corresponding agent-level
+   declaration (`AgentDefinition.domain_types`).
+
+2. **A single construction path.** Introduce one builder in the
+   `concordos` package and route all five call sites through it:
+
+   ```python
+   def build_step_context(
+       view: AgentView,
+       world: World,
+       *,
+       now: datetime,
+       step_results: Mapping[str, JsonValue] | None = None,
+       step_states: Mapping[str, str] | None = None,
+       trigger_data: Mapping[str, JsonValue] | None = None,
+   ) -> StepContext:
+       """Build the canonical StepContext for one agent view.
+
+       Every FSM and Saga evaluation reads the same memory tiers
+       through this builder, so a Specification behaves identically
+       in both execution cycles.
+       """
+   ```
+
+   The builder hydrates the same tiers on every path, including
+   `session` and `domain`.
+
+3. **Add `session` to the carrier.** `session: SessionComponent | None`
+   joins `continuity` and `profile`. The default is `None` so the
+   existing call sites stay valid while they migrate to the
+   builder.
+
+4. **Migrate the five call sites.** `concordos/fsm/_system.py`,
+   `concordos/saga/_system.py`, `concordos/saga/_records.py` (two
+   sites) and `concordos/saga/_compensation.py`.
+
+5. **Assert the parity.** A contract test evaluates the same
+   Specification as an FSM guard and as a Saga skip condition over
+   an identically populated view, and asserts both read the same
+   memory tiers.
+
+**Why this is debt and not a decision.** The five construction
+sites disagree about what the carrier holds, and nothing in the
+code or the docstrings states that they should agree. The
+inconsistency is an artefact of five call sites written at
+different times, not a chosen design. The ADR-088 draft had
+folded the unification into the agent-abstraction ADR, which mixed
+a bug fix with an architectural decision; separating them keeps
+each change reviewable on its own terms.
+
+**Acceptance for closing:**
+- `StepContext` exposes domain components by concrete type; the
+  ambiguous single `domain` field is gone.
+- `session` is present on the carrier.
+- All five call sites go through `build_step_context`.
+- The parity test passes: one Specification, identical view, equal
+  observations in the FSM and Saga paths.
+- Pyright clean on `concordos/`; no new `Any`; the `concordos/`
+  files stay under the file-size ceiling (`kntgraph-file-layout`).
+
