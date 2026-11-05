@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.2] — 2026-11-05
+
 ### Added
 - **The architecture fitness harness (ADR-089).** The project
   documents its architectural standards as *skills* — prose
@@ -124,6 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolves it through a `uv` override — the OS-level `FileLock` that
   `litellm`, `huggingface-hub` and `cachecontrol` use keeps its API in
   4.x. Drop the override when `litellm` lifts its own cap.
+
 
 ## [0.18.0] — 2026-10-26
 
