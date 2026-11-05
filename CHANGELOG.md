@@ -15,6 +15,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The architecture fitness harness (ADR-089).** The project
+  documents its architectural standards as *skills* — prose
+  guidance that an agent loads on demand. Advisory rules drift:
+  a model that reads only the file it is editing never sees the
+  invariant it is about to break. The harness turns those rules
+  into a deterministic gate that runs on every commit.
+
+  Two enforcement pillars ship:
+
+  - `scripts/design_gate.py` — a static boundary linter over
+    the source tree. It rejects a framework package importing
+    from a vertical (`src/kntgraph/core` → `src/kntgraph/agents`,
+    the ADR-042 line), a third-party client SDK escaping
+    `infra/adapters` (ADR-047 / ADR-077), a `TypedDict` in
+    framework code where a frozen dataclass belongs (ADR-079),
+    and a `dict[str, Any]` annotation on a wire event payload
+    (ADR-067 / ADR-079). Each violation names the rule, the
+    file and line, and the ADR that fixes it, so the failure
+    message is the correction.
+
+  - `kntgraph.testing.concordo_harness` — contract verifiers
+    for the three Concordos. `FSMContractVerifier` walks the
+    transition graph for reachability and dead ends, asserts
+    the fold stays pure, and checks the zero-token governance
+    rule. `SagaContractVerifier` checks step uniqueness and
+    context dependencies, then exercises LIFO compensation.
+    `AdapterContractVerifier` asserts a storage adapter
+    translates a third-party exception into `Result.err` and
+    lets `asyncio.CancelledError` propagate rather than
+    swallowing it (ADR-047 / ADR-077).
+
+  The gate is wired into `scripts/ci.py` as the `design` step,
+  ahead of lint. A violation fails the build with a
+  machine-actionable message instead of reaching review.
+
+- **`kntgraph.testing` contract verifiers are part of the
+  public API.** The harness is exported from
+  `kntgraph.testing` with an explicit `__all__`, so a
+  downstream project can assert its own FSMs and Sagas against
+  the same contracts the framework holds itself to.
+
+- **The agent abstraction and unified `StepContext` (ADR-088).**
+  The ADR lands; the implementation is not in this release. It
+  promotes `StepContext` to the canonical memory carrier — the
+  single immutable lens over an agent's cognitive state, holding
+  `session`, `continuity`, `domain`, and `profile` alongside the
+  in-flight `step_results`, `step_states`, and `trigger_data`.
+  `StepContext` stays pure (no I/O during evaluation), immutable
+  (frozen, slotted), and O(1) to read.
+
+  An `AgentDefinition` then describes an agent as a declarative
+  specification of capabilities and governance rather than as an
+  imperative worker loop, and the dual-cycle execution model
+  separates the reactive cycle from the deliberative one.
+
 ### Fixed
 - **Redis Cluster / Valkey cluster mode (`KNT_REDIS_CLUSTER=true`).**
   A cluster server rejects a command that touches keys from

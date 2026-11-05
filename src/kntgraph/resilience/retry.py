@@ -119,9 +119,9 @@ def retry_with_backoff(
     """
     Decorator for automatic retry with exponential backoff + jitter.
 
-    Backoff: ``delay = base_delay * 2**(attempt-1)`` with
-    uniform jitter in [0, 1] of the computed delay
-    (tenacity's ``wait_exponential_jitter``).
+    The delay before attempt ``n`` (counting from 1) is
+    ``base_delay * 2**(n-1)`` plus a random number in [0, 1]
+    second, capped at ``max_delay``.
 
     Usage::
 
@@ -167,7 +167,10 @@ def retry_with_backoff(
             )
 
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            # ``multiplier`` replaced the deprecated ``initial`` in 9.2.1.
+            # ``multiplier`` replaced the deprecated ``initial`` in
+            # tenacity 9.2.1. Both spell the same schedule
+            # (``initial=X`` means ``multiplier=X``), so the delays
+            # are unchanged; ``initial`` now raises a warning.
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(max_attempts),
                 wait=wait_exponential_jitter(multiplier=base_delay, max=max_delay),
@@ -202,6 +205,10 @@ async def retry_async[**P, T](
 ) -> T:
     """
     Execute ``fn`` with retry (no decorator).
+
+    The delay before attempt ``n`` (counting from 1) is
+    ``base_delay * 2**(n-1)`` plus a random number in [0, 1]
+    second, capped at ``max_delay``.
 
     Usage::
 
