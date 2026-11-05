@@ -24,7 +24,7 @@ SPDX-License-Identifier: Apache-2.0
   - [ADR-077](./ADR-077-Storage-Adapter-Exception-Translation.md) — Exception translation at storage adapter boundary
   - [ADR-079](./ADR-079-Frozen-Dataclass-In-Place-Of-TypedDict.md) — Frozen Dataclass in place of `TypedDict`
   - [ADR-080](./ADR-080-Drop-Type-Any-In-ECS-Bag.md) — Drop Type `Any` in ECS Bag
-  - [ADR-088](./ADR-088-Agent-Abstraction-and-Unified-Memory-StepContext.md) — Agent Abstraction over Concordos & `StepContext`
+  - [ADR-088](./ADR-088-Declarative-Agent-Definition-over-Concordos.md) — Declarative Agent Definition over Concordos
 
 ---
 
@@ -182,7 +182,7 @@ Rule: ADR-072 §2 (All stateful saga steps must provide rollback parity).
 - **Guaranteed Conceptual Integrity:** Models can autonomously refactor, add agents, and build sagas without drifting from the pure ECS, event-sourcing, and type-discipline foundations.
 - **Instant Local Feedback:** Architectural errors are flagged in milliseconds via AST checks and contract tests before running heavier integration suites.
 - **Fail-Safe Sagas:** Guarantees that every multi-step tool workflow has verified LIFO rollback behavior and crash recovery prior to production deployment.
-- **Synergy with ADR-088:** Ensures that declarative `AgentDefinition` instances strictly conform to the dual-cycle execution model (zero-token FSM governance vs deliberative Saga execution).
+- **Synergy with ADR-088:** Ensures that declarative `AgentDefinition` instances strictly conform to the dual-cycle execution model (zero-token FSM governance vs deliberative Saga execution). The agent-level contract verifier is a follow-up, not part of this ADR (ADR-088 §5).
 
 ### Negative & Mitigations
 - **Maintenance of AST Linters:** Custom AST linters can become brittle as Python syntax evolves.

@@ -67,19 +67,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   downstream project can assert its own FSMs and Sagas against
   the same contracts the framework holds itself to.
 
-- **The agent abstraction and unified `StepContext` (ADR-088).**
+- **The declarative agent definition (ADR-088).**
   The ADR lands; the implementation is not in this release. It
-  promotes `StepContext` to the canonical memory carrier — the
-  single immutable lens over an agent's cognitive state, holding
-  `session`, `continuity`, `domain`, and `profile` alongside the
-  in-flight `step_results`, `step_states`, and `trigger_data`.
-  `StepContext` stays pure (no I/O during evaluation), immutable
-  (frozen, slotted), and O(1) to read.
+  introduces `AgentDefinition` — a frozen dataclass in the
+  `agents` vertical that declares an agent's persona, FSM, sagas,
+  and domain surface in one place. The framework derives an
+  ephemeral `AgentBundle` from it and installs the bundle's
+  systems and projections on the dispatcher.
 
-  An `AgentDefinition` then describes an agent as a declarative
-  specification of capabilities and governance rather than as an
-  imperative worker loop, and the dual-cycle execution model
-  separates the reactive cycle from the deliberative one.
+  The `AgentDefinition` is the only developer-facing object: it
+  carries no runtime credential (`Principal` is passed to
+  `install()`) and no derived state, so a future serialisation
+  format can attach to the model layer without redesigning the
+  abstraction. The dispatcher stays unaware of agents; agent
+  knowledge lives in the composition layer.
+
+  The unified `StepContext` construction that the earlier draft
+  bundled into this ADR is tracked as technical debt in
+  `DEBT.md` §2.42: the carrier is built in five places with
+  differing content, and two Saga paths pass `domain`,
+  `continuity` and `profile` as `None`.
 
 ### Fixed
 - **The retry backoff uses the non-deprecated `tenacity` API.**
