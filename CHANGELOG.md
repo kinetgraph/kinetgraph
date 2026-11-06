@@ -15,6 +15,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A canonical `StepContext` builder.** `build_step_context` in
+  `kntgraph.concordos` is the single construction path for the
+  carrier every `Specification` evaluates against. The FSM guard,
+  the Saga `skip_when`, the Saga `proceed_when` and the Saga
+  `compensate_when` now read the same memory tiers and the same
+  domain components, so a Specification written for one execution
+  cycle works unchanged in the other. Closes `DEBT.md` §2.42.
+
+- **`StepContext.session`.** The carrier now exposes the active
+  dialogue tier alongside `continuity` and `profile` (ADR-042).
+  A Specification could previously not read the session at all.
+
+- **`StepContext.get_component(MyComponent)`.** Domain components
+  are addressed by their concrete class. The old single
+  `domain` field resolved through the `DomainComponent`
+  superclass and therefore returned an arbitrary component when
+  the agent carried several.
+
+### Changed
+- **The mini-language lost the `agent.<field>` scope and the
+  `domain_state_is` built-in.** A bundle expression cannot name a
+  Python class, so it had no way to resolve a domain component
+  unambiguously. The mini-language is in DEV status (ADR-073
+  §4.4); a typed domain scope is future work. The Python API
+  keeps full access through `ctx.get_component`.
+
+- **`MappingProxyType` is banned across the codebase and the ban
+  is enforced.** Rule `KNT-TYPE-004` in the design gate
+  (ADR-089) fails the build on any use of the name. The rule
+  binds the verticals too: the wrapper breaks pickling of the ECS
+  components that carry such mappings. The last production use —
+  a class-level regex table in `knowledge/extraction/argument/` —
+  became a `ClassVar[Mapping[str, str]]` holding a plain dict
+  (ADR-079 §6.2 / §6.5).
+
+### Fixed
+- **A Saga `skip_when` and a Saga `compensate_when` saw an empty
+  carrier.** Both paths built the `StepContext` with `None` for
+  every memory tier and for the domain component, so a
+  Specification that checked the agent's profile or its domain
+  state always evaluated against nothing.
+
 ## [0.18.2] — 2026-11-05
 
 ### Notes

@@ -27,7 +27,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
-from ..base import StepContext, ViewTrigger
+from .._context import build_step_context
+from ..base import ViewTrigger
 
 if TYPE_CHECKING:
     from kntgraph.concordos.saga._components import SagaProgressComponent
@@ -66,26 +67,15 @@ def begin_compensation(
     no-op (e.g. a timed-out NF-e emission that never
     landed) is skipped -- see ADR-069 §4.8 example.
 
-    For each dispatched compensation tool, two granular
-    events are emitted (ADR-069 §11.10 / §11.18.2):
+    Each dispatched compensation tool emits two events
+    (ADR-069 §11.10 / §11.18.2): the durable
+    ``compensation_started`` marker the fold projection reads
+    to rebuild the stack after a crash, and the tool request.
 
-    - ``saga.<name>.<step>.compensation_started`` -- the
-      durable marker that compensation was dispatched.
-      The fold projection reads this from the EventLog to
-      reconstruct the ``compensate_stack`` accurately
-      after a process crash.
-    - ``tool.<compensate_tool>.requested`` -- the
-      actual tool invocation.
-
-    The ``compensated`` event is emitted by the saga
-    system on the matching ``tool.<compensate_tool>.completed``
-    (see ``_handle_completion``); the fold projection uses
-    it to mark the step as fully compensated.
-
-    If a compensation tool itself fails, the saga emits
-    ``saga.<name>.compensation_failed`` and the system
-    routes the agent to the DLQ on the next tick
-    (ADR-069 §4.5.1).
+    The ``compensated`` event is emitted by the saga system on
+    the matching ``tool.<compensate_tool>.completed``. A
+    compensation tool that itself fails routes the agent to
+    the DLQ on the next tick (ADR-069 §4.5.1).
     """
     from ._records import emit
 
@@ -97,15 +87,8 @@ def begin_compensation(
             data={"reason": reason, "saga_id": progress.saga_id},
         )
     ]
-    ctx = StepContext(
-        step_results=progress.step_results,
-        step_states=progress.step_states,
-        domain=None,
-        continuity=None,
-        profile=None,
-        agent_id=view.agent_id,
-        now=saga._now(),
-        cross_agent_resolver=lambda aid: world.views.get(aid),
+    ctx = build_step_context(
+        view, world, saga._now(), progress.step_results, progress.step_states
     )
     # ``compensate_stack`` on ``progress`` is the value AFTER
     # the ``saga.compensating`` event has been folded by the

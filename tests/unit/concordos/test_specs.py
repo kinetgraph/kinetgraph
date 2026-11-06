@@ -32,7 +32,11 @@ from kntgraph.concordos import (
     StepResultEquals,
     StepTimedOut,
 )
-from kntgraph.core.components.memory import ContinuityComponent, ProfileComponent
+from kntgraph.core.components.memory import (
+    ContinuityComponent,
+    ProfileComponent,
+    SessionComponent,
+)
 from kntgraph.core.world import DomainComponent, World
 
 FIXED_NOW = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
@@ -53,19 +57,28 @@ def _ctx(
     domain: DomainComponent | None = None,
     continuity: ContinuityComponent | None = None,
     profile: ProfileComponent | None = None,
+    session: SessionComponent | None = None,
     cross_agent_resolver=None,
 ) -> StepContext:
     """Build a ``StepContext`` with the given state. The
     ``cross_agent_resolver`` is ``None`` by default
     (specs that don't need cross-agent access receive
     ``None``); tests can pass an explicit resolver.
+
+    The domain component is handed to the carrier the way the
+    framework does it: keyed by its concrete class, so
+    ``ctx.get_component(InvoiceDomainComponent)`` resolves it.
     """
+    domain_components: dict[type, DomainComponent] = {}
+    if domain is not None:
+        domain_components[type(domain)] = domain
     return StepContext(
         step_results=step_results or {},
         step_states=step_states or {},
-        domain=domain,
+        domain_components=domain_components,
         continuity=continuity,
         profile=profile,
+        session=session,
         agent_id="agent-1",
         now=FIXED_NOW,
         cross_agent_resolver=cross_agent_resolver,
@@ -358,9 +371,10 @@ class TestCrossAgentResolver:
             StepContext(  # type: ignore[call-arg]
                 step_results={},
                 step_states={},
-                domain=None,
+                domain_components={},
                 continuity=None,
                 profile=None,
+                session=None,
                 agent_id="agent-1",
                 now=FIXED_NOW,
                 world=World.empty(),  # <- rejected

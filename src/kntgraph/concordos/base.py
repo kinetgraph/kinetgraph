@@ -12,8 +12,6 @@ coherent end-to-end behavior. Both Concordos in ADR-069
 conditions over a shared context. This module defines the
 condition language:
 
-  - ``StepContext`` -- the read-only view a Specification
-    evaluates against.
   - ``Specification`` -- a named, composable predicate
     (Evans, DDD §9).
   - ``Composable`` -- the mixin providing ``and_`` /
@@ -23,6 +21,12 @@ condition language:
   - ``ViewTrigger`` -- the read-only trigger surface the
     FSM/Saga systems derive from the view (ADR-069 §11.16).
 
+``StepContext`` -- the read-only view a Specification
+evaluates against -- lives in ``concordos._context`` beside
+its builder, the single construction path the FSM and Saga
+systems share. It is re-exported here so ``from
+kntgraph.concordos.base import StepContext`` keeps working.
+
 The module is framework-owned (``concordos/`` imports only
 from ``core/`` and stdlib, per the type-discipline skill
 §1.2). Specifications are pure, immutable, and composable.
@@ -31,21 +35,16 @@ from ``core/`` and stdlib, per the type-discipline skill
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from ._context import StepContext
+
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
-    from kntgraph.core.components.memory import (
-        ContinuityComponent,
-        ProfileComponent,
-    )
     from kntgraph.core.event.correlation import CorrelationContext
-    from kntgraph.core.world.component import DomainComponent
-    from kntgraph.core.world.view import AgentView
 
 __all__ = [
     "AndSpec",
@@ -56,65 +55,6 @@ __all__ = [
     "StepContext",
     "ViewTrigger",
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class StepContext:
-    """
-    Read-only view passed to Specifications for evaluation.
-
-    Contains the framework components that might be
-    relevant to a business rule. All component fields are
-    optional because not every agent has every component
-    populated.
-
-    ``now`` is the dispatcher's current tick timestamp
-    (injected by the system that builds the context).
-    Specifications MUST treat ``now`` as the only clock
-    source; reading ``datetime.now()`` inside
-    ``is_satisfied_by`` would break replay determinism.
-
-    ``trigger_data`` is the data payload of the event
-    that triggered the current evaluation (e.g., the
-    transition event for an FSM guard, the trigger event
-    for a saga). The mini-language's ``event.data.*``
-    paths resolve via this field. ``None`` when no
-    trigger is in scope (e.g., for a saga step-result
-    evaluation that only cares about ``step_results``).
-
-    **Cross-agent access is opt-in.** A Specification
-    that needs to read another agent's view (e.g.
-    "proceed iff the financial-control agent's tier
-    is VIP") declares an opt-in by accepting a
-    ``cross_agent_resolver`` callable and calling it
-    inside ``is_satisfied_by``. The resolver is built by
-    the system that constructs the ``StepContext``
-    (typically a closure over the post-fold ``World``).
-
-    The ``StepContext`` itself does NOT carry the
-    ``World``: that would make every guard FSM an O(N)
-    scan over ``world.agents`` and break the "FSM
-    guard is cheap" contract. Specifications that do
-    NOT need cross-agent access receive
-    ``cross_agent_resolver=None`` and cannot reach
-    the World.
-
-    Specifications MUST NOT mutate any agent view,
-    emit events, or perform I/O. The
-    ``is_satisfied_by`` method is pure; the emitted
-    events belong to the system that called the
-    Specification, not to the Specification itself.
-    """
-
-    step_results: Mapping[str, JsonValue]
-    step_states: Mapping[str, str]
-    domain: DomainComponent | None
-    continuity: ContinuityComponent | None
-    profile: ProfileComponent | None
-    agent_id: str
-    now: datetime
-    trigger_data: Mapping[str, JsonValue] | None = None
-    cross_agent_resolver: Callable[[str], AgentView | None] | None = None
 
 
 class Composable:

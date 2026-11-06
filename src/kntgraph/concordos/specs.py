@@ -25,6 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ._domain import DomainStateIs
 from .base import Specification, StepContext
 
 if TYPE_CHECKING:
@@ -93,19 +94,6 @@ class StepResultEquals(Specification):
         if not isinstance(result, Mapping):
             return False
         return result.get(self.field) == self.value
-
-
-@dataclass(frozen=True, slots=True)
-class DomainStateIs(Specification):
-    """True when the DomainComponent has a specific state value."""
-
-    field: str
-    value: str
-
-    def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if ctx.domain is None:
-            return False
-        return getattr(ctx.domain, self.field, None) == self.value
 
 
 @dataclass(frozen=True, slots=True)

@@ -33,7 +33,12 @@ from typing import Any
 import pytest
 from fakeredis.aioredis import FakeRedis
 
-from kntgraph.concordos import Composable, Specification, StepContext
+from kntgraph.concordos import (
+    Composable,
+    Specification,
+    StepContext,
+    find_domain_component,
+)
 from kntgraph.concordos.fsm import (
     FSMConfig,
     FSMProjection,
@@ -57,26 +62,7 @@ pytestmark = [pytest.mark.asyncio]
 
 
 # ===========================================================================
-# Custom Specification
-# ===========================================================================
-
-
-@dataclass(frozen=True, slots=True)
-class OrderAmountValid(Specification, Composable):
-    """Custom Specification validating order_amount is within range."""
-
-    min_amount: int
-    max_amount: int
-
-    def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if ctx.domain is None:
-            return False
-        amount = getattr(ctx.domain, "order_amount", 0)
-        return self.min_amount <= amount <= self.max_amount
-
-
-# ===========================================================================
-# SCENARIO 1: Multi-Tool Fast-Fail FSM with Specifications
+# Scenario 1: Multi-Tool Fast-Fail FSM with Specifications
 # ===========================================================================
 
 
@@ -85,6 +71,31 @@ class OrderAmountValid(Specification, Composable):
 class FSMSpecOrderComponent(DomainComponent):
     stage: str = "created"
     order_amount: int = 250
+
+
+# ===========================================================================
+# Custom Specification
+# ===========================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class OrderAmountValid(Specification, Composable):
+    """Custom Specification validating order_amount is within range.
+
+    The Specification names the field rather than a component
+    class, because several scenarios in this file reuse it over
+    different domain components. The carrier resolves the field
+    to the one component that carries it.
+    """
+
+    min_amount: int
+    max_amount: int
+
+    def is_satisfied_by(self, ctx: StepContext) -> bool:
+        component = find_domain_component(ctx, "order_amount")
+        if component is None:
+            return False
+        return self.min_amount <= component.order_amount <= self.max_amount
 
 
 @tool_worker(name="fsm_spec_fast_success", max_concurrency=10, retries=0)

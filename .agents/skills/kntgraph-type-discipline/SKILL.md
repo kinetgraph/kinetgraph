@@ -177,11 +177,16 @@ Use for:
   `ToolCallCompletion.result: Mapping[str, JsonValue] | None`
   (`core/world/components.py`).
 
-`MappingProxyType` was **removed** in production by
-ADR-079 §6.2 (commit `90fa734`). The single remaining
-production usage is the **vertical**
-`knowledge/extraction/argument/_finder.py` (a
-class-level frozen regex table) — out of scope.
+`MappingProxyType` was **removed** from the codebase by
+ADR-079 §6.2 (commit `90fa734`). The rule is now **enforced**
+by the design gate (`KNT-TYPE-004`): any use of the name
+`MappingProxyType` — imported directly or reached through
+`types.MappingProxyType` — fails the `design` step of
+`scripts/ci.py`. The rule binds the verticals too: the wrapper
+breaks pickling of the ECS components that carry such mappings.
+
+`from types import TracebackType` / `ModuleType` is unaffected;
+only the banned name trips the rule.
 
 Canonical pattern:
 
@@ -545,9 +550,9 @@ The allowlist for remaining legacy technical debt lives in
 # 5.1 — `dict[str, Any]` for a wire payload
 rg -nP '\bdata\s*[:=]\s*dict\[str,\s*Any\]' src/kntgraph/{core,tools,infra,stream,security,runner,resilience,concordos}
 
-# 5.2 — `MappingProxyType` in production
-rg -nP '\bMappingProxyType\b' src/kntgraph/{core,tools,infra,stream,security,runner,resilience}  # noqa: vertical
-# Expected: zero matches in framework; one match in vertical (`knowledge/extraction/argument/_finder.py`).
+# 5.2 — `MappingProxyType` anywhere (KNT-TYPE-004, enforced)
+rg -nP '\bMappingProxyType\b' src/kntgraph
+# Expected: zero matches — the design gate fails the build on any hit.
 
 # 5.3 — `type[Any]` in an ECS bag key
 rg -nP 'type\[Any\]' src/kntgraph/{core,tools,infra,stream,security,runner,resilience,concordos}

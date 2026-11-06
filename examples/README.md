@@ -45,6 +45,7 @@ directly with `python` or via `uv run`.
 | 27  | `27_agent_non_blocking_interleaved.py` | Non-blocking agent execution under interleaved slow/fast tools — slow tool (3.0s) does NOT block fast tool (0.05s) completion for the SAME agent | core                 |
 | 28  | `28_fsm_concurrency_scenarios.py`    | FSM multi-tool concurrency & non-blocking fast-fail — BusinessFSM handling 3 parallel tools (fast fail ~0.1s) and interleaved non-blocking transitions | core                 |
 | 29  | `29_fsm_specification_scenarios.py`  | FSM state transition guards with composable Specification pattern — `DomainStateIs`, custom `OrderAmountValid` with `.and_()`, `.or_()`, `.not_()` | core                 |
+| 30  | `30_declarative_agent_modelling.py` | **Declarative agent modelling** — one `AgentDefinition` derives the runtime; the same Specification works as an FSM guard and as a Saga skip condition | core                 |
 
 ## Setup
 
