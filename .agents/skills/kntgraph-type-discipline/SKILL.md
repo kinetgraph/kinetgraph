@@ -517,16 +517,16 @@ record**. When in doubt, read the ADR.
 
 | ADR | What it decided | Where it shows up in the skill |
 |---|---|---|
-| [ADR-001](../ADRs/ADR-001-Arquitetura.md) | Pure ECS, Event Sourcing, `World = fold(events)` | §3.4 (ComponentT on `ArchetypeStorage`) |
-| [ADR-034](../ADRs/ADR-034-ToolCall-ECS-Components.md) | `ToolCallRequest` / `ToolCallCompletion` as canonical typed components | §3.2 (`Mapping[str, JsonValue]`) |
-| [ADR-042](../ADRs/ADR-042-Agents-Memory-Model-usage.md) | `SessionComponent` / `ProfileComponent` / `ContinuityComponent` as frozen memory components | §4 (the `memory/` confusion) |
-| [ADR-059](../ADRs/ADR-059-Domain-Memory-ECS-Components.md) | `DomainComponent` superclass; the fold projection honours it | §3.2, §3.3 |
-| [ADR-066](../ADRs/ADR-066-Single-Tool-Path.md) | Three-gate ACL; orthogonal to types | (cross-cutting) |
-| [ADR-067](../ADRs/ADR-067-derived-component-ownership-and-implicit-materialisation.md) | `JsonValue` discipline; this ADR is the wire primitive anchor | §3.1 |
-| [ADR-069](../ADRs/ADR-069-Agent-Concordo-Foundation.md) | Concordos foundation (FSM + Saga) | §1.1 (`concordos/` is framework-tier) |
-| [ADR-078](../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md) | Decommission the internal `ProcessPoolExecutor`; per-tool execution strategy is mandatory from v0.18 | §9 |
-| [ADR-079](../ADRs/ADR-079-Frozen-Dataclass-In-Place-Of-TypedDict.md) | Frozen dataclass in place of `TypedDict`; drop `MappingProxyType`; `ToolResult` primitive; refined dict-construction rules | §3.2, §3.3, §5.4, §5.5, §5.6 |
-| [ADR-080](../ADRs/ADR-080-Drop-Type-Any-In-ECS-Bag.md) | Drop `type[Any]` in the ECS bag key; `value: Any` stays as the documented exception | §3.5, §5.3 |
+| [ADR-001](../../../ADRs/ADR-001-Arquitetura.md) | Pure ECS, Event Sourcing, `World = fold(events)` | §3.4 (ComponentT on `ArchetypeStorage`) |
+| [ADR-034](../../../ADRs/ADR-034-ToolCall-ECS-Components.md) | `ToolCallRequest` / `ToolCallCompletion` as canonical typed components | §3.2 (`Mapping[str, JsonValue]`) |
+| [ADR-042](../../../ADRs/ADR-042-Agents-Memory-Model-usage.md) | `SessionComponent` / `ProfileComponent` / `ContinuityComponent` as frozen memory components | §4 (the `memory/` confusion) |
+| [ADR-059](../../../ADRs/ADR-059-Domain-Memory-ECS-Components.md) | `DomainComponent` superclass; the fold projection honours it | §3.2, §3.3 |
+| [ADR-066](../../../ADRs/ADR-066-Single-Tool-Path.md) | Three-gate ACL; orthogonal to types | (cross-cutting) |
+| [ADR-067](../../../ADRs/ADR-067-derived-component-ownership-and-implicit-materialisation.md) | `JsonValue` discipline; this ADR is the wire primitive anchor | §3.1 |
+| [ADR-069](../../../ADRs/ADR-069-Agent-Concordo-Foundation.md) | Concordos foundation (FSM + Saga) | §1.1 (`concordos/` is framework-tier) |
+| [ADR-078](../../../ADRs/ADR-078-Decommision-ProcessPoolExecutor.md) | Decommission the internal `ProcessPoolExecutor`; per-tool execution strategy is mandatory from v0.18 | §9 |
+| [ADR-079](../../../ADRs/ADR-079-Frozen-Dataclass-In-Place-Of-TypedDict.md) | Frozen dataclass in place of `TypedDict`; drop `MappingProxyType`; `ToolResult` primitive; refined dict-construction rules | §3.2, §3.3, §5.4, §5.5, §5.6 |
+| [ADR-080](../../../ADRs/ADR-080-Drop-Type-Any-In-ECS-Bag.md) | Drop `type[Any]` in the ECS bag key; `value: Any` stays as the documented exception | §3.5, §5.3 |
 
 ---
 

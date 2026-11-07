@@ -39,6 +39,27 @@ How to use this file
 4. Line numbers are pinned to the current tree; re-run
    pyright / ruff / coverage to refresh.
 
+Machine-readable companion
+--------------------------
+
+This file is the **human record**: the context, the rationale, the
+history of what was tried. The **machine record** is
+`.debt-baseline.json`, maintained by the architectural harness, and
+queried with:
+
+    uv run python scripts/debt.py <file>      # what debt does this file carry?
+    uv run python scripts/debt.py --all       # the whole inventory
+
+The inventory covers the mechanically detectable debt — broad
+`except` handlers, `print()` in production code, `dict[str, Any]`
+and `type[Any]` annotations, bare `object`, broken documentation
+links and duplicated ADR numbers. Under the *fix-on-touch* policy
+this debt is corrected when the file is touched, not in a campaign;
+see `.agents/rules/fix_on_touch.md`.
+
+A debt entry that does not appear in this file is still tracked
+mechanically — the inventory and this log complement each other.
+
 Recent closures (post-2026-07-30 sync)
 --------------------------------------
 

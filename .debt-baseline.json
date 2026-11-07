@@ -1,0 +1,702 @@
+{
+  "version": 1,
+  "description": "Known technical debt, inventoried by tests/architecture/_debt.py. The debt check fails only on a REGRESSION (debt not present in this file). Regenerate with 'uv run python scripts/debt.py --update-baseline'.",
+  "items": [
+    {
+      "path": "ADRs/ADR-002-ArquiteturaEvolve.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-002",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-002-Replay-Puro.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-002",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-003-Arquitetura-AgenticAnalytics.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-003",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-003-Ciclo-Dual.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-003",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-019-Epilogo-Typed-Adapters.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-019",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-019-Redis-Adapter-Typing.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-019",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-036-Open-Source-KntGraph.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-036",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-036-Tool-Worker-Pattern.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-036",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-071-BusinessFSM-Concordo.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-071",
+      "line": 0
+    },
+    {
+      "path": "ADRs/ADR-071-Configurable-Redis-Key-Prefix.md",
+      "kind": "duplicate-adr-number",
+      "detail": "ADR-071",
+      "line": 0
+    },
+    {
+      "path": "docs/adr-068-operational.md",
+      "kind": "broken-doc-link",
+      "detail": "adr-068-idle-redis-traffic-and-eventlog-subscribe.md",
+      "line": 0
+    },
+    {
+      "path": "docs/adr-069-pluggable-executor-factory.md",
+      "kind": "broken-doc-link",
+      "detail": "../../soldi/backoffice/docs/ADRs/adr-014-separacao-pools-cpu-io-bound.md",
+      "line": 0
+    },
+    {
+      "path": "docs/business_fsm.md",
+      "kind": "broken-doc-link",
+      "detail": "../../ADRs/ADR-071-Agent-Concordo-Macro-Behaviors.md",
+      "line": 0
+    },
+    {
+      "path": "docs/business_fsm.md",
+      "kind": "broken-doc-link",
+      "detail": "../../ADRs/ADR-071-Agent-Concordo-Macro-Behaviors.md",
+      "line": 0
+    },
+    {
+      "path": "docs/business_fsm.md",
+      "kind": "broken-doc-link",
+      "detail": "../../DEBT.md",
+      "line": 0
+    },
+    {
+      "path": "docs/business_fsm.md",
+      "kind": "broken-doc-link",
+      "detail": "../../examples/23_business_fsm.py",
+      "line": 0
+    },
+    {
+      "path": "docs/checkpoints.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/infra/checkpoint.py",
+      "line": 0
+    },
+    {
+      "path": "docs/checkpoints.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/runner/reactive.py",
+      "line": 0
+    },
+    {
+      "path": "docs/checkpoints.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/tools/invoker.py",
+      "line": 0
+    },
+    {
+      "path": "docs/concordos-bundle-spec.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-069-Agent-Concordo-Foundation.md",
+      "line": 0
+    },
+    {
+      "path": "docs/concordos-bundle-spec.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-069-Agent-Concordo-Foundation.md",
+      "line": 0
+    },
+    {
+      "path": "docs/concordos-bundle-spec.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-071-BusinessFSM-Concordo.md",
+      "line": 0
+    },
+    {
+      "path": "docs/concordos-bundle-spec.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-072-WorkflowSaga-Concordo.md",
+      "line": 0
+    },
+    {
+      "path": "docs/concordos-bundle-spec.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-073-Concordo-Bundle-Format.md",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_agents/memory/solutions/_extractor.py",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_agents/memory/solutions/_promoter.py",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_agents/tools/pii/_tool.py",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/memory/consolidation.py",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-004-Memory-Tools-Knowledge.md",
+      "line": 0
+    },
+    {
+      "path": "docs/consolidation.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADR-010-Memory-Business-Tier.md",
+      "line": 0
+    },
+    {
+      "path": "docs/dead_letter_queue.md",
+      "kind": "broken-doc-link",
+      "detail": "circuit_breaker.md",
+      "line": 0
+    },
+    {
+      "path": "docs/dead_letter_queue.md",
+      "kind": "broken-doc-link",
+      "detail": "event_store.md",
+      "line": 0
+    },
+    {
+      "path": "docs/dead_letter_queue.md",
+      "kind": "broken-doc-link",
+      "detail": "retry.md",
+      "line": 0
+    },
+    {
+      "path": "docs/ecs.md",
+      "kind": "broken-doc-link",
+      "detail": "components.md",
+      "line": 0
+    },
+    {
+      "path": "docs/ecs.md",
+      "kind": "broken-doc-link",
+      "detail": "systems.md",
+      "line": 0
+    },
+    {
+      "path": "docs/ecs.md",
+      "kind": "broken-doc-link",
+      "detail": "world.md",
+      "line": 0
+    },
+    {
+      "path": "docs/embedding.md",
+      "kind": "broken-doc-link",
+      "detail": "../../../fmh_agents/examples/08_falkordb_projection.py",
+      "line": 0
+    },
+    {
+      "path": "docs/embedding.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/knowledge/embedding/provider.py",
+      "line": 0
+    },
+    {
+      "path": "docs/embedding.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/knowledge/embedding/provider.py",
+      "line": 0
+    },
+    {
+      "path": "docs/embedding.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/knowledge/graphrag/retriever.py",
+      "line": 0
+    },
+    {
+      "path": "docs/event_sourcing.md",
+      "kind": "broken-doc-link",
+      "detail": "correlation.md",
+      "line": 0
+    },
+    {
+      "path": "docs/event_sourcing.md",
+      "kind": "broken-doc-link",
+      "detail": "event_store.md",
+      "line": 0
+    },
+    {
+      "path": "docs/event_sourcing.md",
+      "kind": "broken-doc-link",
+      "detail": "world.md",
+      "line": 0
+    },
+    {
+      "path": "docs/graphrag.md",
+      "kind": "broken-doc-link",
+      "detail": "../../examples/08_falkordb_projection.py",
+      "line": 0
+    },
+    {
+      "path": "docs/graphrag.md",
+      "kind": "broken-doc-link",
+      "detail": "../../examples/09_knowledge_consolidation.py",
+      "line": 0
+    },
+    {
+      "path": "docs/graphrag.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/infra/graph/_pool.py",
+      "line": 0
+    },
+    {
+      "path": "docs/graphrag.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/knowledge/falkordb/adapter.py",
+      "line": 0
+    },
+    {
+      "path": "docs/graphrag.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/kntgraph/knowledge/graphrag/retriever.py",
+      "line": 0
+    },
+    {
+      "path": "docs/pypi_publishing_runbook.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADRs/ADR-051-Release-Versioning-via-Git-Tags.md",
+      "line": 0
+    },
+    {
+      "path": "docs/pypi_publishing_runbook.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADRs/ADR-051-Release-Versioning-via-Git-Tags.md",
+      "line": 0
+    },
+    {
+      "path": "docs/pypi_publishing_runbook.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADRs/ADR-052-PyPI-Publishing.md",
+      "line": 0
+    },
+    {
+      "path": "docs/pypi_publishing_runbook.md",
+      "kind": "broken-doc-link",
+      "detail": "./ADRs/ADR-052-PyPI-Publishing.md",
+      "line": 0
+    },
+    {
+      "path": "docs/pypi_publishing_runbook.md",
+      "kind": "broken-doc-link",
+      "detail": "./CONTRIBUTING.md",
+      "line": 0
+    },
+    {
+      "path": "docs/query.md",
+      "kind": "broken-doc-link",
+      "detail": "systems.md",
+      "line": 0
+    },
+    {
+      "path": "docs/query.md",
+      "kind": "broken-doc-link",
+      "detail": "world.md",
+      "line": 0
+    },
+    {
+      "path": "docs/redis_connection_lifecycle.md",
+      "kind": "broken-doc-link",
+      "detail": "ADR-078-Decommision-ProcessPoolExecutor.md",
+      "line": 0
+    },
+    {
+      "path": "docs/resilience.md",
+      "kind": "broken-doc-link",
+      "detail": "bulkhead.md",
+      "line": 0
+    },
+    {
+      "path": "docs/resilience.md",
+      "kind": "broken-doc-link",
+      "detail": "circuit_breaker.md",
+      "line": 0
+    },
+    {
+      "path": "docs/resilience.md",
+      "kind": "broken-doc-link",
+      "detail": "fallback.md",
+      "line": 0
+    },
+    {
+      "path": "docs/resilience.md",
+      "kind": "broken-doc-link",
+      "detail": "retry.md",
+      "line": 0
+    },
+    {
+      "path": "docs/resilience.md",
+      "kind": "broken-doc-link",
+      "detail": "timeout.md",
+      "line": 0
+    },
+    {
+      "path": "docs/routing.md",
+      "kind": "broken-doc-link",
+      "detail": "../fmh_agents/ADRs/ADR-006-Tool-Role-Separation.md",
+      "line": 0
+    },
+    {
+      "path": "docs/routing.md",
+      "kind": "broken-doc-link",
+      "detail": "../fmh_agents/ADRs/ADR-013-Semantic-Routing-GLiNER2.md",
+      "line": 0
+    },
+    {
+      "path": "docs/routing.md",
+      "kind": "broken-doc-link",
+      "detail": "../fmh_backend/ADRs/ADR-010-Memory-Business-Tier.md",
+      "line": 0
+    },
+    {
+      "path": "docs/routing.md",
+      "kind": "broken-doc-link",
+      "detail": "../fmh_backend/ADRs/ADR-012-IntentRouter-HTTP-Gateway.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../../../NEXT_STEPS.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../ADRs/ADR-001-Arquitetura.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../ADRs/ADR-016-Event-Signing.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../ADRs/ADR-016-Event-Signing.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../ADRs/ADR-016-Event-Signing.md",
+      "line": 0
+    },
+    {
+      "path": "docs/security/README.md",
+      "kind": "broken-doc-link",
+      "detail": "../ADRs/ADR-060-fmh-office-v2-pillars.md",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../fmh_agents/",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../fmh_agents/",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../fmh_agents/ADRs/ADR-009-Tool-Tiers.md",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../fmh_agents/ADRs/ADR-009-Tool-Tiers.md",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../fmh_agents/ADRs/ADR-013-Semantic-Routing-GLiNER2.md",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/core/result.py",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/tools/invoker.py",
+      "line": 0
+    },
+    {
+      "path": "docs/tools.md",
+      "kind": "broken-doc-link",
+      "detail": "../../src/fmh_backend/tools/protocol.py",
+      "line": 0
+    },
+    {
+      "path": "docs/workflow_saga.md",
+      "kind": "broken-doc-link",
+      "detail": "../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md",
+      "line": 0
+    },
+    {
+      "path": "docs/workflow_saga.md",
+      "kind": "broken-doc-link",
+      "detail": "../../ADRs/ADR-072-Agent-Concordo-Macro-Behaviors.md",
+      "line": 0
+    },
+    {
+      "path": "docs/workflow_saga.md",
+      "kind": "broken-doc-link",
+      "detail": "../../DEBT.md",
+      "line": 0
+    },
+    {
+      "path": "docs/workflow_saga.md",
+      "kind": "broken-doc-link",
+      "detail": "../../examples/24_workflow_saga.py",
+      "line": 0
+    },
+    {
+      "path": "src/kntgraph/agents/memory/solution_extractor.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 182
+    },
+    {
+      "path": "src/kntgraph/agents/memory/solution_lookup.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 337
+    },
+    {
+      "path": "src/kntgraph/agents/memory/solution_review_publisher.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 86
+    },
+    {
+      "path": "src/kntgraph/agents/memory/solutions/_promoter.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 49
+    },
+    {
+      "path": "src/kntgraph/agents/memory/solutions/_promoter.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 274
+    },
+    {
+      "path": "src/kntgraph/api/intent_router/helpers.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 146
+    },
+    {
+      "path": "src/kntgraph/api/schemas.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 84
+    },
+    {
+      "path": "src/kntgraph/api/schemas.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 94
+    },
+    {
+      "path": "src/kntgraph/api/schemas.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 94
+    },
+    {
+      "path": "src/kntgraph/concordos/_loader.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 226
+    },
+    {
+      "path": "src/kntgraph/core/world/projection_memory.py",
+      "kind": "type-any-key",
+      "detail": "type[Any] in mapping key",
+      "line": 791
+    },
+    {
+      "path": "src/kntgraph/infra/graph/_lite_pool.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 299
+    },
+    {
+      "path": "src/kntgraph/infra/graph/_pool.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 148
+    },
+    {
+      "path": "src/kntgraph/knowledge/embedding/_ollama.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 284
+    },
+    {
+      "path": "src/kntgraph/knowledge/extraction/gliner_intent.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 417
+    },
+    {
+      "path": "src/kntgraph/knowledge/graph/_sub/_solution/_row_helpers.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 38
+    },
+    {
+      "path": "src/kntgraph/knowledge/graph/_sub/_solution/_row_helpers.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 38
+    },
+    {
+      "path": "src/kntgraph/resilience/rate_limit.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 242
+    },
+    {
+      "path": "src/kntgraph/resilience/rate_limit.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 307
+    },
+    {
+      "path": "src/kntgraph/resilience/rate_limit.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 217
+    },
+    {
+      "path": "src/kntgraph/runner/reactive.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 759
+    },
+    {
+      "path": "src/kntgraph/security/keys/_registry.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 97
+    },
+    {
+      "path": "src/kntgraph/tools/_worker_invocation.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 77
+    },
+    {
+      "path": "src/kntgraph/tools/_worker_invocation.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 117
+    },
+    {
+      "path": "src/kntgraph/tools/executors.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 138
+    },
+    {
+      "path": "src/kntgraph/tools/manager.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 73
+    },
+    {
+      "path": "src/kntgraph/tools/manager.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 657
+    },
+    {
+      "path": "src/kntgraph/tools/manager.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 479
+    },
+    {
+      "path": "src/kntgraph/tools/manager.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 572
+    },
+    {
+      "path": "src/kntgraph/tools/manager.py",
+      "kind": "broad-except",
+      "detail": "Exception",
+      "line": 697
+    },
+    {
+      "path": "src/kntgraph/tools/schema.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 130
+    },
+    {
+      "path": "src/kntgraph/tools/schema.py",
+      "kind": "bare-object",
+      "detail": "object",
+      "line": 130
+    },
+    {
+      "path": "src/kntgraph/tools/worker.py",
+      "kind": "dict-str-any",
+      "detail": "dict[str, Any]",
+      "line": 84
+    }
+  ]
+}

@@ -18,12 +18,15 @@ The mandatory gate is one command:
 uv run scripts/ci.py
 ```
 
-It runs **13 steps in order**. All 13 must pass. There is no best-effort mode; the only way to skip a step is `uv run scripts/ci.py --only <step>` (e.g. `--only lint`), which selects that step to the exclusion of the others (for local iteration). The pre-commit hook runs the full set without flags.
+It runs the gate steps in order. The default run executes 15 of
+them. All must pass. There is no best-effort mode; the only way to
+skip a step is `uv run scripts/ci.py --only <step>` (e.g. `--only lint`), which selects that step to the exclusion of the others (for local iteration). The pre-commit hook runs the full set without flags.
 
 | Step          | Tool                  | Description                                       |
 | ------------- | --------------------- | ------------------------------------------------- |
 | `syntax`      | `py_compile`          | Compiles every `.py` in `src/` and `tests/`       |
 | `design`      | `design_gate.py`      | Architectural fitness gate & boundary enforcement (ADR-089) |
+| `architecture`| `pytest`              | Architectural harness checks (`tests/architecture/`) |
 | `lint`        | `ruff check`          | Lints `src/` and `tests/` with the rules `E, F, W, I, UP, B, A, C4, SIM` (declared in `pyproject.toml` → `[tool.ruff.lint] select`) |
 | `format`      | `ruff format --check` | Verifies the canonical format (zero diffs)        |
 | `complexity`  | `radon cc/mi`         | CC ≤ 10 per block, MI ≥ 20 per file, no regression vs `.radon-baseline.json` |
@@ -35,6 +38,24 @@ It runs **13 steps in order**. All 13 must pass. There is no best-effort mode; t
 | `verticals`   | `coverage.py`         | Branch coverage on `agents/`, `api/`, `cli/`, `events/`, `knowledge/`, `memory/`; regression vs `.verticals-baseline.json` |
 | `bandit`      | `bandit`              | Security scan (`B110` filtered at severity medium) |
 | `audit`       | `pip-audit`           | Vulnerability scan of the resolved dep tree      |
+
+### The `architecture` step
+
+`tests/architecture/` holds the **architectural harness**: one file
+per architectural rule, each asserting a single invariant — a plan's
+Definition of Done is verifiable, the normative surface has no
+broken reference, the inventoried debt does not grow, and every
+check is registered in the harness skill.
+
+The step runs **before** the unit tests on purpose. The checks are
+filesystem-and-AST only — they import no framework module — so they
+finish in well under a second and fail earlier than a broken unit
+test would.
+
+The rules behind them live in
+[`kntgraph-harness`](../kntgraph-harness/SKILL.md). When you add a
+rule, add the check **and** the rule, then register both in the
+skill's *Check inventory* table — the parity check enforces it.
 
 ### The two coverage gates
 
@@ -105,6 +126,7 @@ is the canonical pre-merge gate.
 # Quick local check (no integration, no bandit, no audit)
 python scripts/design_gate.py
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only design
+KNT_REDIS_FAKE=1 uv run scripts/ci.py --only architecture
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only lint
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only format
 KNT_REDIS_FAKE=1 uv run scripts/ci.py --only tests

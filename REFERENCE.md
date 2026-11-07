@@ -66,11 +66,10 @@ the `agents` namespace.
 
 - [`kntgraph.tools.protocol`](src/kntgraph/tools/protocol.py)
   — `Tool` Protocol, `Describable`, `Callable`.
-- [`kntgraph.tools.registry`](src/kntgraph/tools/registry.py)
-  — `ToolRegistry`, the global registry.
-- [`kntgraph.tools.invoker`](src/kntgraph/tools/invoker.py)
-  — `ToolInvoker`, the dispatcher that turns
-  `tool.*.requested` events into calls.
+- [`kntgraph.tools.manager`](src/kntgraph/tools/manager.py)
+  — `WorkerManager`, the canonical dispatcher that turns
+  `tool.*.requested` events into calls (ADR-066; the former
+  `ToolRegistry` and `ToolInvoker` were removed in v0.18).
 - [`kntgraph.tools.system`](src/kntgraph/tools/system.py)
   — `ToolAwareSystem` mixin.
 - [`kntgraph.tools.router`](src/kntgraph/tools/router.py)
@@ -154,7 +153,7 @@ the `agents` namespace.
 
 ### `roles` — pure ECS components and intent resolution
 
-- [`kntgraph.agents.roles.resolution`](src/kntgraph/agents/roles/resolution.py)
+- [`kntgraph.agents.role_systems`](src/kntgraph/agents/role_systems/)
   — `RoleComponent` (persona, instructions, allowed tools data), `IntentComponent` (pending intent state, correlation context), and `IntentResolutionSystem` (pure resolution system).
 - Note: The legacy LLM role wrappers (`SemanticRoutingRole`, `SummarizerRole`, `PlannerRole`, `PersonalizedRole`) are deprecated in favor of this pure ECS data component model (ADR-039).
 
@@ -169,7 +168,7 @@ the `agents` namespace.
 - [`kntgraph.agents.tools.pii`](src/kntgraph/agents/tools/pii/)
   — `PiiRedactionTool` (3 levels: regex, NER,
   audit batch).
-- [`kntgraph.agents.tools.arg_validation`](src/kntgraph/agents/tools/arg_validation.py)
+- [`kntgraph.tools.arg_validation`](src/kntgraph/tools/arg_validation.py)
   — `validate_args`, the schema validator.
 
 ### `memory` — vertical memory tiers
@@ -203,9 +202,10 @@ the `agents` namespace.
 
 ### `config` — agents-level config
 
-- [`kntgraph.agents.config`](src/kntgraph/agents/config.py)
-  — `RateLimiter`, `CostBudget` (per-tool
-  knobs).
+- [`kntgraph.agents.config`](src/kntgraph/agents/config/)
+  — `RateLimiter` (re-exported from
+  `kntgraph.resilience.rate_limit`), `CostBudget`
+  (per-tool LLM spending knobs) and `LLMConfig`.
 
 ## Common patterns
 

@@ -24,6 +24,7 @@ matches the skill's `description` keywords.
 | §10 Prose language         | `kntgraph-prose-language`     |
 | §11 Branch policy          | `kntgraph-branch-policy`      |
 | §13 Environment            | `kntgraph-environment`        |
+| §14 Architectural harness  | `kntgraph-harness`            |
 
 > **Behavioural change.** Skills are loaded on demand,
 > not on every turn. An AI agent that is about to
@@ -39,3 +40,22 @@ The companion documents are unchanged:
 - `DEBT.md` — the project's tech-debt log.
 - `CHANGELOG.md` — the version history.
 - `ADRs/` — Architecture Decision Records.
+
+## The architectural harness
+
+Architectural rules are enforced, not merely documented. The
+harness has four levels — convention, coherence, enforcement and
+evolution — and every level is a place a rule can live:
+
+| Level | Where |
+|---|---|
+| Convention (vocabulary, ADRs, skills) | `ADRs/`, `.agents/skills/` |
+| Coherence (referential integrity) | `tests/architecture/test_docs_consistency.py` |
+| Enforcement (executable checks) | `tests/architecture/`, `scripts/design_gate.py` |
+| Evolution (plans, verifiable DoD) | `docs/tasks/`, `.agents/rules/` |
+
+Before adding a rule, read
+[`kntgraph-harness`](.agents/skills/kntgraph-harness/SKILL.md). It
+carries the check inventory, the fail-fast versus conditional
+decision, and the procedure for adding a rule **without** letting it
+rot into prose.

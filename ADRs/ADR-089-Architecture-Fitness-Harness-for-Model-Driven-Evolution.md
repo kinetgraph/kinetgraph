@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-089: Architecture Fitness Harness for Model-Driven Solution Evolution
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-04
 - **Author:** kinetgraph architecture team
 - **Related to:**
@@ -164,6 +164,34 @@ Rule: ADR-072 §2 (All stateful saga steps must provide rollback parity).
 ---
 
 ## 4. Implementation Plan
+
+> **Implementation status (2026-11-07).** Step 1 is **done**:
+> `scripts/design_gate.py` implements the framework/vertical seam
+> (`KNT-BOUND-001`), the adapter encapsulation guard
+> (`KNT-ADAPT-001`), the `TypedDict` ban (`KNT-TYPE-001`), the wire
+> payload discipline (`KNT-TYPE-002`) and the syntax guard
+> (`KNT-SYNTAX-001`), and it runs as the `design` step of
+> `scripts/ci.py`. Step 2 is **done**:
+> `src/kntgraph/testing/concordo_harness.py` provides the
+> `FSMContractVerifier`, `SagaContractVerifier` and
+> `AdapterContractVerifier` suites.
+>
+> Two rules the script's own docstring names — `KNT-EXC-001` and
+> `KNT-TYPE-003` — are **documented but not implemented**. The
+> reachable version of `KNT-EXC-001` is now enforced as
+> *conditional* debt by the inventory in `tests/architecture/_debt.py`
+> (the naive rule is unreachable: it reports 25 framework sites, 24 of
+> which are legitimate). Reconciling the docstring with the
+> implementation is tracked in
+> [`docs/tasks/harness-nivel-3-checks.md`](../docs/tasks/harness-nivel-3-checks.md).
+>
+> Step 3 (the CLI scaffold) is still open.
+>
+> **The harness has since grown a fourth pillar** — the Nível 4
+> cycle: execution plans with a verifiable Definition of Done
+> (`docs/tasks/`), the fix-on-touch and migrate-on-touch policies
+> (`.agents/rules/`), and a per-file debt query (`scripts/debt.py`).
+> See [`.agents/skills/kntgraph-harness/SKILL.md`](../.agents/skills/kntgraph-harness/SKILL.md).
 
 1. **Step 1: Architectural Gate Script (`scripts/design_gate.py`):**
    - Implement the AST visitor for import boundary checks and `JsonValue`/`dataclass` enforcement.
