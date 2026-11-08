@@ -18,8 +18,9 @@ Three groups:
     (``_saga_completed``, ``_dlq_event``).
   - **Step recorders**: ``_record_start``,
     ``_record_step_completed``, ``_record_step_failed``.
-  - **Skip predicates**: ``_first_non_skipped_step``,
-    ``_next_non_skipped_step``.
+
+The step-skipping predicates live in ``_skip.py``; this
+module stays about what the saga records, not what it skips.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from ..base import StepContext, ViewTrigger
+from ..base import ViewTrigger
 
 if TYPE_CHECKING:
     from kntgraph.concordos.saga._components import SagaProgressComponent
@@ -49,8 +50,6 @@ if TYPE_CHECKING:
 __all__ = [
     "dlq_event",
     "emit",
-    "first_non_skipped_step",
-    "next_non_skipped_step",
     "record_start",
     "record_step_completed",
     "record_step_failed",
@@ -222,53 +221,3 @@ def record_step_failed(
             "step_results": dict(new_results),
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# Skip predicates (consult the ``skip_when`` Specification)
-# ---------------------------------------------------------------------------
-
-
-def first_non_skipped_step(
-    saga: _SagaSystemLike,
-    progress: SagaProgressComponent,
-    trigger: ViewTrigger,
-) -> SagaStepConfig | None:
-    """Return the first step in declared order that is not
-    skipped (per its ``skip_when`` Specification)."""
-    ctx = StepContext(
-        step_results=progress.step_results,
-        step_states=progress.step_states,
-        domain=None,
-        continuity=None,
-        profile=None,
-        agent_id=trigger.agent_id,
-        now=saga._now(),
-    )
-    for step_name in progress.step_order:
-        step_cfg = saga._step_map.get(step_name)
-        if step_cfg is None:
-            continue
-        if step_cfg.skip_when is not None and step_cfg.skip_when.is_satisfied_by(ctx):
-            continue
-        return step_cfg
-    return None
-
-
-def next_non_skipped_step(
-    saga: _SagaSystemLike,
-    current_step: SagaStepConfig,
-    ctx: StepContext,
-) -> SagaStepConfig | None:
-    """Return the next step after ``current_step`` in declared
-    order that is not skipped."""
-    order = saga._cfg.steps
-    try:
-        idx = order.index(current_step)
-    except ValueError:
-        return None
-    for step_cfg in order[idx + 1 :]:
-        if step_cfg.skip_when is not None and step_cfg.skip_when.is_satisfied_by(ctx):
-            continue
-        return step_cfg
-    return None

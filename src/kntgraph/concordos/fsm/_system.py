@@ -28,20 +28,16 @@ from typing import TYPE_CHECKING, ClassVar
 from uuid import UUID
 
 from kntgraph.core.clock import injectable_clock
-from kntgraph.core.components.memory import (
-    ContinuityComponent,
-    ProfileComponent,
-)
 from kntgraph.core.event.correlation import correlation_middleware
 
-from ..base import StepContext, ViewTrigger
+from .._context import build_step_context
+from ..base import ViewTrigger
 from ._config import FSMConfig
 
 if TYPE_CHECKING:
     from kntgraph.core._typing import JsonValue
     from kntgraph.core.clock import Clock
     from kntgraph.core.event.event import Event
-    from kntgraph.core.world.component import DomainComponent
     from kntgraph.core.world.view import AgentView
     from kntgraph.core.world.world import World
 
@@ -194,9 +190,7 @@ class FSMSystem:
             correlation=correlation_middleware.current(),
         )
 
-        emitted, _new_state = self._process_trigger(
-            trigger, current_state, component, view, world
-        )
+        emitted, _new_state = self._process_trigger(trigger, current_state, view, world)
         return emitted
 
     def _own_event_types(self) -> frozenset[str]:
@@ -212,7 +206,6 @@ class FSMSystem:
         self,
         trigger: ViewTrigger,
         current_state: str,
-        component: DomainComponent | None,
         view: AgentView,
         world: World,
     ) -> tuple[list[Event], str | None]:
@@ -246,18 +239,13 @@ class FSMSystem:
             # opt-in resolver. The resolver is a pure
             # closure over the post-fold World; specs
             # that don't need it receive ``None``.
-            ctx = StepContext(
-                step_results={},
-                step_states={},
-                domain=component,
-                continuity=view.get_component(ContinuityComponent),
-                profile=view.get_component(ProfileComponent),
-                agent_id=view.agent_id,
-                now=self._now(),
+            ctx = build_step_context(
+                view,
+                world,
+                self._now(),
                 trigger_data=dict(trigger.data)
                 if isinstance(getattr(trigger, "data", None), dict)
                 else None,
-                cross_agent_resolver=lambda aid: world.views.get(aid),
             )
             if not transition.guard.is_satisfied_by(ctx):
                 return (

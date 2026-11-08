@@ -20,6 +20,17 @@ class MockComponent(DomainComponent):
     value: int
 
 
+@dataclass(frozen=True)
+class SiblingMockComponent(DomainComponent):
+    """A second component sharing ``MockComponent``'s base.
+
+    Used to reproduce the ambiguity of a super-type lookup: both
+    classes derive from ``DomainComponent``.
+    """
+
+    value: int
+
+
 @pytest.fixture(autouse=True)
 def _ensure_mock_component_registered() -> None:
     """Re-register ``MockComponent`` before every test.
@@ -143,6 +154,63 @@ def test_agent_view_get_component_legacy_fallback():
 def test_agent_view_get_component_not_found():
     view = AgentView(agent_id="a-1", components={"other": 123})
     assert view.get_component(MockComponent) is None
+
+
+def test_agent_view_get_component_does_not_match_a_subclass():
+    """A base type never resolves to a subclass.
+
+    Regression. The fallback matched by ``isinstance``, so asking for
+    a base class returned whichever component the bag happened to
+    hold first. The result depended on the bag's insertion order --
+    and the framework's core invariant is ``World = fold(events)``:
+    the same events must fold into the same view, every time, on
+    every machine.
+
+    The match is now by exact class. The bag is keyed by class, so
+    the lookup asks the bag the question the bag can answer.
+    """
+    first = MockComponent(value=1)
+    second = SiblingMockComponent(value=2)
+    view = AgentView(
+        agent_id="a-1",
+        components={MockComponent: first, SiblingMockComponent: second},
+    )
+
+    assert view.get_component(DomainComponent) is None
+
+
+def test_agent_view_get_component_is_independent_of_insertion_order():
+    """The same components in a different order give the same answer."""
+    first = MockComponent(value=1)
+    second = SiblingMockComponent(value=2)
+    forward = AgentView(
+        agent_id="a-1",
+        components={MockComponent: first, SiblingMockComponent: second},
+    )
+    reversed_ = AgentView(
+        agent_id="a-1",
+        components={SiblingMockComponent: second, MockComponent: first},
+    )
+
+    assert forward.get_component(DomainComponent) is reversed_.get_component(
+        DomainComponent
+    )
+
+
+def test_agent_view_get_component_prefers_the_exact_class():
+    """The exact class key wins even when a sibling shares its base.
+
+    The bag holds one value per class key, so the exact key is
+    unambiguous by construction.
+    """
+    exact = MockComponent(value=1)
+    sibling = SiblingMockComponent(value=2)
+    view = AgentView(
+        agent_id="a-1",
+        components={MockComponent: exact, SiblingMockComponent: sibling},
+    )
+
+    assert view.get_component(MockComponent) is exact
 
 
 def test_world_fold_with_custom_domain_component_projection():

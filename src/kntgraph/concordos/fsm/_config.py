@@ -18,9 +18,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from kntgraph.core.world.component import DomainComponent
+
 if TYPE_CHECKING:
     from kntgraph.concordos.base import Specification
-    from kntgraph.core.world.component import DomainComponent
 
 __all__ = ["FSMConfig", "FSMTransition"]
 
@@ -60,3 +61,10 @@ class FSMConfig:
     transitions: Mapping[str, Mapping[str, FSMTransition]]
     on_entry: Mapping[str, str] = field(default_factory=dict)
     terminal: frozenset[str] = field(default_factory=frozenset)
+
+    def __post_init__(self) -> None:
+        if self.component_type is DomainComponent:
+            raise ValueError(
+                "FSMConfig.component_type must be a concrete "
+                "DomainComponent subclass, not the abstract base."
+            )

@@ -996,16 +996,17 @@ def test_saga_next_non_skipped_step_unknown_current() -> None:
     """``next_non_skipped_step`` returns ``None`` when the current
     step is not in the declared order."""
     from kntgraph.concordos.base import StepContext
-    from kntgraph.concordos.saga._records import next_non_skipped_step
+    from kntgraph.concordos.saga._skip import next_non_skipped_step
 
     system = SagaSystem(_saga_config(), now=lambda: FIXED_NOW)
     unknown = SagaStepConfig(name="ghost", tool_name="ghost_tool")
     ctx = StepContext(
         step_results={},
         step_states={},
-        domain=None,
+        domain_components={},
         continuity=None,
         profile=None,
+        session=None,
         agent_id="agent-1",
         now=FIXED_NOW,
     )

@@ -73,9 +73,10 @@ class OrderAmountBelow(Specification):
     max_amount: float
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if not isinstance(ctx.domain, OrderDomainComponent):
+        order = ctx.get_component(OrderDomainComponent)
+        if order is None:
             return False
-        return ctx.domain.amount < self.max_amount
+        return order.amount < self.max_amount
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +86,10 @@ class RiskScoreBelow(Specification):
     max_score: int
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if not isinstance(ctx.domain, OrderDomainComponent):
+        order = ctx.get_component(OrderDomainComponent)
+        if order is None:
             return False
-        return ctx.domain.risk_score < self.max_score
+        return order.risk_score < self.max_score
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,9 +97,10 @@ class CustomerCreditSufficient(Specification):
     """Custom Specification: checks if customer credit limit covers the order."""
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if not isinstance(ctx.domain, OrderDomainComponent):
+        order = ctx.get_component(OrderDomainComponent)
+        if order is None:
             return False
-        return ctx.domain.credit_limit >= ctx.domain.amount
+        return order.credit_limit >= order.amount
 
 
 # ---------------------------------------------------------------------------

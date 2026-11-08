@@ -76,6 +76,10 @@ historical records).
 - [Specification Pattern](specification_pattern.md) —
   composable business rules (ADR-069 §2): fluent
   composition (`and_`, `or_`, `not_`), guards, and conditions.
+- [Declarative Agent Modelling](declarative_agent_modelling.md) —
+  how to model an agentic application: one declaration
+  derives the runtime, and the same rule works in both
+  execution cycles (ADR-088).
 
 ## Release process
 

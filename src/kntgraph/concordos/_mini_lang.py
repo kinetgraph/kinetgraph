@@ -50,7 +50,7 @@ Grammar
     call        = identifier "(" [ expr_list ] ")"
     expr_list   = expr { "," expr }
     path        = scope { "." identifier }
-    scope       = "event.data" | "steps" | "agent" | "now"
+    scope       = "event.data" | "steps" | "now"
 
 Path scopes (resolution at evaluation)
 --------------------------------------
@@ -59,16 +59,20 @@ Path scopes (resolution at evaluation)
   (``ctx.trigger_data[field]``).
 - ``steps.<name>.output.<field>``: step result lookup
   (``ctx.step_results[name][field]``).
-- ``agent.<field>``: DomainComponent attribute
-  (``getattr(ctx.domain, field, None)``).
 - ``now`` or ``now.<attr>``: the dispatcher's current tick
   timestamp (``ctx.now``).
+
+Domain components are deliberately absent from this list. The
+carrier resolves them by concrete class
+(``ctx.get_component(MyComponent)``), and a bundle expression
+has no way to name a Python class. The mini-language is in DEV
+status; a typed domain scope is future work.
 
 Built-in functions
 ------------------
 
 ``step_completed(name)``, ``step_failed(name)``, ``step_timed_out(name)``,
-``domain_state_is(field, value)``, ``profile_tier_is(tier)``,
+``profile_tier_is(tier)``,
 ``continuity_tool_used(name)``. See
 [docs/concordos-bundle-spec.md §4](../docs/concordos-bundle-spec.md).
 """
@@ -197,7 +201,7 @@ class Call(Expr):
 class Path(Expr):
     """A dotted path: ``scope.tail[0].tail[1]...``."""
 
-    scope: str  # "event.data" | "steps" | "agent" | "now"
+    scope: str  # "event.data" | "steps" | "now"
     tail: tuple[str, ...]
 
 
@@ -480,8 +484,9 @@ class _Parser:
             self._expect("RPAREN", "')'")
             return Call(name=lex, args=tuple(args))
         # 2. Path (with optional comparison)
-        if lex in ("steps", "agent", "now"):
+        if lex in ("steps", "now"):
             return self._parse_path_or_comparison(lex)
+        _reject_removed_agent_scope(self, lex, first)
         if (
             lex == "event"
             and self._peek_at(0) is not None
@@ -513,13 +518,13 @@ class _Parser:
         token is an OP, parse the comparison. Otherwise
         return the bare path.
 
-        For scoped paths (steps/agent/now/event.data), we
+        For scoped paths (steps/now/event.data), we
         delegate to ``_parse_path``. For bare identifiers
         (``x.y``, ``foo``), we build the path manually so
         ``_parse_path`` doesn't reject ``foo`` as a
         non-existent scope.
         """
-        if first_scope in ("steps", "agent", "now") or (
+        if first_scope in ("steps", "now") or (
             first_scope == "event"
             and self._peek_at(0) is not None
             and self._peek_at(0).kind == "DOT"
@@ -567,12 +572,13 @@ class _Parser:
             return Call(name=lex, args=tuple(args))
         # 2. Path: scope { "." identifier }
         # The path scope can be a single keyword (steps,
-        # agent, now) or the two-word ``event.data`` (which
+        # now) or the two-word ``event.data`` (which
         # the tokenizer splits as IDENT DOT IDENT). The
         # check happens BEFORE consuming the IDENT so we
         # look at the original token positions.
-        if lex in ("steps", "agent", "now"):
+        if lex in ("steps", "now"):
             return self._parse_path(lex)
+        _reject_removed_agent_scope(self, lex, first)
         if (
             lex == "event"
             and self._peek_at(0) is not None
@@ -594,7 +600,7 @@ class _Parser:
         """Parse ``scope { "." identifier }`` starting at
         the IDENT ``first_scope`` (already consumed).
 
-        Valid scopes: ``event.data``, ``steps``, ``agent``,
+        Valid scopes: ``event.data``, ``steps``,
         ``now``. Bare identifiers (e.g., ``x.y``) are
         accepted as paths with an empty scope (used in
         comparison right-hand sides like ``x == y``)."""
@@ -625,7 +631,7 @@ class _Parser:
         # Bare identifiers (empty scope after this point
         # means the scope is a bare IDENT — used in
         # comparison right-hand sides).
-        valid_scopes = ("event.data", "steps", "agent", "now")
+        valid_scopes = ("event.data", "steps", "now")
         if scope != "" and scope not in valid_scopes:
             raise ConcordoSyntaxError(
                 expression=self._expression,
@@ -633,7 +639,7 @@ class _Parser:
                 column=1,
                 expected="path scope",
                 found=f"unknown scope {scope!r}",
-                hint=("valid scopes are 'event.data', 'steps', 'agent', and 'now'"),
+                hint=("valid scopes are 'event.data', 'steps', and 'now'"),
             )
         tail: list[str] = []
         while (
@@ -665,7 +671,7 @@ class _Parser:
     # value-or-path: literal | call | path | bare-identifier
     # (allows ``x == y`` where both are identifiers,
     # ``x == 5`` where one is literal, and
-    # ``agent.tier == step_completed("Foo")`` where the rhs
+    # ``steps.size == step_completed("Foo")`` where the rhs
     # is a built-in call.)
     def _parse_value_or_path(self) -> Expr:
         tok = self._peek()
@@ -700,9 +706,10 @@ class _Parser:
                 self._consume()  # IDENT
                 return self._parse_call_from_consumed_ident(tok)
             # 2. Path (scope keyword or bare identifier with .tail)
-            if tok.lexeme in ("steps", "agent", "now"):
+            if tok.lexeme in ("steps", "now"):
                 self._consume()
                 return self._parse_path(tok.lexeme)
+            _reject_removed_agent_scope(self, tok.lexeme, tok)
             if (
                 tok.lexeme == "event"
                 and self._peek_at(1) is not None
@@ -824,6 +831,37 @@ def _parse_number_literal(text: str) -> int | float:
     return int(text)
 
 
+def _reject_removed_agent_scope(
+    parser: _Parser,
+    lexeme: str,
+    token: _Token,
+) -> None:
+    """Reject the removed ``agent`` scope with a useful hint.
+
+    The scope resolved to a single ambiguous "the agent's domain
+    component", which returned an arbitrary component when the
+    agent carried more than one. A bundle expression cannot name
+    a Python class, so the scope was removed rather than kept with
+    an ambiguous resolution. Rejecting it loudly beats parsing it
+    as a bare identifier, which would silently resolve to
+    ``None`` at evaluation time.
+    """
+    if lexeme != "agent":
+        return
+    raise ConcordoSyntaxError(
+        expression=parser._expression,
+        line=token.line,
+        column=token.column,
+        expected="path scope",
+        found="the removed scope 'agent'",
+        hint=(
+            "the 'agent' scope was removed: domain components "
+            "are read by concrete class through "
+            "ctx.get_component(MyComponent)."
+        ),
+    )
+
+
 def parse_expression(expression: str) -> Expr:
     """Parse ``expression`` into an ``Expr`` AST.
 
@@ -900,7 +938,6 @@ def _register_builtins() -> None:
         return  # already populated
     from .specs import (
         ContinuityToolUsed,
-        DomainStateIs,
         ProfileTierIs,
         StepCompleted,
         StepFailed,
@@ -912,9 +949,6 @@ def _register_builtins() -> None:
             "step_completed": lambda name="": StepCompleted(step_name=name),
             "step_failed": lambda name="": StepFailed(step_name=name),
             "step_timed_out": lambda name="": StepTimedOut(step_name=name),
-            "domain_state_is": (
-                lambda field="", value="": DomainStateIs(field=field, value=value)
-            ),
             "profile_tier_is": lambda tier="": ProfileTierIs(tier=tier),
             "continuity_tool_used": (
                 lambda tool_name="": ContinuityToolUsed(tool_name=tool_name)
@@ -974,17 +1008,6 @@ def _resolve_path(path: Path, ctx: StepContext) -> Any:
                 cur = cur.get(field)
             else:
                 return None
-            if cur is None:
-                return None
-        return cur
-    elif path.scope == "agent":
-        if ctx.domain is None or not path.tail:
-            return None
-        cur = ctx.domain
-        # agent.<field> uses dotted attribute access, not
-        # Mapping access — DomainComponent is a dataclass.
-        for field in path.tail:
-            cur = getattr(cur, field, None)
             if cur is None:
                 return None
         return cur

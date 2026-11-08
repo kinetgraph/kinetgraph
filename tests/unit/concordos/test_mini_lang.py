@@ -24,6 +24,7 @@ from kntgraph.concordos._mini_lang import (
     parse_expression,
 )
 from kntgraph.concordos.base import StepContext
+from kntgraph.core.world.component import DomainComponent
 
 FIXED_NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
 
@@ -51,12 +52,16 @@ def make_ctx(
     continuity=None,
     profile=None,
 ) -> StepContext:
+    domain_components: dict[type, DomainComponent] = {}
+    if domain is not None:
+        domain_components[type(domain)] = domain
     return StepContext(
         step_results=step_results or {},
         step_states=step_states or {},
-        domain=domain,
+        domain_components=domain_components,
         continuity=continuity,
         profile=profile,
+        session=None,
         agent_id="a-1",
         now=FIXED_NOW,
         trigger_data=trigger_data if trigger_data is not None else None,
@@ -90,8 +95,6 @@ def _builtins() -> None:
         "null",
         # Paths (scoped)
         "event.data.score",
-        "agent.tier",
-        "agent.user_id",
         "steps.Chunking.output.chunks",
         "now",
         "now.year",
@@ -102,14 +105,13 @@ def _builtins() -> None:
         "a.b.c.d",
         # Calls
         'step_completed("Foo")',
-        'domain_state_is("status", "issued")',
         'profile_tier_is("vip")',
         "step_failed('foo')",
         # Comparisons
         "event.data.score >= 0.80",
-        "agent.tier == 'vip'",
-        "agent.tier != 'standard'",
-        "agent.priority < 'high'",
+        "event.data.tier == 'vip'",
+        "event.data.tier != 'standard'",
+        "event.data.priority < 'high'",
         "x == y",
         "x.y < 10",
         # Boolean composition
@@ -123,8 +125,8 @@ def _builtins() -> None:
         "a or b or c",
         # Mixed
         "event.data.score >= 0.80 and step_completed('Chunk')",
-        "agent.tier == 'vip' or event.data.amount > 1000",
-        "not step_timed_out('extract') and agent.priority == 'high'",
+        "event.data.tier == 'vip' or event.data.amount > 1000",
+        "not step_timed_out('extract') and event.data.priority == 'high'",
     ],
 )
 def test_parser_accepts(expression: str) -> None:
@@ -144,10 +146,10 @@ def test_parser_accepts(expression: str) -> None:
         ("(", "expected"),
         ("a and", "expected"),
         ("a == ", "expected"),
-        ("agent.tier ==", "expected"),  # missing rhs
+        ("event.data.score ==", "expected"),  # missing rhs
         ("foo(bar", "expected"),
         ("foo(,)", "expected"),
-        ("agent..tier", "trailing tokens"),
+        ("event.data..score", "trailing tokens"),
         ("a == b and", "expected"),
         ("(a", "expected"),
         ("a and (b", "expected"),
@@ -157,6 +159,18 @@ def test_parser_rejects(expression: str, expected_substring: str) -> None:
     with pytest.raises(ConcordoSyntaxError) as exc_info:
         parse_expression(expression)
     assert expected_substring in str(exc_info.value)
+
+
+def test_parser_rejects_removed_agent_scope() -> None:
+    """The ``agent`` scope was removed.
+
+    A bundle expression cannot name a Python class, so the
+    scope could not resolve a domain component without the
+    ambiguous supertype match the carrier used to have.
+    """
+    with pytest.raises(ConcordoSyntaxError) as exc_info:
+        parse_expression("agent.tier == 'vip'")
+    assert "agent" in str(exc_info.value)
 
 
 def test_parser_rejects_garbage_character() -> None:
@@ -261,18 +275,16 @@ def test_evaluator_event_data_path() -> None:
     assert evaluate(ast, make_ctx()) is False  # no trigger_data
 
 
-def test_evaluator_agent_path() -> None:
-    ast = parse_expression("agent.tier == 'vip'")
-    assert evaluate(ast, make_ctx(domain=_MockDomain(tier="vip"))) is True
-    assert evaluate(ast, make_ctx(domain=_MockDomain(tier="standard"))) is False
-    assert evaluate(ast, make_ctx(domain=None)) is False
+def test_evaluator_agent_scope_is_rejected() -> None:
+    """The ``agent`` scope no longer exists.
 
-
-def test_evaluator_agent_path_missing_field() -> None:
-    """An agent path whose field is missing returns False
-    (graceful failure per docs §2.4)."""
-    ast = parse_expression("agent.priority == 'high'")
-    assert evaluate(ast, make_ctx(domain=_MockDomain(priority="low"))) is False
+    Domain components are read by concrete class through
+    ``ctx.get_component(MyComponent)``; a bundle expression
+    cannot name a Python class, so the scope was removed
+    rather than kept with an ambiguous resolution.
+    """
+    with pytest.raises(ConcordoSyntaxError):
+        parse_expression("agent.tier == 'vip'")
 
 
 def test_evaluator_steps_output_path() -> None:
@@ -353,18 +365,18 @@ def test_evaluator_number_comparison(expression: str, expected: bool) -> None:
 
 
 def test_evaluator_string_comparison() -> None:
-    ast = parse_expression("agent.tier == 'vip'")
-    assert evaluate(ast, make_ctx(domain=_MockDomain(tier="vip"))) is True
+    ast = parse_expression("event.data.tier == 'vip'")
+    assert evaluate(ast, make_ctx(trigger_data={"tier": "vip"})) is True
 
 
 def test_evaluator_null_comparison() -> None:
     """Comparing with null: == True only if both are null;
     != True only if both are not null."""
-    ast = parse_expression("agent.score == null")
-    # agent.score is not a field, so resolves to None
-    assert evaluate(ast, make_ctx(domain=_MockDomain())) is True
-    ast = parse_expression("agent.score != null")
-    assert evaluate(ast, make_ctx(domain=_MockDomain())) is False
+    ast = parse_expression("event.data.score == null")
+    # A missing key resolves to None
+    assert evaluate(ast, make_ctx(trigger_data={"other": 1})) is True
+    ast = parse_expression("event.data.score != null")
+    assert evaluate(ast, make_ctx(trigger_data={"other": 1})) is False
     # When path resolves to a real value, != null is True
     ast = parse_expression("event.data.score != null")
     assert evaluate(ast, make_ctx(trigger_data={"score": 5})) is True
@@ -375,8 +387,8 @@ def test_evaluator_null_comparison() -> None:
 
 def test_evaluator_type_mismatch() -> None:
     """Comparing different types returns False (not crash)."""
-    ast = parse_expression("agent.tier == 5")  # string vs int
-    assert evaluate(ast, make_ctx(domain=_MockDomain(tier="vip"))) is False
+    ast = parse_expression("event.data.tier == 5")  # string vs int
+    assert evaluate(ast, make_ctx(trigger_data={"tier": "vip"})) is False
 
 
 # ---------------------------------------------------------------------------
@@ -392,11 +404,15 @@ def test_evaluator_builtin_step_completed() -> None:
     assert spec.is_satisfied_by(make_ctx(step_states={})) is False
 
 
-def test_evaluator_builtin_domain_state_is() -> None:
+def test_evaluator_builtin_domain_state_is_is_gone() -> None:
+    """The ``domain_state_is`` built-in was removed.
 
-    spec = BUILTIN_SPECS["domain_state_is"]("status", "issued")
-    assert spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="issued"))) is True
-    assert spec.is_satisfied_by(make_ctx(domain=_MockDomain(status="draft"))) is False
+    A bundle expression cannot name a Python class, so the
+    built-in could not resolve a domain component without an
+    ambiguous supertype match. The typed path is
+    ``ctx.get_component(MyComponent)`` in Python code.
+    """
+    assert "domain_state_is" not in BUILTIN_SPECS
 
 
 def test_evaluator_builtin_profile_tier_is() -> None:

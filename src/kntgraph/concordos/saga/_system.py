@@ -43,15 +43,11 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from kntgraph.core.clock import injectable_clock
-from kntgraph.core.components.memory import (
-    ContinuityComponent,
-    ProfileComponent,
-)
 from kntgraph.core.event.correlation import correlation_middleware
-from kntgraph.core.world.component import DomainComponent
 from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
 from kntgraph.core.world.world import World
 
+from .._context import build_step_context
 from ..base import StepContext, ViewTrigger
 from ._components import SagaProgressComponent
 from ._config import SagaConfig, SagaStepConfig
@@ -150,7 +146,7 @@ class SagaSystem:
 
         # Saga start
         if trigger.event_type == f"saga.{self._cfg.name}.started":
-            return self._start(view, trigger, saga)
+            return self._start(view, world, trigger, saga)
 
         # Saga-level timeout (from SagaTimeoutSystem)
         if trigger.event_type == f"saga.{self._cfg.name}.timed_out":
@@ -318,14 +314,16 @@ class SagaSystem:
     def _start(
         self,
         view: AgentView,
+        world: World,
         trigger: ViewTrigger,
         saga: SagaProgressComponent,
     ) -> list[Event]:
         """Dispatch the first non-skipped step."""
         from ._dispatch import dispatch_step
-        from ._records import first_non_skipped_step, record_start, saga_completed
+        from ._records import record_start, saga_completed
+        from ._skip import first_non_skipped_step
 
-        step_config = first_non_skipped_step(_saga_self(self), saga, trigger)
+        step_config = first_non_skipped_step(_saga_self(self), saga, view, world)
         if step_config is None:
             # All steps skipped: saga completes immediately
             return [saga_completed(_saga_self(self), trigger, saga)]
@@ -356,16 +354,7 @@ class SagaSystem:
         new_results = dict(saga.step_results)
         new_results[step_config.name] = result
 
-        ctx = StepContext(
-            step_results=new_results,
-            step_states=new_states,
-            domain=view.get_component(DomainComponent),
-            continuity=view.get_component(ContinuityComponent),
-            profile=view.get_component(ProfileComponent),
-            agent_id=view.agent_id,
-            now=self._now(),
-            cross_agent_resolver=lambda aid: world.views.get(aid),
-        )
+        ctx = build_step_context(view, world, self._now(), new_results, new_states)
 
         # Check proceed_when on success
         if status == "completed":
@@ -418,11 +407,11 @@ class SagaSystem:
         """Move to the next non-skipped step or complete the saga."""
         from ._dispatch import dispatch_step
         from ._records import (
-            next_non_skipped_step,
             record_start,
             record_step_completed,
             saga_completed,
         )
+        from ._skip import next_non_skipped_step
 
         next_step = next_non_skipped_step(_saga_self(self), current_step, ctx)
         record = record_step_completed(
@@ -460,11 +449,11 @@ class SagaSystem:
         from ._compensation import begin_compensation
         from ._dispatch import dispatch_step
         from ._records import (
-            next_non_skipped_step,
             record_start,
             record_step_failed,
             saga_completed,
         )
+        from ._skip import next_non_skipped_step
 
         fail_spec = self._cfg.fail_when
         should_fail = (

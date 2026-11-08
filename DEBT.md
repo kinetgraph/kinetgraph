@@ -39,6 +39,27 @@ How to use this file
 4. Line numbers are pinned to the current tree; re-run
    pyright / ruff / coverage to refresh.
 
+Machine-readable companion
+--------------------------
+
+This file is the **human record**: the context, the rationale, the
+history of what was tried. The **machine record** is
+`.debt-baseline.json`, maintained by the architectural harness, and
+queried with:
+
+    uv run python scripts/debt.py <file>      # what debt does this file carry?
+    uv run python scripts/debt.py --all       # the whole inventory
+
+The inventory covers the mechanically detectable debt — broad
+`except` handlers, `print()` in production code, `dict[str, Any]`
+and `type[Any]` annotations, bare `object`, broken documentation
+links and duplicated ADR numbers. Under the *fix-on-touch* policy
+this debt is corrected when the file is touched, not in a campaign;
+see `.agents/rules/fix_on_touch.md`.
+
+A debt entry that does not appear in this file is still tracked
+mechanically — the inventory and this log complement each other.
+
 Recent closures (post-2026-07-30 sync)
 --------------------------------------
 
@@ -3780,10 +3801,10 @@ agent on one shard and changes the wire format (a migration).
 
 ## 2.42 `StepContext` construction is inconsistent across the FSM and Saga paths
 
-**Status:** OPEN (extracted from the ADR-088 draft on 2026-11-04)
+**Status:** CLOSED (2026-11-05, on `feat/adr-088-step-context-and-agent-definition`)
 **Owner:** kinetgraph architecture team
 
-`StepContext` (`src/kntgraph/concordos/base.py`) is the carrier
+`StepContext` (`src/kntgraph/concordos/_context.py`) is the carrier
 every `Specification` evaluates against: FSM transition guards,
 Saga `skip_when`, Saga `proceed_when`, and Saga `compensate_when`
 all receive one. The framework builds it in five places, and the
@@ -3900,4 +3921,35 @@ each change reviewable on its own terms.
   observations in the FSM and Saga paths.
 - Pyright clean on `concordos/`; no new `Any`; the `concordos/`
   files stay under the file-size ceiling (`kntgraph-file-layout`).
+
+**Resolution (2026-11-05):**
+
+- The carrier moved to `src/kntgraph/concordos/_context.py` beside
+  its builder. `build_step_context(view, world, now, ...)` is the
+  single construction path; the five call sites route through it.
+- `StepContext.domain` is gone. The carrier holds
+  `domain_components`, a mapping from a component's concrete class
+  to the instance, and `ctx.get_component(MyComponent)` returns
+  exactly that class or nothing. The mapping is keyed by class
+  because the `DomainComponent` superclass matches every domain
+  component, so a supertype match returned an arbitrary component.
+- `StepContext.session` was added; the carrier now exposes all
+  three transient memory tiers (ADR-042).
+- `DomainStateIs` resolves its field through
+  `find_domain_component`, which returns the one component that
+  carries the field and `None` when zero or several match. A
+  Specification that knows its class reads it through
+  `ctx.get_component`.
+- The mini-language's `agent.<field>` scope and the
+  `domain_state_is` built-in were **removed**. A bundle expression
+  cannot name a Python class, so it had no way to resolve a domain
+  component unambiguously. The mini-language is in DEV status
+  (ADR-073 §4.4); a typed domain scope is future work.
+- The parity test lives in
+  `tests/unit/concordos/test_step_context_parity.py`. It fails
+  against the pre-fix code.
+
+**Follow-up (not blocking):** a typed domain scope for the
+mini-language, declared per bundle. Tracked in
+`docs/concordos-bundle-spec.md` §9.
 

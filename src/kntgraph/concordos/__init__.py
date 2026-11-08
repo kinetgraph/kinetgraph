@@ -44,6 +44,12 @@ application uses for any custom system (ADR-069 §11.11).
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
+from ._context import (
+    StepContext,
+    build_step_context,
+    collect_domain_components,
+)
+from ._domain import DomainStateIs, find_domain_component
 from ._loader import (
     ConcordoBundleError,
     LoadedBundle,
@@ -57,12 +63,10 @@ from .base import (
     NotSpec,
     OrSpec,
     Specification,
-    StepContext,
     ViewTrigger,
 )
 from .specs import (
     ContinuityToolUsed,
-    DomainStateIs,
     ProfileTierIs,
     StepCompleted,
     StepFailed,
@@ -74,6 +78,9 @@ __all__ = [
     # base
     "AndSpec",
     "Composable",
+    # context
+    "build_step_context",
+    "collect_domain_components",
     # loader
     "ConcordoBundleError",
     # specs
@@ -90,6 +97,7 @@ __all__ = [
     "StepResultEquals",
     "StepTimedOut",
     "ViewTrigger",
+    "find_domain_component",
     "load_bundle_dict",
     "load_bundle_json",
     "load_bundle_yaml",

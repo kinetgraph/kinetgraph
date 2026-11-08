@@ -41,6 +41,7 @@ in either set.
 Steps (default order — ``DEFAULT_STEPS``):
     syntax       py_compile on src/**/*.py + tests/**/*.py
     design       architectural fitness gate (ADR-089)
+    architecture architectural harness checks (tests/architecture/)
     lint         ruff check on src/
     format       ruff format --check (zero diffs required)
     complexity   radon cc/mi hard gates + regression vs .radon-baseline.json
@@ -134,6 +135,33 @@ def step_design() -> Step:
             "run",
             "python",
             "scripts/design_gate.py",
+        ),
+    )
+
+
+def step_architecture() -> Step:
+    """The architectural harness checks (``tests/architecture/``).
+
+    These assert the invariants that the skills state in prose: a
+    plan's Definition of Done is verifiable, the normative surface
+    has no broken reference, the inventoried debt does not grow, and
+    every check is registered in the harness skill.
+
+    The step runs **before** the unit tests on purpose. The checks
+    are filesystem-and-AST only — they import no framework module —
+    so they finish in well under a second and fail far earlier than
+    a broken unit test would.
+
+    See ``.agents/skills/kntgraph-harness/SKILL.md``.
+    """
+    return Step(
+        "architecture (harness checks)",
+        (
+            "uv",
+            "run",
+            "pytest",
+            "tests/architecture/",
+            "-q",
         ),
     )
 
@@ -674,6 +702,7 @@ def gate_complexity(verbose: bool = False) -> bool:
 ALL_STEPS: dict[str, Step] = {
     "syntax": step_syntax(),
     "design": step_design(),
+    "architecture": step_architecture(),
     "lint": step_lint(),
     "format": step_format(),
     "complexity": Step(

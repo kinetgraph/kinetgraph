@@ -15,6 +15,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The declarative agent model (ADR-088).** `kntgraph.agents` now
+  provides `RoleSpec`, `AgentDefinition`, `AgentBundle` and
+  `RoleProjection`. The developer fills one frozen dataclass — its
+  persona, its capability policy, its FSM, its sagas and the domain
+  types its rules read — and the framework derives the installable
+  runtime from it. The bundle repeats no field of the declaration,
+  so the two cannot disagree, and it satisfies the `Concordo`
+  Protocol (ADR-069 §3.2), so the catalog path still works.
+
+  ```python
+  definition = AgentDefinition(
+      name="order-fulfilment",
+      persona=RoleSpec(
+          persona="fulfilment",
+          allowed_tools=("reserve_inventory", "charge_payment"),
+      ),
+      role_event_type="role.assigned",
+      fsm=BusinessFSMConcordo(config=ORDER_FSM),
+      sagas=(WorkflowSagaConcordo(config=ORDER_SAGA),),
+  )
+  definition.install(dispatcher, principal=principal)
+  ```
+
+- **`RoleProjection` — the framework's role materialisation.** The
+  agent's `RoleComponent` is now projected from the role event
+  stream by the framework, replacing the per-vertical pattern in
+  which each application defined its own component subclass and its
+  own `@domain_component` registration. The capability policy comes
+  from `RoleSpec.allowed_tools` and never from the event: dropping
+  it would silently disable gate 2 of the three-gate model, because
+  `has_tool_access` is permissive when no role is installed.
+
+- **The architectural harness (ADR-089, levels 3 and 4).**
+  `tests/architecture/` holds one check per architectural rule, and
+  `docs/tasks/` holds execution plans whose Definition of Done is
+  verifiable — every item carries an executable command. The
+  inventory of the known debt lives in `.debt-baseline.json` and is
+  queried with `uv run python scripts/debt.py <file>`; the
+  fix-on-touch and migrate-on-touch policies are in
+  `.agents/rules/`. See `.agents/skills/kntgraph-harness/SKILL.md`.
+
+- **A canonical `StepContext` builder.** `build_step_context` in
+  `kntgraph.concordos` is the single construction path for the
+  carrier every `Specification` evaluates against. The FSM guard,
+  the Saga `skip_when`, the Saga `proceed_when` and the Saga
+  `compensate_when` now read the same memory tiers and the same
+  domain components, so a Specification written for one execution
+  cycle works unchanged in the other. Closes `DEBT.md` §2.42.
+
+- **`StepContext.session`.** The carrier now exposes the active
+  dialogue tier alongside `continuity` and `profile` (ADR-042).
+  A Specification could previously not read the session at all.
+
+- **`StepContext.get_component(MyComponent)`.** Domain components
+  are addressed by their concrete class. The old single
+  `domain` field resolved through the `DomainComponent`
+  superclass and therefore returned an arbitrary component when
+  the agent carried several.
+
+### Changed
+- **The mini-language lost the `agent.<field>` scope and the
+  `domain_state_is` built-in.** A bundle expression cannot name a
+  Python class, so it had no way to resolve a domain component
+  unambiguously. The mini-language is in DEV status (ADR-073
+  §4.4); a typed domain scope is future work. The Python API
+  keeps full access through `ctx.get_component`.
+
+- **`MappingProxyType` is banned across the codebase and the ban
+  is enforced.** Rule `KNT-TYPE-004` in the design gate
+  (ADR-089) fails the build on any use of the name. The rule
+  binds the verticals too: the wrapper breaks pickling of the ECS
+  components that carry such mappings. The last production use —
+  a class-level regex table in `knowledge/extraction/argument/` —
+  became a `ClassVar[Mapping[str, str]]` holding a plain dict
+  (ADR-079 §6.2 / §6.5).
+
+### Fixed
+- **A Saga `skip_when` and a Saga `compensate_when` saw an empty
+  carrier.** Both paths built the `StepContext` with `None` for
+  every memory tier and for the domain component, so a
+  Specification that checked the agent's profile or its domain
+  state always evaluated against nothing.
+
 ## [0.18.2] — 2026-11-05
 
 ### Notes

@@ -38,17 +38,42 @@ from kntgraph.concordos.specs import (
 
 | Field | Type | Description |
 | :--- | :--- | :--- |
-| `domain` | `DomainComponent \| None` | The agent's active domain component. |
+| `domain_components` | `Mapping[type, DomainComponent]` | The agent's domain components, keyed by their concrete class. |
+| `session` | `SessionComponent \| None` | Memory Session component (the active dialogue, ADR-042). |
 | `profile` | `ProfileComponent \| None` | Memory Profile component (`tier`, etc., ADR-042). |
 | `continuity` | `ContinuityComponent \| None` | Memory Continuity component (`last_tools`, ADR-042). |
-| `world` | `World` | The full post-fold `World` (for cross-agent queries). |
 | `agent_id` | `str` | The ID of the agent being evaluated. |
 | `now` | `datetime` | The dispatcher's current tick timestamp. |
-| `step_results` | `MappingProxyType[str, JsonValue]` | Results of executed saga steps (Saga only). |
-| `step_states` | `MappingProxyType[str, str]` | Execution states of saga steps (Saga only). |
+| `step_results` | `Mapping[str, JsonValue]` | Results of executed saga steps (Saga only). |
+| `step_states` | `Mapping[str, str]` | Execution states of saga steps (Saga only). |
+| `trigger_data` | `Mapping[str, JsonValue] \| None` | The trigger event's payload. |
+| `cross_agent_resolver` | `Callable[[str], AgentView \| None] \| None` | Opt-in access to another agent's view. |
+
+The carrier is built by `build_step_context`, the single
+construction path the FSM and Saga systems share. Build it through
+that function; do not construct a `StepContext` by hand.
 
 > [!IMPORTANT]
 > **Clock Discipline**: Specifications MUST treat `ctx.now` as the only clock source. Reading `datetime.now()` inside `is_satisfied_by` breaks deterministic replay in time-travel log evaluation.
+
+### Reading a domain component
+
+Domain components are addressed **by their concrete class**:
+
+```python
+order = ctx.get_component(OrderDomainComponent)
+if order is not None and order.amount < self.max_amount:
+    ...
+```
+
+The lookup is exact, not `isinstance`-based: every domain component
+shares the `DomainComponent` superclass, so a supertype match
+returns an arbitrary component when the agent carries several.
+
+When the Specification cannot name the class — the built-in
+`DomainStateIs` is the canonical case — it names a field and the
+carrier resolves it through `find_domain_component`. The resolution
+is deterministic: zero or several matches yield `None`.
 
 ---
 
@@ -95,13 +120,19 @@ The framework provides a standard library of built-in specifications for common 
 
 | Specification | Evaluates True When |
 | :--- | :--- |
-| `DomainStateIs(field, value)` | `getattr(ctx.domain, field) == value` |
+| `DomainStateIs(field, value)` | the one domain component carrying `field` has that value |
 | `ProfileTierIs(tier)` | `ctx.profile.tier == tier` |
 | `ContinuityToolUsed(tool_name)` | `tool_name` is present in `ctx.continuity.last_tools` |
 | `StepCompleted(step_name)` | `ctx.step_states[step_name] == "completed"` |
 | `StepFailed(step_name)` | `ctx.step_states[step_name] in ("failed", "timed_out")` |
 | `StepTimedOut(step_name)` | `ctx.step_states[step_name] == "timed_out"` |
 | `StepResultEquals(step_name, field, value)` | `ctx.step_results[step_name][field] == value` |
+
+`DomainStateIs` names a field rather than a component class. The
+carrier resolves the field to the one component that carries it;
+zero or several matches leave the condition unmet. A Specification
+that knows its component's class should read it through
+`ctx.get_component(MyComponent)`, which is statically typed.
 
 ---
 
@@ -119,9 +150,10 @@ class OrderAmountBelow(Specification):
     max_amount: float
 
     def is_satisfied_by(self, ctx: StepContext) -> bool:
-        if ctx.domain is None:
+        order = ctx.get_component(OrderDomainComponent)
+        if order is None:
             return False
-        return getattr(ctx.domain, "amount", 0.0) < self.max_amount
+        return order.amount < self.max_amount
 ```
 
 ### Agent Permission & Profile Validation
@@ -176,23 +208,32 @@ Specifications drive saga control flow:
 - `fail_when`: Evaluated after every step to determine if the saga should fail.
 
 ```python
-from kntgraph.concordos.saga import SagaConfig, SagaStep
+from kntgraph.concordos.saga import SagaConfig, SagaStepConfig
 
 saga_config = SagaConfig(
     name="order_saga",
-    steps=[
-        SagaStep(
+    steps=(
+        SagaStepConfig(
             name="fraud_check",
-            tool="fraud_scanner",
+            tool_name="fraud_scanner",
             skip_when=ProfileTierIs("vip"),
             proceed_when=StepResultEquals("fraud_check", "risk_level", "low"),
         ),
-    ],
+    ),
 )
 ```
+
+### The same rule in both cycles
+
+The carrier is built in one place, so a Specification written for
+an FSM guard works unchanged as a Saga skip condition. See
+[`declarative_agent_modelling.md`](./declarative_agent_modelling.md)
+for the full pattern.
 
 ---
 
 ## 6. Runnable Example
 
-See [`examples/25_specification_pattern.py`](../examples/25_specification_pattern.py) for a complete runnable demonstration of specifications and composition.
+See [`examples/25_specification_pattern.py`](../examples/25_specification_pattern.py) for a complete runnable demonstration of specifications and composition, and
+[`examples/30_declarative_agent_modelling.py`](../examples/30_declarative_agent_modelling.py)
+for the same rules used across the two execution cycles.

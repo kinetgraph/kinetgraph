@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+# SPDX-License-Identifier: Apache-2.0
+"""Architecture check — technical-debt inventory (conditional regime).
+
+Does **not** fail on the existence of debt. It **inventories** it, so
+the ``fix-on-touch`` policy can be applied consistently:
+
+> When you touch a file, correct the technical debt *in that file*.
+
+A check that failed the CI on the existence of debt would force a
+mass-migration — the opposite of what the policy preaches. This one
+fails only when a file **newly** introduces debt the rules already
+forbid.
+
+The known debt is recorded in ``.debt-baseline.json``; regenerate it
+after an intentional cleanup with::
+
+    uv run python scripts/debt.py --update-baseline
+
+The kinds and the rule each one comes from are listed in
+``DEBT_KINDS`` (``tests/architecture/_debt.py``) and in the
+``kntgraph-harness`` skill.
+
+Detection is by **AST**, not by text: a ``grep`` for ``object`` would
+accuse the docstring of a module that says "we do not use ``object``".
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+
+from tests.architecture._debt import (
+    DEBT_KINDS,
+    collect_debts,
+    load_baseline,
+    new_debt,
+)
+
+
+def test_debt_inventory_does_not_regress() -> None:
+    """No file introduces debt that the baseline does not record.
+
+    Existing debt is reported, not rejected: the ``fix-on-touch``
+    policy removes it when the file is next touched.
+    """
+    baseline: Counter[tuple[str, str, str]] = load_baseline()
+    offenders = new_debt(baseline)
+
+    if not offenders:
+        return
+
+    grouped: dict[str, list[str]] = {}
+    for debt in offenders:
+        grouped.setdefault(debt.kind, []).append(
+            f"{debt.path}:{debt.line}  {debt.detail}"
+        )
+
+    report = "\n\n".join(
+        f"{kind} — {DEBT_KINDS.get(kind, 'unknown kind')}\n"
+        + "\n".join(f"  - {line}" for line in lines)
+        for kind, lines in sorted(grouped.items())
+    )
+
+    raise AssertionError(
+        "New technical debt introduced (the baseline records the known "
+        "debt; these entries are not in it):\n\n"
+        f"{report}\n\n"
+        "Either fix the debt, or — if the debt is intentional and "
+        "legitimate — record it with "
+        "'uv run python scripts/debt.py --update-baseline'."
+    )
+
+
+def test_debt_inventory_is_discoverable() -> None:
+    """Every inventoried debt is reported by the query tool.
+
+    The inventory is only useful if an agent can ask "what is wrong in
+    this file?" and get an answer. This test asserts that the
+    inventory is non-empty and that every kind it uses is documented,
+    so a new kind cannot be introduced without a description.
+    """
+    debts = collect_debts()
+    undocumented = sorted({debt.kind for debt in debts} - set(DEBT_KINDS))
+
+    assert not undocumented, (
+        "Debt kinds without a description in DEBT_KINDS: "
+        f"{undocumented}\n"
+        "Every kind needs a human-readable explanation so that the "
+        "query tool can explain itself."
+    )

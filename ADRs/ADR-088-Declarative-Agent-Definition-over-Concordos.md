@@ -6,7 +6,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ADR-088: Declarative Agent Definition over Concordos
 
-- **Status:** Proposed
+- **Status:** Accepted (Implemented 2026-11-07)
 - **Date:** 2026-11-04
 - **Author:** kinetgraph architecture team
 - **Related to:**
@@ -327,16 +327,43 @@ The ADR is **Accepted** when the design above is agreed and the implementation p
 
 It is **Implemented** when:
 
-- [ ] `RoleSpec` and `AgentDefinition` exist in `src/kntgraph/agents/_definition.py`, with frozen dataclasses and slots.
-- [ ] `AgentBundle` exists in `src/kntgraph/agents/_bundle.py` and satisfies the `Concordo` Protocol.
-- [ ] `AgentDefinition.bundle()` derives the systems and projections, including the `RoleProjection`, and stores no duplicated field.
-- [ ] `AgentDefinition.install(dispatcher, principal=principal)` registers the systems and projections on the dispatcher.
-- [ ] `RoleProjection` materialises `RoleComponent` from the declared event type, combining `RoleSpec.allowed_tools` with the event's persona and instructions.
-- [ ] `RoleComponent` and `has_tool_access` remain in the framework unchanged; gate 2 reads the projected component.
-- [ ] The dispatcher gains no agent-awareness: no definition, persona or memory-tier field is read by `ReactiveDispatcher` or its modules.
-- [ ] `DEBT.md` §2.42 is open, with the `StepContext` unification and the type-indexed domain access tracked.
-- [ ] Tests cover the happy path and at least one failure mode for every public function: `bundle()` (with and without an FSM), `install()` (registration order and idempotence), and `RoleProjection` (event present, event absent, payload missing a key).
-- [ ] `kntgraph-type-discipline` rules hold for the new modules: no `Any`, no `TypedDict`, frozen dataclasses for shape-known data.
+- [x] `RoleSpec` and `AgentDefinition` exist in `src/kntgraph/agents/_definition.py`, with frozen dataclasses and slots.
+- [x] `AgentBundle` exists in `src/kntgraph/agents/_bundle.py` and satisfies the `Concordo` Protocol.
+- [x] `AgentDefinition.bundle()` derives the systems and projections, including the `RoleProjection`, and stores no duplicated field.
+- [x] `AgentDefinition.install(dispatcher, principal=principal)` registers the systems and projections on the dispatcher.
+- [x] `RoleProjection` materialises `RoleComponent` from the declared event type, combining `RoleSpec.allowed_tools` with the event's persona and instructions.
+- [x] `RoleComponent` and `has_tool_access` remain in the framework unchanged; gate 2 reads the projected component.
+- [x] The dispatcher gains no agent-awareness: no definition, persona or memory-tier field is read by `ReactiveDispatcher` or its modules.
+- [x] `DEBT.md` §2.42 is **closed** (2026-11-05): the `StepContext` unification and the type-indexed domain access have landed. The criterion originally read "is open"; the work it tracked was completed ahead of this ADR, and the parity test that proves it is `tests/unit/concordos/test_step_context_parity.py`.
+- [x] Tests cover the happy path and at least one failure mode for every public function: `bundle()` (with and without an FSM), `install()` (registration order and idempotence), and `RoleProjection` (event present, event absent, payload missing a key).
+- [x] `kntgraph-type-discipline` rules hold for the new modules: no `Any`, no `TypedDict`, frozen dataclasses for shape-known data.
+
+> **Implementation record.** The three modules landed under
+> `src/kntgraph/agents/` with the plan
+> [`docs/tasks/adr-088-declarative-agent-definition.md`](../docs/tasks/adr-088-declarative-agent-definition.md).
+> Two points where the implementation resolved an ambiguity in this ADR:
+>
+> 1. **`AgentBundle` carries a derived `name`** (`agent:<name>`). §2.4
+>    supports the catalog path, and the `Concordo` Protocol (ADR-069
+>    §3.2) requires a stable identifier — the catalog dedupes by it.
+>    The name is derived, never stored on the definition.
+> 2. **`install()` uses `principal.agent_id`** to call
+>    `dispatcher.track_agent(...)`. The principal is the runtime
+>    credential the host supplies (ADR-088 §2.4); the agent it
+>    identifies is the one the dispatcher must watch.
+>
+> The invariant "the dispatcher does not know about agents" is now
+> **enforced**, not merely stated:
+> [`tests/architecture/test_agent_awareness.py`](../tests/architecture/test_agent_awareness.py).
+> It has two rules. The first — no framework module names the agent
+> model's types — is *stronger* than the design gate's
+> `KNT-BOUND-001`, which exempts type-only imports: a framework
+> signature mentioning `AgentDefinition` would put a vertical's
+> vocabulary into the framework's public surface. The second — the
+> dispatcher tier never reads `RoleComponent` — covers what no import
+> rule can, because `RoleComponent` is a *framework* type: a
+> dispatcher branching on the agent's persona would pass every
+> boundary rule and still violate this decision.
 
 ### Follow-up, not blocking
 

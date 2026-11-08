@@ -144,6 +144,85 @@ if TYPE_CHECKING:
     assert not [v for v in violations if v.rule_id == "KNT-ADAPT-001"]
 
 
+def test_mapping_proxy_type_prohibited_in_framework() -> None:
+    """KNT-TYPE-004: MappingProxyType use in framework must be flagged."""
+    bad_code = """
+from types import MappingProxyType
+
+_TABLE = MappingProxyType({"a": "b"})
+"""
+    fake_file = ROOT / "src" / "kntgraph" / "concordos" / "_fake_concordo.py"
+    rel_path = "src/kntgraph/concordos/_fake_concordo.py"
+    tree = ast.parse(bad_code, filename=str(fake_file))
+    violations = design_gate.check_ast(fake_file, tree, rel_path)
+
+    type_violations = [v for v in violations if v.rule_id == "KNT-TYPE-004"]
+    assert type_violations
+    v = type_violations[0]
+    assert "MappingProxyType" in v.message
+    assert "Mapping[K, V]" in v.remedy
+    assert "ADR-079" in v.adr
+
+
+def test_mapping_proxy_type_prohibited_in_vertical() -> None:
+    """KNT-TYPE-004: the rule binds the verticals too.
+
+    The removal of ``MappingProxyType`` (ADR-079 §6.2) is a
+    codebase-wide decision, not a framework-only one: the
+    wrapper breaks pickling of the ECS components that carry
+    such mappings.
+    """
+    bad_code = """
+from types import MappingProxyType
+
+_TABLE = MappingProxyType({"a": "b"})
+"""
+    fake_file = ROOT / "src" / "kntgraph" / "agents" / "_fake_agent.py"
+    rel_path = "src/kntgraph/agents/_fake_agent.py"
+    tree = ast.parse(bad_code, filename=str(fake_file))
+    violations = design_gate.check_ast(fake_file, tree, rel_path)
+
+    type_violations = [v for v in violations if v.rule_id == "KNT-TYPE-004"]
+    assert type_violations
+
+
+def test_qualified_mapping_proxy_type_use_is_flagged() -> None:
+    """KNT-TYPE-004: the qualified ``types.MappingProxyType`` form."""
+    bad_code = """
+import types
+
+_TABLE = types.MappingProxyType({"a": "b"})
+"""
+    fake_file = ROOT / "src" / "kntgraph" / "memory" / "_fake_memory.py"
+    rel_path = "src/kntgraph/memory/_fake_memory.py"
+    tree = ast.parse(bad_code, filename=str(fake_file))
+    violations = design_gate.check_ast(fake_file, tree, rel_path)
+
+    type_violations = [v for v in violations if v.rule_id == "KNT-TYPE-004"]
+    assert type_violations
+    assert "MappingProxyType" in type_violations[0].message
+
+
+def test_other_types_module_imports_are_permitted() -> None:
+    """``types`` carries other legitimate names.
+
+    ``TracebackType`` and ``ModuleType`` have nothing to do with
+    the banned wrapper; importing them must not trip the rule.
+    """
+    allowed_code = """
+from types import ModuleType, TracebackType
+
+def load() -> ModuleType:
+    return None
+"""
+    fake_file = ROOT / "src" / "kntgraph" / "resilience" / "_fake_res.py"
+    rel_path = "src/kntgraph/resilience/_fake_res.py"
+    tree = ast.parse(allowed_code, filename=str(fake_file))
+    violations = design_gate.check_ast(fake_file, tree, rel_path)
+
+    assert not [v for v in violations if v.rule_id == "KNT-TYPE-004"]
+
+
 def test_cli_execution_and_format_modes(tmp_path: Path) -> None:
     """Test CLI exit codes and output formatting."""
     violating_file = tmp_path / "bad_framework.py"

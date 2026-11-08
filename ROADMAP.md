@@ -89,8 +89,8 @@ security-and-correctness release.
 | `Event.producer_principal_id` (stamp from API layer, recover in Worker) | [ADR-066 §4.1](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `f1ccc19`)** |
 | ADR-066 v0.17: DeprecationWarning on `WorkerManager.register` (no acl=) and `ToolRegistry.__init__` | [ADR-066 §4.4](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `c22a5e4`)** |
 | ADR-066 v0.17: CLI scaffold flip (`cli/templates/dispatcher.py.jinja`) | [ADR-066 §3.1](./ADRs/ADR-066-Single-Tool-Path.md) | **Merged (commit `c22a5e4`)** |
-| `WorldProjection` protocol + `MemoryHydrationProjection` in `runner.reactive_extensions` | [ADR-042 §6.1](./ADRs/ADR-042-hydration-pipeline.md) | **Merged (commit `4e383de`)** |
-| Built-in memory hydration in `ReactiveDispatcher._fold_with_filter` (no opt-in) | [ADR-042 §6.1](./ADRs/ADR-042-hydration-pipeline.md) | **Merged (commit `4e383de`)** |
+| `WorldProjection` protocol + `MemoryHydrationProjection` in `runner.reactive_extensions` | [ADR-042 §6.1](./ADRs/ADR-042-Agents-Memory-Model-usage.md) | **Merged (commit `4e383de`)** |
+| Built-in memory hydration in `ReactiveDispatcher._fold_with_filter` (no opt-in) | [ADR-042 §6.1](./ADRs/ADR-042-Agents-Memory-Model-usage.md) | **Merged (commit `4e383de`)** |
 | `SessionComponent.session_id` honours `data.session_id` (with fallback) | [DEBT §2.33](./DEBT.md) | **Merged (commit `543e145`)** |
 | `Role` enum removed; `PrincipalLevel` is the single RBAC enum | [ADR-060 §2.0](./ADRs/ADR-060-fmh-office-v2-pillars.md) | **Merged (commit `7392d1c`)** |
 

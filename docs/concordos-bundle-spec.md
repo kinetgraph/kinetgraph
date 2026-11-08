@@ -159,7 +159,6 @@ makes the comparison fail without raising.
 | `event.data.*` | The data payload of the trigger event |
 | `steps.<name>.output.*` | The tool worker's result (the `result` of `ToolCallCompletion`, ADR-034) |
 | `steps.<name>.result.*` | Alias for `output.*` — kept for clarity in user-facing configs |
-| `agent.<field>` | The agent's `DomainComponent` fields (e.g. `agent.lifecycle_state`) |
 | `now` | The dispatcher-injected `datetime` (§3.4 / §4.5 of the FSM/Saga ADRs) |
 
 Path resolution depth:
@@ -169,12 +168,24 @@ Path resolution depth:
 - `steps.<name>.<output|result>` requires the named step
   to have been dispatched at least once; if not, the path
   resolves to `null`.
-- `agent.<field>` is `getattr`-style access on the agent's
-  `DomainComponent`; a missing field returns `null`.
 - `now` is a `datetime`; attributes (`now.year`,
   `now.hour`, `now.weekday()`) are accessible via the
   same dot syntax the parser supports. Method calls on
   `now` use the same `call` production as builtin specs.
+
+### 2.5.1 Domain components are not addressable from a bundle
+
+A bundle expression cannot read a domain component. The
+carrier resolves domain components by concrete class
+(`ctx.get_component(MyComponent)` in Python code), and a
+bundle expression has no way to name a Python class.
+
+The earlier `agent.<field>` scope is **removed**. It resolved
+to a single ambiguous "the agent's domain component", which
+returned an arbitrary component when the agent carried more
+than one. A bundle that needs a domain fact must move that
+fact into the trigger event payload (`event.data.*`) or into a
+step result (`steps.*.output.*`).
 
 ### 2.6 Comments
 
@@ -365,10 +376,10 @@ class SagaStepSchema(_StrictModel):
     @classmethod
     def _input_paths(cls, v: dict[str, str]) -> dict[str, str]:
         for param_name, path in v.items():
-            if not path.startswith(("event.data.", "steps.", "agent.")):
+            if not path.startswith(("event.data.", "steps.")):
                 raise ValueError(
                     f"input_mapping[{param_name!r}]={path!r} "
-                    f"must start with 'event.data.', 'steps.', or 'agent.'"
+                    f"must start with 'event.data.' or 'steps.'"
                 )
         return v
 
@@ -442,9 +453,16 @@ to Python `Specification` subclasses declared in
 | `step_completed(name)` | `StepCompleted(step_name=name)` | `ctx.step_states.get(name) == "completed"` |
 | `step_failed(name)` | `StepFailed(step_name=name)` | `ctx.step_states.get(name) in ("failed", "timed_out")` |
 | `step_timed_out(name)` | `StepTimedOut(step_name=name)` | `ctx.step_states.get(name) == "timed_out"` |
-| `domain_state_is(field, value)` | `DomainStateIs(field=field, value=value)` | `getattr(ctx.domain, field, None) == value` |
 | `profile_tier_is(tier)` | `ProfileTierIs(tier=tier)` | `ctx.profile.tier == tier` |
 | `continuity_tool_used(name)` | `ContinuityToolUsed(tool_name=name)` | `name in ctx.continuity.last_tools` |
+
+The `domain_state_is(field, value)` builtin is **removed**.
+It read a single ambiguous "the agent's domain component",
+which returned an arbitrary component when the agent carried
+more than one. A bundle expression cannot name a Python class,
+so the function had no way to resolve the component
+unambiguously. Domain facts reach a bundle through the trigger
+event payload or a step result.
 
 ### 4.1 Sync between mini-language and Python
 
@@ -456,7 +474,6 @@ BUILTIN_SPECS: dict[str, Callable[..., Specification]] = {
     "step_completed": lambda name: StepCompleted(step_name=name),
     "step_failed": lambda name: StepFailed(step_name=name),
     "step_timed_out": lambda name: StepTimedOut(step_name=name),
-    "domain_state_is": lambda field, value: DomainStateIs(field=field, value=value),
     "profile_tier_is": lambda tier: ProfileTierIs(tier=tier),
     "continuity_tool_used": lambda name: ContinuityToolUsed(tool_name=name),
 }
@@ -753,11 +770,14 @@ bundle-format ADR).
 
 These are tracked but not yet resolved:
 
-1. **`agent.*` access.** Should `agent.<field>` be
-   allowed to read non-`DomainComponent` fields? Today
-   the path resolves to `None` for missing fields,
-   which is silent. A future revision may restrict
-   access to a declared allowlist per bundle.
+1. **Typed domain access from a bundle.** The `agent.*`
+   scope was removed (§2.5.1) because it resolved to an
+   ambiguous component. A future revision may restore
+   domain access with a declared type per bundle — for
+   example a `domain_types` list naming the component
+   classes, resolved by the loader through a registry. The
+   mini-language is in DEV status; the typed Python path
+   (`ctx.get_component(MyComponent)`) is available now.
 2. **`steps.<name>.error` path.** When a step fails,
    `ToolCallCompletion.error` is a string. The mini-
    language has no path component for it (the

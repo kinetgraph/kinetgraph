@@ -27,9 +27,54 @@ The default on this project is **to document**, not to omit. Borrowing the SQLit
 2. **Every variable**: a comment that describes **what the variable represents**, not what it is. Module-level constants, dataclass fields, class attributes, and function-local variables are all in scope. Trivial loop counters (`i`, `_`) and obvious inits are exempt; anything whose name is not already a sentence is documented.
 3. **Concise**: no boilerplate. Do not restate the signature, do not paste the type, do not write "this function does X" and then "this function does X" again inside the body. One narrative paragraph per function; one short clause per variable.
 4. **For people not yet born**: the bar is that a reader with no project context — fresh hire, future maintainer, future you — can pick up the file cold and understand every name. If a name alone is not enough, the comment is mandatory.
-5. **Why this is non-negotiable**: natural language and formal language activate different brain pathways. The code is the formal artifact; the prose is the only thing that gives a reader the **intent** the formal artifact cannot convey. SQLite treats this as a quality lever, not a nicety. The discipline is the same here.
+5. **Why this matters**: natural language and formal language activate different brain pathways. The code is the formal artifact; the prose is the only thing that gives a reader the **intent** the formal artifact cannot convey. SQLite treats this as a quality lever, not a nicety. The discipline is the same here.
 
 The bar is **prose that teaches**, not prose that decorates. If a docstring only restates the signature, drop it; if a comment only names the obvious, drop it. The rule is "document until the reader can explain the file to someone else without reading the code".
+
+## Documentation has a ceiling — the history belongs in the ADR
+
+Documentation that exceeds the code's own contract becomes a second copy of the
+design record. That copy drifts: the ADR gets revised, the docstring does not,
+and the reader is left with two accounts of the same decision, one of them
+stale. The codebase already has a place for the durable record — `ADRs/`. The
+code is not that place.
+
+So the discipline is **document the contract, not the history**:
+
+- **The code documents the contract**: what the function is for, what it takes,
+  what it returns, what it raises, and the one non-obvious constraint a caller
+  would otherwise violate.
+- **The ADR documents the decision**: why this design, what was rejected, what
+  the alternatives were, and what a future revision must preserve.
+
+A docstring that explains *why the team chose this approach* is duplicating the
+ADR. Keep the *consequence* a caller must know; drop the *rationale trail*.
+
+```python
+# Too much — the rationale trail belongs in the ADR.
+"""Emit compensation events in LIFO order.
+
+We started with a simple recursive rollback, but that broke
+when a compensation tool itself failed, because the recursion
+had no way to signal the DLQ. We then tried an explicit stack
+(ADR-069 §4.8), which we ultimately replaced with the
+compensate_stack projection so that a process crash could be
+recovered from the EventLog alone.
+"""
+
+# Right — the contract, with a pointer to the record.
+"""Emit compensation events in LIFO order.
+
+Each dispatched compensation tool emits two events: the durable
+``compensation_started`` marker the fold projection reads to
+rebuild the stack after a crash, and the tool request itself.
+See ADR-069 §4.5.1 for why the marker exists.
+"""
+```
+
+**The test for a docstring**: could it be copied into a second file describing
+the same concept without losing anything? If yes, it is describing the
+concept, not this function — move it to the ADR or the module doc.
 
 ## Clear, objective, comprehensive — for readers of different generations
 
@@ -93,6 +138,11 @@ written.
     could be `None`. If the code branches on it, the prose
     says so.
 
+Items 10–13 are about the **contract**, not the design history. A caller who
+reads the docstring must not be surprised by a return value, a mutation, or a
+failure mode. Whether the team reached that contract by three attempts is the
+ADR's business, not the docstring's.
+
 ### The tension between clear and comprehensive, and how to resolve it
 
 Clear and comprehensive pull against each other: a long
@@ -151,13 +201,19 @@ The second version is shorter *and* says more: the contract
 (the return values), the caller's obligation (the fallback,
 the clamping), the accepted shapes, and the failure policy.
 
-### Why this is non-negotiable, beyond readability
+### Why this matters, beyond readability
 
 The codebase outlives the people who wrote it. A docstring
 written for the author's own generation becomes, over time,
 the only surviving account of a decision whose rationale
 lived in a meeting, a chat, or a mind. The discipline is what
 keeps that account.
+
+But an over-long docstring has the opposite failure: it becomes
+a second design record that nobody maintains, and it drowns the
+contract in history the caller did not ask for. The ceiling
+above keeps both failures out -- the account survives because it
+is short enough to stay accurate.
 
 ## Scope: new and modified files only
 

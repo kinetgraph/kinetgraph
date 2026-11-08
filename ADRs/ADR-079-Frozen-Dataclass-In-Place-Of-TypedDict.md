@@ -179,8 +179,32 @@ The previous version of this section banned `r = {"key": value, ...}` wholesale.
 
 ### 6.4 Out of scope
 
-- A CI gate that bans `Any` / `TypedDict` / `MappingProxyType` / `{}` literal at the source level. To be proposed separately when the team signs off on this ADR.
+- A CI gate that bans `Any` / `{}` literal at the source level. To be proposed separately when the team signs off on this ADR.
 - Migration of `AgentView.components` and `core/storage.py`'s `dict[str | type[Any], ComponentT]`. These are heterogeneous ECS bags (key can be class OR string); the dataclass form does not apply. The migration target there is `Mapping[str | type[T], T]` with a `TypeVar` bound, not a frozen dataclass — separate ADR when the time comes.
+
+### 6.5 The `MappingProxyType` ban is now enforced (2026-11-06)
+
+The `MappingProxyType` half of the §6.4 gate landed as rule
+`KNT-TYPE-004` in `scripts/design_gate.py` (ADR-089), which runs
+as the `design` step of `scripts/ci.py`.
+
+The rule flags **any use of the name** `MappingProxyType` —
+imported directly or reached through `types.MappingProxyType` —
+across the whole `src/` tree, framework and verticals alike. A
+module that imports `types` for another reason (`TracebackType`,
+`ModuleType`) is unaffected.
+
+The binding is codebase-wide rather than framework-only because
+the wrapper breaks pickling of the ECS components that carry such
+mappings, and the ECS bag is shared by both tiers.
+
+The last production use — a class-level regex table in the
+vertical `knowledge/extraction/argument/_finder.py` — became a
+`ClassVar[Mapping[str, str]]` holding a plain dict. The static
+annotation is the read-only view (ADR-079 §3.2); the runtime
+wrapper bought nothing.
+
+The `Any` / `{}` literal halves of §6.4 remain out of scope.
 
 ## 7. Consequences
 

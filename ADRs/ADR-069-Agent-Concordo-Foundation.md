@@ -243,10 +243,23 @@ StepCompleted(step_name)  # step_states[name] == "completed"
 StepFailed(step_name)  # step_states[name] in ("failed", "timed_out")
 StepTimedOut(step_name)  # step_states[name] == "timed_out"
 StepResultEquals(step, field, value)  # step_results[step][field] == value
-DomainStateIs(field, value)  # ctx.domain.field == value
+DomainStateIs(field, value)  # the one domain component carrying `field`
 ProfileTierIs(tier)  # ctx.profile.tier == tier
 ContinuityToolUsed(tool_name)  # tool_name in ctx.continuity.last_tools
 ```
+
+`DomainStateIs` names a field rather than a component class.
+The carrier resolves the field to the one domain component
+that carries it; when zero or more than one component
+matches, the condition is unmet rather than arbitrarily
+resolved. A Specification that knows its component's class
+reads it through `ctx.get_component(MyComponent)`, which is
+statically typed.
+
+The mini-language exposes the step and memory builtins. It
+does not expose `DomainStateIs`: a bundle expression cannot
+name a Python class, so it has no way to resolve a domain
+component unambiguously.
 
 These map to the mini-language builtins in
 [docs/concordos-bundle-spec.md §4](../docs/concordos-bundle-spec.md#4-built-in-specs-catalog).

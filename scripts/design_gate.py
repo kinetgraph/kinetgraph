@@ -12,6 +12,7 @@ Verifies architectural invariants across ADRs:
   - KNT-TYPE-001:  TypedDict is prohibited in framework code (ADR-079)
   - KNT-TYPE-002:  Wire payload data must not be dict[str, Any] (ADR-067 / ADR-079)
   - KNT-TYPE-003:  type[Any] in ECS bag keys is prohibited (ADR-080)
+  - KNT-TYPE-004:  MappingProxyType is prohibited (ADR-079 §6.2 / §6.4)
   - KNT-EXC-001:   Uncontrolled `except Exception` in callers prohibited (ADR-077)
 
 Usage:
@@ -143,6 +144,35 @@ def _is_in_type_checking(node: ast.AST, ancestors: Sequence[ast.AST]) -> bool:
         ):
             return True
     return False
+
+
+def _mapping_proxy_type_violation(
+    file_path: Path,
+    line: int,
+    col: int,
+    detail: str,
+) -> Violation:
+    """The violation raised by a ``MappingProxyType`` import.
+
+    ``MappingProxyType`` was removed from the codebase by
+    ADR-079 §6.2: the static ``Mapping[K, V]`` annotation is
+    enough to keep callers from mutating a read-only view, and
+    the runtime wrapper breaks pickling of the ECS components
+    that carry such mappings.
+    """
+    return Violation(
+        file_path=file_path,
+        line=line,
+        col=col,
+        rule_id="KNT-TYPE-004",
+        rule_title="NoMappingProxyType",
+        message=detail,
+        remedy=(
+            "Declare the field as 'Mapping[K, V]' and keep a plain dict; "
+            "the static type already prevents caller mutation."
+        ),
+        adr="ADR-079 §6.2 / §6.4",
+    )
 
 
 def check_ast(file_path: Path, tree: ast.AST, rel_path: str) -> list[Violation]:
@@ -327,6 +357,38 @@ def check_ast(file_path: Path, tree: ast.AST, rel_path: str) -> list[Violation]:
                             adr="ADR-067 / ADR-079 §5",
                         )
                     )
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            """Flag every use of the banned name, whatever the import path.
+
+            The import check above catches the usual
+            ``from types import MappingProxyType``; this catches
+            the qualified ``types.MappingProxyType`` and a
+            re-export from another module.
+            """
+            if node.id == "MappingProxyType":
+                violations.append(
+                    _mapping_proxy_type_violation(
+                        file_path,
+                        node.lineno,
+                        node.col_offset,
+                        "Use of MappingProxyType detected.",
+                    )
+                )
+            self.generic_visit(node)
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            """Flag the qualified ``types.MappingProxyType`` form."""
+            if node.attr == "MappingProxyType":
+                violations.append(
+                    _mapping_proxy_type_violation(
+                        file_path,
+                        node.lineno,
+                        node.col_offset,
+                        "Use of MappingProxyType detected.",
+                    )
+                )
             self.generic_visit(node)
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
