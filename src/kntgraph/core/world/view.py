@@ -154,9 +154,8 @@ class AgentView:
 
     def get_component(self, component_type: type[T]) -> T | None:
         """
-        Type-safe accessor for ECS Components.
-        Returns the component if it exists and matches the requested type,
-        otherwise returns None.
+        The agent's component of the requested type, or ``None``. The
+        match is by exact class: a base type never resolves to a subclass.
         """
         # Fast path: check if the type itself is the key (Type Discipline)
         val = self.components.get(component_type)
@@ -165,7 +164,7 @@ class AgentView:
 
         # Fallback: search by type if a legacy string key was used
         for comp in self.components.values():
-            if isinstance(comp, component_type):
+            if type(comp) is component_type:
                 return comp
 
         return None

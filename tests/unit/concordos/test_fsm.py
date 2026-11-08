@@ -25,6 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from uuid import uuid4
 
+import pytest
+
 from kntgraph.concordos.fsm import FSMConfig, FSMSystem, FSMTransition
 from kntgraph.concordos.specs import ContinuityToolUsed
 from kntgraph.core.components.memory import ContinuityComponent
@@ -466,6 +468,31 @@ class TestFSMCursor:
         assert len(transitioned) == 1
         assert transitioned[0].agent_id == "a-2"
         assert_all_correlation_ids(out, ctx)
+
+
+# ---------------------------------------------------------------------------
+# Configuration guard
+# ---------------------------------------------------------------------------
+
+
+def test_fsm_config_rejects_the_abstract_domain_component() -> None:
+    """The abstract base is rejected at construction.
+
+    The FSM reads its state component with
+    ``view.get_component(component_type)``. A base-class lookup is
+    ambiguous as soon as the agent carries more than one business
+    component, and the lookup answers "absent" rather than guessing
+    -- so the misconfiguration would surface much later, as an FSM
+    that silently stops advancing. The config rejects it outright.
+    """
+    with pytest.raises(ValueError, match="component_type"):
+        FSMConfig(
+            component_type=DomainComponent,
+            state_field="status",
+            transitions={
+                "draft": {"invoice.submitted": FSMTransition(to="validating")},
+            },
+        )
 
 
 # ---------------------------------------------------------------------------

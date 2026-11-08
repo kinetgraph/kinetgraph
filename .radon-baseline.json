@@ -1811,7 +1811,7 @@
       "rank": "A"
     },
     "src/kntgraph/concordos/fsm/_config.py:class:FSMConfig": {
-      "complexity": 1,
+      "complexity": 3,
       "lineno": 45,
       "rank": "A"
     },
@@ -9165,7 +9165,7 @@
       "rank": "A"
     },
     "src/kntgraph/core/world/view.py": {
-      "mi": 37.10495121400001,
+      "mi": 36.97794684326947,
       "rank": "A"
     },
     "src/kntgraph/core/world/world.py": {
