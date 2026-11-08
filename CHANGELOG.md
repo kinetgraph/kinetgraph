@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-11-08
+
 ### Added
 - **The declarative agent model (ADR-088).** `kntgraph.agents` now
   provides `RoleSpec`, `AgentDefinition`, `AgentBundle` and
@@ -107,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so a base type never resolves to a subclass. `FSMConfig` also
   rejects `component_type=DomainComponent`, which would otherwise
   leave the FSM silently stopped.
+
 
 ## [0.18.2] — 2026-11-05
 
