@@ -2,17 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Debt detectors — the inventory behind the ``fix-on-touch`` policy.
 
-The architecture harness separates two regimes:
-
-- **Fail-fast** — a structural violation that propagates to every
-  consumer. It breaks CI on sight.
-- **Conditional** — local debt. It is *inventoried* here and only
-  corrected when the file is touched (``fix-on-touch``).
-
-This module is the inventory for the conditional regime. It never
-fails on the existence of debt; it reports it, and compares it with a
-recorded baseline so that a **regression** (new debt) can be
-detected.
+The inventory for the conditional regime. It never fails on the
+existence of debt; it reports it, and compares it with a recorded
+baseline so a **regression** (new debt) can be detected.
 
 See ``.agents/rules/fix_on_touch.md`` for the policy and
 ``scripts/debt.py`` for the command-line interface.
@@ -20,14 +12,13 @@ See ``.agents/rules/fix_on_touch.md`` for the policy and
 Calibration
 -----------
 Every detector was **calibrated against the current tree** before it
-was written. A naive detector that flags every ``except Exception``
-reports 25 sites in framework code; classifying each one showed that
-13 are explicitly justified (``# noqa: BLE001`` with a written
-rationale), 7 are the ADR-077 typed-translation boundary, and 8 are
+was written. A naive detector for ``except Exception`` reports 25
+framework sites; classifying each showed that 13 carry an explicit
+justification, 7 are the ADR-077 typed-translation boundary, and 8 are
 deliberate last-resort handlers in worker loops. The naive rule was
 therefore unreachable, and the rule was rewritten to measure what is
-actually reachable. The same calibration produced the exclusions
-documented on each detector.
+reachable. The same calibration produced the exclusions documented on
+each detector.
 """
 
 from __future__ import annotations

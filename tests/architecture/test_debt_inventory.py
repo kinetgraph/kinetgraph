@@ -2,39 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 """Architecture check — technical-debt inventory (conditional regime).
 
-This check **does not fail on the existence of debt**. It
-**inventories** it, so that the ``fix-on-touch`` policy can be
-applied consistently:
+Does **not** fail on the existence of debt. It **inventories** it, so
+the ``fix-on-touch`` policy can be applied consistently:
 
 > When you touch a file, correct the technical debt *in that file*.
 
-**Why a check that does not fail?** Because the policy is
-*conditional*: debt is corrected when the file is touched. A check
-that failed the CI on the existence of debt would force a
-mass-migration — the opposite of what the policy preaches.
+A check that failed the CI on the existence of debt would force a
+mass-migration — the opposite of what the policy preaches. This one
+fails only when a file **newly** introduces debt the rules already
+forbid.
 
-What this check does:
-
-1. **Inventories** the debt per file (a report, not a failure).
-2. **Fails** only when a file **newly** introduces debt that the
-   rules already forbid (a regression).
-
-The known debt is recorded in ``.debt-baseline.json``. Regenerate it
+The known debt is recorded in ``.debt-baseline.json``; regenerate it
 after an intentional cleanup with::
 
     uv run python scripts/debt.py --update-baseline
 
-Debt kinds and the rule each one comes from:
-
-| Kind | Rule |
-|---|---|
-| ``broad-except`` | ``kntgraph-typed-errors`` — the caller trusts the Protocol |
-| ``print-call`` | ``kntgraph-style`` — structured logging, not ``print()`` |
-| ``dict-str-any`` | ``kntgraph-type-discipline`` §5.1 — ``JsonValue`` on the wire |
-| ``type-any-key`` | ``kntgraph-type-discipline`` §5.3 — ADR-080 narrows the key |
-| ``bare-object`` | ``kntgraph-type-discipline`` §0 — bare ``object`` is banned |
-| ``broken-doc-link`` | harness — the normative surface must not 404 |
-| ``duplicate-adr-number`` | harness — an ADR number identifies one decision |
+The kinds and the rule each one comes from are listed in
+``DEBT_KINDS`` (``tests/architecture/_debt.py``) and in the
+``kntgraph-harness`` skill.
 
 Detection is by **AST**, not by text: a ``grep`` for ``object`` would
 accuse the docstring of a module that says "we do not use ``object``".
