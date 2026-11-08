@@ -35,4 +35,44 @@ Convenções
 Veja:
   - ADR-006: separação Tool × Role
   - ADR-007: LLM via LiteLLM
+
+Declarative agent model (ADR-088)
+---------------------------------
+
+Above the tools and the roles, this package provides the
+**declarative model of an agent**: the developer fills one frozen
+dataclass and the framework derives the installable runtime from it.
+
+  - ``RoleSpec``      -- persona and capability policy.
+  - ``AgentDefinition`` -- the agent: persona, role event type, FSM,
+    sagas and the domain types its rules read.
+  - ``AgentBundle``   -- the derived runtime (systems + projections).
+  - ``RoleProjection`` -- materialises ``RoleComponent`` from the
+    role event stream.
+
+    definition = AgentDefinition(
+        name="checkout",
+        persona=RoleSpec(
+            persona="checkout",
+            allowed_tools=("reserve_inventory", "charge_payment"),
+        ),
+        role_event_type="role.assigned",
+        fsm=BusinessFSMConcordo(config=fsm_config),
+        sagas=(WorkflowSagaConcordo(config=saga_config),),
+    )
+
+    definition.install(dispatcher, principal=principal)
+
+See ADR-088 and ``docs/declarative_agent_modelling.md``.
 """
+
+from kntgraph.agents._bundle import AgentBundle
+from kntgraph.agents._definition import AgentDefinition, RoleSpec
+from kntgraph.agents._projection import RoleProjection
+
+__all__ = [
+    "AgentBundle",
+    "AgentDefinition",
+    "RoleProjection",
+    "RoleSpec",
+]

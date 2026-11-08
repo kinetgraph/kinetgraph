@@ -119,6 +119,7 @@ regime.
 | `scripts/design_gate.py` | The framework never imports a vertical (ADR-042); a third-party SDK never leaks outside an adapter (ADR-047); `TypedDict` is banned in framework code (ADR-079); a wire payload is not `dict[str, Any]` (ADR-067). | fail-fast |
 | `tests/architecture/test_task_docs.py` | Every Definition-of-Done item carries an executable `check:`; every check names a target that exists; the `Feature doc` link resolves; `Status: DONE` requires every item to be ticked. | fail-fast |
 | `tests/architecture/test_docs_consistency.py` | Every relative link on the normative surface resolves; every ADR file name is well-formed; `AGENTS.md` and the skills directory agree. | fail-fast |
+| `tests/architecture/test_agent_awareness.py` | No framework module names the agent model's types, and the dispatcher tier never reads `RoleComponent` (ADR-088 §3.6). | fail-fast |
 | `tests/architecture/test_debt_inventory.py` | The inventoried debt does not grow: no file introduces debt the baseline does not record. | conditional |
 | `tests/architecture/test_harness_parity.py` | Every check is registered in this skill, and every registered check exists. | fail-fast |
 

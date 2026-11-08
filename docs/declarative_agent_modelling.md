@@ -17,7 +17,7 @@ which runs the whole model end to end.
 
 ---
 
-## 1. The three moves
+## 1. The four moves
 
 ### Move 1 — Declare the agent as data
 
@@ -26,6 +26,9 @@ its capability policy, its state machine, its workflows, and the
 domain types its rules read.
 
 ```python
+from kntgraph.agents import AgentDefinition, RoleSpec
+
+
 @dataclass(frozen=True, slots=True)
 class RoleSpec:
     persona: str
@@ -48,38 +51,48 @@ principle and reviewable in practice.
 
 ### Move 2 — Derive the runtime
 
+The runtime is derived from the declaration by a method on it:
+
+```python
+bundle = definition.bundle()
+```
+
+The bundle carries the live objects the dispatcher registers:
+
 ```python
 @dataclass(frozen=True, slots=True)
 class AgentBundle:
+    name: str
     systems: tuple[WorldSystem, ...]
     projections: tuple[WorldProjection, ...]
-
-
-def bundle(definition: AgentDefinition) -> AgentBundle:
-    systems: list[WorldSystem] = []
-    projections: list[WorldProjection] = []
-    if definition.fsm is not None:
-        systems.extend(definition.fsm.systems)
-        projections.extend(definition.fsm.projections)
-    for saga in definition.sagas:
-        systems.extend(saga.systems)
-        projections.extend(saga.projections)
-    return AgentBundle(systems=tuple(systems), projections=tuple(projections))
 ```
 
-The bundle **repeats no field** from the definition, so the two
-cannot disagree. It is ephemeral: built at install time, discarded
-afterwards.
+It **repeats no field** from the definition, so the two cannot
+disagree. It is ephemeral: built at install time, discarded
+afterwards. Its `name` is derived (`agent:<name>`), which is what
+lets the bundle go through the catalog path:
 
 ```python
-bundle = bundle(definition)
-for system in bundle.systems:
-    dispatcher.add_system(system)
-for projection in bundle.projections:
-    dispatcher.add_projection(projection)
+catalog = ConcordoCatalog(*(d.bundle() for d in definitions))
+catalog.install_all(dispatcher)
 ```
 
-### Move 3 — Write the rules as Specifications
+The projection family is where the role becomes a component: the
+bundle always carries a `RoleProjection`, which materialises
+`RoleComponent` from the role event stream.
+
+### Move 3 — Install
+
+```python
+definition.install(dispatcher, principal=principal)
+```
+
+Installation registers the derived systems and projections, and
+tells the dispatcher to watch the agent the principal identifies.
+The principal is a runtime credential the host supplies; it is
+never stored in the declaration.
+
+### Move 4 — Write the rules as Specifications
 
 A business rule is a pure predicate over the carrier. It reads the
 agent's domain component **by its concrete class** and the memory
@@ -260,6 +273,35 @@ what the framework reads before a tool request leaves the agent
    policy.
 3. **Gate 3** — the tool's own implementation checks whatever else
    it needs.
+
+### The role event
+
+The bundle's `RoleProjection` materialises `RoleComponent` from the
+role event stream. The definition names the event **type**; the
+schema is the vertical's. The projection reads two payload keys:
+
+| Key | Meaning | When absent |
+|---|---|---|
+| `persona` | the runtime-assigned persona | the declared `RoleSpec.persona` is used |
+| `instructions` | the persona instructions | the empty string |
+
+```python
+await event_log.append(
+    Event.create(
+        event_type="role.assigned",
+        agent_id=agent_id,
+        event_class="domain",
+        data={"persona": "fulfilment", "instructions": "You fulfil orders."},
+        correlation=correlation,
+    )
+)
+```
+
+The capability policy is **never** read from the event. It comes
+from `RoleSpec.allowed_tools`, because dropping it would silently
+disable gate 2 — `has_tool_access` is permissive when no role is
+installed. A vertical that needs a different payload schema
+subclasses the projection rather than forking it.
 
 ---
 

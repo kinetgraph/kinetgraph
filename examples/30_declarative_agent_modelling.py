@@ -68,6 +68,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from kntgraph.agents import AgentDefinition, RoleSpec
 from kntgraph.concordos.base import Specification, StepContext
 from kntgraph.concordos.fsm import (
     BusinessFSMConcordo,
@@ -164,48 +165,6 @@ class OrderIsFree(Specification):
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class RoleSpec:
-    """The declarative persona and capability policy.
-
-    ``allowed_tools`` is the agent's own policy, projected into
-    ``RoleComponent.allowed_tools`` — the gate the framework
-    reads before a tool request leaves the agent.
-    """
-
-    persona: str
-    allowed_tools: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class AgentDefinition:
-    """Everything the agent is, declared once.
-
-    The definition carries no runtime handles: no dispatcher, no
-    credential, no derived state. The runtime is derived from it
-    by :meth:`bundle`.
-    """
-
-    name: str
-    persona: RoleSpec
-    role_event_type: str
-    fsm: BusinessFSMConcordo | None = None
-    sagas: tuple[WorkflowSagaConcordo, ...] = ()
-    domain_types: tuple[type[DomainComponent], ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class AgentBundle:
-    """The installable artifact derived from a declaration.
-
-    Ephemeral: built at install time and discarded. It repeats
-    no field from the definition, so it cannot drift from it.
-    """
-
-    systems: tuple[object, ...]
-    projections: tuple[object, ...]
-
-
 # ---------------------------------------------------------------------------
 # The order fulfilment agent
 # ---------------------------------------------------------------------------
@@ -266,25 +225,6 @@ ORDER_AGENT = AgentDefinition(
     sagas=(WorkflowSagaConcordo(config=ORDER_SAGA),),
     domain_types=(OrderDomainComponent,),
 )
-
-
-def _bundle(definition: AgentDefinition) -> AgentBundle:
-    """Derive the installable runtime from a declaration.
-
-    The derivation is the only place where the declaration's
-    parts become live objects. Nothing is stored on the
-    definition, so the definition and the bundle cannot
-    disagree.
-    """
-    systems: list[object] = []
-    projections: list[object] = []
-    if definition.fsm is not None:
-        systems.extend(definition.fsm.systems)
-        projections.extend(definition.fsm.projections)
-    for saga in definition.sagas:
-        systems.extend(saga.systems)
-        projections.extend(saga.projections)
-    return AgentBundle(systems=tuple(systems), projections=tuple(projections))
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +294,7 @@ def main() -> None:
     print("Declarative agent modelling — one definition, two execution cycles")
     print("=" * 72)
 
-    bundle = _bundle(ORDER_AGENT)
+    bundle = ORDER_AGENT.bundle()
 
     # ------------------------------------------------------------------
     # 1. The declaration derives the runtime.
@@ -376,6 +316,7 @@ def main() -> None:
     assert [type(p).__name__ for p in bundle.projections] == [
         "FSMProjection",
         "SagaProjection",
+        "RoleProjection",
     ]
 
     # ------------------------------------------------------------------
