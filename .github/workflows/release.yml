@@ -46,7 +46,8 @@ on:
         default: ""
 
 permissions:
-  contents: write  # create tag, push tag, open release
+  contents: write       # create tag, push tag, open release
+  pull-requests: write  # open the release PR when the direct push to main is rejected
 
 jobs:
   cut-release:
@@ -296,6 +297,19 @@ jobs:
         # The PR body states what it is, and the ``chore(release)``
         # title keeps it out of the review queue's way — the
         # content was already gated by CI before the tag was cut.
+        #
+        # The step does not FAIL the job when the PR cannot be opened:
+        # the tag is already pushed, and failing here would skip the
+        # "Open the GitHub Release" step — the ``v0.18.1`` shape (a tag
+        # and a PyPI upload, no GitHub Release). It emits an
+        # ``::error::`` annotation instead, so the failure shows in the
+        # run summary rather than hiding behind a green run.
+        #
+        # Opening the PR needs the ``pull-requests: write``
+        # permission. Without it ``gh pr create`` fails with
+        # "Resource not accessible by integration" and the fallback
+        # never worked — which is how the ``0.16.2`` and ``0.16.3``
+        # CHANGELOG sections were lost.
         if: steps.push_main.outputs.pushed != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -325,9 +339,9 @@ jobs:
           \`${NEW_TAG}\` on \`main\`.
           EOF
           )" || {
-            echo "::warning::could not open the release PR for ${NEW_TAG};"
-            echo "::warning::the tag stands, but the CHANGELOG section"
-            echo "::warning::must land on main by hand."
+            echo "::error::could not open the release PR for ${NEW_TAG};"
+            echo "::error::the tag stands, but the CHANGELOG section"
+            echo "::error::must land on main by hand."
             exit 0
           }
 
