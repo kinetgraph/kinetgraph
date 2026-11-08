@@ -99,6 +99,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Specification that checked the agent's profile or its domain
   state always evaluated against nothing.
 
+- **`AgentView.get_component` no longer returns an arbitrary
+  component.** The fallback matched by `isinstance`, so asking for
+  a base class returned whichever component the bag held first — a
+  result that depended on the bag's insertion order, against the
+  `World = fold(events)` invariant. The match is now by exact class,
+  so a base type never resolves to a subclass. `FSMConfig` also
+  rejects `component_type=DomainComponent`, which would otherwise
+  leave the FSM silently stopped.
+
 ## [0.18.2] — 2026-11-05
 
 ### Notes
