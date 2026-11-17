@@ -136,14 +136,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ADR-068 depend on it.
 
 ### Fixed
-- **The CLI now works with the `[cli]` extra alone.** The
-  `keys` command imported `cryptography` at the top of its
-  module, so **every** `knt` command failed with
-  `ModuleNotFoundError` on a CLI-only install — the very
-  install the installer script performs. The import is now
-  deferred into the command, and the failure names the extra
-  to install.
-
 - **`knt upgrade check` no longer reports a phantom drift.**
   The HTTP-gateway files (`consumer.py`, `core/config.py`)
   were listed as boilerplate in every project, including the
