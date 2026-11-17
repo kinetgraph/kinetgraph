@@ -503,7 +503,9 @@ see [`DEBT.md`](DEBT.md) §4.2 for the warning budget).
 
 | Version | Highlights |
 | --- | --- |
-| **0.19.1** *(current)* | **Fixed:** the CLI works with the `[cli]` extra alone. The `keys` command imported `cryptography` at the top of its module; `cryptography` belongs to the `[crypto]` extra, so the import broke **every** `knt` command with a `ModuleNotFoundError` on a CLI-only install — including the ones that never touch a key. The import is deferred into the command now. |
+| **0.20.0** *(current)* | **The CLI adopts the declarative agent model.** `knt new agent` emits one `AgentDefinition` — persona, capability policy, state machine, workflows, domain types — derived from the bounded context: the tool allow-list is the context's tools, the domain types are its components, the two execution cycles are its Concordos. The context's dispatcher installs the declaration instead of aggregating systems by hand. `knt concordo` is context-scoped, and `knt new sweep` makes the framework's second loop (the `Runner`) explicit instead of inferred from a filename. **A `curl | sh` installer** — `scripts/install.sh` — installs the CLI user-locally, delegating to `uv tool install` when uv is present. **Fixed:** the CLI no longer breaks on a `[cli]`-only install. **Breaking:** the `knt concordo` target now carries the context, and the generated Concordos moved into it. |
+| 0.19.1 | **Fixed:** the CLI works with the `[cli]` extra alone. The `keys` command imported `cryptography` at the top of its module; `cryptography` belongs to the `[crypto]` extra, so the import broke **every** `knt` command with a `ModuleNotFoundError` on a CLI-only install — including the ones that never touch a key. The import is deferred into the command now. |
+
 | 0.19.0 | **ADR-088** — the declarative agent model: `RoleSpec`, `AgentDefinition`, `AgentBundle` and `RoleProjection` in the `agents` vertical. The developer declares an agent once — persona, capability policy, FSM, sagas, domain types — and the framework derives the installable runtime from it. `build_step_context` becomes the single construction path for the carrier every `Specification` evaluates against, so a rule written for an FSM guard is reused unchanged as a Saga skip condition; `StepContext.session` and `StepContext.get_component(MyComponent)` land with it (closes DEBT §2.42). **ADR-089** — the architecture fitness harness: `scripts/design_gate.py` and the `kntgraph.testing` contract verifiers become an executable gate. Zero breaking changes — every new field is optional with a backwards-compatible default. |
 | 0.18.1 | **ADR-089** — the architecture fitness harness lands: the standards move from prose into `scripts/design_gate.py` and the `kntgraph.testing` contract verifiers, wired into the CI gate as the `design` step. **ADR-088** — the declarative agent definition is designed (the implementation ships in 0.19.0). |
 
@@ -548,5 +550,6 @@ the pull request workflow. Bug reports and security disclosures follow
 
 | Source modules | Test modules | ADRs | Docs |
 | --- | --- | --- | --- |
-| 310 (58,411 LOC) | 298 (80,058 LOC, 3,262 tests collected) | 86 | 44 pages |
+| 315 (59,788 LOC) | 301 (81,172 LOC, 3,295 tests collected) | 86 | 44 pages |
+
 <!-- STATS END -->

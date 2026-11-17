@@ -15,6 +15,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A `curl | sh` installer for the CLI.** `scripts/install.sh`
+  installs `kntgraph[cli,crypto]` — the scaffolder and the
+  Ed25519 dependency the `knt keys` command needs:
+
+  ```bash
+  curl -LsSf https://raw.githubusercontent.com/kinetgraph/kinetgraph/main/scripts/install.sh | sh
+  ```
+
+  It is POSIX sh (dash, ash, bash-as-sh), needs only a
+  Python 3.12+ interpreter, and is user-local: it never
+  touches the system Python and never needs root. With `uv` on
+  the PATH it delegates to `uv tool install`; without it, it
+  builds its own virtual environment and uses `pip`.
+
+  The package is pure Python (`py3-none-any`), so there is
+  **one artifact for every platform** — no OS or CPU
+  detection, no binary download.
+
+  Options: `--version <v>` pins a release, `--uninstall`
+  removes the installation. `KNT_HOME`, `KNT_BIN_DIR` and
+  `KNT_PYTHON` override the layout and the interpreter.
+
+- **`knt --version`.** The CLI reports its version; the
+  installer uses it to verify its own work.
+
 ### Changed
 - **The `knt` CLI now scaffolds the declarative agent model
   (ADR-088).** `knt new agent <context>.<Name>` emits one
@@ -115,8 +141,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   module, so **every** `knt` command failed with
   `ModuleNotFoundError` on a CLI-only install — the very
   install the installer script performs. The import is now
-  deferred into the command, and the command explains what to
-  install when the extra is missing.
+  deferred into the command, and the failure names the extra
+  to install.
 
 - **`knt upgrade check` no longer reports a phantom drift.**
   The HTTP-gateway files (`consumer.py`, `core/config.py`)
@@ -135,31 +161,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sweeps, so a second sweep made the dispatcher look
   hand-edited and it was never regenerated.
 
-### Added
-- **A `curl | sh` installer for the CLI.** `scripts/install.sh`
-  installs `kntgraph[cli]` and nothing else:
-
-  ```bash
-  curl -LsSf https://raw.githubusercontent.com/kinetgraph/kinetgraph/main/scripts/install.sh | sh
-  ```
-
-  It is POSIX sh (dash, ash, bash-as-sh), needs only a
-  Python 3.12+ interpreter, and is user-local: it never
-  touches the system Python and never needs root. With `uv` on
-  the PATH it delegates to `uv tool install`; without it, it
-  builds its own virtual environment and uses `pip`.
-
-  The package is pure Python (`py3-none-any`), so there is
-  **one artifact for every platform** — no OS or CPU
-  detection, no binary download.
-
-  Options: `--version <v>` pins a release, `--uninstall`
-  removes the installation. `KNT_HOME`, `KNT_BIN_DIR` and
-  `KNT_PYTHON` override the layout and the interpreter.
-
-- **`knt --version`.** The CLI reports its version; the
-  installer uses it to verify its own work.
-
 ## [0.19.1] — 2026-11-17
 
 ### Fixed
@@ -171,7 +172,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModuleNotFoundError`, including the ones that never touch a
   key. The import is now deferred into the command, and the
   failure names the extra to install.
-
 
 ## [0.19.0] — 2026-11-08
 
