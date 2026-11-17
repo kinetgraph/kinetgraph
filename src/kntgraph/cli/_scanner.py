@@ -38,6 +38,7 @@ TOOLS_DIR = "tools"
 COMPONENTS_DIR = "components"
 CONCORDOS_DIR = "concordos"
 AGENTS_DIR = "agents"
+SWEEPS_DIR = "sweeps"
 
 # The role event the generated declaration listens for. The
 # framework's ``RoleProjection`` reads the persona and the
@@ -117,6 +118,27 @@ class AgentArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class SweepArtifact:
+    """One cyclic sweep declared in the context.
+
+    A sweep is a ``WorldSystem`` that runs on a **timer**
+    rather than on an event. The framework runs it with the
+    post-fold World, exactly like a reactive system -- what
+    makes it a sweep is the loop it lives in (the ``Runner``'s
+    tick), not its type.
+
+    Attributes:
+        module: The dotted module path relative to the context
+            package.
+        function_name: The module-level function the ``Runner``
+            registers.
+    """
+
+    module: str
+    function_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class ContextInventory:
     """Everything one bounded context declares.
 
@@ -125,12 +147,14 @@ class ContextInventory:
         components: The domain components.
         concordos: The FSM and Saga Concordos.
         agents: The agent declarations.
+        sweeps: The cyclic sweeps.
     """
 
     tools: tuple[ToolArtifact, ...] = ()
     components: tuple[ComponentArtifact, ...] = ()
     concordos: tuple[ConcordoArtifact, ...] = ()
     agents: tuple[AgentArtifact, ...] = ()
+    sweeps: tuple[SweepArtifact, ...] = ()
 
     def fsm(self) -> ConcordoArtifact | None:
         """The context's FSM Concordo, when it declares one.
@@ -362,6 +386,49 @@ def _agent_definition_name(value: ast.expr) -> str:
     return ""
 
 
+def _scan_sweeps(base: Path) -> tuple[SweepArtifact, ...]:
+    """The cyclic sweeps declared in ``<context>/sweeps``.
+
+    A sweep is a module-level function that takes the World
+    and returns the events to append -- the ``WorldSystem``
+    shape. The first public function of each module is the
+    sweep; the rest are its helpers.
+    """
+    found: list[SweepArtifact] = []
+    for path in _modules(base / SWEEPS_DIR):
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if node.name.startswith("_"):
+                continue
+            if not _takes_one_argument(node):
+                continue
+            found.append(
+                SweepArtifact(
+                    module=f"{SWEEPS_DIR}.{path.stem}",
+                    function_name=node.name,
+                )
+            )
+            break
+    return tuple(found)
+
+
+def _takes_one_argument(node: ast.FunctionDef) -> bool:
+    """Whether the function takes exactly one positional argument.
+
+    A ``WorldSystem`` is ``(World) -> list[Event]``. The check
+    filters the helpers a sweep module declares alongside its
+    sweep.
+    """
+    positional = node.args.posonlyargs + node.args.args
+    if node.args.vararg is not None:
+        return False
+    return len(positional) == 1 and not node.args.kwonlyargs
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -386,6 +453,7 @@ def scan_context(package: str, context: str) -> ContextInventory:
         components=_scan_components(base),
         concordos=_scan_concordos(base),
         agents=_scan_agents(base),
+        sweeps=_scan_sweeps(base),
     )
 
 
@@ -455,14 +523,3 @@ def discover_artifacts(context_name: str) -> dict[str, list[str]]:
             if f.is_file() and f.suffix == ".py" and f.stem != "__init__":
                 artifacts[kind].append(f.stem)
     return artifacts
-
-
-def has_supervisor_artifact(context_name: str) -> bool:
-    """Whether the context has a supervisor agent artifact."""
-    package = discover_package_name()
-    if package is None:
-        return False
-    agents_dir = Path("src") / package / "contexts" / context_name / "agents"
-    if not agents_dir.is_dir():
-        return False
-    return any(f.is_file() and "_supervisor" in f.stem for f in agents_dir.iterdir())

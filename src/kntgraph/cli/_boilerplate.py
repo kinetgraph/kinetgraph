@@ -50,7 +50,6 @@ from kntgraph.cli._scanner import (
     discover_artifacts,
     discover_context_names,
     discover_package_name,
-    has_supervisor_artifact,
 )
 from kntgraph.core._typing import JsonValue
 
@@ -384,10 +383,7 @@ def _resolve_context_singleton(
             ),
         ),
         mapping.template_name,
-        {
-            **ctx_with_c,
-            "with_supervisor": has_supervisor_artifact(context_name),
-        },
+        ctx_with_c,
     )
 
 
@@ -459,7 +455,6 @@ def _artifact_context(
         "event_name": artifact,
         "camel_case_name": snake_to_camel(artifact),
         "event_type": f"{context_name}.{artifact}",
-        "with_supervisor": has_supervisor_artifact(context_name),
     }
 
 

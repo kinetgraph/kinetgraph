@@ -250,3 +250,81 @@ def test_generated_declaration_imports_and_derives_the_runtime(tmp_path: Path):
                     del sys.modules[name]
     finally:
         os.chdir(current_dir)
+
+
+def test_knt_new_sweep_registers_the_sweep_in_the_runner(tmp_path: Path):
+    """A sweep is named, not inferred.
+
+    The sweep is registered explicitly in the context's
+    ``Runner`` -- the loop that runs the work no event
+    triggers.
+    """
+    current_dir = os.getcwd()
+    try:
+        _scaffold(tmp_path)
+
+        result = runner.invoke(app, ["new", "sweep", "sales.CompactionSweep"])
+        assert result.exit_code == 0, result.stdout
+        assert "Generated Sweep" in result.stdout
+
+        sweep_file = Path("src/my_app/contexts/sales/sweeps/compaction_sweep.py")
+        assert sweep_file.is_file()
+        content = sweep_file.read_text()
+        assert "def compaction_sweep(world: World) -> list[Event]:" in content
+
+        dispatcher = Path("src/my_app/contexts/sales/dispatcher.py").read_text()
+        assert "from .sweeps.compaction_sweep import compaction_sweep" in dispatcher
+        assert "def build_sales_runner(" in dispatcher
+        assert "compaction_sweep," in dispatcher
+    finally:
+        os.chdir(current_dir)
+
+
+def test_a_supervisor_named_agent_gets_no_runner(tmp_path: Path):
+    """The filename convention no longer decides the wiring.
+
+    The old scaffold inferred a second loop from a file whose
+    name contained ``_supervisor``. A supervisor is now just
+    another agent declaration, installed on the dispatcher.
+    """
+    current_dir = os.getcwd()
+    try:
+        _scaffold(tmp_path)
+
+        result = runner.invoke(app, ["new", "agent", "sales.CheckoutSupervisor"])
+        assert result.exit_code == 0, result.stdout
+
+        dispatcher = Path("src/my_app/contexts/sales/dispatcher.py").read_text()
+        # The declaration is installed on the dispatcher.
+        assert "CHECKOUT_SUPERVISOR_AGENT.install(" in dispatcher
+        # No second loop was conjured out of the file name.
+        assert "build_sales_runner" not in dispatcher
+        assert "build_sales_supervisor_runner" not in dispatcher
+    finally:
+        os.chdir(current_dir)
+
+
+def test_knt_new_sweep_keeps_the_earlier_sweeps(tmp_path: Path):
+    """A second sweep must not drop the first one.
+
+    The refresh rewrites a derived file only when it is still
+    the template's untouched output for the state *before* the
+    new artifact. The "before" state excludes the new sweep --
+    and every other artifact of the context.
+    """
+    current_dir = os.getcwd()
+    try:
+        _scaffold(tmp_path)
+
+        assert runner.invoke(app, ["new", "sweep", "sales.FirstSweep"]).exit_code == 0
+        result = runner.invoke(app, ["new", "sweep", "sales.SecondSweep"])
+        assert result.exit_code == 0, result.stdout
+        assert "Regenerated" in result.stdout
+
+        dispatcher = Path("src/my_app/contexts/sales/dispatcher.py").read_text()
+        assert "first_sweep," in dispatcher
+        assert "second_sweep," in dispatcher
+        # The file is in sync with the templates.
+        assert runner.invoke(app, ["upgrade", "check"]).exit_code == 0
+    finally:
+        os.chdir(current_dir)

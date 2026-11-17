@@ -5,7 +5,7 @@
 {{ local_imports }}
 {%- endif %}
 from kntgraph.infra.config import fresh_settings
-from kntgraph.runner import ReactiveDispatcher, Runner
+from kntgraph.runner import ReactiveDispatcher{% if sweeps %}, Runner{% endif %}
 from kntgraph.security.principal import Principal, PrincipalLevel
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.acl import default_acl
@@ -25,6 +25,11 @@ def build_{{ context_name }}_dispatcher(
     ``install()`` registers it here (ADR-088). The dispatcher
     never learns what an agent is -- it only receives systems
     and projections.
+
+    One dispatcher hosts every system of the context. The
+    systems are pure -- ``(World) -> list[Event]`` -- so they
+    need no isolation from each other, and the dispatcher runs
+    them all once per tick over the same post-fold World.
 
     The ``log``, ``redis`` (optional) and ``tool_router`` (optional)
     are threaded through to the dispatcher so tool invocations
@@ -75,54 +80,35 @@ def build_{{ context_name }}_dispatcher(
     # that resolves the tenant per request builds its own.
 {{ agent_installs }}
     return dispatcher
+{% if sweeps %}
 
 
-{% if with_supervisor %}
-def build_{{ context_name }}_supervisor_runner(
+def build_{{ context_name }}_runner(
     log: EventLog,
     tick_interval: float = 1.0,
 ) -> Runner:
     """
     Builds the cyclic Runner for the '{{ context_name }}' context.
 
-    The Runner hosts the **supervisor** systems that observe
-    long-running state (e.g. timeouts, retries) and re-emit
-    corrective events. The ReactiveDispatcher handles the
-    happy-path latency-sensitive flow; the Runner handles the
-    SLA-guaranteed reconciliation flow.
+    The Runner hosts the context's **sweeps**: the work that
+    is not triggered by an event -- consolidation, compaction,
+    reconciliation. The ReactiveDispatcher handles the
+    event-driven flow, per agent; a sweep runs once per tick
+    over the whole World.
 
-    The two are independent: the supervisor can run without the
-    dispatcher (test scenario) and the dispatcher can run without
-    the supervisor (read-only replay). The two-layer pattern is
-    "ADR-004" in the SDK (cyclic processes for retries).
+    A sweep is a ``WorldSystem`` like any other -- the
+    framework runs it with the post-fold World. What makes it
+    a sweep is the loop it lives in, not its type: the
+    framework's ``CyclicSystem`` **is** ``WorldSystem``.
+
+    The two are independent: the runner can run without the
+    dispatcher (test scenario) and the dispatcher can run
+    without the runner (read-only replay).
     """
-    # The supervisor observes long-running state. Its systems are
-    # cyclic by nature, so they are wired here rather than
-    # derived from an agent declaration.
-    supervisor_systems = []
     return Runner(
         log=log,
-        cyclic_systems=supervisor_systems,
+        cyclic_systems=[
+{{ sweep_registrations }}        ],
         tick_interval=tick_interval,
     )
-
-
-def build_{{ context_name }}_dispatcher_with_supervisor(
-    log: EventLog,
-    redis = None,
-    tool_router = None,
-    tick_interval: float = 1.0,
-) -> tuple[ReactiveDispatcher, Runner]:
-    """
-    Convenience helper: build the dispatcher and the supervisor
-    together (the canonical "two-layer" wiring). Returns the
-    dispatcher first, the runner second.
-    """
-    dispatcher = build_{{ context_name }}_dispatcher(
-        log=log, redis=redis, tool_router=tool_router,
-    )
-    supervisor = build_{{ context_name }}_supervisor_runner(
-        log=log, tick_interval=tick_interval,
-    )
-    return dispatcher, supervisor
 {% endif %}

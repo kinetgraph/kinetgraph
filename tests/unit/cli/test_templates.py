@@ -110,7 +110,6 @@ def test_template_does_not_import_removed_symbol(
             "project_name": "my_app",
             "package": "my_app",
             "event_type": "sales.order_placed",
-            "with_supervisor": False,
         },
     )
     assert forbidden not in rendered, (
@@ -165,7 +164,6 @@ def test_template_renders_with_spdx_header(template_name: str) -> None:
             "project_name": "my_app",
             "package": "my_app",
             "event_type": "sales.order_placed",
-            "with_supervisor": False,
         },
     )
     lines = rendered.splitlines()
@@ -430,7 +428,6 @@ def test_dispatcher_template_installs_the_declared_agents() -> None:
             "context_name": "sales",
             "project_name": "my_app",
             "package": "my_app",
-            "with_supervisor": False,
             "tool_imports": [
                 {
                     "module": ".tools.process_payment",
@@ -483,18 +480,18 @@ def test_dispatcher_template_threads_redis_and_tool_router() -> None:
             "context_name": "sales",
             "project_name": "my_app",
             "package": "my_app",
-            "with_supervisor": False,
         },
     )
     assert "redis=redis" in rendered
     assert "tool_router=tool_router" in rendered
 
 
-def test_dispatcher_template_with_supervisor_emits_runner_factory() -> None:
-    """When ``with_supervisor`` is True, the dispatcher
-    template must render the ``Runner`` factory and the
-    ``build_<context>_dispatcher_with_supervisor``
-    helper.
+def test_dispatcher_template_emits_the_runner_factory_for_the_sweeps() -> None:
+    """The context's sweeps get a ``Runner`` factory.
+
+    A sweep is the work that no event triggers; the
+    ``ReactiveDispatcher`` runs per agent, the ``Runner`` runs
+    over the whole World on a timer.
     """
     rendered = _render(
         "dispatcher.py.jinja",
@@ -502,12 +499,43 @@ def test_dispatcher_template_with_supervisor_emits_runner_factory() -> None:
             "context_name": "sales",
             "project_name": "my_app",
             "package": "my_app",
-            "with_supervisor": True,
+            "sweeps": [
+                {
+                    "module": ".sweeps.compaction_sweep",
+                    "function_name": "compaction_sweep",
+                }
+            ],
+            "local_imports": "from .sweeps.compaction_sweep import compaction_sweep\n",
+            "sweep_registrations": "            compaction_sweep,\n",
         },
     )
     assert "from kntgraph.runner import ReactiveDispatcher, Runner" in rendered
-    assert "build_sales_supervisor_runner" in rendered
-    assert "build_sales_dispatcher_with_supervisor" in rendered
+    assert "def build_sales_runner(" in rendered
+    assert "compaction_sweep," in rendered
+    assert "cyclic_systems=[" in rendered
+
+
+def test_dispatcher_template_without_sweeps_has_no_runner() -> None:
+    """A context with no sweep gets no ``Runner``.
+
+    The framework keeps the ``Runner`` -- ADR-010, ADR-057 and
+    ADR-068 depend on it -- but the scaffold only offers it
+    when the context declares a sweep. There is no magic
+    filename convention any more.
+    """
+    rendered = _render(
+        "dispatcher.py.jinja",
+        {
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+            "sweeps": [],
+            "local_imports": "",
+            "sweep_registrations": "",
+        },
+    )
+    assert "Runner" not in rendered
+    assert "build_sales_runner" not in rendered
 
 
 def test_consumer_template_renders_in_three_responsibilities() -> None:

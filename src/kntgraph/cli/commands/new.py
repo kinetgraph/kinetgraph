@@ -21,6 +21,7 @@ from kntgraph.cli._project import (
 from kntgraph.cli._scanner import (
     AGENTS_DIR,
     CONCORDOS_DIR,
+    SWEEPS_DIR,
     TOOLS_DIR,
     ContextInventory,
     scan_context,
@@ -205,6 +206,61 @@ def tool(
 
 
 @app.command()
+def sweep(
+    target: str = typer.Argument(
+        ..., help="Context and sweep name, e.g., sales.CompactionSweep"
+    ),
+):
+    """
+    Generate a cyclic sweep (the Runner's work).
+
+    A sweep is a ``WorldSystem`` that runs on a **timer**
+    rather than on an event: consolidation, compaction,
+    reconciliation. The ``ReactiveDispatcher`` runs the
+    event-driven systems per agent; the ``Runner`` runs the
+    sweeps over the whole World.
+
+    The sweep is *named*, not inferred: the context's
+    dispatcher registers it explicitly.
+    """
+    context_name, sweep_name = require_target(
+        target, "SweepName", "sales.CompactionSweep"
+    )
+    package = package_name()
+
+    snake_case_name = snake_case(sweep_name)
+    if not snake_case_name.endswith("_sweep"):
+        snake_case_name += "_sweep"
+
+    target_dir = Path("src") / package / "contexts" / context_name / SWEEPS_DIR
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    for p in [target_dir, target_dir.parent]:
+        if not (p / "__init__.py").exists():
+            (p / "__init__.py").touch()
+
+    target_file = target_dir / f"{snake_case_name}.py"
+
+    if target_file.exists():
+        console.print(f"[red]Error:[/red] Sweep file {target_file} already exists.")
+        raise typer.Exit(code=1)
+
+    templates_dir = Path(__file__).parent.parent / "templates"
+    env = Environment(loader=FileSystemLoader(templates_dir), autoescape=False)  # nosec B701
+
+    tmpl = env.get_template("sweep.py.jinja")
+
+    ctx = {
+        "sweep_name": sweep_name,
+        "function_name": snake_case_name,
+    }
+
+    target_file.write_text(tmpl.render(ctx))
+    console.print(f"[green]Success![/green] Generated Sweep at {target_file}")
+    _refresh_context(package, context_name, f"{SWEEPS_DIR}.{snake_case_name}")
+
+
+@app.command()
 def agent(
     target: str = typer.Argument(
         ..., help="Context and agent name, e.g., sales.CheckoutAgent"
@@ -323,7 +379,15 @@ def context(
     # Create subdirectories. The concordos join them: they are
     # the context's two execution cycles, and the agent
     # declaration references them.
-    subdirs = ["agents", "components", CONCORDOS_DIR, "events", "systems", "tools"]
+    subdirs = [
+        "agents",
+        "components",
+        CONCORDOS_DIR,
+        "events",
+        SWEEPS_DIR,
+        "systems",
+        "tools",
+    ]
     for subdir in subdirs:
         sub_path = target_dir / subdir
         sub_path.mkdir(exist_ok=True)

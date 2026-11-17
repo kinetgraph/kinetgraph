@@ -27,8 +27,39 @@ policy, and a dispatcher that knows nothing about agents (ADR-088).
 - You need **idempotent tool execution** across retries and dispatcher restarts.
 - You want a **single Redis Stream** as the source of truth, with no separate state DB.
 - You are building **multi-tenant** systems where each agent has its own isolated event log.
+- You want the **scaffolder in one command** — `curl … | sh` — with no Python environment to set up first.
 
 ## Install
+
+### The `knt` CLI — one command
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/kinetgraph/kinetgraph/main/scripts/install.sh | sh
+```
+
+A POSIX shell installer, in the style of `uv`'s own. It is
+**user-local**: it never touches the system Python and never
+needs root. With `uv` on the PATH it delegates to
+`uv tool install`; without it, it builds its own virtual
+environment under `~/.local/share/knt/venv` and uses `pip`.
+Re-running it upgrades in place.
+
+The package is pure Python, so there is **one artifact for
+every platform** — no OS or CPU detection, no binary download.
+
+```bash
+knt --version              # what got installed
+knt init project my_platform
+```
+
+> Prefer to read what you run? `curl -O` the script and read it
+> first — it is a couple of hundred lines of shell that prints
+> what it does.
+>
+> Windows: `pip install "kntgraph[cli]"` and use `knt` from the
+> shell. The installer script is POSIX only.
+
+### The library
 
 ```bash
 uv add kntgraph
@@ -329,15 +360,24 @@ knt concordo new saga sales.InvoiceFlow --steps validate:check,emit:send
 # Declare the agent — the runtime is derived from the declaration
 knt new agent sales.CheckoutAgent
 
+# The work no event triggers — a sweep on the Runner's timer
+knt new sweep sales.CompactionSweep
+
 # Check for framework drift in boilerplate
 knt upgrade check
 ```
 
 The agent declaration and the context's dispatcher are **derived**
 from the context's artifacts: the tool allow-list is the context's
-tools, the domain types are its components, and the two execution
-cycles are its concordos. The CLI keeps them in sync as you add
-artifacts — and never overwrites a file you edited by hand.
+tools, the domain types are its components, the two execution
+cycles are its concordos, and its sweeps are the cyclic work the
+`Runner` runs. The CLI keeps them in sync as you add artifacts —
+and never overwrites a file you edited by hand.
+
+One dispatcher hosts every system of the context: the systems are
+pure, so they need no isolation from each other. The framework's
+second loop — the `Runner`, for the work no event triggers — is
+scaffolded explicitly (`knt new sweep`), never inferred.
 
 See the [CLI Guide](docs/cli_guide.md) for a full walkthrough.
 

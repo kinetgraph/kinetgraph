@@ -26,7 +26,9 @@ hint instead of clobbering hand-written wiring.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
+from typing import Protocol
 
 from kntgraph.cli._scanner import (
     AGENTS_DIR,
@@ -39,6 +41,13 @@ from kntgraph.core._typing import JsonValue
 # The templates the CLI derives files from.
 AGENT_TEMPLATE = "agent.py.jinja"
 DISPATCHER_TEMPLATE = "dispatcher.py.jinja"
+
+
+class _ModuleArtifact(Protocol):
+    """An artifact addressed by its module path."""
+
+    @property
+    def module(self) -> str: ...
 
 
 def _imports(entries: list[dict[str, JsonValue]]) -> list[JsonValue]:
@@ -206,10 +215,18 @@ def dispatcher_context(
         }
         for agent in inventory.agents
     ]
+    sweep_imports: list[dict[str, JsonValue]] = [
+        {
+            "module": f".{sweep.module}",
+            "function_name": sweep.function_name,
+        }
+        for sweep in inventory.sweeps
+    ]
     return {
         "context_name": context_name,
         "tool_imports": _imports(tool_imports),
         "agent_imports": _imports(agent_imports),
+        "sweeps": _imports(sweep_imports),
         "local_imports": _import_block(
             [
                 *tool_imports,
@@ -220,11 +237,36 @@ def dispatcher_context(
                     }
                     for agent in agent_imports
                 ],
+                *[
+                    {
+                        "module": sweep["module"],
+                        "class_name": sweep["function_name"],
+                    }
+                    for sweep in sweep_imports
+                ],
             ]
         ),
         "tool_registrations": _registration_block(tool_imports),
         "agent_installs": _install_block(agent_imports, context_name),
+        "sweep_registrations": _sweep_block(sweep_imports),
     }
+
+
+def _sweep_block(sweep_imports: list[dict[str, JsonValue]]) -> str:
+    """The lines that register the context's sweeps.
+
+    Args:
+        sweep_imports: The sweep import descriptors.
+
+    Returns:
+        The registration lines, each terminated by a newline.
+    """
+    if not sweep_imports:
+        return ""
+    lines: list[str] = [
+        f"            {sweep['function_name']}," for sweep in sweep_imports
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _registration_block(tool_imports: list[dict[str, JsonValue]]) -> str:
@@ -342,11 +384,28 @@ def _without(
     if exclude_module is None:
         return inventory
     return ContextInventory(
-        tools=tuple(t for t in inventory.tools if t.module != exclude_module),
-        components=tuple(c for c in inventory.components if c.module != exclude_module),
-        concordos=tuple(c for c in inventory.concordos if c.module != exclude_module),
-        agents=tuple(a for a in inventory.agents if a.module != exclude_module),
+        tools=_excluding(inventory.tools, exclude_module),
+        components=_excluding(inventory.components, exclude_module),
+        concordos=_excluding(inventory.concordos, exclude_module),
+        agents=_excluding(inventory.agents, exclude_module),
+        sweeps=_excluding(inventory.sweeps, exclude_module),
     )
+
+
+def _excluding[ArtifactT: _ModuleArtifact](
+    artifacts: Sequence[ArtifactT],
+    exclude_module: str,
+) -> tuple[ArtifactT, ...]:
+    """The artifacts but the one addressed by ``exclude_module``.
+
+    Args:
+        artifacts: The artifacts to filter.
+        exclude_module: The dotted module path to drop.
+
+    Returns:
+        The remaining artifacts, in order.
+    """
+    return tuple(a for a in artifacts if a.module != exclude_module)
 
 
 def _is_pristine(path: Path, template: str, previous: dict[str, JsonValue]) -> bool:

@@ -24,6 +24,32 @@ pip install "kntgraph[cli,api]"
 
 *Note: The `[api]` extra installs FastAPI and Uvicorn, which we will use for our HTTP Gateway.*
 
+### Installing the CLI without a Python environment
+
+The scaffolder is also available as a one-liner installer:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/kinetgraph/kinetgraph/main/scripts/install.sh | sh
+```
+
+It is POSIX sh (dash, ash, bash-as-sh), needs only a Python
+3.12+ interpreter, and is **user-local**: it never touches the
+system Python and never needs root. With `uv` on the PATH it
+delegates to `uv tool install`; without it, it builds its own
+virtual environment under `~/.local/share/knt/venv` and uses
+`pip`.
+
+```bash
+knt --version    # the installer verifies its own work with this
+```
+
+Re-running the script upgrades in place. `--uninstall` removes
+the installation, and `--version <v>` pins a release.
+
+> Prefer to read what you run? `curl -O` the script and read it
+> first — it is a couple of hundred lines of shell that prints
+> what it does.
+
 ---
 
 ## Phase 1: Project Initialization
@@ -430,10 +456,11 @@ You have successfully used the `knt` CLI to build a scalable, production-ready M
 |---|---|
 | `knt init project <name>` | Bootstraps a new repository (`--use-intent-http` for FastAPI). |
 | `knt new context <name>` | Creates a Bounded Context structure and its `dispatcher.py`. |
-| `knt new system <context>.<name>` | Scaffolds a pure `WorldSystem`. |
+| `knt new system <context>.<name>` | Scaffolds a pure `WorldSystem` (event-driven, per agent). |
 | `knt new component <context>.<name>` | Scaffolds a `DomainComponent` subclass. |
 | `knt new event <context>.<name>` | Scaffolds an Event Factory with `TypedDict`. |
 | `knt new tool <context>.<name>` | Scaffolds an Impure Tool class (`@tool_worker`). |
+| `knt new sweep <context>.<name>` | Scaffolds a cyclic sweep (the `Runner`'s work). |
 | `knt new agent <context>.<name>` | Scaffolds the agent declaration (`AgentDefinition` + `RoleSpec`). |
 | `knt concordo add fsm <context>.<name>` | Scaffolds a `BusinessFSMConcordo` for an existing component. |
 | `knt concordo new saga <context>.<name>` | Scaffolds a `WorkflowSagaConcordo` from `--steps a:tool,b:tool`. |
@@ -444,14 +471,47 @@ You have successfully used the `knt` CLI to build a scalable, production-ready M
 
 ---
 
+## The Two Loops
+
+The context's dispatcher hosts **every** system of the context. The systems are pure — `(World) -> list[Event]` — so they need no isolation from each other, and the dispatcher runs them all once per tick over the same post-fold World. One dispatcher per context is enough.
+
+The framework does have a second loop, the `Runner`, and it is **not** a second dispatcher for the systems:
+
+| | `ReactiveDispatcher` | `Runner` |
+|---|---|---|
+| Granularity | per agent (checkpoint, correlation and tick per agent) | once per tick, over the whole World |
+| Hosts | the event-driven systems | the **sweeps**: the work no event triggers |
+
+A sweep is a `WorldSystem` like any other — the framework's `CyclicSystem` **is** `WorldSystem`. What makes it a sweep is the loop it lives in, not its type. The CLI makes the distinction explicit:
+
+```bash
+uv run knt new sweep weather.CompactionSweep
+```
+
+```python
+# src/weather_platform/contexts/weather/sweeps/compaction_sweep.py
+from kntgraph.core.event import Event
+from kntgraph.core.world import World
+
+
+def compaction_sweep(world: World) -> list[Event]:
+    """Sweep the World and emit the events this sweep owns."""
+    events: list[Event] = []
+    return events
+```
+
+The context's dispatcher then grows a `build_<context>_runner()` that registers it. The sweep is **named**, not inferred — there is no filename convention that conjures a second loop out of the dark.
+
+---
+
 ## The Derived Files
 
-Two of the generated files are **derived** from the context: the agent declaration and the dispatcher. The CLI reads the context's artifacts — the tools, the components, the concordos and the other agents — and renders them.
+Two of the generated files are **derived** from the context: the agent declaration and the dispatcher. The CLI reads the context's artifacts — the tools, the components, the concordos, the sweeps and the other agents — and renders them.
 
 | File | Derived from |
 |---|---|
 | `contexts/<ctx>/agents/<name>_agent.py` | The context's tools, components and concordos. |
-| `contexts/<ctx>/dispatcher.py` | The context's tools and agent declarations. |
+| `contexts/<ctx>/dispatcher.py` | The context's tools, agent declarations and sweeps. |
 
 Every `knt new` / `knt concordo` command regenerates them **when they are still the template's untouched output**. A file you edited by hand is never overwritten: the CLI prints a hint and points at `knt upgrade apply <path> --force`.
 
