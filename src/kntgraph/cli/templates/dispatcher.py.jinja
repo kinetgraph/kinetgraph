@@ -1,17 +1,15 @@
 # SPDX-FileCopyrightText: 2026 kinetgraph
 #
 # SPDX-License-Identifier: Apache-2.0
-
+{% if local_imports %}
+{{ local_imports }}
+{%- endif %}
 from kntgraph.infra.config import fresh_settings
 from kntgraph.runner import ReactiveDispatcher, Runner
+from kntgraph.security.principal import Principal, PrincipalLevel
 from kntgraph.stream.event_log import EventLog
 from kntgraph.tools.acl import default_acl
 from kntgraph.tools.manager import WorkerManager
-
-# Import Systems and Tools from your context's agents here.
-# For example:
-# from .agents.checkout_agent import get_checkout_agent_systems, get_checkout_agent_tools
-# from .agents.checkout_supervisor_agent import get_checkout_supervisor_agent_systems
 
 
 def build_{{ context_name }}_dispatcher(
@@ -21,7 +19,12 @@ def build_{{ context_name }}_dispatcher(
 ) -> ReactiveDispatcher:
     """
     Orchestrates the ReactiveDispatcher for the entire '{{ context_name }}' context.
-    Aggregates pure WorldSystems and impure Tools from all its Agents.
+
+    The context's agents are **declared**, not wired: each
+    ``AgentDefinition`` derives its own runtime, and
+    ``install()`` registers it here (ADR-088). The dispatcher
+    never learns what an agent is -- it only receives systems
+    and projections.
 
     The ``log``, ``redis`` (optional) and ``tool_router`` (optional)
     are threaded through to the dispatcher so tool invocations
@@ -39,16 +42,14 @@ def build_{{ context_name }}_dispatcher(
     # pre-fix gap closed in DEBT §2.35).
     key_prefix = fresh_settings().redis_key_prefix
 
-    # 1. Aggregate Tools
-    # tools = get_checkout_agent_tools() + ...
-    tools = []
-
-    # 2. Register tools via the canonical ``WorkerManager`` path
-    # (ADR-066 §3.1). Each tool is registered with
-    # ``acl=default_acl()`` for the framework baseline
-    # (``Role.agent``, tenant-unpinned); tighten per tool with
-    # ``ToolACL(tenant_pinned=True, ...)`` for tenant-scoped
-    # tools. The legacy ``ToolRegistry`` was removed in v0.18.
+    # 2. Register the context's tools via the canonical
+    # ``WorkerManager`` path (ADR-066 §3.1). Each tool is
+    # registered with ``acl=default_acl()`` for the framework
+    # baseline (``Role.agent``, tenant-unpinned); tighten per
+    # tool with ``ToolACL(tenant_pinned=True, ...)`` for
+    # tenant-scoped tools. The legacy ``ToolRegistry`` was
+    # removed in v0.18.
+    #
     # Note: ``WorkerManager`` is the orchestrator that runs the
     # tools in a process pool; the dispatcher only sees the
     # ``tool.<name>.requested`` events the systems emit.
@@ -57,29 +58,22 @@ def build_{{ context_name }}_dispatcher(
         event_log=log,
         key_prefix=key_prefix,
     )
-    for tool in tools:
-        worker_manager.register(tool, acl=default_acl())
-
-    # 3. Aggregate Systems. The legacy ``IntentResolutionSystem``
-    # (kntgraph.agents.roles) was removed in v0.9.0 (ADR-039).
-    # The new architecture wires per-role ``WorldSystem``
-    # instances (e.g. ``ChatRoleSystem`` /
-    # ``PlannerRoleSystem`` from ``kntgraph.agents.role_systems``)
-    # directly into the dispatcher; the systems themselves emit
-    # ``tool.<name>.requested`` events that the ``WorkerManager``
-    # orchestrates.
-    # systems = get_checkout_agent_systems() + ...
-    systems = []
-
-    # 4. Create the dispatcher.
+{{ tool_registrations }}
+    # 3. Create the dispatcher.
     dispatcher = ReactiveDispatcher(
         log=log,
-        systems=systems,
+        systems=[],
         redis=redis,
         tool_router=tool_router,
         key_prefix=key_prefix,
     )
 
+    # 4. Install the declared agents. The ``Principal`` is the
+    # runtime credential the agents act under -- it is never
+    # stored in a declaration (ADR-088 §2.4). The scaffold
+    # derives the tenant from the context name; a deployment
+    # that resolves the tenant per request builds its own.
+{{ agent_installs }}
     return dispatcher
 
 
@@ -102,7 +96,9 @@ def build_{{ context_name }}_supervisor_runner(
     the supervisor (read-only replay). The two-layer pattern is
     "ADR-004" in the SDK (cyclic processes for retries).
     """
-    # supervisor_systems = get_checkout_supervisor_agent_systems()
+    # The supervisor observes long-running state. Its systems are
+    # cyclic by nature, so they are wired here rather than
+    # derived from an agent declaration.
     supervisor_systems = []
     return Runner(
         log=log,

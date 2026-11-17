@@ -2,63 +2,34 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import re
 from pathlib import Path
 
 import typer
 from jinja2 import Environment, FileSystemLoader
 from rich.console import Console
 
+from kntgraph.cli._derive import (
+    agent_context,
+    dispatcher_context,
+    refresh_derived_files,
+)
+from kntgraph.cli._project import (
+    package_name,
+    require_target,
+    snake_case,
+)
+from kntgraph.cli._scanner import (
+    AGENTS_DIR,
+    CONCORDOS_DIR,
+    TOOLS_DIR,
+    ContextInventory,
+    scan_context,
+)
+
 app = typer.Typer(
     help="Generate Kinetgraph artifacts (systems, events, tools, agents)."
 )
 console = Console()
-
-
-def camel_to_snake(name: str) -> str:
-    """Convert CamelCase to snake_case."""
-    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
-
-
-def _require_target(target: str, kind: str, example: str) -> tuple[str, str]:
-    """Split a ``<context>.<Name>`` target into its two parts.
-
-    Exits with code 1 (after printing the reason) when the
-    target is missing the context part. ``kind`` and
-    ``example`` only shape the error message; they never
-    change the validation.
-    """
-    if "." not in target:
-        console.print(
-            f"[red]Error:[/red] Target must be in the format "
-            f"<context>.<{kind}> (e.g., {example})"
-        )
-        raise typer.Exit(code=1)
-    context_name, name = target.split(".", 1)
-    return context_name, name
-
-
-def _get_package_name() -> str:
-    """
-    Naively infer the project's package name by looking inside the src/ directory.
-    Assumes it is run from the project root.
-    """
-    src_dir = Path("src")
-    if not src_dir.is_dir():
-        console.print(
-            "[red]Error:[/red] Could not find 'src/' directory. "
-            "Are you in the project root?"
-        )
-        raise typer.Exit(code=1)
-
-    packages = [d for d in src_dir.iterdir() if d.is_dir() and d.name != "__pycache__"]
-    if not packages:
-        console.print("[red]Error:[/red] No package found inside 'src/'.")
-        raise typer.Exit(code=1)
-
-    # Return the first package found
-    return packages[0].name
 
 
 @app.command()
@@ -70,16 +41,16 @@ def system(
     """
     Generate a pure WorldSystem artifact.
     """
-    context_name, system_name = _require_target(
+    context_name, system_name = require_target(
         target, "SystemName", "sales.CheckoutSystem"
     )
-    package_name = _get_package_name()
+    package = package_name()
 
-    snake_case_name = camel_to_snake(system_name)
+    snake_case_name = snake_case(system_name)
     if not snake_case_name.endswith("_system"):
         snake_case_name += "_system"
 
-    target_dir = Path("src") / package_name / "contexts" / context_name / "systems"
+    target_dir = Path("src") / package / "contexts" / context_name / "systems"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     # Create __init__.py for new dirs if they don't exist
@@ -116,14 +87,14 @@ def component(
     """
     Generate an immutable ECS Component artifact.
     """
-    context_name, component_name = _require_target(
+    context_name, component_name = require_target(
         target, "ComponentName", "sales.CartItem"
     )
-    package_name = _get_package_name()
+    package = package_name()
 
-    snake_case_name = camel_to_snake(component_name)
+    snake_case_name = snake_case(component_name)
 
-    target_dir = Path("src") / package_name / "contexts" / context_name / "components"
+    target_dir = Path("src") / package / "contexts" / context_name / "components"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for p in [target_dir, target_dir.parent]:
@@ -158,12 +129,12 @@ def event(
     """
     Generate a domain Event factory artifact.
     """
-    context_name, event_name = _require_target(target, "EventName", "sales.OrderPlaced")
-    package_name = _get_package_name()
+    context_name, event_name = require_target(target, "EventName", "sales.OrderPlaced")
+    package = package_name()
 
-    snake_case_name = camel_to_snake(event_name)
+    snake_case_name = snake_case(event_name)
 
-    target_dir = Path("src") / package_name / "contexts" / context_name / "events"
+    target_dir = Path("src") / package / "contexts" / context_name / "events"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for p in [target_dir, target_dir.parent]:
@@ -200,14 +171,12 @@ def tool(
     """
     Generate an impure Tool artifact.
     """
-    context_name, tool_name = _require_target(
-        target, "ToolName", "sales.ProcessPayment"
-    )
-    package_name = _get_package_name()
+    context_name, tool_name = require_target(target, "ToolName", "sales.ProcessPayment")
+    package = package_name()
 
-    snake_case_name = camel_to_snake(tool_name)
+    snake_case_name = snake_case(tool_name)
 
-    target_dir = Path("src") / package_name / "contexts" / context_name / "tools"
+    target_dir = Path("src") / package / "contexts" / context_name / "tools"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for p in [target_dir, target_dir.parent]:
@@ -232,6 +201,7 @@ def tool(
 
     target_file.write_text(tmpl.render(ctx))
     console.print(f"[green]Success![/green] Generated Tool at {target_file}")
+    _refresh_context(package, context_name, f"{TOOLS_DIR}.{snake_case_name}")
 
 
 @app.command()
@@ -241,18 +211,28 @@ def agent(
     ),
 ):
     """
-    Generate an Agent orchestration file (wiring Systems and Tools).
+    Generate an agent declaration (ADR-088).
+
+    The generated file is one ``AgentDefinition``: the persona,
+    the capability policy, the state machine and the workflows.
+    Every part is **derived from the context** -- the tool
+    allow-list is the context's tools, the domain types are its
+    components, and the two execution cycles are its Concordos.
+
+    The runtime is derived from the declaration
+    (``definition.bundle()``); the dispatcher installs it with
+    ``definition.install(dispatcher, principal=principal)``.
     """
-    context_name, agent_name = _require_target(
+    context_name, agent_name = require_target(
         target, "AgentName", "sales.CheckoutAgent"
     )
-    package_name = _get_package_name()
+    package = package_name()
 
-    snake_case_name = camel_to_snake(agent_name)
+    snake_case_name = snake_case(agent_name)
     if not snake_case_name.endswith("_agent"):
         snake_case_name += "_agent"
 
-    target_dir = Path("src") / package_name / "contexts" / context_name / "agents"
+    target_dir = Path("src") / package / "contexts" / context_name / "agents"
     target_dir.mkdir(parents=True, exist_ok=True)
 
     for p in [target_dir, target_dir.parent]:
@@ -270,14 +250,61 @@ def agent(
 
     tmpl = env.get_template("agent.py.jinja")
 
-    ctx = {
-        "agent_name": snake_case_name,
-        "camel_case_name": agent_name,
-        "context_name": context_name,
-    }
+    # The declaration's name drops the ``_agent`` suffix: the
+    # suffix describes the file, not the agent.
+    declaration_name = snake_case_name.removesuffix("_agent")
+    inventory = scan_context(package, context_name)
+    ctx = agent_context(
+        inventory,
+        agent_name=declaration_name,
+        persona=declaration_name,
+    )
 
     target_file.write_text(tmpl.render(ctx))
     console.print(f"[green]Success![/green] Generated Agent at {target_file}")
+    _refresh_context(package, context_name, f"{AGENTS_DIR}.{snake_case_name}")
+    _print_declaration_hints(inventory)
+
+
+def _print_declaration_hints(inventory: ContextInventory) -> None:
+    """Print what the declaration is missing.
+
+    An empty allow-list forbids every tool, and an agent with
+    no state machine has no reactive cycle -- both are worth
+    saying out loud at the moment the declaration is written.
+    """
+    if not inventory.tools:
+        console.print(
+            "[yellow]Hint:[/yellow] The context declares no tool yet, so "
+            "the agent's allow-list is empty -- an empty allow-list "
+            "forbids every tool. Run 'knt new tool <context>.<ToolName>' "
+            "and add the tool name to the allow-list."
+        )
+    if inventory.fsm() is None:
+        console.print(
+            "[yellow]Hint:[/yellow] The context declares no FSM, so the "
+            "agent has no reactive cycle. Run 'knt concordo add fsm "
+            "<context>.<Name> --component <Component>'."
+        )
+
+
+def _refresh_context(package: str, context: str, added_module: str) -> None:
+    """Refresh the context's derived files after an artifact was added.
+
+    A derived file the user has edited is left alone; the CLI
+    says so instead of clobbering hand-written wiring.
+    """
+    rewritten, skipped = refresh_derived_files(
+        package, context, exclude_module=added_module
+    )
+    for path in rewritten:
+        console.print(f"[green]Success![/green] Regenerated {path}")
+    for path in skipped:
+        console.print(
+            f"[yellow]Hint:[/yellow] {path} was edited by hand, so it was "
+            f"not regenerated. Run 'knt upgrade apply {path} --force' to "
+            f"overwrite it."
+        )
 
 
 @app.command()
@@ -287,14 +314,16 @@ def context(
     """
     Generate a Bounded Context directory structure and its ReactiveDispatcher.
     """
-    context_name = camel_to_snake(target)
-    package_name = _get_package_name()
+    context_name = snake_case(target)
+    package = package_name()
 
-    target_dir = Path("src") / package_name / "contexts" / context_name
+    target_dir = Path("src") / package / "contexts" / context_name
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create subdirectories
-    subdirs = ["agents", "components", "events", "systems", "tools"]
+    # Create subdirectories. The concordos join them: they are
+    # the context's two execution cycles, and the agent
+    # declaration references them.
+    subdirs = ["agents", "components", CONCORDOS_DIR, "events", "systems", "tools"]
     for subdir in subdirs:
         sub_path = target_dir / subdir
         sub_path.mkdir(exist_ok=True)
@@ -317,9 +346,12 @@ def context(
 
     tmpl = env.get_template("dispatcher.py.jinja")
 
-    ctx = {
-        "context_name": context_name,
-    }
+    # The dispatcher registers the context's tools and installs
+    # the context's agent declarations. Both are derived from
+    # what the context already holds.
+    ctx = dispatcher_context(
+        scan_context(package, context_name), context_name=context_name
+    )
 
     dispatcher_file.write_text(tmpl.render(ctx))
     console.print(

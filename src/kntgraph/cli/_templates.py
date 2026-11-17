@@ -28,9 +28,12 @@ but the singleton is the documented pattern.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+
+from kntgraph.core._typing import JsonValue
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
@@ -43,7 +46,7 @@ _ENV = Environment(
 )
 
 
-def render_template(name: str, ctx: dict) -> str:
+def render_template(name: str, ctx: Mapping[str, JsonValue]) -> str:
     """Render a Jinja template from the CLI templates dir.
 
     Args:

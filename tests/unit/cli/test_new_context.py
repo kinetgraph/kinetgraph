@@ -43,6 +43,9 @@ def test_knt_new_context(tmp_path: Path):
         assert (Path("src/my_app/contexts/sales/events/__init__.py")).is_file()
         assert (Path("src/my_app/contexts/sales/tools/__init__.py")).is_file()
         assert (Path("src/my_app/contexts/sales/components/__init__.py")).is_file()
+        # The concordos are the context's two execution cycles
+        # (ADR-088); the agent declaration references them.
+        assert (Path("src/my_app/contexts/sales/concordos/__init__.py")).is_file()
 
         # 6. Assert the content looks like a Context Dispatcher
         content = dispatcher_file.read_text()
@@ -50,11 +53,13 @@ def test_knt_new_context(tmp_path: Path):
         assert "def build_sales_dispatcher" in content
         # The legacy ``IntentResolutionSystem`` was
         # removed in v0.9.0; the new template emits
-        # an empty ``systems = []`` placeholder
-        # (per-role ``WorldSystem`` instances are
-        # wired by the context's agents).
-        assert "systems = []" in content
-        assert "tools = []" in content
+        # an empty ``systems = []`` placeholder -- the
+        # runtime is derived from the agent declarations,
+        # which the dispatcher installs.
+        assert "systems=[]" in content
+        # The tools are registered with the worker manager
+        # (ADR-066 §3.1); an empty context registers none.
+        assert "worker_manager = WorkerManager(" in content
 
     finally:
         os.chdir(current_dir)

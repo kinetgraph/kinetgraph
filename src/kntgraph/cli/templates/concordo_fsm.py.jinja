@@ -2,8 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""The {{ concordo_name }} -- the reactive cycle of the {{ context_name }} context.
+
+A BusinessFSM Concordo is the agent's **zero-token governance**:
+it reacts to domain events and guards the transitions. A
+transition whose guard is not satisfied emits
+``fsm.transition_rejected``; no model is called and no token is
+spent (ADR-069, ADR-071).
+
+The agent declaration references this instance directly -- the
+runtime is derived from the declaration, never hand-wired.
+"""
+
 from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
-from {{ package_name }}.components import {{ component_name }}
+
+from {{ component_module }} import {{ component_name }}
 
 
 {{ concordo_name }} = BusinessFSMConcordo(FSMConfig(

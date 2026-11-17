@@ -15,6 +15,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **The `knt` CLI now scaffolds the declarative agent model
+  (ADR-088).** `knt new agent <context>.<Name>` emits one
+  `AgentDefinition` — persona, capability policy, role event,
+  state machine, workflows, domain types — instead of the
+  hand-wired `get_<agent>_systems()` / `get_<agent>_tools()`
+  helpers. The declaration is **derived from the context**: the
+  tool allow-list is the context's tools, the domain types are
+  its components, and the two execution cycles are its
+  Concordos.
+
+  ```python
+  WEATHER_AGENT = AgentDefinition(
+      name="weather",
+      persona=RoleSpec(
+          persona="weather",
+          allowed_tools=("open_meteo_api",),
+      ),
+      role_event_type="role.assigned",
+      fsm=WeatherFSMConcordo,
+      sagas=(WeatherSagaConcordo,),
+      domain_types=(LocationIntent,),
+  )
+  ```
+
+  The context's dispatcher installs the declaration instead of
+  aggregating systems by hand:
+
+  ```python
+  WEATHER_AGENT.install(
+      dispatcher,
+      principal=Principal.from_agent_id(
+          "weather.weather",
+          level=PrincipalLevel.agent,
+          key_id="local-dev",
+      ),
+  )
+  ```
+
+- **`knt concordo` is context-scoped, and its output is
+  importable.** The commands take the bounded context as part
+  of the target — `knt concordo add fsm <context>.<Name>` and
+  `knt concordo new saga <context>.<Name>` — and the generated
+  files land in `src/<package>/contexts/<context>/concordos/`.
+
+  **Breaking:** the target no longer accepts a bare name; the
+  old form exits with the format error. The generated
+  Concordos moved from `src/<package>/concordos/` to the
+  context's `concordos/` directory, and the state machine now
+  imports its component from the context
+  (`from ..components.<module> import <Component>`). The
+  previous import path pointed at a package that did not
+  exist, so the generated file did not even import.
+
+- **The scaffolded component is a `DomainComponent`.** The
+  agent's rules read a domain component by its exact class
+  (ADR-088 §3.3), and the FSM's `component_type` requires a
+  `DomainComponent` subclass. The generated component now
+  derives from it and carries the `status` field the state
+  machine advances.
+
+- **The CLI keeps the derived files in sync.** The agent
+  declaration and the context's dispatcher are rendered from
+  the context's artifacts. Every `knt new` / `knt concordo`
+  command regenerates them **when they are still the
+  template's untouched output**; a file the user edited by
+  hand is never overwritten — the CLI prints a hint and points
+  at `knt upgrade apply <path> --force`.
+
+- **The scanner reads the AST, not the filename.** A renamed
+  class, a renamed tool or a renamed constant is followed
+  correctly. The filename of a Concordo cannot be reversed
+  into its class name (the CamelCase of
+  `invoice_fsm_concordo.py` is not `InvoiceFSMConcordo`).
+
+### Fixed
+- **`knt upgrade check` no longer reports a phantom drift.**
+  The HTTP-gateway files (`consumer.py`, `core/config.py`)
+  were listed as boilerplate in every project, including the
+  ones the gateway was never scaffolded into.
+- **The generated Concordo stub test no longer asserts a
+  missing attribute.** It asserted `Concordo.version`, which
+  the `Concordo` Protocol does not define.
+- **The Concordos and the agent declaration no longer import
+  a package that does not exist.** The state machine imported
+  `<package>.components`; the components live in
+  `<package>.contexts.<context>.components`.
+
 ## [0.19.1] — 2026-11-17
 
 ### Fixed

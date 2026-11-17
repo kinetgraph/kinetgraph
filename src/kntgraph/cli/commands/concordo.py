@@ -9,21 +9,36 @@ Generates a typed configuration file for a BusinessFSM or a
 WorkflowSaga, plus a stub test file, so a vertical can adopt
 a Concordo without hand-writing the boilerplate.
 
-Command shape (ADR-069 §8):
+A Concordo belongs to a **bounded context**: it is the
+context's behaviour, and the agent declaration in that context
+references it. The command therefore takes the context as part
+of the target, exactly like ``knt new <artifact>`` does.
 
-  - ``knt concordo add fsm <Name> --component <Comp> --state-field <f>``
-  - ``knt concordo new saga <Name> --steps a:b,c:d --timeout-ms N``
+Command shape (ADR-069 §8, ADR-088 §2.5):
+
+  - ``knt concordo add fsm <ctx>.<Name> --component <Comp> --state-field <f>``
+  - ``knt concordo new saga <ctx>.<Name> --steps a:b,c:d --timeout-ms N``
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
+from kntgraph.cli._derive import refresh_derived_files
+from kntgraph.cli._project import (
+    package_name,
+    require_target,
+    snake_case,
+)
+from kntgraph.cli._scanner import (
+    CONCORDOS_DIR,
+    scan_context,
+)
 from kntgraph.cli._templates import render_template
+from kntgraph.core._typing import JsonValue
 
 app = typer.Typer(help="Generate Concordos (BusinessFSM, WorkflowSaga).")
 add_app = typer.Typer(help="Add a Concordo for an existing component.")
@@ -34,48 +49,27 @@ app.add_typer(new_app, name="new")
 console = Console()
 
 
-def _get_package_name() -> str:
-    """Naively infer the project's package name by looking inside
-    the src/ directory. Assumes it is run from the project root."""
-    src_dir = Path("src")
-    if not src_dir.is_dir():
-        console.print(
-            "[red]Error:[/red] Could not find 'src/' directory. "
-            "Are you in the project root?"
-        )
-        raise typer.Exit(code=1)
-    # The package is the first directory under ``src/``;
-    # ``__pycache__`` is build residue, not a package.
-    packages = [d for d in src_dir.iterdir() if d.is_dir() and d.name != "__pycache__"]
-    if not packages:
-        console.print("[red]Error:[/red] No package found inside 'src/'.")
-        raise typer.Exit(code=1)
-    return packages[0].name
-
-
-def _camel_to_snake(name: str) -> str:
-    """Convert CamelCase to snake_case."""
-    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
-    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
-
-
-def _ensure_concordos_dir(package_name: str) -> Path:
-    """Create the ``concordos/`` directory (and its ``__init__.py``)
-    inside the package if it does not exist."""
-    target_dir = Path("src") / package_name / "concordos"
+def _ensure_concordos_dir(package: str, context: str) -> Path:
+    """Create the context's ``concordos/`` directory (and its
+    ``__init__.py``) if it does not exist."""
+    target_dir = Path("src") / package / "contexts" / context / CONCORDOS_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
     if not (target_dir / "__init__.py").exists():
         (target_dir / "__init__.py").touch()
     return target_dir
 
 
-def _write_stub_test(package_name: str, concordo_name: str) -> Path:
+def _write_stub_test(
+    package: str,
+    context: str,
+    concordo_name: str,
+) -> Path:
     """Write a stub test file for the generated Concordo."""
     test_dir = Path("tests") / "unit" / "concordos"
     test_dir.mkdir(parents=True, exist_ok=True)
     if not (test_dir / "__init__.py").exists():
         (test_dir / "__init__.py").touch()
-    snake = _camel_to_snake(concordo_name)
+    snake = snake_case(concordo_name)
     test_file = test_dir / f"test_{snake}.py"
     if test_file.exists():
         return test_file
@@ -91,19 +85,49 @@ def _write_stub_test(package_name: str, concordo_name: str) -> Path:
         f"#\n"
         f"{spdx_license}\n"
         f"\n"
-        f"from {package_name}.concordos.{snake} import {concordo_name}\n"
+        f"from {package}.contexts.{context}.concordos.{snake} import "
+        f"{concordo_name}\n"
         f"\n"
         f"\n"
         f"def test_{snake}_installs() -> None:\n"
         f"    assert {concordo_name}.name\n"
-        f"    assert {concordo_name}.version\n"
+        f"    assert {concordo_name}.systems\n"
     )
     return test_file
 
 
+def _resolve_component(
+    package: str,
+    context: str,
+    component_name: str,
+) -> str:
+    """The import path of the domain component the FSM reads.
+
+    The component lives in the context's ``components/``
+    directory. The scanner finds the module that declares the
+    class; the snake_case fallback covers a component the user
+    has not scaffolded yet.
+
+    Args:
+        package: The project package.
+        context: The bounded context.
+        component_name: The component's class name.
+
+    Returns:
+        The dotted module path relative to the context package.
+    """
+    inventory = scan_context(package, context)
+    for component in inventory.components:
+        if component.class_name == component_name:
+            return f"..{component.module}"
+    return f"..components.{snake_case(component_name)}"
+
+
 @add_app.command("fsm")
 def add_fsm(
-    name: str = typer.Argument(..., help="Concordo name, e.g. InvoiceFSM"),
+    target: str = typer.Argument(
+        ..., help="Context and Concordo name, e.g. sales.InvoiceFSM"
+    ),
     component: str = typer.Option(
         ...,
         "--component",
@@ -114,32 +138,36 @@ def add_fsm(
     ),
 ) -> None:
     """Generate a BusinessFSM Concordo for an existing DomainComponent."""
-    package_name = _get_package_name()
+    context_name, name = require_target(target, "ConcordoName", "sales.InvoiceFSM")
+    package = package_name()
     concordo_name = name if name.endswith("Concordo") else f"{name}Concordo"
-    target_dir = _ensure_concordos_dir(package_name)
-    snake = _camel_to_snake(concordo_name)
+    target_dir = _ensure_concordos_dir(package, context_name)
+    snake = snake_case(concordo_name)
     target_file = target_dir / f"{snake}.py"
     if target_file.exists():
         console.print(f"[red]Error:[/red] Concordo file {target_file} already exists.")
         raise typer.Exit(code=1)
-    rendered = render_template(
-        "concordo_fsm.py.jinja",
-        {
-            "package_name": package_name,
-            "concordo_name": concordo_name,
-            "component_name": component,
-            "state_field": state_field,
-        },
-    )
+    fsm_ctx: dict[str, JsonValue] = {
+        "package_name": package,
+        "context_name": context_name,
+        "concordo_name": concordo_name,
+        "component_name": component,
+        "component_module": _resolve_component(package, context_name, component),
+        "state_field": state_field,
+    }
+    rendered = render_template("concordo_fsm.py.jinja", fsm_ctx)
     target_file.write_text(rendered)
-    test_file = _write_stub_test(package_name, concordo_name)
+    test_file = _write_stub_test(package, context_name, concordo_name)
     console.print(f"[green]Success![/green] Generated FSM Concordo at {target_file}")
     console.print(f"[green]Success![/green] Generated stub test at {test_file}")
+    _refresh_context(package, context_name, f"{CONCORDOS_DIR}.{snake}")
 
 
 @new_app.command("saga")
 def new_saga(
-    name: str = typer.Argument(..., help="Saga name, e.g. NfeEmission"),
+    target: str = typer.Argument(
+        ..., help="Context and Saga name, e.g. sales.NfeEmission"
+    ),
     steps: str = typer.Option(
         ...,
         "--steps",
@@ -150,15 +178,16 @@ def new_saga(
     ),
 ) -> None:
     """Generate a WorkflowSaga Concordo."""
-    package_name = _get_package_name()
+    context_name, name = require_target(target, "SagaName", "sales.NfeEmission")
+    package = package_name()
     concordo_name = f"{name}Concordo"
-    target_dir = _ensure_concordos_dir(package_name)
-    snake = _camel_to_snake(concordo_name)
+    target_dir = _ensure_concordos_dir(package, context_name)
+    snake = snake_case(concordo_name)
     target_file = target_dir / f"{snake}.py"
     if target_file.exists():
         console.print(f"[red]Error:[/red] Concordo file {target_file} already exists.")
         raise typer.Exit(code=1)
-    parsed_steps = []
+    parsed_steps: list[JsonValue] = []
     for pair in steps.split(","):
         pair = pair.strip()
         if not pair:
@@ -171,16 +200,40 @@ def new_saga(
             raise typer.Exit(code=1)
         step_name, tool = pair.split(":", 1)
         parsed_steps.append({"name": step_name.strip(), "tool": tool.strip()})
-    rendered = render_template(
-        "concordo_saga.py.jinja",
-        {
-            "concordo_name": concordo_name,
-            "saga_name": _camel_to_snake(name),
-            "timeout_ms": timeout_ms,
-            "steps": parsed_steps,
-        },
-    )
+    saga_ctx: dict[str, JsonValue] = {
+        "package_name": package,
+        "context_name": context_name,
+        "concordo_name": concordo_name,
+        "saga_name": name,
+        "steps": parsed_steps,
+        "timeout_ms": timeout_ms,
+    }
+    rendered = render_template("concordo_saga.py.jinja", saga_ctx)
     target_file.write_text(rendered)
-    test_file = _write_stub_test(package_name, concordo_name)
+    test_file = _write_stub_test(package, context_name, concordo_name)
     console.print(f"[green]Success![/green] Generated Saga Concordo at {target_file}")
     console.print(f"[green]Success![/green] Generated stub test at {test_file}")
+    _refresh_context(package, context_name, f"{CONCORDOS_DIR}.{snake}")
+
+
+def _refresh_context(package: str, context: str, added_module: str) -> None:
+    """Refresh the context's derived files after a Concordo was added.
+
+    The agent declaration references the Concordos, so it is a
+    derived file too. A declaration the user has edited is left
+    alone; the CLI says so instead of clobbering it.
+    """
+    rewritten, skipped = refresh_derived_files(
+        package, context, exclude_module=added_module
+    )
+    for path in rewritten:
+        console.print(f"[green]Success![/green] Regenerated {path}")
+    for path in skipped:
+        console.print(
+            f"[yellow]Hint:[/yellow] {path} was edited by hand, so it was "
+            f"not regenerated. Run 'knt upgrade apply {path} --force' to "
+            f"overwrite it."
+        )
+
+
+__all__ = ["add_fsm", "app", "new_saga"]

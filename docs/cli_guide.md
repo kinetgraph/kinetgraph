@@ -8,7 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 
 The `knt` CLI is the official scaffolding tool for Kinetgraph. It strictly enforces Domain-Driven Design (DDD) and Kinetgraph's architectural standards (ADRs) by generating correctly structured boilerplate code.
 
-In this guide, we will learn how to use the CLI by building a **Weather Platform**. We will scaffold a new project, create a bounded context, generate pure Systems and impure Tools, and connect them all via a Reactive Dispatcher.
+In this guide, we will learn how to use the CLI by building a **Weather Platform**. We will scaffold a new project, create a bounded context, generate pure Systems and impure Tools, declare the agent, and run it behind a Reactive Dispatcher.
+
+The CLI follows the **declarative agent model** ([ADR-088](../ADRs/ADR-088-Declarative-Agent-Definition-over-Concordos.md)): an agent is one `AgentDefinition` — persona, capability policy, state machine, workflows — and the framework derives the installable runtime from it. Two of the generated files (the agent declaration and the dispatcher) are *derived* from the context, so the CLI keeps them in sync as you add artifacts.
 
 ---
 
@@ -58,8 +60,10 @@ uv run knt new context weather
 ```
 
 ### What did this do?
-It generated `src/weather_platform/contexts/weather/dispatcher.py` and empty subdirectories for `agents`, `components`, `events`, `systems`, and `tools`.
-The `dispatcher.py` file is the "brain" of this context. It aggregates all pure systems and impure tools into a single `ReactiveDispatcher`.
+It generated `src/weather_platform/contexts/weather/dispatcher.py` and empty subdirectories for `agents`, `components`, `concordos`, `events`, `systems`, and `tools`.
+The `dispatcher.py` file is the "brain" of this context. It registers the context's tools with the `WorkerManager` and installs the context's agent declarations on the `ReactiveDispatcher`.
+
+> The `concordos/` directory holds the context's two execution cycles — the state machine and the workflows. The agent declaration references them (see [Phase 3.5](#phase-35-the-agent-declaration)).
 
 ---
 
@@ -68,7 +72,7 @@ The `dispatcher.py` file is the "brain" of this context. It aggregates all pure 
 Now we will use the `knt new` group to generate the building blocks of our Weather Agent.
 
 ### 1. Components (State)
-Components represent the immutable state in the ECS (Entity-Component-System) architecture. 
+Components represent the immutable state in the ECS (Entity-Component-System) architecture. They are **domain components**: they derive from `DomainComponent`, and the agent's rules read them *by their concrete class*.
 
 ```bash
 uv run knt new component weather.LocationIntent
@@ -77,12 +81,16 @@ uv run knt new component weather.LocationIntent
 ```python
 from dataclasses import dataclass
 
+from kntgraph.core.world import DomainComponent
+
 
 @dataclass(frozen=True, slots=True)
-class LocationIntent:
+class LocationIntent(DomainComponent):
     city: str
     country_code: str | None = None
 ```
+
+> The `status` field the scaffold generates is the state field the agent's state machine advances (`--state-field`). Rename it or drop it — the FSM reads the field you name.
 
 ### 2. Events (Domain Language)
 Events are the absolute source of truth.
@@ -124,15 +132,15 @@ uv run knt new tool weather.OpenMeteoApi
 ```python
 import httpx
 from typing import Any
-from kntgraph.core.result import Result, Ok, Err
-from kntgraph.agents.tools.protocol import tool_worker
+from kntgraph.core.result import Result, Ok, Err, ToolError
+from kntgraph.tools.worker import tool_worker
 
 
 @tool_worker(name="open_meteo_api", description="Fetches weather for coordinates.")
 class OpenMeteoApi:
     async def invoke(
         self, latitude: float, longitude: float, *, idempotency_key: str
-    ) -> Result[dict[str, Any], Exception]:
+    ) -> Result[dict[str, Any], ToolError]:
         url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true"
         try:
             async with httpx.AsyncClient() as client:
@@ -141,7 +149,12 @@ class OpenMeteoApi:
                 data = response.json()
                 return Ok(data["current_weather"])
         except Exception as e:
-            return Err(e)
+            return Err(ToolError(
+                code="upstream_unavailable",
+                message="The weather provider is unreachable.",
+                retryable=True,
+                cause=e,
+            ))
 ```
 
 ### 4. Systems (Pure Logic)
@@ -254,48 +267,100 @@ def weather_router_system(world: World) -> list[Event]:
     return events
 ```
 
-### 5. Agents (L2 Security & Orchestration)
-The Agent definition binds specific Systems and Tools together under a Security Capability Policy.
+### 5. The Two Execution Cycles (Concordos)
+
+An agent runs two cycles. The **reactive** cycle is a state machine that guards the transitions without spending a token; the **deliberative** cycle is a workflow that dispatches the tools and compensates when a step fails.
+
+```bash
+uv run knt concordo add fsm weather.WeatherFSM --component LocationIntent --state-field status
+uv run knt concordo new saga weather.WeatherSaga --steps fetch:open_meteo_api,resolve:resolve_weather
+```
+
+The commands take the **bounded context** as part of the target, exactly like `knt new <artifact>` does. The files land in `src/weather_platform/contexts/weather/concordos/`, and the state machine imports its component from the context:
+
+```python
+# src/weather_platform/contexts/weather/concordos/weather_fsm_concordo.py
+from kntgraph.concordos.fsm import BusinessFSMConcordo, FSMConfig, FSMTransition
+
+from ..components.location_intent import LocationIntent
+
+
+WeatherFSMConcordo = BusinessFSMConcordo(FSMConfig(
+    component_type=LocationIntent,
+    state_field="status",
+    transitions={
+        "draft": {
+            "weather.requested": FSMTransition(to="fetching"),
+        },
+    },
+    on_entry={},
+    terminal=frozenset(),
+))
+```
+
+Fill in the transitions and the saga steps with your own rules. A guard is a `Specification` — a pure predicate over the carrier — and the same rule works as a state-machine guard and as a saga skip condition.
+
+### 6. The Agent Declaration (L2 Security & Orchestration)
+
+The agent is **declared as data**. One frozen dataclass names the persona, the capability policy, the state machine and the workflows; the framework derives the installable runtime from it.
 
 ```bash
 uv run knt new agent weather.WeatherAgent
 ```
-*Modify `src/weather_platform/contexts/weather/agents/weather_agent.py`:*
+
+The CLI derives the declaration from what the context already holds — the tool allow-list is the context's tools, the domain types are its components, and the two cycles are its concordos:
+
 ```python
-from ..systems.weather_router import weather_router
-from ..tools.open_meteo_api import OpenMeteoApi
-from kntgraph.security.authorization import CapabilityPolicy
+# src/weather_platform/contexts/weather/agents/weather_agent.py
+from kntgraph.agents import AgentDefinition, RoleSpec
+
+from ..components.location_intent import LocationIntent
+from ..concordos.weather_fsm_concordo import WeatherFSMConcordo
+from ..concordos.weather_saga_concordo import WeatherSagaConcordo
 
 
-def build_weather_agent_policy() -> CapabilityPolicy:
-    return CapabilityPolicy(
-        allowed_events=["weather.*", "tool.*"],
-        denied_events=[],
-    )
-
-
-def get_weather_agent_systems() -> list:
-    return [weather_router]
-
-
-def get_weather_agent_tools() -> list:
-    return [OpenMeteoApi()]
+WEATHER_AGENT = AgentDefinition(
+    name="weather",
+    persona=RoleSpec(
+        persona="weather",
+        allowed_tools=("open_meteo_api",),
+    ),
+    role_event_type="role.assigned",
+    fsm=WeatherFSMConcordo,
+    sagas=(WeatherSagaConcordo,),
+    domain_types=(LocationIntent,),
+)
 ```
+
+> The `allowed_tools` list is the agent's **capability policy** (ADR-088 §3.5). It is projected into `RoleComponent.allowed_tools`, which is what gate 2 of the three-gate model reads. An empty allow-list forbids every tool — the role is installed, so the permissive fallback does not apply.
 
 ---
 
 ## Phase 4: Wiring and Execution
 
-The CLI has already generated the scaffolding. Let's wire it up.
+The CLI has already generated the scaffolding — and it keeps it in sync. Every time you add a tool, a concordo or an agent to the context, the CLI regenerates the derived files (the declaration and the dispatcher) **as long as you have not edited them by hand**. A file you edited is left alone, and the CLI says so.
 
-1. Open `src/weather_platform/contexts/weather/dispatcher.py` and import the lists from your Agent:
+1. Open `src/weather_platform/contexts/weather/dispatcher.py`. It registers the tools and installs the declaration:
+
 ```python
-from .agents.weather_agent import get_weather_agent_systems, get_weather_agent_tools
+from .tools.open_meteo_api import OpenMeteoApi
+from .agents.weather_agent import WEATHER_AGENT
 
 # Inside build_weather_dispatcher:
-tools = get_weather_agent_tools()
-systems = get_weather_agent_systems()
+worker_manager.register(OpenMeteoApi(), acl=default_acl())
+
+# ...after the dispatcher is created:
+WEATHER_AGENT.install(
+    dispatcher,
+    principal=Principal.from_agent_id(
+        "weather.weather",
+        level=PrincipalLevel.agent,
+        key_id="local-dev",
+    ),
+)
 ```
+
+> The `Principal` is a runtime credential; it is never stored in a declaration. The scaffold derives the tenant from the context name — a deployment that resolves the tenant per request builds its own.
 
 2. Open `src/weather_platform/main.py`. The CLI generated an HTTP Gateway ready to run. Just uncomment the Context references!
 
@@ -366,8 +431,28 @@ You have successfully used the `knt` CLI to build a scalable, production-ready M
 | `knt init project <name>` | Bootstraps a new repository (`--use-intent-http` for FastAPI). |
 | `knt new context <name>` | Creates a Bounded Context structure and its `dispatcher.py`. |
 | `knt new system <context>.<name>` | Scaffolds a pure `WorldSystem`. |
-| `knt new component <context>.<name>` | Scaffolds a pure ECS Dataclass. |
+| `knt new component <context>.<name>` | Scaffolds a `DomainComponent` subclass. |
 | `knt new event <context>.<name>` | Scaffolds an Event Factory with `TypedDict`. |
 | `knt new tool <context>.<name>` | Scaffolds an Impure Tool class (`@tool_worker`). |
-| `knt new agent <context>.<name>` | Scaffolds a `CapabilityPolicy` and exports systems/tools. |
+| `knt new agent <context>.<name>` | Scaffolds the agent declaration (`AgentDefinition` + `RoleSpec`). |
+| `knt concordo add fsm <context>.<name>` | Scaffolds a `BusinessFSMConcordo` for an existing component. |
+| `knt concordo new saga <context>.<name>` | Scaffolds a `WorkflowSagaConcordo` from `--steps a:tool,b:tool`. |
+| `knt upgrade check` | Reports the generated files that drifted from the current templates. |
+| `knt upgrade apply <path>` | Regenerates one generated file (`--force` overwrites local edits). |
+| `knt upgrade apply-all` | Regenerates every generated file. |
 | `knt keys generate` | Generates Ed25519 L1 Security Keys for an agent. |
+
+---
+
+## The Derived Files
+
+Two of the generated files are **derived** from the context: the agent declaration and the dispatcher. The CLI reads the context's artifacts — the tools, the components, the concordos and the other agents — and renders them.
+
+| File | Derived from |
+|---|---|
+| `contexts/<ctx>/agents/<name>_agent.py` | The context's tools, components and concordos. |
+| `contexts/<ctx>/dispatcher.py` | The context's tools and agent declarations. |
+
+Every `knt new` / `knt concordo` command regenerates them **when they are still the template's untouched output**. A file you edited by hand is never overwritten: the CLI prints a hint and points at `knt upgrade apply <path> --force`.
+
+The scanner reads the **AST** of each artifact, not its filename — a renamed class or a renamed tool is followed correctly.
