@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] — 2026-11-17
+
 ### Fixed
 - **The CLI works with the `[cli]` extra alone.** The `keys`
   command imported `cryptography` at the top of its module.
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModuleNotFoundError`, including the ones that never touch a
   key. The import is now deferred into the command, and the
   failure names the extra to install.
+
 
 ## [0.19.0] — 2026-11-08
 
