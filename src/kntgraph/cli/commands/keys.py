@@ -5,7 +5,6 @@
 from pathlib import Path
 
 import typer
-from cryptography.hazmat.primitives import serialization
 from rich.console import Console
 
 from kntgraph.security.keys._generate import generate_keypair
@@ -37,6 +36,18 @@ def generate(
     # the PEM conversion reads the underlying
     # ``cryptography`` object via ``.private_bytes`` /
     # ``.public_bytes``.
+    #
+    # The import is **deferred**: ``cryptography`` belongs to
+    # the ``[crypto]`` extra, and the CLI is installable with
+    # the ``[cli]`` extra alone. A module-level import would
+    # make every ``knt`` command fail on a CLI-only install --
+    # including the ones that never touch a key.
+    #
+    # ``generate_keypair()`` already raised a clear error when
+    # the extra is missing, so the import below is only reached
+    # with ``cryptography`` installed.
+    from cryptography.hazmat.primitives import serialization
+
     private_pem = priv_wrapper._key.private_bytes(  # type: ignore[attr-defined]
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
