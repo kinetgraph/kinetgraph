@@ -65,6 +65,9 @@ knt init project my_platform
 uv add kntgraph
 ```
 
+Python **3.12** or **3.13** — the two runtimes the CI gate covers.
+The floor is 3.12; newer interpreters pass the gate too.
+
 Optional extras (install only what you need):
 
 ```bash

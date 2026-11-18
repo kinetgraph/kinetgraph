@@ -13,14 +13,36 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   quality-gate:
-    name: Quality gate
+    name: Quality gate (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # The concurrency group is **job-level**: the workflow-level
+    # key cannot see the ``matrix`` context, and a workflow that
+    # references it is rejected as an invalid workflow file (the
+    # run reports "likely failed because of a workflow file
+    # issue" and no job ever starts).
+    #
+    # The Python version is part of the group: without it, the
+    # matrix jobs share one group and cancel each other --
+    # ``cancel-in-progress: true`` would kill the first runtime
+    # as soon as the second starts.
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ matrix.python-version }}
+      cancel-in-progress: true
+    strategy:
+      # Every runtime reports: a failure on 3.12 must not
+      # cancel the 3.13 run -- the point of the matrix is to
+      # see *which* runtimes broke.
+      fail-fast: false
+      matrix:
+        # 3.12 is the minimum supported version (the floor of
+        # ``requires-python``); 3.13 is the current stable.
+        # The coverage baselines are frozen from the **lowest**
+        # measurement across the supported runtimes -- a baseline
+        # frozen on a newer interpreter fails the older one by a
+        # fraction of a percentage point.
+        python-version: ["3.12", "3.13"]
     env:
       KNT_REDIS_FAKE: "1"
     steps:
@@ -33,7 +55,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v6

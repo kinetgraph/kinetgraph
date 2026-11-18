@@ -136,6 +136,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ADR-068 depend on it.
 
 ### Fixed
+- **The framework runs on Python 3.13.** The CI gate runs the
+  whole suite on **both** 3.12 and 3.13, and the coverage
+  baselines are frozen from the **lowest** measurement across the
+  supported runtimes. A baseline frozen on a newer interpreter
+  failed the older one by a fraction of a percentage point — the
+  gate was red on 3.12 while it was green on the developer's
+  machine.
 - **`knt upgrade check` no longer reports a phantom drift.**
   The HTTP-gateway files (`consumer.py`, `core/config.py`)
   were listed as boilerplate in every project, including the
