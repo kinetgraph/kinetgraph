@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] — 2026-11-18
+
 ### Added
 - **The application chooses how GLiNER runs.** The GLiNER2
   adapters now take the model you already have:
@@ -42,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every lookup came back empty. The first match (the strongest
   — the library sorts by confidence) is taken now. The parser
   had no behaviour test; the shapes it accepts are pinned now.
+
 
 ## [0.20.0] — 2026-11-18
 
