@@ -1644,6 +1644,7 @@ dev = [
     { name = "falkordblite" },
     { name = "fastapi" },
     { name = "httpx2" },
+    { name = "jinja2" },
     { name = "mutmut" },
     { name = "mypy" },
     { name = "pip-audit" },
@@ -1652,7 +1653,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "radon" },
+    { name = "rich" },
     { name = "ruff" },
+    { name = "typer" },
 ]
 
 [package.metadata]
@@ -1693,6 +1696,7 @@ dev = [
     { name = "falkordblite", specifier = ">=0.10.0" },
     { name = "fastapi", specifier = ">=0.139.2" },
     { name = "httpx2", specifier = ">=2.12.0" },
+    { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mutmut", specifier = ">=3.0,<4" },
     { name = "mypy", specifier = ">=2.3.0" },
     { name = "pip-audit", specifier = ">=2.10.1" },
@@ -1701,7 +1705,9 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "radon", specifier = ">=6.0.1" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "ruff", specifier = ">=0.15.22" },
+    { name = "typer", specifier = ">=0.26.8" },
 ]
 
 [[package]]

@@ -15,6 +15,151 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **A `curl | sh` installer for the CLI.** `scripts/install.sh`
+  installs `kntgraph[cli,crypto]` — the scaffolder and the
+  Ed25519 dependency the `knt keys` command needs:
+
+  ```bash
+  curl -LsSf https://raw.githubusercontent.com/kinetgraph/kinetgraph/main/scripts/install.sh | sh
+  ```
+
+  It is POSIX sh (dash, ash, bash-as-sh), needs only a
+  Python 3.12+ interpreter, and is user-local: it never
+  touches the system Python and never needs root. With `uv` on
+  the PATH it delegates to `uv tool install`; without it, it
+  builds its own virtual environment and uses `pip`.
+
+  The package is pure Python (`py3-none-any`), so there is
+  **one artifact for every platform** — no OS or CPU
+  detection, no binary download.
+
+  Options: `--version <v>` pins a release, `--uninstall`
+  removes the installation. `KNT_HOME`, `KNT_BIN_DIR` and
+  `KNT_PYTHON` override the layout and the interpreter.
+
+- **`knt --version`.** The CLI reports its version; the
+  installer uses it to verify its own work.
+
+### Changed
+- **The `knt` CLI now scaffolds the declarative agent model
+  (ADR-088).** `knt new agent <context>.<Name>` emits one
+  `AgentDefinition` — persona, capability policy, role event,
+  state machine, workflows, domain types — instead of the
+  hand-wired `get_<agent>_systems()` / `get_<agent>_tools()`
+  helpers. The declaration is **derived from the context**: the
+  tool allow-list is the context's tools, the domain types are
+  its components, and the two execution cycles are its
+  Concordos.
+
+  ```python
+  WEATHER_AGENT = AgentDefinition(
+      name="weather",
+      persona=RoleSpec(
+          persona="weather",
+          allowed_tools=("open_meteo_api",),
+      ),
+      role_event_type="role.assigned",
+      fsm=WeatherFSMConcordo,
+      sagas=(WeatherSagaConcordo,),
+      domain_types=(LocationIntent,),
+  )
+  ```
+
+  The context's dispatcher installs the declaration instead of
+  aggregating systems by hand:
+
+  ```python
+  WEATHER_AGENT.install(
+      dispatcher,
+      principal=Principal.from_agent_id(
+          "weather.weather",
+          level=PrincipalLevel.agent,
+          key_id="local-dev",
+      ),
+  )
+  ```
+
+- **`knt concordo` is context-scoped, and its output is
+  importable.** The commands take the bounded context as part
+  of the target — `knt concordo add fsm <context>.<Name>` and
+  `knt concordo new saga <context>.<Name>` — and the generated
+  files land in `src/<package>/contexts/<context>/concordos/`.
+
+  **Breaking:** the target no longer accepts a bare name; the
+  old form exits with the format error. The generated
+  Concordos moved from `src/<package>/concordos/` to the
+  context's `concordos/` directory, and the state machine now
+  imports its component from the context
+  (`from ..components.<module> import <Component>`). The
+  previous import path pointed at a package that did not
+  exist, so the generated file did not even import.
+
+- **The scaffolded component is a `DomainComponent`.** The
+  agent's rules read a domain component by its exact class
+  (ADR-088 §3.3), and the FSM's `component_type` requires a
+  `DomainComponent` subclass. The generated component now
+  derives from it and carries the `status` field the state
+  machine advances.
+
+- **The CLI keeps the derived files in sync.** The agent
+  declaration and the context's dispatcher are rendered from
+  the context's artifacts. Every `knt new` / `knt concordo`
+  command regenerates them **when they are still the
+  template's untouched output**; a file the user edited by
+  hand is never overwritten — the CLI prints a hint and points
+  at `knt upgrade apply <path> --force`.
+
+- **The scanner reads the AST, not the filename.** A renamed
+  class, a renamed tool or a renamed constant is followed
+  correctly. The filename of a Concordo cannot be reversed
+  into its class name (the CamelCase of
+  `invoice_fsm_concordo.py` is not `InvoiceFSMConcordo`).
+
+- **The scaffolded context has one dispatcher, and the second
+  loop is explicit.** The context's `dispatcher.py` hosts
+  **every** system of the context: the systems are pure
+  (`(World) -> list[Event]`), so they need no isolation from
+  each other, and the dispatcher runs them all once per tick
+  over the same post-fold World. The framework's second loop —
+  the `Runner`, which hosts the work no event triggers — is no
+  longer conjured out of a filename convention: `knt new sweep
+  <context>.<Name>` scaffolds a sweep explicitly, and the
+  context's dispatcher grows a `build_<context>_runner()` that
+  registers it.
+
+  **Breaking:** the `with_supervisor` block of the dispatcher
+  template is gone, together with the `_supervisor` filename
+  heuristic behind it. A supervisor is now just another agent
+  declaration, installed on the dispatcher like any other. The
+  `Runner` itself stays in the framework — ADR-010, ADR-057 and
+  ADR-068 depend on it.
+
+### Fixed
+- **The framework runs on Python 3.13.** The CI gate runs the
+  whole suite on **both** 3.12 and 3.13, and the coverage
+  baselines are frozen from the **lowest** measurement across the
+  supported runtimes. A baseline frozen on a newer interpreter
+  failed the older one by a fraction of a percentage point — the
+  gate was red on 3.12 while it was green on the developer's
+  machine.
+- **`knt upgrade check` no longer reports a phantom drift.**
+  The HTTP-gateway files (`consumer.py`, `core/config.py`)
+  were listed as boilerplate in every project, including the
+  ones the gateway was never scaffolded into.
+- **The generated Concordo stub test no longer asserts a
+  missing attribute.** It asserted `Concordo.version`, which
+  the `Concordo` Protocol does not define.
+- **The Concordos and the agent declaration no longer import
+  a package that does not exist.** The state machine imported
+  `<package>.components`; the components live in
+  `<package>.contexts.<context>.components`.
+- **Adding an artifact no longer drops the context's other
+  artifacts from the derived files.** The "state before the
+  new artifact" the refresh compares against did not exclude
+  the sweeps, so a second sweep made the dispatcher look
+  hand-edited and it was never regenerated.
+
 ## [0.19.1] — 2026-11-17
 
 ### Fixed
@@ -26,7 +171,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ModuleNotFoundError`, including the ones that never touch a
   key. The import is now deferred into the command, and the
   failure names the extra to install.
-
 
 ## [0.19.0] — 2026-11-08
 

@@ -2,51 +2,48 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-from typing import Any
+"""The {{ agent_name }} agent -- declared as data (ADR-088).
 
-# Import your Systems and Tools here
-# from ..systems.{{ agent_name }} import get_{{ agent_name }}_systems
-# from ..tools.{{ tool_name }} import {{ tool_name }}
+An agent is one ``AgentDefinition``: its persona, its capability
+policy, its state machine and its workflows. The framework
+derives the installable runtime from this declaration
+(``definition.bundle()`` yields the systems and the projections
+the dispatcher registers), so nothing here is hand-wired.
 
-# ------------------------------------------------------------------
-# Event allow-list (documentation only)
-# ------------------------------------------------------------------
-# The historical ``CapabilityPolicy`` decorator class (per-agent
-# allow-list of events) was removed in v0.9.0 (ADR-039). The
-# new architecture enforces access control at the
-# ``WorkerManager`` level via the ``ToolACL`` Protocol: every
-# tool invocation is gated by an ``agent_id``-keyed ACL that the
-# framework reads from the ``tools.acl`` configuration. The
-# agent-level "what events may this agent emit" declaration below
-# is **documentation only** -- it is not enforced by the
-# framework. Keep the event list accurate so static analysis
-# (and human reviewers) can verify that the agent's emitted
-# events are within the contract.
-#
-# If you need a runtime-enforced allow-list, wire it into the
-# ``ReactiveDispatcher`` via a custom system that filters the
-# emitted events before they reach the EventLog. The
-# docs/security/authorization.md page covers the recipe.
-_ALLOWED_EVENTS: list[str] = [
-    "{{ context_name }}.*",
-    "tool.*",
-]
+The declaration holds no runtime handle and no derived state.
+The ``Principal`` that authorises the agent's outbound requests
+is supplied by the host at install time.
+"""
 
+from kntgraph.agents import AgentDefinition, RoleSpec
+{% if local_imports %}
+{{ local_imports }}
+{%- endif %}
 
-def get_{{ agent_name }}_allowed_events() -> list[str]:
-    """Return the event namespace this agent is contracted to
-    emit. Documentation only; not enforced by the framework.
-    """
-    return _ALLOWED_EVENTS
-
-
-def get_{{ agent_name }}_systems() -> list[Any]:
-    """Return the pure WorldSystems for this agent."""
-    # return [example_system]
-    return []
-
-
-def get_{{ agent_name }}_tools() -> list[Any]:
-    """Return the impure Tools for this agent."""
-    # return [ExampleTool()]
-    return []
+{{ constant_name }} = AgentDefinition(
+    name="{{ agent_name }}",
+    persona=RoleSpec(
+        persona="{{ persona }}",
+        # The capability policy (ADR-088 §3.5): the names of the
+        # tools this agent may request. It is projected into
+        # ``RoleComponent.allowed_tools``, which is what gate 2 of
+        # the three-gate model reads. An empty allow-list forbids
+        # every tool -- the role is installed, so the permissive
+        # fallback does not apply.
+        allowed_tools={{ allowed_tools }},
+    ),
+    # The event type that assigns the role at runtime. The
+    # framework's ``RoleProjection`` reads the persona and the
+    # instructions from the event payload; the capability policy
+    # always comes from the spec above.
+    role_event_type="{{ role_event_type }}",
+    # The reactive cycle -- zero-token governance. ``None`` means
+    # the agent declares no state machine.
+    fsm={% if fsm_import %}{{ fsm_import.class_name }}{% else %}None{% endif %},
+    # The deliberative cycle -- tool orchestration with
+    # compensation.
+    sagas={{ sagas }},
+    # The domain components the agent's rules read, addressed by
+    # their concrete class.
+    domain_types={{ domain_types }},
+)

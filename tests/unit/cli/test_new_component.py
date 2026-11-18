@@ -40,7 +40,11 @@ def test_knt_new_component(tmp_path: Path):
         # 5. Assert the content looks like an immutable Component
         content = expected_file.read_text()
         assert "@dataclass(frozen=True, slots=True)" in content
-        assert "class CartItem:" in content
+        # A domain component is read by the agent's rules **by
+        # its concrete class** (ADR-088 §3.3), so the scaffold
+        # must derive from ``DomainComponent``.
+        assert "class CartItem(DomainComponent):" in content
+        assert "from kntgraph.core.world import DomainComponent" in content
 
     finally:
         os.chdir(current_dir)

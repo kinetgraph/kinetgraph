@@ -2,16 +2,25 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""ECS Component: {{ camel_case_name }}.
+
+Domain components are the agent's business facts. They are
+immutable (``frozen=True``), carry data only, and are read by
+the agent's rules **by their concrete class** -- the carrier
+resolves ``ctx.get_component({{ camel_case_name }})`` to
+exactly this class (ADR-059, ADR-088 §3.3).
+"""
+
 from dataclasses import dataclass
 
+from kntgraph.core.world import DomainComponent
+
+
 @dataclass(frozen=True, slots=True)
-class {{ camel_case_name }}:
-    """
-    ECS Component: {{ camel_case_name }}.
-    
-    Components must be immutable (`frozen=True`) and should primarily contain
-    data (no complex logic or side effects) in accordance with ADR-034.
-    """
-    # Define your fields here
-    # example_field: str
-    pass
+class {{ camel_case_name }}(DomainComponent):
+    """The {{ camel_case_name }} facts the agent's rules read."""
+
+    # The state field the agent's state machine advances
+    # (``knt concordo add fsm --state-field``). Replace it with
+    # the fields your domain actually carries.
+    status: str = "draft"

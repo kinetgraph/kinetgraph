@@ -395,6 +395,17 @@ ADR-072 §3.6 for the full pattern.
 
 ## 7. CLI
 
+> **Implementation record (2026-11-17).** Only the
+> `add fsm` / `new saga` commands shipped. The bundle
+> commands below (`validate`, `format`, `specs list`) were
+> deferred — the bundle format is reachable from Python
+> (`ConcordoCatalog.from_yaml`), and the CLI scaffolding
+> proved to be the higher-value half. The two scaffold
+> commands also became **context-scoped** when the CLI
+> adopted the declarative agent model (ADR-088): a Concordo
+> belongs to a bounded context, and the agent declaration
+> in that context references it.
+
 ```bash
 # Validate a bundle (no side effects; exits non-zero on
 # any of the five checks in §5).
@@ -403,14 +414,14 @@ uv run knt concordo validate --bundle app.yaml
 # Round-trip a bundle to canonical form.
 uv run knt concordo format --bundle app.yaml > app.normalized.yaml
 
-# Scaffold a starter bundle for an existing DomainComponent.
-uv run knt concordo add fsm InvoiceFSM \
+# Scaffold a BusinessFSM for an existing DomainComponent.
+# The target carries the bounded context.
+uv run knt concordo add fsm sales.InvoiceFSM \
   --component InvoiceDomainComponent \
   --state-field status
 
-# Scaffold a starter bundle for a WorkflowSaga.
-uv run knt concordo new saga NfeEmission \
-  --trigger document.ingested \
+# Scaffold a WorkflowSaga.
+uv run knt concordo new saga sales.NfeEmission \
   --steps validate_fiscal:sefaz_validator,\
           emit_nfe:nfe_emitter,\
           register_receivable:erp_tool \
@@ -421,8 +432,9 @@ uv run knt concordo specs list
 ```
 
 The `add` / `new` commands produce:
-1. A `concordos/<bundle_id>.yaml` bundle with typed
-   configuration and starter states / steps.
+1. A Concordo module in the context's `concordos/`
+   directory, with typed configuration and starter states /
+   steps.
 2. A stub test file in `tests/unit/concordos/`.
 
 The CLI deliberately does **not** ship `lint` or

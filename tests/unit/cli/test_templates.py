@@ -110,7 +110,6 @@ def test_template_does_not_import_removed_symbol(
             "project_name": "my_app",
             "package": "my_app",
             "event_type": "sales.order_placed",
-            "with_supervisor": False,
         },
     )
     assert forbidden not in rendered, (
@@ -165,7 +164,6 @@ def test_template_renders_with_spdx_header(template_name: str) -> None:
             "project_name": "my_app",
             "package": "my_app",
             "event_type": "sales.order_placed",
-            "with_supervisor": False,
         },
     )
     lines = rendered.splitlines()
@@ -309,6 +307,166 @@ def test_agent_template_does_not_import_capability_policy() -> None:
     )
 
 
+def test_agent_template_renders_a_declarative_agent() -> None:
+    """The ``agent.py.jinja`` template must render one
+    ``AgentDefinition`` -- the declarative agent model
+    (ADR-088).
+
+    The declaration names the persona, the capability policy,
+    the role event, the two execution cycles and the domain
+    types. The runtime is derived from it; nothing is wired by
+    hand.
+    """
+    rendered = _render(
+        "agent.py.jinja",
+        {
+            "agent_name": "checkout",
+            "constant_name": "CHECKOUT_AGENT",
+            "persona": "checkout",
+            "role_event_type": "role.assigned",
+            "allowed_tools": '("process_payment",)',
+            "component_imports": [],
+            "domain_types": "()",
+            "fsm_import": None,
+            "saga_imports": [],
+            "sagas": "()",
+            "local_imports": "",
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+        },
+    )
+    assert "from kntgraph.agents import AgentDefinition, RoleSpec" in rendered
+    assert "CHECKOUT_AGENT = AgentDefinition(" in rendered
+    assert 'name="checkout"' in rendered
+    assert 'persona="checkout"' in rendered
+    assert 'role_event_type="role.assigned"' in rendered
+    assert 'allowed_tools=("process_payment",)' in rendered
+    # The historical hand-wiring is gone.
+    assert "get_checkout_agent_systems" not in rendered
+    assert "get_checkout_agent_tools" not in rendered
+
+
+def test_agent_template_renders_the_two_execution_cycles() -> None:
+    """The template must wire the FSM (reactive) and the sagas
+    (deliberative) the context declares.
+    """
+    rendered = _render(
+        "agent.py.jinja",
+        {
+            "agent_name": "checkout",
+            "constant_name": "CHECKOUT_AGENT",
+            "persona": "checkout",
+            "role_event_type": "role.assigned",
+            "allowed_tools": "()",
+            "component_imports": [
+                {
+                    "module": "..components.invoice",
+                    "class_name": "Invoice",
+                }
+            ],
+            "domain_types": "(Invoice,)",
+            "fsm_import": {
+                "module": "..concordos.invoice_fsm_concordo",
+                "class_name": "InvoiceFSMConcordo",
+            },
+            "saga_imports": [
+                {
+                    "module": "..concordos.invoice_flow_concordo",
+                    "class_name": "InvoiceFlowConcordo",
+                }
+            ],
+            "sagas": "(InvoiceFlowConcordo,)",
+            "local_imports": (
+                "from ..components.invoice import Invoice\n"
+                "from ..concordos.invoice_fsm_concordo import InvoiceFSMConcordo\n"
+                "from ..concordos.invoice_flow_concordo import InvoiceFlowConcordo\n"
+            ),
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+        },
+    )
+    assert "fsm=InvoiceFSMConcordo" in rendered
+    assert "sagas=(InvoiceFlowConcordo,)" in rendered
+    assert "domain_types=(Invoice,)" in rendered
+    assert "from ..concordos.invoice_fsm_concordo import InvoiceFSMConcordo" in rendered
+
+
+def test_component_template_derives_from_domain_component() -> None:
+    """The ``component.py.jinja`` template must emit a
+    ``DomainComponent`` subclass.
+
+    The agent's rules read a domain component **by its exact
+    class** (ADR-088 §3.3), and the FSM's ``component_type``
+    requires a ``DomainComponent`` subclass.
+    """
+    rendered = _render(
+        "component.py.jinja",
+        {
+            "camel_case_name": "Invoice",
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+        },
+    )
+    assert "from kntgraph.core.world import DomainComponent" in rendered
+    assert "class Invoice(DomainComponent):" in rendered
+    assert "@dataclass(frozen=True, slots=True)" in rendered
+
+
+def test_dispatcher_template_installs_the_declared_agents() -> None:
+    """The ``dispatcher.py.jinja`` template must install the
+    context's agent declarations with a principal.
+
+    The declaration holds no credential; the host supplies it
+    at install time (ADR-088 §2.4).
+    """
+    rendered = _render(
+        "dispatcher.py.jinja",
+        {
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+            "tool_imports": [
+                {
+                    "module": ".tools.process_payment",
+                    "class_name": "ProcessPayment",
+                }
+            ],
+            "agent_imports": [
+                {
+                    "module": ".agents.checkout_agent",
+                    "constant": "CHECKOUT_AGENT",
+                    "agent_name": "checkout",
+                }
+            ],
+            "local_imports": (
+                "from .tools.process_payment import ProcessPayment\n"
+                "from .agents.checkout_agent import CHECKOUT_AGENT\n"
+            ),
+            "tool_registrations": (
+                "    worker_manager.register(ProcessPayment(), acl=default_acl())\n"
+            ),
+            "agent_installs": (
+                "    CHECKOUT_AGENT.install(\n"
+                "        dispatcher,\n"
+                "        principal=Principal.from_agent_id(\n"
+                '            "sales.checkout",\n'
+                "            level=PrincipalLevel.agent,\n"
+                '            key_id="local-dev",\n'
+                "        ),\n"
+                "    )\n"
+            ),
+        },
+    )
+    assert "CHECKOUT_AGENT.install(" in rendered
+    assert "principal=Principal.from_agent_id(" in rendered
+    assert "worker_manager.register(ProcessPayment(), acl=default_acl())" in rendered
+    # The dispatcher never aggregates systems by hand any more.
+    assert "get_checkout_agent_systems" not in rendered
+
+
 def test_dispatcher_template_threads_redis_and_tool_router() -> None:
     """The ``dispatcher.py.jinja`` template must thread
     the ``redis`` and ``tool_router`` arguments through
@@ -322,18 +480,18 @@ def test_dispatcher_template_threads_redis_and_tool_router() -> None:
             "context_name": "sales",
             "project_name": "my_app",
             "package": "my_app",
-            "with_supervisor": False,
         },
     )
     assert "redis=redis" in rendered
     assert "tool_router=tool_router" in rendered
 
 
-def test_dispatcher_template_with_supervisor_emits_runner_factory() -> None:
-    """When ``with_supervisor`` is True, the dispatcher
-    template must render the ``Runner`` factory and the
-    ``build_<context>_dispatcher_with_supervisor``
-    helper.
+def test_dispatcher_template_emits_the_runner_factory_for_the_sweeps() -> None:
+    """The context's sweeps get a ``Runner`` factory.
+
+    A sweep is the work that no event triggers; the
+    ``ReactiveDispatcher`` runs per agent, the ``Runner`` runs
+    over the whole World on a timer.
     """
     rendered = _render(
         "dispatcher.py.jinja",
@@ -341,12 +499,43 @@ def test_dispatcher_template_with_supervisor_emits_runner_factory() -> None:
             "context_name": "sales",
             "project_name": "my_app",
             "package": "my_app",
-            "with_supervisor": True,
+            "sweeps": [
+                {
+                    "module": ".sweeps.compaction_sweep",
+                    "function_name": "compaction_sweep",
+                }
+            ],
+            "local_imports": "from .sweeps.compaction_sweep import compaction_sweep\n",
+            "sweep_registrations": "            compaction_sweep,\n",
         },
     )
     assert "from kntgraph.runner import ReactiveDispatcher, Runner" in rendered
-    assert "build_sales_supervisor_runner" in rendered
-    assert "build_sales_dispatcher_with_supervisor" in rendered
+    assert "def build_sales_runner(" in rendered
+    assert "compaction_sweep," in rendered
+    assert "cyclic_systems=[" in rendered
+
+
+def test_dispatcher_template_without_sweeps_has_no_runner() -> None:
+    """A context with no sweep gets no ``Runner``.
+
+    The framework keeps the ``Runner`` -- ADR-010, ADR-057 and
+    ADR-068 depend on it -- but the scaffold only offers it
+    when the context declares a sweep. There is no magic
+    filename convention any more.
+    """
+    rendered = _render(
+        "dispatcher.py.jinja",
+        {
+            "context_name": "sales",
+            "project_name": "my_app",
+            "package": "my_app",
+            "sweeps": [],
+            "local_imports": "",
+            "sweep_registrations": "",
+        },
+    )
+    assert "Runner" not in rendered
+    assert "build_sales_runner" not in rendered
 
 
 def test_consumer_template_renders_in_three_responsibilities() -> None:

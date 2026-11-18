@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 kinetgraph
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""The {{ sweep_name }} -- a periodic sweep over the whole World.
+
+A sweep is a ``WorldSystem``: the framework runs it with the
+post-fold World and appends the events it returns. What makes
+it a *sweep* is the loop it lives in -- the ``Runner``'s
+timer -- not its type. The framework's ``CyclicSystem`` **is**
+``WorldSystem``.
+
+Sweeps are the home of the work that no event triggers:
+consolidation, compaction, reconciliation. If the work is
+triggered by an event, it belongs to a reactive system in the
+context's ``systems/`` directory, and the ``ReactiveDispatcher``
+runs it per agent.
+"""
+
+from kntgraph.core.event import Event
+from kntgraph.core.world import World
+
+
+def {{ function_name }}(world: World) -> list[Event]:
+    """Sweep the World and emit the events this sweep owns.
+
+    Args:
+        world: The post-fold World -- every agent's view.
+
+    Returns:
+        The events to append. An empty list is a no-op; the
+        sweep still ran.
+    """
+    events: list[Event] = []
+    # TODO: emit the events this sweep is responsible for.
+    return events

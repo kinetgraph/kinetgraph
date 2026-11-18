@@ -32,7 +32,7 @@ def test_knt_concordo_add_fsm(tmp_path: Path):
                 "concordo",
                 "add",
                 "fsm",
-                "InvoiceFSM",
+                "sales.InvoiceFSM",
                 "--component",
                 "InvoiceDomainComponent",
                 "--state-field",
@@ -42,12 +42,21 @@ def test_knt_concordo_add_fsm(tmp_path: Path):
         assert result.exit_code == 0, result.stdout
         assert "Generated FSM Concordo" in result.stdout
 
-        expected = Path("src/my_app/concordos/invoice_fsm_concordo.py")
+        # The concordo belongs to the bounded context: the
+        # agent declaration in that context references it.
+        expected = Path("src/my_app/contexts/sales/concordos/invoice_fsm_concordo.py")
         assert expected.is_file()
         content = expected.read_text()
         assert "BusinessFSMConcordo" in content
         assert "InvoiceDomainComponent" in content
         assert 'state_field="status"' in content
+        # The component is imported from the context -- the
+        # historical template imported a package that did not
+        # exist, so the generated file did not even import.
+        assert (
+            "from ..components.invoice_domain_component import InvoiceDomainComponent"
+            in content
+        )
     finally:
         os.chdir(current_dir)
 
@@ -62,7 +71,7 @@ def test_knt_concordo_new_saga(tmp_path: Path):
                 "concordo",
                 "new",
                 "saga",
-                "NfeEmission",
+                "sales.NfeEmission",
                 "--steps",
                 "validate_fiscal:sefaz_validator,emit_nfe:nfe_emitter",
                 "--timeout-ms",
@@ -72,11 +81,11 @@ def test_knt_concordo_new_saga(tmp_path: Path):
         assert result.exit_code == 0, result.stdout
         assert "Generated Saga Concordo" in result.stdout
 
-        expected = Path("src/my_app/concordos/nfe_emission_concordo.py")
+        expected = Path("src/my_app/contexts/sales/concordos/nfe_emission_concordo.py")
         assert expected.is_file()
         content = expected.read_text()
         assert "WorkflowSagaConcordo" in content
-        assert 'name="nfe_emission"' in content
+        assert 'name="NfeEmission"' in content
         assert "sefaz_validator" in content
         assert "nfe_emitter" in content
         assert "saga_timeout_ms=300000" in content
@@ -94,7 +103,7 @@ def test_knt_concordo_generates_stub_test(tmp_path: Path):
                 "concordo",
                 "add",
                 "fsm",
-                "InvoiceFSM",
+                "sales.InvoiceFSM",
                 "--component",
                 "InvoiceDomainComponent",
             ],
@@ -104,5 +113,37 @@ def test_knt_concordo_generates_stub_test(tmp_path: Path):
         assert test_file.is_file()
         content = test_file.read_text()
         assert "InvoiceFSMConcordo" in content
+        # The stub imports the concordo from the context it
+        # belongs to.
+        assert (
+            "from my_app.contexts.sales.concordos.invoice_fsm_concordo import "
+            "InvoiceFSMConcordo" in content
+        )
+    finally:
+        os.chdir(current_dir)
+
+
+def test_knt_concordo_requires_a_context(tmp_path: Path):
+    """A concordo belongs to a bounded context.
+
+    The target carries the context, exactly like every other
+    ``knt new <artifact>`` command.
+    """
+    current_dir = os.getcwd()
+    try:
+        _init_project(tmp_path)
+        result = runner.invoke(
+            app,
+            [
+                "concordo",
+                "add",
+                "fsm",
+                "InvoiceFSM",
+                "--component",
+                "InvoiceDomainComponent",
+            ],
+        )
+        assert result.exit_code == 1
+        assert "Target must be in the format" in result.stdout
     finally:
         os.chdir(current_dir)

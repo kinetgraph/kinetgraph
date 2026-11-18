@@ -2,6 +2,18 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""The {{ concordo_name }} -- the deliberative cycle of the {{ context_name }} context.
+
+A WorkflowSaga Concordo walks its steps, dispatches the tools
+the agent declared, and compensates in LIFO order when a step
+fails. A step may carry a ``skip_when`` / ``proceed_when``
+``Specification`` -- a pure rule that reads the same carrier the
+state machine's guards read (ADR-072, ADR-088 §2.5).
+
+The agent declaration references this instance directly -- the
+runtime is derived from the declaration, never hand-wired.
+"""
+
 from kntgraph.concordos.saga import (
     WorkflowSagaConcordo,
     SagaConfig,

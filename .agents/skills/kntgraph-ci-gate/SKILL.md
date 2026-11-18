@@ -83,6 +83,16 @@ uv run scripts/ci.py --update-reliability-baseline
 uv run scripts/ci.py --update-verticals-baseline
 ```
 
+**The baseline is interpreter-dependent — freeze it from the oldest supported runtime.** The measurement differs by a branch or two between interpreters (a version-conditional path in the framework's own code is one candidate), so a baseline frozen on a *newer* interpreter fails the older one by a fraction of a percentage point. The overall delta goes negative and the gate fails — the coverage went **up** on the newer runtime, yet the build is red on the oldest one. The CI gates on the matrix of supported versions (3.12 and 3.13); freeze the baseline from the **lowest** measurement across them:
+
+```bash
+# The oldest supported runtime -- the one the CI gates on.
+UV_PROJECT_ENVIRONMENT=.venv-312 UV_PYTHON=3.12 \
+  uv run python scripts/verticals_gate.py --update
+```
+
+> **`UV_PYTHON`, not `--python`.** The gate's steps shell out to `uv run` themselves, and a nested `uv run` without an explicit interpreter re-resolves the environment with the *default* one — silently measuring a different runtime than the one you asked for. `UV_PYTHON` is inherited by the nested calls; `--python` is not.
+
 ## When to run the gate (and when NOT to)
 
 The gate covers the **Python surface** of the

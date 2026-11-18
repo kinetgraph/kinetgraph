@@ -4,11 +4,16 @@
 
 from dataclasses import dataclass
 
+from kntgraph.core.world import DomainComponent
+
 
 @dataclass(frozen=True, slots=True)
-class LocationIntent:
+class LocationIntent(DomainComponent):
     """
     ECS Component: LocationIntent.
+
+    A domain component: the agent's rules read it **by this
+    exact class** (ADR-088 §3.3).
     """
 
     city: str

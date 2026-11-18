@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3 :: Only",
     "Topic :: Software Development",
     "Topic :: Software Development :: Libraries",
@@ -238,6 +239,15 @@ dev = [
     "radon>=6.0.1",
     "pytest-cov>=7.1.0",
     "mutmut>=3.0,<4",
+    # The CLI's own dependencies. The ``knt`` test suite skips
+    # itself when ``typer`` is missing (the CLI is an optional
+    # extra), so without these the CLI tests never ran in CI --
+    # and the ``cli/`` vertical entered the coverage gate with
+    # zero covered branches. Installing them here makes the suite
+    # run everywhere, and the coverage it reports is real.
+    "typer>=0.26.8",
+    "rich>=15.0.0",
+    "jinja2>=3.1.6",
 ]
 
 # ---------------------------------------------------------------------------
