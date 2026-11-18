@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-11-18
+
 ### Added
 - **A `curl | sh` installer for the CLI.** `scripts/install.sh`
   installs `kntgraph[cli,crypto]` — the scaffolder and the
@@ -159,6 +161,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   new artifact" the refresh compares against did not exclude
   the sweeps, so a second sweep made the dispatcher look
   hand-edited and it was never regenerated.
+
 
 ## [0.19.1] — 2026-11-17
 
