@@ -29,6 +29,13 @@ trivial de backend.
 > - `uv add 'kntgraph[gliner]'` para usar GLiNER2.
 >   Sem o extra, a Role e o hook funcionam — o
 >   classifier é injetado.
+>
+> O extra entrega o **adapter**, não o runtime de inferência:
+> o `gliner2` não depende do `torch` (que vive no extra
+> `local` dele). A aplicação escolhe como o GLiNER roda —
+> `uv add "gliner2[local]"` para inferência local, ou injete
+> um backend que você já roda (`IntentModel` /
+> `FieldFinderModel`).
 
 ---
 

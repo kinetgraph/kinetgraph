@@ -135,6 +135,13 @@ except ImportError:  # pragma: no cover
 # Re-export the public surface here for callers that
 # import from ``kntgraph.knowledge.extraction``
 # directly.
+# The backend contracts the application implements when it
+# brings its own GLiNER runtime (a remote client, an ONNX
+# runtime). Dependency-free — always importable.
+from ._gliner_backend import (
+    FieldFinderModel,
+    IntentModel,
+)
 from .argument import (
     FieldFinder,
     FieldValue,
@@ -177,6 +184,10 @@ __all__ = [
     "EntityExtractor",
     "EntityExtractorWithMentions",
     "ExtractedArg",
+    # Backend contracts (the application brings its own
+    # GLiNER runtime)
+    "FieldFinderModel",
+    "IntentModel",
     # Argument subpackage (Iter 28: framework-level)
     "FieldFinder",
     "FieldValue",

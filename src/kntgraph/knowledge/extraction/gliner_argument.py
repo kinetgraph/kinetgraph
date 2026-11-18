@@ -90,6 +90,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from kntgraph.knowledge.extraction._gliner_backend import FieldFinderModel
 from kntgraph.knowledge.extraction.argument._extractor import (
     SchemaArgumentExtractor,
 )
@@ -124,7 +125,9 @@ class GlinerArgumentAdapter(ArgumentExtractor):
          checkpoint (delegated to ``require_optional``).
          If the ``gliner2`` package is missing,
          construction fails with a clear error
-         pointing to ``kntgraph[gliner]``.
+         pointing to ``kntgraph[gliner]``. Pass
+         ``model=`` to skip both: the application hands
+         over the backend it already runs.
       2. The :class:`SchemaArgumentExtractor` reads
          ``Settings.arg_threshold`` (env
          ``KNT_ARG_THRESHOLD``) for the field
@@ -147,7 +150,22 @@ class GlinerArgumentAdapter(ArgumentExtractor):
         model_name: str | None = None,
         device: str | None = None,
         field_threshold: float = 0.5,
+        model: FieldFinderModel | None = None,
     ) -> None:
+        """
+        Args:
+          worker_manager: the pool the orchestrator runs the
+            field lookups in.
+          model_name: forwarded to the finder when the
+            adapter loads the model itself.
+          device: forwarded to the finder (torch device).
+          field_threshold: confidence floor for a field value.
+          model: an already-built model. When given, the
+            adapter imports nothing and loads nothing — the
+            application hands over the backend it already
+            runs. This is how the deployment chooses how
+            GLiNER runs.
+        """
         # Iter 28: eager imports. The two pieces we
         # depend on are framework modules now. The
         # adapter is constructed by callers that
@@ -157,7 +175,11 @@ class GlinerArgumentAdapter(ArgumentExtractor):
         # because the construction also loads the
         # model (the heavy operation).
         model_name = self._resolve_model_name(model_name)
-        finder = GlinerFieldFinder(model_name=model_name, device=device)
+        finder = GlinerFieldFinder(
+            model_name=model_name,
+            device=device,
+            model=model,
+        )
         self._inner = SchemaArgumentExtractor(
             worker_manager,
             finder,

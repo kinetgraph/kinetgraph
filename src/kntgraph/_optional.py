@@ -60,6 +60,20 @@ canonical message that always points the user at the
 correct extra to install. Tests assert on the message
 text so accidental rewording is caught.
 
+Two failures, two remedies
+---------------------------
+A package can be missing, or it can be present and still
+unable to run — the second case is the *inference runtime*
+of an ML package (GLiNER2 needs ``torch``; ``torch`` is not
+a dependency of ``gliner2`` itself, it lives in the
+``local`` extra of that package). Those two failures need
+two different messages: pointing the operator at the
+framework's extra in the second case sends them in a
+circle, because installing the extra again reproduces the
+same error. :func:`require_optional` therefore takes a
+``runtime_hint`` and uses it when the package is present
+but its own import failed.
+
 :func:`try_import` is the non-raising variant — returns
 ``None`` instead. Useful for capability checks (e.g. "is
 ``fastapi`` available?" before exposing an HTTP route).
@@ -70,28 +84,7 @@ from __future__ import annotations
 import importlib
 from types import ModuleType
 
-
-def _format_message(
-    package: str,
-    extra: str,
-    purpose: str | None,
-) -> str:
-    """
-    Build the canonical ImportError message. Kept in one
-    place so the wording is consistent across the
-    codebase and tests can pin it.
-    """
-    where = purpose or "this feature"
-    return (
-        f"{where} requires the optional package "
-        f"`{package}`, which is not installed.\n"
-        f"Install it with one of:\n"
-        f"    uv add {extra}\n"
-        f"    pip install {extra}\n"
-        f"See the `[project.optional-dependencies]` table "
-        f"in the package's `pyproject.toml` for the full list "
-        f"of extras."
-    )
+from kntgraph._optional_messages import message_for
 
 
 def require_optional(
@@ -99,10 +92,30 @@ def require_optional(
     extra: str,
     *,
     purpose: str | None = None,
+    runtime_hint: str | None = None,
 ) -> ModuleType:
     """
     Import ``package`` or raise ``ImportError`` with a
-    message that points to the right ``extra``.
+    message that points to the right remedy.
+
+    Two failures are distinguished, because they have
+    different remedies:
+
+    1. **The package is not installed.** The message points
+       at the framework's extra.
+
+    2. **The package is installed but cannot run** — one of
+       its own dependencies is missing (the *inference
+       runtime*). Installing the framework's extra again
+       would reproduce the same error, so the message names
+       the missing module and shows ``runtime_hint`` — the
+       choice the application actually has: install the
+       runtime it wants, or inject a model it already has
+       and skip the runtime entirely.
+
+       This case is only reported when ``runtime_hint`` is
+       given; without it, the message falls back to the
+       canonical one.
 
     Args:
       package: the PyPI distribution name (the string
@@ -112,6 +125,9 @@ def require_optional(
       purpose: short human description of what was being
         attempted, for the error message. Defaults to
         "this feature".
+      runtime_hint: what to do when the package is present
+        but its runtime is missing. Omit it when the
+        package has no runtime of its own.
 
     Returns:
       The imported module.
@@ -122,7 +138,7 @@ def require_optional(
     try:
         return importlib.import_module(package)
     except ImportError as e:
-        raise ImportError(_format_message(package, extra, purpose)) from e
+        raise ImportError(message_for(e, package, extra, purpose, runtime_hint)) from e
 
 
 def try_import(

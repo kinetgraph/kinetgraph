@@ -58,6 +58,7 @@ this subpackage.
 
 from __future__ import annotations
 
+from .._gliner_backend import FieldFinderModel
 from ._coerce import CoercedValue, coerce
 from ._extractor import SchemaArgumentExtractor
 from ._finder import FieldFinder, FieldValue, RegexFieldFinder
@@ -73,6 +74,7 @@ from ._gliner_finder import (
 __all__ = [
     "CoercedValue",
     "FieldFinder",
+    "FieldFinderModel",
     "FieldValue",
     "GlinerFieldFinder",
     "GlinerMatch",

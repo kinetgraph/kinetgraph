@@ -9465,7 +9465,7 @@
       "rank": "A"
     },
     "src/kntgraph/knowledge/extraction/__init__.py": {
-      "mi": 78.52824619480218,
+      "mi": 78.45987551886765,
       "rank": "A"
     },
     "src/kntgraph/knowledge/extraction/_slm_facades.py": {
@@ -9501,11 +9501,11 @@
       "rank": "A"
     },
     "src/kntgraph/knowledge/extraction/gliner_argument.py": {
-      "mi": 53.5756155120955,
+      "mi": 53.20485598228708,
       "rank": "A"
     },
     "src/kntgraph/knowledge/extraction/gliner_intent.py": {
-      "mi": 50.14676501954209,
+      "mi": 49.78974168278651,
       "rank": "A"
     },
     "src/kntgraph/knowledge/extraction/heuristic.py": {

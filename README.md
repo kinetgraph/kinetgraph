@@ -82,6 +82,30 @@ uv add "kntgraph[metrics]"      # Prometheus metrics sink (ADR-075 Tier 4)
 uv add "kntgraph[all-runtime]"  # everything above
 ```
 
+> **`kntgraph[gliner]` ships the adapter, not the inference
+> runtime.** `gliner2` does not depend on `torch` (it lives in
+> the `local` extra of that package), so *you* choose how
+> GLiNER runs:
+>
+> ```bash
+> uv add "kntgraph[gliner]" "gliner2[local]"   # local inference (torch)
+> ```
+>
+> …or skip the local runtime entirely and hand the framework
+> the backend you already run — a remote service, an ONNX
+> runtime, another model. Implement `IntentModel` /
+> `FieldFinderModel` and inject it:
+>
+> ```python
+> from kntgraph.knowledge.extraction import SLMIntentClassifier
+>
+> classifier = SLMIntentClassifier(adapter=MyRemoteClassifier())
+> ```
+>
+> The framework never pulls `torch` for you: the default Linux
+> wheel is the CUDA build, and every install would carry
+> gigabytes of GPU wheels.
+
 > To install the unreleased `main` between tagged releases:
 > `uv add "kntgraph @ git+https://github.com/kinetgraph/kinetgraph.git"`.
 > Tagged releases on PyPI are the canonical, supported path.

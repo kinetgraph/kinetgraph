@@ -15,6 +15,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The application chooses how GLiNER runs.** The GLiNER2
+  adapters now take the model you already have:
+  `GlinerIntentAdapter(model=...)`, `GlinerFieldFinder(model=...)`
+  and `GlinerArgumentAdapter(..., model=...)`. With a model in
+  hand, the adapter imports nothing and loads nothing — a
+  remote service, an ONNX runtime, or a local `GLiNER2`. The
+  contracts are public: `IntentModel` and `FieldFinderModel`
+  (`kntgraph.knowledge.extraction`).
+
+### Fixed
+- **`kntgraph[gliner]` no longer sends you in circles.** The
+  extra ships the *adapter*, not the inference runtime:
+  `gliner2` does not depend on `torch` (it lives in the
+  `local` extra of that package), so the install ended with
+  `ModuleNotFoundError: No module named 'torch'` — and the
+  error message pointed back at the extra. The message now
+  names the missing runtime and shows the choice:
+  `uv add "gliner2[local]"` for local inference, or inject
+  the model you already run.
+- **The GLiNER2 field finder no longer finds nothing.** The
+  parser expected one match per label, but the library
+  returns a *list* of matches (`{"entities": {"org": [{"text":
+  ..., "confidence": ...}]}}`) — so the value never parsed and
+  every lookup came back empty. The first match (the strongest
+  — the library sorts by confidence) is taken now. The parser
+  had no behaviour test; the shapes it accepts are pinned now.
+
 ## [0.20.0] — 2026-11-18
 
 ### Added

@@ -5,11 +5,12 @@
 """
 GLiNER2-backed ``FieldFinder`` and match-extraction helpers.
 
-This module is the only one that touches ``gliner2``. It
-eager-loads the model in the constructor (via
+This module eager-loads the model in the constructor (via
 :func:`require_optional`) and runs inference in a worker
 thread (``asyncio.to_thread``) so the event loop stays
-responsive.
+responsive. Pass ``model=`` to hand over a backend the
+application already runs — then nothing is imported and
+nothing is loaded.
 
 Iter 28: moved from
 ``kntgraph.agents.knowledge.argument_extractor._gliner_finder``
@@ -31,58 +32,24 @@ shapes.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, cast
 
 from kntgraph.core._typing import JsonScalar, ValidatorInput
+from kntgraph.knowledge.extraction._gliner_backend import (
+    GLINER2_EXTRA,
+    GLINER2_RUNTIME_HINT,
+    FieldFinderModel,
+    GlinerMatch,
+    GlinerRawResult,
+)
+from kntgraph.knowledge.extraction._gliner_backend import (
+    MatchDict as _MatchDict,
+)
+from kntgraph.knowledge.extraction._gliner_backend import (
+    MatchObj as _MatchObj,
+)
 from kntgraph.knowledge.extraction.argument._finder import FieldFinder
 from kntgraph.tools.schema import FieldSpec
-
-
-class _MatchDict(Protocol):
-    """Structural shape of a GLiNER2 dict-shaped match.
-
-    GLiNER2 1.3.x with ``include_confidence=True`` returns
-    matches as ``{"text": str, "confidence": float}`` (or
-    ``"score"`` / ``"surface"`` / ``"value"`` aliases; the
-    helpers read these via :func:`_read`). The Protocol
-    is for static typing only; the helpers duck-type at
-    runtime.
-    """
-
-    text: str
-    confidence: float
-
-
-@runtime_checkable
-class _MatchObj(Protocol):
-    """Structural shape of a GLiNER2 dataclass-shaped match.
-
-    GLiNER2 pre-1.3 returns dataclass instances with
-    ``.text`` and ``.score`` attributes. The Protocol is
-    for static typing only; ``@runtime_checkable`` lets
-    the candidate-list helper narrow the union without
-    having to import the upstream type at module level.
-    """
-
-    text: str
-    score: float
-
-
-# A single match from a GLiNER2 entities result is one of:
-#   - a bare string (the default, with ``include_confidence=False``);
-#   - a dict with ``text`` / ``confidence`` (1.3.x canonical);
-#   - a dataclass with ``.text`` / ``.score`` (pre-1.3).
-GlinerMatch = str | _MatchDict | _MatchObj
-
-
-# The raw GLiNER2 ``.extract_entities(...)`` response is
-# a nested dict: ``{"entities": {label: [match, ...]}}``
-# (1.3.x). Older versions return a list of dataclasses
-# directly. The framework reads it through :func:`_read`
-# so the exact shape is tolerated; this alias exists for
-# the call sites that bind the result.
-GlinerRawResult = dict[str, Any] | list[GlinerMatch]
-
 
 # The narrow union consumed by the private ``_read`` helper.
 # ``field_o`` is reserved for JSON-shaped ``ValidatorInput``
@@ -165,6 +132,26 @@ def extract_first(
     )
 
 
+def _first_match(value: GlinerMatch | list[GlinerMatch] | None) -> GlinerMatch | None:
+    """
+    The FIRST match of a per-label value.
+
+    GLiNER2 1.3.x returns a **list** of matches per label
+    (``{"entities": {"org": [{"text": ..., "confidence": ...}]}}``)
+    -- the library sorts the spans by confidence, so the
+    first is the strongest. Older versions return a single
+    match. The framework wants the first one either way.
+
+    Without this, the whole per-label value reached
+    :func:`match_to_value`, which reads a *single* match --
+    and a list has no ``text``, so the match was lost and
+    the finder silently found nothing.
+    """
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
 def _extract_from_entities_dict(
     raw: GlinerRawResult, entity_name: str
 ) -> tuple[str, float] | None:
@@ -172,7 +159,7 @@ def _extract_from_entities_dict(
     entities_dict = _read(raw, "entities")
     if not isinstance(entities_dict, dict):
         return None
-    return match_to_value(entities_dict.get(entity_name))
+    return match_to_value(_first_match(entities_dict.get(entity_name)))
 
 
 def _extract_from_top_level_label(
@@ -184,7 +171,7 @@ def _extract_from_top_level_label(
     if isinstance(_read(raw, "entities"), dict):
         # Already handled by the entities_dict path.
         return None
-    return match_to_value(raw[entity_name])
+    return match_to_value(_first_match(raw[entity_name]))
 
 
 def _extract_from_candidates(
@@ -331,17 +318,52 @@ class GlinerFieldFinder(FieldFinder):
         model_name: str = "gliner2-base",
         *,
         device: str | None = None,
+        model: FieldFinderModel | None = None,
     ) -> None:
+        """
+        Args:
+          model_name: passed to ``GLiNER2.from_pretrained``
+            when the finder loads the model itself.
+          device: torch device (e.g. "cpu", "cuda"). ``None``
+            lets GLiNER2 pick.
+          model: an already-built model. When given, the
+            finder imports nothing and loads nothing — the
+            application hands over the backend it already
+            runs (a remote client, an ONNX runtime, a local
+            ``GLiNER2``). This is how the deployment chooses
+            how GLiNER runs.
+        """
+        self._model = self._resolve_model(model, model_name, device)
+        self._model_name = model_name
+
+    @staticmethod
+    def _resolve_model(
+        model: FieldFinderModel | None,
+        model_name: str,
+        device: str | None,
+    ) -> FieldFinderModel:
+        """
+        The model the finder extracts with.
+
+        An injected model is used as-is: nothing is imported,
+        nothing is loaded, and no inference runtime is
+        required. Without one, ``gliner2`` provides the
+        backend and the checkpoint is loaded here.
+        """
+        if model is not None:
+            return model
+
         from kntgraph._optional import require_optional
 
         GLiNER2 = require_optional(
             "gliner2",
-            "kntgraph[gliner]",
+            GLINER2_EXTRA,
             purpose=("GlinerFieldFinder and GlinerArgumentAdapter"),
+            runtime_hint=GLINER2_RUNTIME_HINT,
         ).GLiNER2
 
-        self._model = GLiNER2.from_pretrained(model_name, device=device)
-        self._model_name = model_name
+        loaded = GLiNER2.from_pretrained(model_name, device=device)
+        return cast("FieldFinderModel", loaded)
 
     @property
     def model_name(self) -> str:
