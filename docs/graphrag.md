@@ -41,7 +41,13 @@ This document covers:
 > - FalkorDB running (`uv add 'kntgraph[falkordb]'`).
 > - An `EmbeddingProvider` (see [embedding.md](./embedding.md)).
 > - For the Solutions sub-graph with PII level 2/3:
->   `uv add 'kntgraph[gliner]'` (opt-in).
+>   `uv add 'kntgraph[gliner]'` (opt-in). The extra ships
+>   the **adapter**, not the inference runtime: `gliner2`
+>   does not depend on `torch` (it lives in the `local`
+>   extra of that package), so the application chooses how
+>   GLiNER runs — add `uv add "gliner2[local]"` for local
+>   inference, or inject a backend you already run
+>   (`IntentModel` / `FieldFinderModel`).
 
 ---
 

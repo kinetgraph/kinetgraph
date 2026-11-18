@@ -61,11 +61,16 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Iterable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from kntgraph.knowledge.extraction.gliner import GLiNERSpan
 
+from ._gliner_backend import (
+    GLINER2_EXTRA,
+    GLINER2_RUNTIME_HINT,
+    IntentModel,
+)
 from .base import (
     Classification,
     IntentClassifier,
@@ -116,10 +121,14 @@ class GlinerIntentAdapter(IntentClassifier):
     sets) without re-loading the model.
 
     The model is loaded via ``gliner2`` (an optional
-    extra: ``kntgraph[gliner]``). When the extra is
-    not installed, ``__init__`` raises an ``ImportError``
-    with a clear remediation message — the framework
-    stays usable without the NER capability.
+    extra: ``kntgraph[gliner]``) — but the **backend is the
+    application's choice**. Pass ``model=`` to hand over a
+    model you already run (a remote client, an ONNX
+    runtime, a local ``GLiNER2``): the adapter then imports
+    nothing and loads nothing. When the extra is not
+    installed, ``__init__`` raises an ``ImportError`` with a
+    clear remediation message — the framework stays usable
+    without the NER capability.
     """
 
     def __init__(
@@ -128,6 +137,7 @@ class GlinerIntentAdapter(IntentClassifier):
         *,
         device: str | None = None,
         threshold: float = 0.5,
+        model: IntentModel | None = None,
     ) -> None:
         """
         Args:
@@ -145,6 +155,14 @@ class GlinerIntentAdapter(IntentClassifier):
             (configurable per deployment, default 0.6) on
             top; this one is the model's per-label cutoff
             inside `_parse_output`.
+          model: an already-built model. When given, the
+            adapter does **not** import ``gliner2`` and does
+            **not** load a checkpoint -- the application
+            hands over the backend it already runs (a remote
+            client, an ONNX runtime, a local ``GLiNER2``).
+            This is how the deployment chooses how GLiNER
+            runs; ``model_name`` and ``device`` then describe
+            the injected model for ``repr`` only.
         """
         if not 0.0 <= threshold <= 1.0:
             raise ValueError(f"threshold must be in [0, 1], got {threshold!r}")
@@ -154,19 +172,38 @@ class GlinerIntentAdapter(IntentClassifier):
         # stays flat (CC ≤ 2).
         model_name = self._resolve_model_name(model_name)
 
-        # Eager import. If `gliner2` is not installed, fail
-        # HERE with a clear error pointing to the extra.
+        self._model = self._resolve_model(model, model_name, device)
+        self._threshold = float(threshold)
+        self._model_name = model_name
+
+    @staticmethod
+    def _resolve_model(
+        model: IntentModel | None,
+        model_name: str,
+        device: str | None,
+    ) -> IntentModel:
+        """
+        The model the adapter classifies with.
+
+        An injected model is used as-is: nothing is imported,
+        nothing is loaded, and no inference runtime is
+        required. Without one, ``gliner2`` provides the
+        backend and the checkpoint is loaded here.
+        """
+        if model is not None:
+            return model
+
         from ..._optional import require_optional
 
         GLiNER2 = require_optional(
             "gliner2",
-            "kntgraph[gliner]",
+            GLINER2_EXTRA,
             purpose="GlinerIntentAdapter",
+            runtime_hint=GLINER2_RUNTIME_HINT,
         ).GLiNER2
 
-        self._model = GLiNER2.from_pretrained(model_name, device=device)
-        self._threshold = float(threshold)
-        self._model_name = model_name
+        loaded = GLiNER2.from_pretrained(model_name, device=device)
+        return cast("IntentModel", loaded)
 
     @staticmethod
     def _resolve_model_name(model_name: str | None) -> str:
@@ -306,7 +343,7 @@ class GlinerIntentAdapter(IntentClassifier):
         # generic "none_of_the_above" label. The model's
         # confidence on `none_of_the_above` becomes the
         # inverse score for the candidate.
-        def _task(i: int, label: str) -> dict:
+        def _task(i: int, label: str) -> dict[str, object]:
             entry = {
                 "task": f"_fmh_intent_{i}",
                 "labels": [label, "none_of_the_above"],
@@ -315,7 +352,7 @@ class GlinerIntentAdapter(IntentClassifier):
                 entry["descriptions"] = [descriptions[i], ""]
             return entry
 
-        schema = {
+        schema: dict[str, object] = {
             "classifications": [_task(i, label) for i, label in enumerate(labels)],
         }
         results = self._model.batch_extract([text], schema, include_confidence=True)
