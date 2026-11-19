@@ -27,6 +27,7 @@ import structlog
 from kntgraph.core.clock import utcnow
 
 if TYPE_CHECKING:
+    from kntgraph.core._typing import JsonValue
     from kntgraph.core.world.view import AgentView
 
     from ._dlq_protocol import DeadLetterEvent
@@ -70,7 +71,7 @@ class InFlightTask:
     tool_name: str
     requested_at: datetime
     expires_at: datetime
-    parameters: Mapping[str, object] = field(default_factory=dict)
+    parameters: Mapping[str, JsonValue] = field(default_factory=dict)
     correlation_id: str | None = None
     acknowledged_at: datetime | None = None
 
@@ -113,52 +114,33 @@ class RecoveryReport:
 # ---------------------------------------------------------------------------
 
 
-def _extract_in_flight(
-    view: AgentView,
-    now: datetime,
-) -> list[InFlightTask]:
+def _extract_in_flight(view: AgentView) -> list[InFlightTask]:
     """Compute the in-flight task list for one agent view.
 
     A task is in-flight when ``view.tool_requests`` holds a request
     whose ``request_event_id`` has no sibling in
-    ``view.tool_completions``; it is stale when
-    ``now > request.expires_at``.
-
-    Built without copying the dicts: the result holds frozen
-    references to the existing view components.
+    ``view.tool_completions``.
     """
-    if not view.components:
+    requests_map = view.tool_requests
+    if not requests_map:
         return []
 
-    requests_map = view.components.get("tool_requests")
-    completions_map = view.components.get("tool_completions")
-    if not isinstance(requests_map, Mapping):
-        return []
-
+    completions_map = view.tool_completions
     out: list[InFlightTask] = []
     for req in requests_map.values():
-        # Defensive: the slot can hold non-ToolCallRequest entries
-        # (e.g. after a tampered-fold). Skip.
-        req_event_id = getattr(req, "request_event_id", None)
-        if req_event_id is None:
+        if req.request_event_id in completions_map:
             continue
-        # Completed iff a sibling completion carries the same id.
-        completed = (
-            isinstance(completions_map, Mapping) and req_event_id in completions_map
-        )
-        if completed:
-            continue
-        params = getattr(req, "params", {}) or {}
-        corr = getattr(req, "correlation_id", None)
         out.append(
             InFlightTask(
-                request_event_id=str(req_event_id),
+                request_event_id=req.request_event_id,
                 agent_id=view.agent_id,
-                tool_name=str(getattr(req, "tool_name", "")),
-                requested_at=getattr(req, "requested_at", now),
-                expires_at=getattr(req, "expires_at", now + timedelta(hours=1)),
-                parameters=dict(params) if isinstance(params, Mapping) else {},
-                correlation_id=str(corr) if corr else None,
+                tool_name=req.tool_name,
+                requested_at=req.requested_at,
+                expires_at=req.expires_at,
+                parameters=dict(req.params),
+                correlation_id=(
+                    str(req.correlation_id) if req.correlation_id else None
+                ),
                 acknowledged_at=None,
             )
         )
@@ -183,14 +165,14 @@ def in_flight_tasks(
     mapping. ``agent_id=None`` scans every tracked agent; with
     ``agent_id`` set, only that agent's view is scanned.
     """
-    now = now or utcnow()
+    del now
     out: list[InFlightTask] = []
     targets = [agent_id] if agent_id is not None else list(agents_to_views)
     for aid in targets:
         view = agents_to_views.get(aid)
         if view is None:
             continue
-        out.extend(_extract_in_flight(view, now))
+        out.extend(_extract_in_flight(view))
     return out
 
 
@@ -301,12 +283,9 @@ async def stuck_in_queue(
     # Discover the tools currently in flight from the views.
     inferred_tools: set[str] = set()
     for view in agents_to_views.values():
-        reqs = view.components.get("tool_requests") if view.components else None
-        if isinstance(reqs, Mapping):
-            for req in reqs.values():
-                tool_name = getattr(req, "tool_name", None)
-                if tool_name:
-                    inferred_tools.add(tool_name)
+        for req in view.tool_requests.values():
+            if req.tool_name:
+                inferred_tools.add(req.tool_name)
     for tool_name in sorted(inferred_tools):
         stream_key = f"{stream_prefix}:{tool_name}:queue"
         length = await stream_inspector.queue_length(stream_key)

@@ -322,25 +322,17 @@ class SolutionLookupSystem(ToolAwareSystem):
     ) -> None:
         """Queue a lookup for every unseen ``ToolCallRequest`` in
         the view's ``tool_requests`` slot."""
-        if not isinstance(view.components, dict):
-            return
-        requests = view.components.get("tool_requests")
-        if not isinstance(requests, dict):
-            return
-        for req_id, req in requests.items():
+        for req_id, req in view.tool_requests.items():
             self._queue_if_unseen(view, req_id, req, agent_id)
 
     def _queue_if_unseen(
         self,
         view: AgentView,
         req_id: str,
-        req: object,
+        req: ToolCallRequest,
         agent_id: str,
     ) -> None:
-        """Queue a lookup for one request if it is a
-        ``ToolCallRequest`` not yet seen."""
-        if not isinstance(req, ToolCallRequest):
-            return
+        """Queue a lookup for one request if not yet seen."""
         if req_id in self._seen:
             return
         self._seen.add(req_id)

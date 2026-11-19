@@ -241,8 +241,8 @@ class ToolCallTTLSweeperSystem:
         else:
             views_iter = world
         for agent_id, view in views_iter.items():
-            tool_requests = view.components.get("tool_requests", {})
-            if not isinstance(tool_requests, dict):
+            tool_requests = view.tool_requests
+            if not tool_requests:
                 continue
             # Mirror the request slot: ``tool_completions``
             # is the slot the projection populates from
@@ -262,17 +262,8 @@ class ToolCallTTLSweeperSystem:
             # Pinned by
             # ``TestSweeperSkipsCompletedRequests``
             # in ``tests/unit/runner/test_tool_call_ttl_sweeper.py``.
-            tool_completions = view.components.get("tool_completions", {})
-            if not isinstance(tool_completions, dict):
-                # Tampered / corrupted view: treat as
-                # "no completions known" so the sweeper
-                # still does its job (defensive: better
-                # to fail open on a tampered view than to
-                # skip the entire agent).
-                tool_completions = {}
+            tool_completions = view.tool_completions
             for request_id, req in tool_requests.items():
-                if not isinstance(req, ToolCallRequest):
-                    continue
                 if req.expires_at is None:
                     # TTL disabled (legacy request
                     # from a World checkpoint pre-ADR-045,

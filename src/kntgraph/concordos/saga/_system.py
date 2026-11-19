@@ -44,7 +44,7 @@ from uuid import UUID
 
 from kntgraph.core.clock import injectable_clock
 from kntgraph.core.event.correlation import correlation_middleware
-from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
+from kntgraph.core.world.components import ToolCallCompletion
 from kntgraph.core.world.world import World
 
 from .._context import build_step_context
@@ -296,12 +296,8 @@ class SagaSystem:
         """
         if step_config.tool_name is None:
             return None
-        requests: Mapping[str, ToolCallRequest] = view.components.get(
-            "tool_requests", {}
-        )
-        completions: Mapping[str, ToolCallCompletion] = view.components.get(
-            "tool_completions", {}
-        )
+        requests = view.tool_requests
+        completions = view.tool_completions
         for request in requests.values():
             if request.tool_name == step_config.tool_name:
                 return completions.get(request.request_event_id)

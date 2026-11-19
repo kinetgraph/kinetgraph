@@ -126,8 +126,7 @@ class ToolAwareSystem:
         """
         Finds a ToolCallRequest by its ID in the agent's view.
         """
-        tool_requests = view.components.get("tool_requests", {})
-        return tool_requests.get(request_event_id)
+        return view.tool_requests.get(request_event_id)
 
     def get_completion(
         self, view: AgentView, request_event_id: str
@@ -135,8 +134,7 @@ class ToolAwareSystem:
         """
         Finds a ToolCallCompletion by the request's ID.
         """
-        completions = view.components.get("tool_completions", {})
-        return completions.get(request_event_id)
+        return view.tool_completions.get(request_event_id)
 
     def has_requested(self, view: AgentView, request_event_id: str) -> bool:
         """

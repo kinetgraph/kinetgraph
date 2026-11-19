@@ -18,7 +18,7 @@ import it without dragging in the legacy role systems
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -35,6 +35,7 @@ from ._prompts import ChatReply, parse_role_output
 
 if TYPE_CHECKING:
     from kntgraph.core.world import AgentView
+    from kntgraph.core.world.components import ToolCallCompletion
 
 
 class _BaseRoleSystem(ToolAwareSystem):
@@ -227,13 +228,11 @@ class _BaseRoleSystem(ToolAwareSystem):
     def _build_completion_event(
         self,
         rid: str,
-        # ToolCallCompletion (frozen dataclass); ``Any`` per ADR-081 §3.4
-        # (tool-completion envelope exception)
-        comp: Any,
+        comp: ToolCallCompletion,
         pending_input: str,
         pending_agent: str,
     ) -> Event:
-        parsed = self._parse_completion((comp.result or {}).get("text", ""))
+        parsed = self._parse_completion(str((comp.result or {}).get("text", "")))
         if parsed.is_err():
             return Event.create(
                 event_type=f"{self.GENERATED_EVENT_TYPE}.failed",
@@ -289,13 +288,10 @@ class _BaseRoleSystem(ToolAwareSystem):
         return e
 
     def _consume_completion(
-        self, view
-    ) -> list[tuple[str, Any]]:  # Any for ToolCallCompletion envelope (ADR-081 §3.4)
-        tool_completions = view.components.get("tool_completions", {})
-        if not isinstance(tool_completions, dict):
-            return []
-        out: list[tuple[str, Any]] = []
-        for rid, comp in tool_completions.items():
+        self, view: AgentView
+    ) -> list[tuple[str, ToolCallCompletion]]:
+        out: list[tuple[str, ToolCallCompletion]] = []
+        for rid, comp in view.tool_completions.items():
             if comp.status != "completed":
                 continue
             if rid in self._pending_agents:

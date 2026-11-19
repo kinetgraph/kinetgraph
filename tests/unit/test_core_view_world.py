@@ -4,14 +4,20 @@
 
 from __future__ import annotations
 
+import pickle
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from kntgraph.core.event import CorrelationContext, Event
 from kntgraph.core.world import DomainComponent, World, domain_component
+from kntgraph.core.world.components import ToolCallCompletion, ToolCallRequest
+from kntgraph.core.world.projection_tool_calls import project_tool_calls
 from kntgraph.core.world.view import AgentView
 from kntgraph.core.world.world import _apply_event
+from kntgraph.testing.world_builder import AgentViewBuilder
 
 
 @domain_component("test.component.loaded")
@@ -337,3 +343,164 @@ def test_tool_event_does_not_write_overlay_slot_directly():
     world = World.empty().with_event(event)
 
     assert "tool_requests" not in world.get_agent("a-1").components
+
+
+# ---------------------------------------------------------------------------
+# Typed tool-call accessors on AgentView (``view.tool_requests`` /
+# ``view.tool_completions``)
+# ---------------------------------------------------------------------------
+
+
+class TestAgentViewToolAccessors:
+    """Typed read accessors over the derived ``tool_requests`` and
+    ``tool_completions`` slots on :class:`AgentView`."""
+
+    @staticmethod
+    def _sample_request(req_id: str = "req-1") -> ToolCallRequest:
+        now = datetime(2026, 11, 19, 12, 0, tzinfo=UTC)
+        return ToolCallRequest(
+            request_event_id=req_id,
+            tool_name="weather_api",
+            agent_id="a-1",
+            params={"city": "Sao Paulo"},
+            requested_at=now,
+            expires_at=now + timedelta(seconds=300),
+        )
+
+    @staticmethod
+    def _sample_completion(req_id: str = "req-1") -> ToolCallCompletion:
+        return ToolCallCompletion(
+            request_event_id=req_id,
+            status="completed",
+            result={"temp_c": 24},
+            completed_at=datetime(2026, 11, 19, 12, 0, 1, tzinfo=UTC),
+            latency_ms=1000.0,
+        )
+
+    def test_absent_slots_return_empty_mappings(self) -> None:
+        """A view without tool slots yields empty typed mappings."""
+        view = AgentView(agent_id="a-1")
+        assert view.tool_requests == {}
+        assert view.tool_completions == {}
+
+    def test_real_fold_exposes_typed_requests_and_completions(self) -> None:
+        """Folding real ``tool.<name>.*`` events via ``project_tool_calls``
+        populates both typed properties with no ``Any`` escape."""
+        corr = CorrelationContext.new()
+        req_event = Event.create(
+            event_type="tool.weather_api.requested",
+            agent_id="a-1",
+            event_class="domain",
+            data={"city": "Curitiba"},
+            correlation=corr,
+        )
+        comp_event = Event.create(
+            event_type="tool.weather_api.completed",
+            agent_id="a-1",
+            event_class="domain",
+            data={"temp_c": 18},
+            causation_id=req_event.event_id,
+            correlation=corr,
+        )
+
+        # Request-only fold: request visible, completion empty.
+        pending_world = World.fold([req_event], projection=project_tool_calls)
+        pending_view = pending_world.get_agent("a-1")
+        assert pending_view is not None
+        pending_reqs: Mapping[str, ToolCallRequest] = pending_view.tool_requests
+        assert list(pending_reqs.keys()) == [str(req_event.event_id)]
+        assert pending_reqs[str(req_event.event_id)].tool_name == "weather_api"
+        assert pending_reqs[str(req_event.event_id)].params == {"city": "Curitiba"}
+        assert pending_view.tool_completions == {}
+
+        # Request + completion fold: both typed properties populated.
+        done_world = World.fold([req_event, comp_event], projection=project_tool_calls)
+        done_view = done_world.get_agent("a-1")
+        assert done_view is not None
+        reqs: Mapping[str, ToolCallRequest] = done_view.tool_requests
+        comps: Mapping[str, ToolCallCompletion] = done_view.tool_completions
+        req = reqs[str(req_event.event_id)]
+        comp = comps[str(req_event.event_id)]
+        assert req.request_event_id == str(req_event.event_id)
+        assert comp.status == "completed"
+        assert comp.result == {"temp_c": 18}
+
+    def test_agent_view_builder_round_trip(self) -> None:
+        """``AgentViewBuilder`` tool helpers surface through the typed
+        properties identically."""
+        req = self._sample_request("req-b")
+        comp = self._sample_completion("req-b")
+
+        view = (
+            AgentViewBuilder("a-1")
+            .with_tool_request(req)
+            .with_tool_completion("req-b", comp)
+            .build()
+        )
+        assert view.tool_requests == {"req-b": req}
+        assert view.tool_completions == {"req-b": comp}
+
+    def test_non_mapping_slots_return_empty(self) -> None:
+        """Malformed non-Mapping slot values degrade to empty mappings."""
+        view = AgentView(
+            agent_id="a-1",
+            components={
+                "tool_requests": ["not", "a", "mapping"],
+                "tool_completions": 42,
+            },
+        )
+        assert view.tool_requests == {}
+        assert view.tool_completions == {}
+
+    def test_tampered_slot_entries_are_filtered_preserving_valid_ones(self) -> None:
+        """Non-str keys and wrong-typed values are skipped while valid
+        entries survive untouched."""
+        req = self._sample_request("req-valid")
+        comp = self._sample_completion("req-valid")
+
+        view = AgentView(
+            agent_id="a-1",
+            components={
+                "tool_requests": {
+                    "req-valid": req,
+                    "req-bad-str": "not-a-request",
+                    "req-wrong-cls": comp,
+                    123: req,
+                },
+                "tool_completions": {
+                    "req-valid": comp,
+                    "comp-bad-int": 99,
+                    "comp-wrong-cls": req,
+                    456: comp,
+                },
+            },
+        )
+        assert view.tool_requests == {"req-valid": req}
+        assert view.tool_completions == {"req-valid": comp}
+
+    def test_returned_mapping_does_not_alias_underlying_slot(self) -> None:
+        """Mutating a copy or returned dict cannot corrupt ``view.components``."""
+        req = self._sample_request("req-1")
+        backing = {"req-1": req}
+        view = AgentView(agent_id="a-1", components={"tool_requests": backing})
+
+        exposed = view.tool_requests
+        assert exposed is not backing
+        assert exposed == {"req-1": req}
+
+    def test_pickle_round_trip_preserves_typed_accessors(self) -> None:
+        """Adding properties does not change ``AgentView`` slots; pickled
+        checkpoints round-trip cleanly."""
+        req = self._sample_request("req-p")
+        comp = self._sample_completion("req-p")
+        view = AgentView(
+            agent_id="a-1",
+            components={
+                "tool_requests": {"req-p": req},
+                "tool_completions": {"req-p": comp},
+            },
+        )
+
+        restored = pickle.loads(pickle.dumps(view))
+        assert restored.tool_requests == {"req-p": req}
+        assert restored.tool_completions == {"req-p": comp}

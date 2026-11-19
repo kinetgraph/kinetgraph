@@ -24,8 +24,10 @@ A derived, immutable view of one agent at a tick T.
   - `last_event_id` / `last_event_at` are convenience
     pointers used by idempotent projections.
 
-Two derived properties (`is_terminated`, `is_running`)
-expose the most common operational-state checks.
+Derived properties (`is_terminated`, `is_running`,
+`tool_requests`, `tool_completions`) expose the most
+common operational-state checks and typed reads over
+the derived tool-call slots.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..lifecycle import OperationalPhase
+from .components import ToolCallCompletion, ToolCallRequest
 
 if TYPE_CHECKING:
     from ..event.correlation import CorrelationContext
@@ -151,6 +154,49 @@ class AgentView:
     @property
     def is_running(self) -> bool:
         return self.operational_phase == "running"
+
+    @property
+    def tool_requests(self) -> Mapping[str, ToolCallRequest]:
+        """In-flight and recently-resolved tool requests, keyed by
+        ``request_event_id``.
+
+        Reads the ``"tool_requests"`` derived slot (ADR-034). Returns an
+        empty mapping when the slot is absent or not a ``Mapping``, and
+        skips entries whose key is not a ``str`` or whose value is not a
+        :class:`ToolCallRequest`.
+        """
+        return self._typed_slot("tool_requests", ToolCallRequest)
+
+    @property
+    def tool_completions(self) -> Mapping[str, ToolCallCompletion]:
+        """Resolved tool completions, keyed by ``request_event_id``.
+
+        Reads the ``"tool_completions"`` derived slot (ADR-034). Returns
+        an empty mapping when the slot is absent or not a ``Mapping``,
+        and skips entries whose key is not a ``str`` or whose value is
+        not a :class:`ToolCallCompletion`.
+        """
+        return self._typed_slot("tool_completions", ToolCallCompletion)
+
+    def _typed_slot(
+        self,
+        slot_name: str,
+        value_type: type[T],
+    ) -> Mapping[str, T]:
+        """Read a string-keyed derived slot as ``Mapping[str, T]``.
+
+        Drops non-``str`` keys and values that are not instances of
+        ``value_type`` so a tampered view cannot violate the caller's
+        static type contract.
+        """
+        raw = self.components.get(slot_name)
+        if not isinstance(raw, Mapping):
+            return {}
+        return {
+            k: v
+            for k, v in raw.items()
+            if isinstance(k, str) and isinstance(v, value_type)
+        }
 
     def get_component(self, component_type: type[T]) -> T | None:
         """
