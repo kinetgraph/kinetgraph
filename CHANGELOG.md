@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] — 2026-11-20
+
 ### Added
 - **Typed reads over the tool-call slots.** `AgentView` now
   exposes the two derived tool-call slots as typed
@@ -41,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dict[str, Any]` and the bare `object` escapes the raw
   access required are gone (ADR-081), and
   `InFlightTask.parameters` is typed `Mapping[str, JsonValue]`.
+
 
 ## [0.20.1] — 2026-11-18
 
