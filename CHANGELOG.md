@@ -15,6 +15,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Typed reads over the tool-call slots.** `AgentView` now
+  exposes the two derived tool-call slots as typed
+  properties: `view.tool_requests` is a
+  `Mapping[str, ToolCallRequest]` and
+  `view.tool_completions` is a
+  `Mapping[str, ToolCallCompletion]` (the slots of
+  ADR-034). A slot that is missing, is not a mapping, or
+  carries an entry with a non-`str` key or a wrong-typed
+  value degrades to an empty mapping — or the entry is
+  skipped — so a tampered or hand-built view cannot break
+  the caller's type contract.
+
+### Changed
+- **The framework reads tool calls through the typed
+  accessors.** The solution extractor and the solution
+  lookup, the role systems, the saga system, the tool-call
+  projection, the observability helpers (the in-flight and
+  the stuck-in-queue queries), the TTL sweeper and
+  `ToolAwareSystem` now go through `view.tool_requests` /
+  `view.tool_completions` instead of reaching into the raw
+  `components` bag — the heterogeneous ECS bag whose value
+  side is the documented `Any` exception (ADR-080). The
+  `dict[str, Any]` and the bare `object` escapes the raw
+  access required are gone (ADR-081), and
+  `InFlightTask.parameters` is typed `Mapping[str, JsonValue]`.
+
 ## [0.20.1] — 2026-11-18
 
 ### Added

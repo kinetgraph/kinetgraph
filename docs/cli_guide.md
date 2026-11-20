@@ -255,7 +255,7 @@ def weather_router_system(world: World) -> list[Event]:
 
         # --- PATH B: Step 3 & 4 - Detect Tool Completion and Resolve Weather ---
         elif view.domain_phase == "tool.open_meteo_api.completed":
-            tool_completions = view.components.get("tool_completions", {})
+            tool_completions = view.tool_completions
             for req_id, completion in tool_completions.items():
                 req = helper.get_request(view, req_id)
                 if (
