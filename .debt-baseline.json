@@ -501,18 +501,6 @@
       "line": 0
     },
     {
-      "path": "src/kntgraph/agents/memory/solution_extractor.py",
-      "kind": "dict-str-any",
-      "detail": "dict[str, Any]",
-      "line": 182
-    },
-    {
-      "path": "src/kntgraph/agents/memory/solution_lookup.py",
-      "kind": "bare-object",
-      "detail": "object",
-      "line": 337
-    },
-    {
       "path": "src/kntgraph/agents/memory/solution_review_publisher.py",
       "kind": "dict-str-any",
       "detail": "dict[str, Any]",
@@ -588,7 +576,7 @@
       "path": "src/kntgraph/knowledge/extraction/gliner_intent.py",
       "kind": "bare-object",
       "detail": "object",
-      "line": 417
+      "line": 454
     },
     {
       "path": "src/kntgraph/knowledge/graph/_sub/_solution/_row_helpers.py",

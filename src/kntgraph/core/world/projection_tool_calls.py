@@ -257,9 +257,9 @@ def _collect_completion(
     request may live in EITHER the local batch
     (``tool_requests``) OR the base view (a previous
     tick's request). Look in both."""
-    existing_requests_for_agent: dict[str, ToolCallRequest] = base_views.get(
+    existing_requests_for_agent = base_views.get(
         e.agent_id, AgentView(agent_id=e.agent_id)
-    ).components.get("tool_requests", {})
+    ).tool_requests
     _maybe_attach_completion(
         e,
         requests_for_agent={
@@ -329,21 +329,18 @@ def _build_overlay_view(
     (after the systems have run) so the eviction
     applies unconditionally — the system has had its
     chance to react."""
-    existing_requests: dict[str, ToolCallRequest] = base_view.components.get(
-        "tool_requests", {}
-    )
-    existing_completions: dict[str, ToolCallCompletion] = base_view.components.get(
-        "tool_completions", {}
-    )
+    existing_requests = base_view.tool_requests
+    existing_completions = base_view.tool_completions
     merged_requests = {**existing_requests, **new_requests}
     merged_completions = {**existing_completions, **new_completions}
-    for request_id in list(merged_requests.keys()):
-        if request_id in merged_completions and (
-            post_systems
-            or (request_id in existing_requests and request_id in existing_completions)
-        ):
-            merged_requests.pop(request_id, None)
-            merged_completions.pop(request_id, None)
+    evicted = (
+        merged_requests.keys() & merged_completions.keys()
+        if post_systems
+        else existing_requests.keys() & existing_completions.keys()
+    )
+    for request_id in evicted:
+        merged_requests.pop(request_id, None)
+        merged_completions.pop(request_id, None)
     return _overlay(
         base_view,
         requests=merged_requests,

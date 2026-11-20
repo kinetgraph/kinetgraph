@@ -24,8 +24,7 @@ re-reads the entire EventLog every pump).
 
 from __future__ import annotations
 
-from typing import Any
-
+from kntgraph.core._typing import JsonValue
 from kntgraph.core.event.correlation import CorrelationContext
 from kntgraph.core.event.event import Event
 from kntgraph.core.world.components import (
@@ -82,9 +81,7 @@ class SolutionExtractorSystem:
     def __call__(self, world: World) -> list[Event]:
         out: list[Event] = []
         for agent_id, view in world.agents.items():
-            completions: dict[str, ToolCallCompletion] = (
-                view.components.get("tool_completions", {}) or {}
-            )
+            completions = view.tool_completions
             # Iterate over completions (the source of
             # truth for "this tool call has finished").
             # The corresponding request (with the
@@ -100,9 +97,7 @@ class SolutionExtractorSystem:
             # the lookup key into the params of the
             # original request, when the request is
             # still in the slot).
-            requests_by_id: dict[str, ToolCallRequest] = (
-                view.components.get("tool_requests", {}) or {}
-            )
+            requests_by_id = view.tool_requests
             for req_id, comp in completions.items():
                 if comp.status != "completed":
                     # Failed or unknown status: skip.
@@ -155,8 +150,8 @@ class SolutionExtractorSystem:
         # and the same params (shape, not just value).
         matched: set[str] = set()
         for other_agent_id, other_view in world.agents.items():
-            other_requests = other_view.components.get("tool_requests", {}) or {}
-            other_completions = other_view.components.get("tool_completions", {}) or {}
+            other_requests = other_view.tool_requests
+            other_completions = other_view.tool_completions
             for other_req_id, other_req in other_requests.items():
                 if other_req.tool_name != req.tool_name:
                     continue
@@ -179,7 +174,7 @@ class SolutionExtractorSystem:
         event. The event data is a flat dict that the
         SolutionPromoter (separate system) consumes to
         build the full ``SolutionCandidate``."""
-        data: dict[str, Any] = {
+        data: dict[str, JsonValue] = {
             "request_event_id": req.request_event_id,
             "tool_name": req.tool_name,
             "params": dict(req.params),
